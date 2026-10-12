@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace, terminate_tree
 
 
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
+
 def validate_report(result, version):
     if result.get('status') != 'passed' or 'error' in result:
         raise RuntimeError('Native overlay self-test did not pass')
@@ -31,6 +33,9 @@ def validate_report(result, version):
         raise RuntimeError('Native proof requires the real Windows Qt platform')
     if not result.get('screenshot_method'):
         raise RuntimeError('Native screenshot method was not recorded')
+    for field in NATIVE_AUTOMATION_FIELDS:
+        if result.get(field) is not True:
+            raise RuntimeError('Automatic hero/candidate native proof missing: ' + field)
     if result.get('source_tier_rendered') != [f'虚构源评级（演示）：T{tier}' for tier in (1, 2, 3)]:
         raise RuntimeError('Native literal source-tier rendering evidence is incomplete')
 

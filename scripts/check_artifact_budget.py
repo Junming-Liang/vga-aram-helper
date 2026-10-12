@@ -48,6 +48,9 @@ def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_on
     root = Path(root)
     release = 0 if evidence_only else sum(path.stat().st_size for path in (root / 'dist' / 'release').glob('*') if path.is_file())
     evidence = sum(path.stat().st_size for path in (root / 'reports').glob('windows-*') if path.is_file())
+    genuine_report = root / 'reports' / 'hero-recognition-genuine.json'
+    if genuine_report.is_file():
+        evidence += genuine_report.stat().st_size
     if not evidence_only and release <= 0:
         raise RuntimeError('Release artifact is missing')
     # Conservative archive headers/compression overhead plus room for evidence.

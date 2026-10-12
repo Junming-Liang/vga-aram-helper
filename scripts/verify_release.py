@@ -19,8 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.microsoft_runtime import verify_runtime_evidence, verify_notice_archive
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.3.0'
+PREVIEW_VERSION = '0.4.0'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
 
 BROWSER_CHECK = 'Actual EXE Chromium UI: hero + 3 slots, switch hero, recompute, clear round; screenshot saved'
 COMPARE_CHECK = 'Frozen comparison API: same three slots produce different hero-specific priorities'
@@ -34,7 +35,7 @@ EVIDENCE_NAMES = ('windows-build.json', 'windows-exe-smoke.json', 'windows-exe-s
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
                   'windows-build-environment.txt', 'windows-native-smoke.json',
                   'windows-native-overlay.json', 'windows-native-overlay.png',
-                  'windows-native-process.log', 'windows-artifact-budget.json')
+                  'windows-native-process.log', 'windows-artifact-budget.json', 'hero-recognition-genuine.json')
 QT_VERSION = '6.11.2'
 PSL_SOURCE_URL = 'https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat'
 PSL_SOURCE_SHA256 = '5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184'
@@ -250,10 +251,83 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'launcher.py', 'native_ui.py', 'native_smoke.py', 'requirements-build.txt',
+        require({'launcher.py', 'native_ui.py', 'native_state.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'requirements-build.txt',
                  'scripts/build_windows.py', 'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
                 'Application source archive lacks native packaging inputs')
     return assets
+
+
+def verify_genuine_report(path, source_archive, version):
+    """Bind limited, honestly partial still-image observations to released source.
+
+    This validates recorded provenance/results, not broad accuracy or live-game
+    behavior. The genuine images themselves are never packaged or fetched here.
+    """
+    report = read_json(path)
+    require(report.get('schema_version') == 1 and report.get('applicationVersion') == version and
+            report.get('status') == 'partial_with_abstentions' and report.get('platform') == 'Linux',
+            'Genuine screenshot report identity/scope differs from reviewed local evaluation')
+    scope = report.get('scope', '')
+    require(isinstance(scope, str) and all(text in scope for text in
+            ('small selected public sample', 'Not Windows live-game capture', 'Genuine images are not redistributed')),
+            'Genuine screenshot scope/limitations are missing')
+    hashes = report.get('implementation_sha256', {})
+    require(set(hashes) == {'hero_recognition.py', 'hero_portraits.py'}, 'Genuine report implementation inventory mismatch')
+    with zipfile.ZipFile(source_archive) as archive:
+        for name, checksum in hashes.items():
+            require(archive.namelist().count(name) == 1 and hashlib.sha256(archive.read(name)).hexdigest() == checksum,
+                    'Genuine screenshot evidence evaluated different source: ' + name)
+    templates = report.get('templates', {})
+    require(templates.get('source_url') == 'https://ddragon.leagueoflegends.com/api/versions.json' and
+            isinstance(templates.get('version'), str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', templates['version']) and
+            type(templates.get('count')) is int and templates['count'] >= 100 and
+            isinstance(templates.get('roster_sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', templates['roster_sha256']),
+            'Genuine screenshot template provenance missing')
+    cases = report.get('cases')
+    require(isinstance(cases, list) and 2 <= len(cases) <= 100, 'Genuine screenshot cases missing')
+    counts = dict(positive_cases=0, positive_recognized=0, positive_abstained=0,
+                  wrong_hero_predictions=0, negative_cases=0, negative_abstained=0)
+    seen = set()
+    for case in cases:
+        require(isinstance(case, dict) and case.get('kind') == 'genuine_public_screenshot' and
+                case.get('transformation') is None and case.get('image_redistributed') is False and
+                case.get('safety_pass') is True, 'Genuine case scope or safety check failed')
+        url, image_hash = case.get('source_url', ''), case.get('image_sha256', '')
+        require(isinstance(url, str) and url.startswith('https://') and len(url) <= 2048 and
+                isinstance(image_hash, str) and re.fullmatch(r'[0-9a-f]{64}', image_hash) and
+                image_hash not in seen and case.get('condition') and case.get('gold_hero_id'),
+                'Genuine image source/hash/gold label missing or duplicated')
+        seen.add(image_hash)
+        observed = case.get('observed', {})
+        confident = observed.get('confident')
+        require(type(confident) is bool, 'Genuine case confidence must be boolean')
+        require((confident and str(observed.get('championId')) == str(case['gold_hero_id'])) or
+                (not confident and observed.get('championId') is None), 'Wrong or contradictory genuine hero prediction')
+        expected = case.get('expected_outcome')
+        if expected == 'recognize_own_hero':
+            counts['positive_cases'] += 1
+            counts['positive_recognized' if confident else 'positive_abstained'] += 1
+            require(case.get('case_pass') is confident, 'Positive abstention must remain a reported limitation')
+        else:
+            require(expected == 'abstain' and not confident and case.get('case_pass') is True,
+                    'Negative genuine screenshot did not abstain')
+            counts['negative_cases'] += 1
+            counts['negative_abstained'] += 1
+    require(counts['positive_recognized'] > 0 and counts['positive_abstained'] > 0 and counts['negative_cases'] > 0 and
+            report.get('summary') == counts, 'Genuine report counts omit a result or overstate coverage')
+    selection = report.get('genuine_selection_frame', {})
+    matches = [case for case in cases if case['source_url'] == selection.get('source_url') and case['observed']['confident']]
+    require(len(matches) == 1 and isinstance(selection.get('hero'), dict) and
+            all(selection['hero'].get(key) == matches[0]['observed'].get(key) for key in
+                ('championId', 'confident', 'method', 'score', 'margin', 'box')) and
+            selection.get('passes_title_geometry') is True and 'not temporal/video or native Windows proof' in selection.get('scope', ''),
+            'Single genuine selection frame identity or limited scope missing')
+    titles = selection.get('automatic_titles', [])
+    require(isinstance(titles, list) and len(titles) == 3 and len({row.get('name') for row in titles}) == 3 and
+            all(row.get('name') and row.get('name') == row.get('recognized_text') and row.get('match_method') == 'exact' and
+                type(row.get('ocr_confidence')) in (int, float) and .96 <= row['ocr_confidence'] <= 1 and
+                row.get('name_similarity') == 1 for row in titles), 'Genuine title evidence lacks three exact confident names')
+    return counts
 
 
 def verify_qt_runtime(binaries):
@@ -407,6 +481,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
              'source_tier_screen_order_preserved', 'source_tier_no_winrate_display')),
             'Required native window/capture/OCR/click-through/close/source-tier proof missing')
+    require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
+            'Automatic hero/candidate native lifecycle proof missing')
     require(native.get('source_tier_rendered') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
             'Actual native literal source-tier rendering evidence is missing or changed')
     require(isinstance(native.get('screenshot_method'), str) and native['screenshot_method'].strip(),
@@ -425,6 +501,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         except (RuntimeError, KeyError, ValueError) as exc:
             raise VerificationError('Microsoft component notices/source proof missing or changed: ' + str(exc)) from exc
     assets.extend(verify_source_access(release_dir, build, source_sha, version))
+    genuine_counts = verify_genuine_report(files['hero-recognition-genuine.json'],
+        release_dir / f'vga-aram-helper-{version}-source.zip', version)
     output_dir.mkdir(parents=True, exist_ok=True)
     require(not output_dir.is_symlink(), 'Output directory cannot be a symlink')
     evidence_zip = output_dir / f'windows-test-evidence-{version}.zip'
@@ -437,25 +515,33 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     assets.append(files['windows-native-overlay.png'])
     result = {'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
+              'genuine_screenshot_summary': genuine_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
-             'Native overlay PREVIEW displaying each offered choice’s literal source tier for the selected hero when available. '
+             'Native overlay PREVIEW with screenshot-only automatic identification of the player’s own bottom-HUD portrait. '
+             'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
+             'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
+             'Unsupported skins, transformations or layouts may require manual correction; uncertain matches are withheld. '
              'Ungraded or unmatched live inputs remain '
              'neutral; no invented grade, synthetic upgrade or inferred ranking. This is not a claim of a finished '
              'Huya-equivalent product or real-game validation.\n\n'
              f'Tested source commit: {source_sha}\nEXE SHA256: {checksum}\n'
              f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n'
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
-             'frozen QtWidgets native windows, local capture/OCR, click-through, close/cleanup, hero-specific source-tier rendering '
+             'frozen QtWidgets native windows, local capture/portrait matching/OCR, automatic hero and three-choice flow, '
+             'unknown/changed-hero clearing, manual fallback, hide-before-capture, click-through, close/cleanup, source-tier rendering '
              '(including missing-grade fallback, original slot order and no displayed win rate/rank), and baseline HTTP/browser tests. '
              'Screenshots and machine evidence are attached; this statement does not claim human visual inspection. '
              'No process-memory reads, game injection, Vanguard approval or real-game compatibility claim. '
-             'Windows 10/11 clean machines, exclusive fullscreen, live-game OCR and native OTA swap/rollback remain unverified.\n'
+             f'A separate source-bound Linux still-screenshot report records {genuine_counts["positive_recognized"]}/{genuine_counts["positive_cases"]} selected positive examples recognized, '
+             f'{genuine_counts["positive_abstained"]} positive abstention, {genuine_counts["negative_abstained"]}/{genuine_counts["negative_cases"]} selected negatives withheld, and no observed wrong hero in this small sample. '
+             'It includes one still-frame hero-and-three-title observation, not temporal, all-hero or live-game accuracy proof. '
+             'Windows 10/11 clean machines, exclusive fullscreen, live-game OCR and this version’s native OTA swap/rollback remain unverified.\n'
              'Unsigned executable: SmartScreen may warn about an unknown publisher. No signing or antivirus certification claim.\n'
              'This is prerelease=true. The existing stable /releases/latest OTA endpoint does NOT discover this preview. '
-             'Download manually if you choose to try it. The fixed v0.3.0 tag preserves the tested immutable manifest URL.\n\n'
+             f'Download manually if you choose to try it. The fixed {tag} tag preserves the tested immutable manifest URL.\n\n'
              'MICROSOFT RUNTIME TERMS: READ BEFORE USE\n'
              'Using the bundled Microsoft Visual C++ runtime components requires agreement to their Microsoft end-user terms. '
              f'Read [the same-release complete terms and scope notice](https://github.com/{REPOSITORY}/releases/download/{tag}/third-party-licenses.zip), '
@@ -498,7 +584,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              ('Source inventory and SHA256 hashes', 'source-access.json'),
              ('Same-commit application source, specification and resources', f'vga-aram-helper-{version}-source.zip')]
     links += [('Corresponding source: ' + row['filename'], row['filename']) for row in QT_SOURCES]
-    links += [('Original synthetic native overlay screenshot', 'windows-native-overlay.png')]
+    links += [('Original synthetic native overlay screenshot', 'windows-native-overlay.png'),
+              ('Test evidence including limited genuine screenshot report', f'windows-test-evidence-{version}.zip')]
     notes += '\nSAME-RELEASE FILES AND CORRESPONDING SOURCES\n'
     notes += ''.join(f'- [{label}](https://github.com/{REPOSITORY}/releases/download/{tag}/{name})\n'
                      for label, name in links)
@@ -626,9 +713,9 @@ def main():
     parser.add_argument('--publish', action='store_true')
     args = parser.parse_args()
     result = verify(args.release_dir, args.evidence_dir, args.repository, args.source_sha, args.output_dir, args.run_id, args.run_attempt)
-    require(result['version'] == PREVIEW_VERSION, 'This manual preview approval covers v0.3.0 only')
+    require(result['version'] == PREVIEW_VERSION, f'This manual preview approval covers v{PREVIEW_VERSION} only')
     summary = {key: result[key] for key in ('repository', 'run_id', 'run_attempt', 'source_sha', 'version', 'tag',
-                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries')}
+                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'genuine_screenshot_summary')}
     summary.update(prerelease=True, release_asset_count=len(result['assets']),
                    evidence_file_count=len(result['evidence_sha256']), evidence_sha256=result['evidence_sha256'])
     print(json.dumps(summary, indent=2), flush=True)

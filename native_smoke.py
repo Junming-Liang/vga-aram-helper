@@ -14,6 +14,11 @@ from PySide6 import QtCore,QtGui,QtWidgets
 from native_state import display_cards
 
 
+def smoke_dimensions(width,height):
+    width=min(1280,width-60);height=min(720,height-70,int(width/1.6))
+    if width<64 or height<600:raise ValueError('Desktop cannot fit supported600px own-HUD mock')
+    return width,height
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
     report={'status':'running','backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
@@ -30,11 +35,23 @@ def start_smoke(control,report_path,screenshot_path):
     if os.name!='nt' or app.platformName()!='windows':return fail(RuntimeError('Native Windows smoke requires the real Windows Qt platform, not offscreen/minimal.'))
     if not control.capture:return fail(RuntimeError('Win32 capture adapter unavailable'))
     control.watchdog.stop();control.monitor.stop()
-    available=app.primaryScreen().availableGeometry();mock_width=min(1100,max(600,available.width()-60));mock_height=min(520,max(300,available.height()-100))
+    available=app.primaryScreen().availableGeometry();mock_width,mock_height=smoke_dimensions(available.width(),available.height())
+    if mock_height<600:return fail(RuntimeError('Automatic-HUD smoke needs a landscape mock client at least600px high.'))
     mock=QtWidgets.QWidget();mock.setWindowTitle('VGA original synthetic mock game');mock.resize(mock_width,mock_height)
     layout=QtWidgets.QVBoxLayout(mock);layout.setContentsMargins(0,0,0,0)
     image=QtWidgets.QLabel();image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-    pixmap=QtGui.QPixmap(str(root/'fixtures/ocr-app-demo.png'));image.setPixmap(pixmap.scaled(mock_width-20,mock_height-20,QtCore.Qt.AspectRatioMode.KeepAspectRatio,QtCore.Qt.TransformationMode.SmoothTransformation));layout.addWidget(image)
+    from synthetic_vision import portraits,frame,encoded,configure_data
+    from PIL import Image
+    from hero_recognition import PortraitMatcher,recognize_frame
+    bank=portraits()
+    configure_data(control.data)
+    control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
+    def paint_mock(key='9001'):
+        canvas=frame(bank[key],width=mock_width,height=mock_height)
+        cards=Image.open(root/'fixtures/auto-scene.png').convert('RGB').resize((mock_width,mock_height),Image.Resampling.LANCZOS)
+        canvas.paste(cards.crop((0,0,mock_width,round(mock_height*.8))),(0,0))
+        pixmap=QtGui.QPixmap();assert pixmap.loadFromData(encoded(canvas));image.setPixmap(pixmap)
+    paint_mock();layout.addWidget(image)
     mock.move(available.x()+20,available.y()+20);control._smoke_objects.append(mock)
     def prepare():
         control.hide();mock.show();mock.raise_();mock.activateWindow()
@@ -48,26 +65,41 @@ def start_smoke(control,report_path,screenshot_path):
         report['capture_passed']=True;report['captureBytes']=len(bytes_);report['clientRect']={'x':rect.x,'y':rect.y,'width':rect.width,'height':rect.height}
         checks.append('GDI captured only selected mock client area into an in-memory PNG')
         from local_ocr import LocalOCR
-        engine=LocalOCR();result=engine.recognize(bytes_,control.data['augments'])
-        if time.monotonic()-captured_at>3:
-            captured_at=time.monotonic();bytes_,rect=control.capture.capture(target);result=engine.recognize(bytes_,control.data['augments'])
-        result['_capturedAt']=captured_at
-        names=[item['name'] for item in result['candidates']];expected=['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']
+        engine=LocalOCR();control.ocr=engine
+        expected=['星火共鸣','晶盾回路','风步微光']
+        control.hero_auto.setChecked(True);control.state.clear_hero();control.state.start(target.identity)
+        assert control.state.hero=='' and control.hero_auto.isChecked()
+        def observe_current():
+            control.overlay.hide();assert not control.overlay.isVisible()
+            assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
+            captured_at=time.monotonic();pixels,_=control.capture.capture(target)
+            value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
+            if time.monotonic()-captured_at>3:
+                captured_at=time.monotonic();pixels,_=control.capture.capture(target);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
+            value['_capturedAt']=captured_at
+            control.task_result('ocr',value,control.state.generation)
+            return value
+        result=observe_current();assert not control.state.confirmed
+        result=observe_current();names=[item['name'] for item in result['automatic_candidates']]
         assert names==expected,('OCR names',names)
-        report['ocr_passed']=True;report['recognized']=names;checks.append('Real bundled local OCR recognized all three canonical synthetic names from OS capture')
-        control.state.start(target.identity);control.hero_box.setCurrentText('星火术士（演示）')
-        control.task_result('ocr',result,control.state.generation);control.task_result('ocr',result,control.state.generation)
-        assert [edit.text() for edit in control.inputs]==names
+        assert control.state.hero=='星火术士（演示）' and control.state.confirmed and control.state.confirmation_mode=='automatic'
+        assert control.hero_auto.isChecked() and not control.hero_box.isEnabled()
+        report.update(automatic_hero_passed=True,automatic_choices_passed=True,auto_without_manual_hero_selection=True,own_overlay_hidden_capture_passed=True)
+        report['ocr_passed']=True;report['recognized']=names;checks.append('Actual OS capture + original synthetic portrait matcher + OCR feed production handlers; two frames auto-confirm hero and three cards without hero selection or confirm click')
         report['targetForegroundBefore']=int(control.capture.u.GetForegroundWindow() or 0)
-        control.confirm();assert control.state.confirmed
-        checks.append('Production OCR handler stabilizes three names and manual-confirm handler creates overlay')
+        unknown={**result,'hero_observation':{'hero':None,'confident':False,'reason':'Synthetic unknown portrait'},'_capturedAt':time.monotonic()}
+        control.task_result('ocr',unknown,control.state.generation);assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True
+        observe_current();observe_current();assert control.state.confirmed
+        paint_mock('9002');app.processEvents();observe_current();assert not control.state.confirmed and control.state.hero==''
+        observe_current();assert control.state.hero=='磐石守卫（演示）' and control.state.confirmed;report['auto_hero_change_clears_passed']=True
+        paint_mock('9001');app.processEvents();observe_current();observe_current();assert control.state.confirmed
         assert [card['name'] for card in control.overlay.cards]==names
         assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
         assert [widget.text() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
         assert '来源日期' in control.overlay.heading.text() and '数据包' in control.overlay.heading.text() and '游戏资料' in control.overlay.heading.text()
         control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
         control.confirm();assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
-        report['source_tier_hero_specific']=True
+        report['source_tier_hero_specific']=True;report['auto_manual_fallback_passed']=not control.hero_auto.isChecked()
         tier_row=control.data['heroAugmentStats']['磐石守卫（演示）'][0];saved_tier=tier_row['tier']
         for missing in [None,'UNKNOWN']:
             tier_row['tier']=missing;control.confirm();assert control.overlay.tier_labels[1].text()=='虚构源评级（演示）：暂无评级'

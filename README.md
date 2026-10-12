@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.3.0-0891b2" alt="源码版本 v0.3.0"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.0-0891b2" alt="源码版本 v0.4.0"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.3.0 预览版"></a>
 </p>
 <p align="center">
@@ -20,12 +20,13 @@
 </p>
 <!-- project-header:end -->
 
-Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄专属评级、机制说明与条件提醒。通过本地 OCR 识别候选，核对后即可在目标窗口上查看资料。
+Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄专属评级、机制说明与条件提醒。v0.4.0 默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
 
 ## 功能
 
 - **英雄专属评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
-- **本地 OCR**：识别海克斯名称，支持手动修正与三候选确认。
+- **自动本人英雄**：只在底部本人 HUD 区域匹配 Riot Data Dragon 头像，连续两帧一致后使用；不会从记分板或全屏人名猜英雄。
+- **本地 OCR**：三个不同候选名称精确匹配、布局和置信度通过且连续两帧一致时自动显示；不确定时人工修正。
 - **透明叠加层**：置顶显示资料卡，支持鼠标穿透和 `Ctrl+Alt+O` 快捷切换。
 - **数据刷新与缓存**：启动时检查公开资料，离线时使用已验证缓存。
 - **软件更新**：检查稳定版 GitHub Release，确认后下载并校验安装。
@@ -34,9 +35,9 @@ Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄
 
 ### Windows
 
-1. 下载 [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe)，核对 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt)。
+1. 在 [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) 下载 **v0.4.0** Windows x64 EXE 并核对同版 SHA-256。若未列出，表示新构建尚未发布；v0.3.0 不含自动英雄功能。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
-3. 选择目标窗口和英雄，开始监测；核对三个候选后确认显示。
+3. 确认目标游戏窗口，点击开始监测并切回游戏。默认自动识别英雄，无需预选；首次启动会准备约 5 MB 的公开头像缓存。
 
 单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)提供测试证据和对应源码。
 
@@ -55,20 +56,22 @@ python launcher.py
 
 ## 使用方法
 
-- 手动选择英雄并开始监测，然后切回目标窗口。
-- 核对 OCR 提取的左、中、右三个名称，必要时修正后确认。
-- 更换英雄或候选后重新确认。切出、最小化、画面变化或捕获失败时，旧资料会隐藏。
+- 保持“自动识别本人 HUD 头像”开启，开始监测后切回目标窗口；唯一匹配的标准 LoL 窗口可自动预选，但捕获仍需点击开始。
+- 高置信本人头像和三个牌面标题连续两帧一致后自动显示。不会自动选择游戏内选项。
+- 不确定时可关闭自动英雄、人工纠正英雄及候选。更换/未知英雄、候选变化、过期或切出窗口会隐藏旧资料，自动模式重新等待稳定画面。
 - `Ctrl+Alt+O` 切换鼠标穿透；停止监测或关闭主窗口即可结束捕获。
 
 ## 数据与隐私
 
 资料来自[虎牙官方公开 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。评级使用对应英雄的原始记录；资料卡标注来源日期、数据包与游戏资料版本。来源日期和获取时间分别记录，便于判断资料时效。格式与字段说明见 [DATA.md](DATA.md)。
 
-采集范围为所选前台窗口的可见客户区，仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网用于公开数据刷新与软件更新。
+采集范围为所选前台窗口的可见客户区，仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网仅用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
 
 ## 预览版与兼容性
 
-v0.3.0 面向 Windows 10/11 x64 的窗口及无边框模式。目前验证基于 Windows Server 2022 上的原创模拟窗口：
+v0.4.0 自动英雄源码已通过本地测试，新版 Windows EXE 需独立通过发布门禁。当前公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+
+以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 
 - [原生 EXE 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)：窗口捕获、OCR、评级显示、鼠标穿透与进程生命周期。
 - [更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)：同一 EXE 的本地替换、健康检查、并发锁与失败回滚。

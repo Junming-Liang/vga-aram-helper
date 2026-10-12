@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "scope": "Original procedural fixtures only, not game accuracy",
+  "checks": [
+    "Original synthetic ownHUD at 1280x720 recognized",
+    "Original synthetic ownHUD at 1920x1080 recognized",
+    "Original synthetic ownHUD at 2560x1440 recognized",
+    "Original synthetic ownHUD at 3440x1440 recognized",
+    "sidebar abstains",
+    "grayscale death analogue abstains",
+    "blank scene abstains",
+    "portrait crop abstains"
+  ]
+}

@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "applicationVersion": "0.4.0",
+  "status": "partial_with_abstentions",
+  "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
+  "platform": "Linux",
+  "implementation_sha256": {
+    "hero_recognition.py": "8a953d83454388767d24daaaf777f219802efc2376806621b6170d7951948ee0",
+    "hero_portraits.py": "69e9c2c755e41a41d2ecc0a8f3c3fdeaf49f4551588670f78cea2bbdba78f86a"
+  },
+  "templates": {
+    "source_url": "https://ddragon.leagueoflegends.com/api/versions.json",
+    "version": "16.20.1",
+    "count": 173,
+    "roster_sha256": "84fd12721ea0cec502d2a747aea94d8e57d4da337422d1d3ca33a7890909787f",
+    "asset_source": "Riot Data Dragon base-square portraits; local cache only"
+  },
+  "summary": {
+    "positive_cases": 3,
+    "positive_recognized": 2,
+    "positive_abstained": 1,
+    "wrong_hero_predictions": 0,
+    "negative_cases": 3,
+    "negative_abstained": 3
+  },
+  "cases": [
+    {
+      "source_url": "https://upload3.inven.co.kr/upload/2026/02/25/bbs/i1710778643.png",
+      "source_page": "https://www.inven.co.kr/board/lol/2766/50142",
+      "image_sha256": "fb6ba1b773d5238d2dec5309a0a1efa9125ac032b3a3331a13dad619476adc27",
+      "image_dimensions": [
+        3440,
+        1440
+      ],
+      "condition": "ARAM Mayhem spectator/replay with timeline and spectator team HUD, annotated by publisher",
+      "gold_hero_id": "5",
+      "gold_hero": "XinZhao",
+      "gold_confidence": "high visual; name and kit in left selected panel",
+      "expected_outcome": "abstain",
+      "observed": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.7307,
+        "margin": 0.0065,
+        "box": [
+          1380,
+          1338,
+          40,
+          40
+        ],
+        "candidateChampionId": "82"
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.704,
+      "image_redistributed": false
+    },
+    {
+      "source_url": "https://pbs.twimg.com/amplify_video_thumb/1989656382396588032/img/E3SCNvBxAguI_TmL.jpg",
+      "source_page": "https://x.com/xPetu",
+      "image_sha256": "59061c0d4810b3d6a935510e0ca6e2560acf4bb626f303d8beee540959def3db",
+      "image_dimensions": [
+        900,
+        1200
+      ],
+      "condition": "Vertical 900x1200 crop of player gameplay with Ezreal HUD; mode not independently verified",
+      "gold_hero_id": "81",
+      "gold_hero": "Ezreal",
+      "gold_confidence": "high visual: own portrait and four ability icons; scene name alone is not gold source",
+      "expected_outcome": "abstain",
+      "observed": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "当前分辨率/纵横比未验证"
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.0,
+      "image_redistributed": false
+    },
+    {
+      "source_url": "https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/PreciousCourageousWatercressCoolStoryBro-CYx3B3APGtUyN5Wd/ab6a4249-dfa7-424e-bb0e-f11a17f7625b/preview.jpg",
+      "source_page": "https://www.twitch.tv/auraritylp",
+      "image_sha256": "8623f5542e0dd646723aa4bf5e4ce6b588678cedaf6c07a86923f61339c99fb1",
+      "image_dimensions": [
+        1920,
+        1080
+      ],
+      "condition": "Summoners Rift winter map, normal player view; image-search ARAM label was wrong",
+      "gold_hero_id": "55",
+      "gold_hero": "Katarina",
+      "gold_confidence": "high visual: own portrait and kit",
+      "expected_outcome": "recognize_own_hero",
+      "observed": {
+        "hero": "Katarina",
+        "championId": "55",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9516,
+        "margin": 0.1708,
+        "box": [
+          702,
+          1005,
+          42,
+          42
+        ],
+        "candidateChampionId": "55",
+        "colorScore": 0.9465
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.668,
+      "image_redistributed": false
+    },
+    {
+      "source_url": "https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/MotionlessExpensiveTarsierStinkyCheese-M1-R2Xq8vvekstrx/74e98070-9c0e-4832-a77d-78be46ea37af/preview.jpg",
+      "source_page": "https://www.twitch.tv/tachiyong",
+      "image_sha256": "d8317d3149c11c69956c16f1e30e30c1f3b9559d96a23b7bbed5b9af38c37b0f",
+      "image_dimensions": [
+        1920,
+        1080
+      ],
+      "condition": "Howling Abyss ARAM player view with streamer overlay; Mayhem subtype not independently verified",
+      "gold_hero_id": "902",
+      "gold_hero": "Milio",
+      "gold_confidence": "high visual for champion; exact skin unknown",
+      "expected_outcome": "recognize_own_hero",
+      "observed": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.7945,
+        "margin": 0.0306,
+        "box": [
+          668,
+          1040,
+          30,
+          30
+        ],
+        "candidateChampionId": "80"
+      },
+      "case_pass": false,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.651,
+      "image_redistributed": false
+    },
+    {
+      "source_url": "https://turbo-uploads.s3.eu-north-1.amazonaws.com/i_just_played_an_all_prismatics_aram_mayhem_fa9d4de2a0.webp",
+      "source_page": "https://turbosmurfs.gg/article/aram-mayhem-beginner-guide",
+      "image_sha256": "4cc05c62f544f7192dfb6dd9bbc56ee30aac1cb9d89b3fe427d02288befffe1b",
+      "image_dimensions": [
+        2560,
+        1440
+      ],
+      "condition": "ARAM Mayhem full scoreboard and death recap; grayscale own portrait with red respawn timer",
+      "gold_hero_id": "166",
+      "gold_hero": "Akshan",
+      "gold_confidence": "high visual: own portrait and four ability icons",
+      "expected_outcome": "abstain",
+      "observed": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.779,
+        "margin": 0.0228,
+        "box": [
+          1020,
+          1378,
+          44,
+          44
+        ],
+        "candidateChampionId": "80"
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.723,
+      "image_redistributed": false
+    },
+    {
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png",
+      "source_page": "https://github.com/Nyx0ra/lol-aram-mayhem-hextech-helper",
+      "image_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+      "image_dimensions": [
+        2560,
+        1440
+      ],
+      "condition": "ARAM Mayhem own player view with three augment choices and existing third-party green/yellow recommendation labels; own HUD remains visible under modal dimming",
+      "gold_hero_id": "360",
+      "gold_hero": "Samira",
+      "gold_confidence": "high independent visual comparison: base Samira face/eyepatch plus correct Samira Q W E R icon composition",
+      "expected_outcome": "recognize_own_hero",
+      "observed": {
+        "hero": "Samira",
+        "championId": "360",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9748,
+        "margin": 0.1527,
+        "box": [
+          836,
+          1316,
+          68,
+          68
+        ],
+        "candidateChampionId": "360",
+        "colorScore": 0.9692
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "transformation": null,
+      "elapsed_seconds": 0.691,
+      "image_redistributed": false
+    }
+  ],
+  "genuine_selection_frame": {
+    "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png",
+    "hero": {
+      "hero": "沙漠玫瑰",
+      "championId": "360",
+      "confident": true,
+      "method": "own-hud-portrait",
+      "reason": "本人 HUD 头像通过空间与模板校验",
+      "score": 0.9748,
+      "margin": 0.1527,
+      "box": [
+        836,
+        1316,
+        68,
+        68
+      ],
+      "candidateChampionId": "360",
+      "colorScore": 0.9692
+    },
+    "automatic_titles": [
+      {
+        "name": "心灵净化",
+        "recognized_text": "心灵净化",
+        "ocr_confidence": 0.9875,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            362.0,
+            195.0
+          ],
+          [
+            483.0,
+            195.0
+          ],
+          [
+            483.0,
+            236.0
+          ],
+          [
+            362.0,
+            236.0
+          ]
+        ],
+        "requires_confirmation": true
+      },
+      {
+        "name": "暴击律动",
+        "recognized_text": "暴击律动",
+        "ocr_confidence": 0.9996,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            834.0,
+            197.0
+          ],
+          [
+            956.0,
+            197.0
+          ],
+          [
+            956.0,
+            236.0
+          ],
+          [
+            834.0,
+            236.0
+          ]
+        ],
+        "requires_confirmation": true
+      },
+      {
+        "name": "虚幻武器",
+        "recognized_text": "虚幻武器",
+        "ocr_confidence": 0.9857,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            1307.0,
+            195.0
+          ],
+          [
+            1430.0,
+            195.0
+          ],
+          [
+            1430.0,
+            236.0
+          ],
+          [
+            1307.0,
+            236.0
+          ]
+        ],
+        "requires_confirmation": true
+      }
+    ],
+    "passes_title_geometry": true,
+    "scope": "One still-frame pipeline observation, not temporal/video or native Windows proof; unrelated preexisting overlay labels excluded by title-band and literal-text gates."
+  }
+}

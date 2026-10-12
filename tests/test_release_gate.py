@@ -21,7 +21,7 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 
 
 def current_provenance():
@@ -76,6 +76,7 @@ class ReleaseFixture(unittest.TestCase):
                        'source_tier_display_passed': True, 'source_tier_hero_specific': True, 'source_tier_missing_passed': True,
                        'source_tier_screen_order_preserved': True, 'source_tier_no_winrate_display': True,
                        'source_tier_rendered': ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3']}
+        self.native.update(dict.fromkeys(gate.NATIVE_AUTOMATION_FIELDS, True))
         self.budget = {'status': 'passed', 'upload_scope': 'evidence-only', 'existing_repository_artifact_bytes': 100_000_000,
                        'proposed_upper_estimate_bytes': 1_000_000, 'projected_bytes': 101_000_000,
                        'project_budget_bytes': 500_000_000, 'reserve_bytes': 10_000_000}
@@ -106,13 +107,15 @@ class ReleaseFixture(unittest.TestCase):
         source = self.release / f'vga-aram-helper-{VERSION}-source.zip'
         with zipfile.ZipFile(source, 'w') as archive:
             archive.comment = SHA.encode('ascii')
-            for name in ('launcher.py', 'native_ui.py', 'native_smoke.py', 'requirements-build.txt',
+            for name in ('launcher.py', 'native_ui.py', 'native_state.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'requirements-build.txt',
                          'scripts/build_windows.py', 'packaging/VGA-Aram-Helper.spec'):
                 archive.writestr(name, 'Unit-test source fixture')
         self.access = {'source_commit': SHA, 'application_source': {'filename': source.name,
                        'size': source.stat().st_size, 'sha256': gate.digest(source)}, 'qt_sources': qt_sources}
         self.build['source_access'] = copy.deepcopy(self.access)
         self.write_json(self.release / 'source-access.json', self.access)
+        self.genuine = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
+        self.genuine['implementation_sha256'] = dict.fromkeys(('hero_recognition.py', 'hero_portraits.py'), hashlib.sha256(b'Unit-test source fixture').hexdigest())
         self.write_reports()
         for name in ('windows-exe-ui.png', 'windows-native-overlay.png'):
             (self.evidence / name).write_bytes(self.make_png())
@@ -139,6 +142,7 @@ class ReleaseFixture(unittest.TestCase):
         path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
     def write_reports(self):
+        self.write_json(self.evidence / 'hero-recognition-genuine.json', self.genuine)
         self.write_json(self.evidence / 'windows-build.json', self.build)
         self.write_json(self.evidence / 'windows-exe-smoke.json', self.smoke)
         self.write_json(self.evidence / 'windows-exe-self-test.json', self.selftest)
@@ -154,12 +158,45 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.3.0')
+        self.assertEqual(result['tag'], 'v0.4.0')
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
             self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)
+
+    def test_genuine_report_is_required_and_bound_to_archive_source(self):
+        original = copy.deepcopy(self.genuine)
+        for field, bad in [('applicationVersion', '0.3.0'), ('status', 'passed'), ('platform', 'Windows'),
+                           ('scope', 'all heroes accurate'), ('implementation_sha256', {}), ('summary', {})]:
+            with self.subTest(field=field):
+                self.genuine = dict(original, **{field: bad}); self.write_reports()
+                with self.assertRaises(gate.VerificationError): self.verify()
+        self.genuine = copy.deepcopy(original)
+        self.genuine['implementation_sha256']['hero_recognition.py'] = '0' * 64
+        self.write_reports()
+        with self.assertRaises(gate.VerificationError): self.verify()
+        (self.evidence / 'hero-recognition-genuine.json').unlink()
+        with self.assertRaises(gate.VerificationError): self.verify()
+
+    def test_genuine_wrong_hero_and_hidden_abstention_rejected(self):
+        for change in ('wrong_hero', 'hidden_abstention', 'negative_prediction', 'low_title_confidence'):
+            with self.subTest(change=change):
+                self.genuine = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
+                self.genuine['implementation_sha256'] = dict.fromkeys(('hero_recognition.py', 'hero_portraits.py'), hashlib.sha256(b'Unit-test source fixture').hexdigest())
+                if change == 'wrong_hero':
+                    row = next(row for row in self.genuine['cases'] if row['observed']['confident'])
+                    row['observed']['championId'] = '999999'
+                elif change == 'hidden_abstention':
+                    row = next(row for row in self.genuine['cases'] if row['expected_outcome'] == 'recognize_own_hero' and not row['observed']['confident'])
+                    row['case_pass'] = True
+                elif change == 'negative_prediction':
+                    row = next(row for row in self.genuine['cases'] if row['expected_outcome'] == 'abstain')
+                    row['observed'].update(confident=True, championId=row['gold_hero_id'])
+                else:
+                    self.genuine['genuine_selection_frame']['automatic_titles'][0]['ocr_confidence'] = .5
+                self.write_reports()
+                with self.assertRaises(gate.VerificationError): self.verify()
 
     def test_accept_reports_subdirectory_layout(self):
         nested = self.evidence / 'reports'
@@ -275,6 +312,19 @@ class ReleaseFixture(unittest.TestCase):
                 with self.assertRaises(gate.VerificationError): self.verify()
                 self.native = saved
 
+    def test_automatic_hero_lifecycle_proof_is_mandatory(self):
+        for field in gate.NATIVE_AUTOMATION_FIELDS:
+            for bad in (False, None, 1, 'true'):
+                self.native[field] = bad
+                self.write_reports()
+                with self.subTest(field=field, value=bad), self.assertRaises(gate.VerificationError):
+                    self.verify()
+            self.native.pop(field)
+            self.write_reports()
+            with self.subTest(field=field, missing=True), self.assertRaises(gate.VerificationError):
+                self.verify()
+            self.native[field] = True
+
     def test_reject_png_signature_only_corruption_truncation_and_bad_pixels(self):
         png = self.make_png()
         invalid = [b'\x89PNG\r\n\x1a\n', png[:-1], png + b'extra', png[:20] + b'x' + png[21:],
@@ -381,8 +431,8 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_preview_cannot_publish_wrong_source_hash_version_size_or_provenance(self):
         valid = self.verify()
-        for key, value in [('source_sha', 'b' * 40), ('exe_sha256', '0' * 64), ('version', '0.4.0'),
-                           ('tag', 'v0.4.0'), ('exe_size', 0), ('run_id', RUN_ID + 1), ('run_attempt', 2)]:
+        for key, value in [('source_sha', 'b' * 40), ('exe_sha256', '0' * 64), ('version', '0.5.0'),
+                           ('tag', 'v0.5.0'), ('version', '0.3.0'), ('tag', 'v0.3.0'), ('exe_size', 0), ('run_id', RUN_ID + 1), ('run_attempt', 2)]:
             result = dict(valid, **{key: value})
             with self.subTest(key=key), patch.object(gate, 'gh_api') as api, self.assertRaises(gate.VerificationError):
                 gate.publish(result, self.output / 'release-notes.txt', current_provenance())
@@ -398,7 +448,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.3.0/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.0/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -517,11 +567,11 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.3.0', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.0', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.3.0', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.3.0',
+        return {'id': 123, 'tag_name': 'v0.4.0', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.0',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
 
@@ -533,7 +583,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.3.0', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.0', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -544,7 +594,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.3.0', ' '.join(publish))
+        self.assertNotIn('v0.4.0', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -611,12 +661,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.3.0', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.0', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.3.0'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.0'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.3.0')
+            gate.find_release(gate.REPOSITORY, 'v0.4.0')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -633,9 +683,9 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.3.0'])
+                gate.gh_run(['release', 'create', 'v0.4.0'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.3.0'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.0'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 
@@ -665,7 +715,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn('timeout-minutes: 35', text)
         self.assertNotIn('actions/download-artifact', text)
         self.assertEqual(text.count('actions/upload-artifact@v4'), 1)
-        self.assertIn('path: reports/windows-*', text)
+        self.assertIn('path: |\n            reports/windows-*\n            reports/hero-recognition-genuine.json', text)
         self.assertNotIn('path: dist/', text)
         self.assertIn('python scripts/check_artifact_budget.py --evidence-only', text)
         self.assertIn("always() && steps.evidence_budget.outcome == 'success'", text)

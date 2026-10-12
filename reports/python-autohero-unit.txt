@@ -1,0 +1,2275 @@
+.....................................................................................................................................................................................{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+....{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+...{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/Qt6Core.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/Qt6WebEngineCore.dll",
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/opengl32sw.dll",
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+...{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+..{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+.{
+  "qt_binaries_under_review": [
+    "PySide6/plugins/platforms/qwindows.dll",
+    "PySide6/qt6core.dll",
+    "PySide6/qt6gui.dll",
+    "PySide6/qt6widgets.dll",
+    "pyside6/msvcp140.dll",
+    "pyside6/msvcp140_1.dll",
+    "pyside6/msvcp140_2.dll",
+    "pyside6/vcruntime140.dll",
+    "pyside6/vcruntime140_1.dll"
+  ]
+}
+....................................................................
+----------------------------------------------------------------------
+Ran 294 tests in 3.438s
+
+OK
+{"status": "failed", "report": "windows-gui-walkthrough.json", "error": "Requires a real Windows interactive desktop; this host is not Windows", "elapsed_seconds": 0.0}

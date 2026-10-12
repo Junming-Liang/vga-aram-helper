@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "scope": "Real Qt offscreen + original synthetic portrait/OCR pipeline only. No Windows GDI or real gameplay accuracy claim.",
+  "checks": [
+    "Windows runner1024x728 work area fits964x602 supported own-HUD mock without changing display settings",
+    "Automatic hero is default, with no preselected hero or required manual setup",
+    "Actual portrait matching + CPU OCR reach production handlers; two consistent frames automatically show hero-specific tiers",
+    "No hero dropdown or manual confirmation used on high-confidence path",
+    "Unknown own-HUD portrait immediately clears hero and old tiers",
+    "Hero change clears stale state before recomputing same ordered offers",
+    "Low-confidence or wrong-layout candidates cannot preserve an automatic confirmation",
+    "One unsafe title frame followed by only one safe frame cannot auto-confirm; two consecutive safe frames are required",
+    "In-progress manual correction is not overwritten by automatic observations",
+    "Explicit manual fallback remains available when automation is uncertain",
+    "Production capture setup refuses visible own overlay even if display-affinity exclusion is absent"
+  ]
+}

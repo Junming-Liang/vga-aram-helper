@@ -82,13 +82,18 @@ class NativePackagingTests(unittest.TestCase):
             self.assertIn('Apache', (root / 'licenses.txt').read_text())
 
     def test_native_acceptance_rejects_browser_offscreen_and_incomplete_proof(self):
-        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.3.0',
+        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.0',
                  'native_window':True, 'window_closed':True, 'capture_passed':True, 'ocr_passed':True,
                  'click_through_passed':True, 'qt_platform':'windows', 'screenshot_method':'win32 desktop capture',
                  'source_tier_display_passed':True, 'source_tier_hero_specific':True, 'source_tier_missing_passed':True,
                  'source_tier_screen_order_preserved':True, 'source_tier_no_winrate_display':True,
                  'source_tier_rendered':['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']}
-        native_smoke.validate_report(valid, '0.3.0')
+        valid.update(dict.fromkeys(native_smoke.NATIVE_AUTOMATION_FIELDS, True))
+        native_smoke.validate_report(valid, '0.4.0')
+        for field in native_smoke.NATIVE_AUTOMATION_FIELDS:
+            for bad in (False, None, 1, 'true'):
+                with self.subTest(field=field, value=bad), self.assertRaises(RuntimeError):
+                    native_smoke.validate_report(dict(valid, **{field: bad}), '0.4.0')
         for key, value in [('qt_platform','offscreen'),('backend','browser'),('frozen',False),('ocr_passed',False),
                            ('capture_passed',False),('click_through_passed',False),('window_closed',False),('error','failure'),
                            ('source_tier_display_passed',False),('source_tier_hero_specific',False),
@@ -96,11 +101,13 @@ class NativePackagingTests(unittest.TestCase):
                            ('source_tier_no_winrate_display',False),('source_tier_rendered',[])]:
             result = dict(valid, **{key:value})
             with self.subTest(key=key), self.assertRaises(RuntimeError):
-                native_smoke.validate_report(result, '0.3.0')
+                native_smoke.validate_report(result, '0.4.0')
 
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')
         self.assertIn('console=False', spec)
+        self.assertIn('hero_portraits', spec)
+        self.assertIn('hero_recognition', spec)
         self.assertIn('windows.manifest', spec)
         self.assertIn('PerMonitorV2', (ROOT/'packaging/windows.manifest').read_text())
         self.assertNotIn('PySide6-Addons', (ROOT/'requirements-build.txt').read_text())
@@ -114,6 +121,14 @@ class NativePackagingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'budget would be exceeded'):
                 budget.check_budget(root,fetcher=lambda url:{'total_count':1,'artifacts':[{'expired':False,'size_in_bytes':490_000_000}]})
             self.assertEqual(json.loads((root/'reports/windows-artifact-budget.json').read_text())['status'],'blocked')
+
+    def test_genuine_report_is_counted_in_small_evidence_budget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root/'reports').mkdir()
+            (root/'reports/hero-recognition-genuine.json').write_bytes(b'X' * 20_000)
+            fetch = lambda url: {'total_count': 0, 'artifacts': []}
+            result = budget.check_budget(root, fetcher=fetch, evidence_only=True)
+            self.assertEqual(result['proposed_upper_estimate_bytes'], 1_020_600)
 
     def test_artifact_budget_fails_on_unknown_repository_or_incomplete_listing(self):
         with self.assertRaises(RuntimeError):budget.check_budget(Path('.'),repository='other/repo')
