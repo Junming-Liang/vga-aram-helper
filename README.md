@@ -44,7 +44,9 @@ CI 徽章对应最近一次手动构建与测试，不代表游戏内适配已�
 
 先核对 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt)，再放入自己有写入权限的文件夹并双击。正常使用无需浏览器或本地网址；关闭主控制窗口即可退出。详见 [Windows 指南](WINDOWS_EXECUTABLE.md)。
 
-此预览版对应提交 `1ce516e` 和[成功的 Windows 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)，验证范围为原创模拟窗口，不包括真实 LoL/Vanguard、独占全屏或原生 OTA 换包回滚。它不会通过稳定版自动更新通道推送，请手动下载。
+此预览版对应提交 `1ce516e` 和[成功的 Windows 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)，该次验证范围为原创模拟窗口，不包括真实 LoL/Vanguard 或独占全屏。它不会通过稳定版自动更新通道推送，请手动下载。
+
+后续[Windows 原生更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)已验证同一 EXE 的替换与重启、Qt/OCR 健康握手、并发锁、版本不匹配时回滚及进程清理。这是本地合成更新计划下的同二进制测试；不同版本升级、在线更新发现/下载及应用内确认交接仍未验证。
 
 使用前请阅读并同意同一 Release 许可 ZIP 中的微软运行库条款；仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。完整范围见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 

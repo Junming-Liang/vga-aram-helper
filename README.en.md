@@ -44,7 +44,9 @@ Download the [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-
 
 Check the [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt), then place the EXE in a folder you can write to and double-click it. Normal use requires no browser or local URL. Close the main control window to exit. See the [Windows guide](WINDOWS_EXECUTABLE.md).
 
-This preview corresponds to commit `1ce516e` and the [successful Windows test run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410). Its validation covers original synthetic mock windows, not real LoL/Vanguard, exclusive fullscreen, or native OTA replacement and rollback. It is excluded from the stable automatic-update channel; download it manually.
+This preview corresponds to commit `1ce516e` and the [successful Windows test run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410). That run covers original synthetic mock windows, not real LoL/Vanguard or exclusive fullscreen. It is excluded from the stable automatic-update channel; download it manually.
+
+A subsequent [native Windows updater transaction test](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458) verified replacement and relaunch of the same EXE, the Qt/OCR health handshake, concurrency locking, version-mismatch rollback, and process cleanup. This used a synthetic local update plan and identical binary bytes; upgrades between different versions, online update discovery/download, and the in-app confirmation handoff remain unverified.
 
 Before use, read and agree to the Microsoft runtime terms in the same Release's license ZIP. They apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. See [third-party notices](THIRD_PARTY_NOTICES.md) for the complete scope.
 
