@@ -57,6 +57,8 @@ jobs:
           node tests/test_ui_logic.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/test_choices_ui.js
+      - name: Verify exact-source overlay geometry at five app scales
+        run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
       - name: Install and use approved free Community C++ runtime tooling
         run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
       - name: Build single-file EXE with local OCR models
@@ -78,6 +80,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test actual native overlay against a synthetic mock window
         run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Repeat actual EXE native OCR and overlay at 150 percent app scale
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5
+      - name: Repeat actual EXE native OCR and overlay at 200 percent app scale
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
       - name: Test owned client-to-game screenshot selection handoff
         run: python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe
       - name: Check existing and proposed artifact storage before upload
