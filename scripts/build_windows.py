@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app_version import __version__
 from model_inventory import verify_models
+from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 
 
 def sha256(path):
@@ -21,9 +22,42 @@ def sha256(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def verify_source_checkout(root, expected_commit=None):
+    """Only a clean tracked checkout may claim an exact source correspondence."""
+    root = Path(root)
+    try:
+        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        subprocess.run(['git', 'diff', 'HEAD', '--exit-code', '--quiet'], cwd=root, check=True)
+        others = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=root).decode('utf-8').split('\0')
+        tracked = set(subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode('utf-8').split('\0'))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError('Build requires a clean Git checkout; commit source changes before packaging') from exc
+    if expected_commit and commit != expected_commit:
+        raise RuntimeError('Checkout commit differs from the requested build commit')
+    for name in filter(None, others):
+        if not (name.startswith('reports/windows-') and '/' not in name[len('reports/'):]):
+            raise RuntimeError('Untracked build input: ' + name)
+    # Also catch ignored additions inside runtime/build input directories, which
+    # git --exclude-standard intentionally omits. Generated outputs are outside
+    # these trees. Bytecode caches never become source archive inputs.
+    inputs = [path for path in root.iterdir() if path.is_file()]
+    for folder in ('static', 'fixtures', 'assets', 'packaging', 'scripts', 'tests', '.github'):
+        inputs.extend(path for path in (root / folder).rglob('*') if path.is_file()
+                      and '__pycache__' not in path.parts and path.suffix != '.pyc')
+    for path in inputs:
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink() or relative not in tracked:
+            raise RuntimeError('Untracked or symbolic build input: ' + relative)
+    return commit
+
+
 def collect_licenses(destination):
     """Retain supplied wheel licenses/notices, including model notices, verbatim."""
     destination.mkdir(parents=True, exist_ok=True)
+    for package in ('PySide6-Essentials', 'shiboken6'):
+        if metadata.version(package) != QT_VERSION:
+            raise RuntimeError('Qt dependency version changed; regenerate exact-version licenses')
+    _, qt_license_files = copy_bundle(ROOT / 'packaging' / 'qt-licenses', destination)
     inventory = []
     for distribution in sorted(metadata.distributions(), key=lambda item: item.metadata['Name'].casefold()):
         name = distribution.metadata['Name']
@@ -39,6 +73,8 @@ def collect_licenses(destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
             found.append(str(target.relative_to(destination)))
+        if name.casefold().replace('-', '_') in {'pyside6_essentials', 'shiboken6'}:
+            found += qt_license_files
         inventory.append({'name': name, 'version': distribution.version, 'license_files': found,
                           'license_expression': distribution.metadata.get('License-Expression')})
     python_license = Path(sys.base_prefix) / 'LICENSE.txt'
@@ -48,9 +84,9 @@ def collect_licenses(destination):
     shutil.copyfile(ROOT / 'LICENSE', destination / 'VGA-APP-LICENSE.txt')
     shutil.copyfile(ROOT / 'THIRD_PARTY_NOTICES.md', destination / 'THIRD_PARTY_NOTICES.md')
     (destination / 'dependency-inventory.json').write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    required = ('rapidocr', 'onnxruntime', 'numpy', 'pillow', 'opencv-python-headless')
+    required = ('rapidocr', 'onnxruntime', 'numpy', 'pillow', 'opencv-python-headless', 'pyside6_essentials', 'shiboken6')
     for name in required:
-        row = next((row for row in inventory if row['name'].casefold() == name), None)
+        row = next((row for row in inventory if row['name'].casefold().replace('-', '_') == name.replace('-', '_')), None)
         if not row or not row['license_files']:
             raise RuntimeError(f'Missing required bundled license: {name}')
     return inventory
@@ -67,8 +103,12 @@ def assert_archive_inventory(names):
     """Catch a superficially successful build that relies on CI-only runtimes."""
     normalized = {str(name).replace('\\', '/').lower() for name in names}
     basenames = {name.rsplit('/', 1)[-1] for name in normalized}
-    required = {'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll'}
+    required = {'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qwindows.dll'}
     missing = sorted(required - basenames)
+    if any('webengine' in name for name in normalized):
+        raise RuntimeError('Unexpected WebEngine/browser runtime in native QtWidgets package')
+    if {'opengl32sw.dll', 'd3dcompiler_47.dll'} & basenames:
+        raise RuntimeError('Unexpected optional OpenGL/shader runtime in raster QtWidgets package')
     for name in ('PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx'):
         if 'rapidocr/models/' + name.lower() not in normalized:
             missing.append('rapidocr/models/' + name)
@@ -78,6 +118,8 @@ def assert_archive_inventory(names):
     if missing:
         raise RuntimeError('Standalone EXE is missing bundled resources/runtime DLLs: ' + ', '.join(missing))
     return {'entries': len(normalized), 'required_runtime_dlls': sorted(required),
+            'qt_binaries': sorted(name for name in normalized if name.endswith(('.dll', '.pyd'))
+                                  and ('pyside6/' in name or name.rsplit('/', 1)[-1].startswith('qt6'))),
             'model_assets': 3, 'icon': 'assets/branding/vga.ico'}
 
 
@@ -104,6 +146,7 @@ def main():
     if sys.platform != 'win32' or platform.machine().lower() not in {'amd64', 'x86_64'} or sys.maxsize <= 2**32:
         raise SystemExit('Build on native Windows x64 with 64-bit Python. PyInstaller is not a cross-compiler.')
     os.chdir(ROOT)
+    source_commit = verify_source_checkout(ROOT, os.environ.get('GITHUB_SHA'))
     models = verify_models()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -129,11 +172,21 @@ def main():
     (release / 'update-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     (release / 'SHA256SUMS.txt').write_text(f"{manifest['sha256']}  {named.name}\n", encoding='ascii')
     shutil.make_archive(str(release / 'third-party-licenses'), 'zip', licenses)
+    qt_sources = supply_sources(ROOT / 'packaging' / 'qt-licenses', release)
+    # Recheck after packaging so generated changes cannot silently alter inputs.
+    if verify_source_checkout(ROOT, source_commit) != source_commit:
+        raise RuntimeError('Source checkout changed during packaging')
+    app_source = release / f'vga-aram-helper-{__version__}-source.zip'
+    subprocess.run(['git', 'archive', '--format=zip', '--output', str(app_source), source_commit], cwd=ROOT, check=True)
+    source_access = {'source_commit': source_commit, 'application_source': {'filename': app_source.name,
+                     'sha256': sha256(app_source), 'size': app_source.stat().st_size}, 'qt_sources': qt_sources}
+    (release / 'source-access.json').write_text(json.dumps(source_access, indent=2) + '\n', encoding='utf-8')
     for document in ('WINDOWS_EXECUTABLE.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE'):
         shutil.copyfile(ROOT / document, release / document)
     report = {'status': 'built-not-yet-smoke-tested', 'version': __version__, 'platform': platform.platform(),
-              'python': platform.python_version(), 'source_commit': os.environ.get('GITHUB_SHA'),
+              'python': platform.python_version(), 'source_commit': source_commit,
               'manifest': manifest, 'bundled_models': models, 'archive_inventory': bundled, 'dependencies': inventory,
+              'source_access': source_access,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
     reports = ROOT / 'reports'
     reports.mkdir(exist_ok=True)

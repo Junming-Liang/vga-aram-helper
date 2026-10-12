@@ -2,7 +2,7 @@
 
 启动器分别检查数据和软件版本：数据通过校验后自动使用；软件新版本先提示，确认后才下载和安装。
 
-`server.py` 负责本地服务与数据刷新；`launcher.py` 在此基础上启用 OCR、软件更新检查和默认浏览器。源码模式只查看软件更新状态，应用内安装仅适用于 Windows EXE。
+`server.py` 负责本地服务与数据刷新；`launcher.py` 默认打开 QtWidgets 原生控制窗口，启用 OCR 与软件更新检查；HTTP 服务仅供显式 `--headless` 诊断。源码模式只查看软件更新状态，应用内安装仅适用于 Windows EXE。
 
 ## 数据更新
 
@@ -64,7 +64,7 @@ Windows 默认路径为 `%LOCALAPPDATA%\VGAAramHelper\data`，开发测试可用
 4. 将当前 EXE 复制为独立的 `updater.exe`，核对哈希后以更新模式启动，原助手退出。
 5. 更新进程持有目标文件的操作系统级互斥锁，等待旧进程完全结束。同一路径只允许一个更新事务。
 6. 在目标目录暂存候选文件并再次校验，生成 `.previous` 备份，然后执行同卷原子替换。
-7. 新程序使用独立的 PyInstaller 解压生命周期启动，并运行 OCR 模型校验、实际推理自检和本机 HTTP 健康检查。
+7. 新程序使用独立的 PyInstaller 解压生命周期启动，并运行 OCR 模型校验、实际推理自检、真实 Windows Qt 平台/控制窗口及叠加样式健康检查。
 8. 运行版本与 Manifest 一致且检查通过后，写入带随机令牌的就绪标记；最长等待 150 秒。
 9. 若新程序崩溃或未及时就绪，停止其进程树、恢复 `.previous`，并用 `--no-updates` 重启原版。
 
@@ -95,7 +95,7 @@ updates.launch_update(plan_path)
 # launcher --apply-update <path>
 raise SystemExit(updates.apply_update(path))
 
-# 新程序通过 OCR 自检及 HTTP 就绪检查后：
+# 新程序通过 OCR 自检及原生窗口就绪检查后：
 updates.mark_update_healthy(token_path)
 ```
 

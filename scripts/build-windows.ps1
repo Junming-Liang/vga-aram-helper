@@ -12,4 +12,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python scripts/build_windows.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $Python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
 exit $LASTEXITCODE

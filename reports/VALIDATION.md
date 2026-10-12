@@ -1,5 +1,16 @@
 # VGA乱斗助手 v0.3.0：验证状态（2026-10-12 UTC）
 
+## 原生叠加版本的当前状态
+
+- 当前源码本地执行 173 项 Python 测试、34 项 JavaScript 逻辑测试通过。
+- QtWidgets offscreen 实际控件验证通过 13 项，包括人工确认、旧截图超时、关闭竞态及小屏幕控件滚动；见 `native-qt-offscreen.json`。它不验证真实 Windows HWND/GDI/穿透能力。
+- 原浏览器诊断版曾在 [Windows run 38220016126](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38220016126) 完成实际 EXE 的全部七项功能检查及清理，提交 `7f4d2a64839534e464b640ea7cf6ffc5dec2b1e5`。该记录不能替代后续原生 Qt 版本的验收。
+- 新构建流程强制执行原生模拟窗口捕获、实际 OCR、鼠标穿透/焦点/关闭与截图证据检查，并审核 Qt 许可、对应源码和 artifact 预算。当前仍等待这个版本的 Windows CI 结果，不宣称已通过。
+- 原生 OTA 文件替换/回滚、Windows 10/11 用户电脑与真实 LoL/Vanguard 兼容性仍未验证。
+
+以下为较早的 v0.3.0 源码与浏览器诊断记录；其测试计数和未实现项目不代表当前原生分支的全部状态。
+
+
 本文件取代 v0.2 的功能/测试总结。旧的 `unit-tests.txt`、`ui-logic-tests.txt`、`public-sample-validation.json` 是历史报告，不代表最新统计数据或当前功能。
 
 ## 已验证

@@ -1,3 +1,6 @@
 # Maintainer-only Windows x64 build dependencies from official PyPI.
 -r requirements-ocr.txt
 pyinstaller==6.22.3
+
+# QtWidgets-only native overlay; no WebEngine/WebView2/browser runtime.
+PySide6-Essentials==6.11.2

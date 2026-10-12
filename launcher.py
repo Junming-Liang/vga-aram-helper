@@ -10,7 +10,6 @@ import sys
 import threading
 import traceback
 from urllib.request import ProxyHandler, build_opener
-import webbrowser
 from app_version import __version__
 
 ROOT = Path(__file__).resolve().parent
@@ -76,8 +75,11 @@ def complete_startup_health(url, update_health=None):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=f"{APP_NAME} {__version__}：双击即用的本地助手")
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--version-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--licenses-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--native-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=8765, help="仅监听 127.0.0.1；0 为自动空闲端口")
-    parser.add_argument("--no-browser", action="store_true", help="不自动打开默认浏览器")
+    parser.add_argument("--headless", "--no-browser", dest="headless", action="store_true", help="仅开发诊断：启动本机 HTTP 服务，不显示原生窗口")
     parser.add_argument("--no-updates", action="store_true", help="本次禁用软件更新检查（测试用）")
     parser.add_argument("--demo", action="store_true", help="仅使用虚构测试样例；不用于真实对局")
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
@@ -90,8 +92,17 @@ def main(argv=None) -> int:
     if args.apply_update:
         from updates import apply_update
         return apply_update(args.apply_update)
-    if args.licenses:
-        print_licenses()
+    if args.version_file:
+        write_json(args.version_file, {"applicationVersion": __version__, "frozen": bool(getattr(sys, "frozen", False))})
+        return 0
+    if args.licenses or args.licenses_file:
+        if args.licenses_file:
+            from contextlib import redirect_stdout
+            args.licenses_file.parent.mkdir(parents=True, exist_ok=True)
+            with args.licenses_file.open("w", encoding="utf-8") as output, redirect_stdout(output):
+                print_licenses()
+        else:
+            print_licenses()
         return 0
     if args.self_test:
         result = bundled_self_test()
@@ -104,6 +115,25 @@ def main(argv=None) -> int:
     from updates import runtime_state_dir
     from server import load_startup_data, make_server
     state_dir = runtime_state_dir()
+    if not args.headless:
+        from native_ui import run_native
+        def ready():
+            if args.update_health:
+                result = bundled_self_test()
+                if result.get("status") != "passed":
+                    raise RuntimeError("Updated application failed bundled OCR self-test")
+                from updates import mark_update_healthy
+                mark_update_healthy(args.update_health)
+            if args.ready_file:
+                write_json(args.ready_file, {"pid": os.getpid(), "applicationVersion": __version__,
+                           "frozen": bool(getattr(sys, "frozen", False)), "mode": "native-overlay"})
+        return run_native(lambda: load_startup_data(state_dir / "data", demo=args.demo or bool(args.native_smoke_report)),
+                          state_dir=state_dir, current_executable=Path(sys.executable).resolve(),
+                          current_version=__version__, frozen=bool(getattr(sys, "frozen", False)),
+                          enable_updates=not args.no_updates,
+                          on_ready=ready if (args.update_health or args.ready_file) else None,
+                          smoke_report=args.native_smoke_report,
+                          smoke_screenshot=args.native_smoke_report.with_suffix(".png") if args.native_smoke_report else None)
     if args.demo:
         print("正在加载明确标注的虚构演示数据…", flush=True)
     else:
@@ -129,8 +159,6 @@ def main(argv=None) -> int:
             write_json(args.ready_file, {"url": url, "pid": os.getpid(), "applicationVersion": __version__,
                                         "frozen": bool(getattr(sys, "frozen", False)), "health": health})
         print(f"{APP_NAME} {__version__} 已启动：{url}\n关闭此窗口或按 Ctrl+C 退出。截图识别在本机运行。", flush=True)
-        if not args.no_browser:
-            webbrowser.open(url)
         while thread.is_alive():
             thread.join(0.5)
     except KeyboardInterrupt:
@@ -143,14 +171,16 @@ def main(argv=None) -> int:
 
 
 def entrypoint() -> int:
+    # Windowed Windows executables have no console handles. Libraries may still
+    # log to them, so supply ordinary null streams without opening a console.
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
     # Avoid Windows locale failures when redirected by CI; no installed Python needed.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     try:
-        if os.name == "nt":
-            import ctypes
-            ctypes.windll.kernel32.SetConsoleTitleW(f"{APP_NAME} {__version__}")
         return main()
     except Exception:
         details = traceback.format_exc()
@@ -162,7 +192,10 @@ def entrypoint() -> int:
             (folder / "last-launch-error.txt").write_text(details, encoding="utf-8")
         except Exception:
             pass
-        # Keep an ordinary double-click failure readable; never pause automation.
+        if os.name == "nt" and getattr(sys, "frozen", False) and len(sys.argv) == 1:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, "VGA乱斗助手启动失败。错误已保存到本地日志，请联系维护者。", APP_NAME, 0x10)
+        # Keep source-console failures readable; never pause automation.
         if getattr(sys, "frozen", False) and len(sys.argv) == 1 and sys.stdin and sys.stdin.isatty():
             input("启动失败。请保存上面的错误信息，按 Enter 退出。")
         return 1

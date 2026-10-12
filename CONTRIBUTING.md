@@ -42,11 +42,11 @@ python server.py --demo
 ### OCR 与启动器
 
 ```sh
-python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-ocr.txt
+python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
 python launcher.py
 ```
 
-`launcher.py` 启用 OCR，检查软件更新并打开默认浏览器。源码模式仅显示更新状态，不安装 EXE 或覆盖源码。更多用法见 [OCR 指南](OCR_SETUP.md)。
+`launcher.py` 默认显示 QtWidgets 原生控制窗口，使用普通 Win32 窗口像素捕获与透明叠加；正常使用不启动浏览器。截图监测需在 Windows 上测试，macOS/Linux 的 offscreen 渲染不能证明 Windows 捕获能力。`python launcher.py --headless --demo` 保留显式 HTTP 诊断。源码模式仅显示更新状态，不安装 EXE 或覆盖源码。更多用法见 [OCR 指南](OCR_SETUP.md)。
 
 ### 导入本地数据
 
@@ -88,6 +88,8 @@ python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r
 python -m playwright install chromium
 python tests/browser_validation.py
 ```
+
+可选原生 Qt 控件验证：`python tests/native_qt_validation.py`，仅是 offscreen 控件测试。打包后的原生 Windows 验收：`python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe`。
 
 浏览器测试使用本机服务和合成数据；加 `--screenshots` 可保存页面截图。Windows EXE 验收与 OTA 测试见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。已有测试结果见 [验证记录](reports/VALIDATION.md)。
 

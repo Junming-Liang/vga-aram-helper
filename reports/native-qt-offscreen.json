@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "backend": "qtwidgets",
+  "qt_platform": "offscreen",
+  "checks": [
+    "Actual QtWidgets control created and synthetic data loaded",
+    "Settings content scrolls instead of forcing an oversized control window",
+    "Native hero alias resolves to one canonical hero",
+    "Manual hero+three confirmation creates three neutral overlay cards",
+    "Native overlay contains names/effects, no win rates/derived tiers/source ranks",
+    "Hero change hides stale overlay",
+    "Actual Qt input editing invalidates confirmed candidates",
+    "Expired observation hides stale cards through production watchdog",
+    "Inference timeout hides cards while retaining one bounded active OCR job",
+    "Late timed-out OCR result cannot revive an old scene",
+    "Freshly completed inference cannot revive an already old captured image",
+    "Unexpected capture/setup exception fails closed",
+    "Closure is bounded; late worker completes without emitting into torn-down Qt"
+  ],
+  "scope": "Actual Qt offscreen widgets/input only. Windows GDI, focus, RegisterHotKey, click-through, LoL and Vanguard not tested here."
+}

@@ -114,9 +114,11 @@ def main():
             shutil.copyfile(original, executable)
             env = isolated_windows_environment(os.environ, work)
             # The only program in the working directory is the complete EXE.
-            output = subprocess.run([str(executable), '--version'], env=env, cwd=work,
+            version_file = work / 'version.json'
+            output = subprocess.run([str(executable), '--version-file', str(version_file)], env=env, cwd=work,
                                     capture_output=True, text=True, encoding='utf-8', timeout=90, check=True)
-            assert output.stdout.strip(), 'Missing app version'
+            version_info = json.loads(version_file.read_text(encoding='utf-8'))
+            assert version_info['applicationVersion'] and version_info['frozen'] is True, 'Missing frozen app version'
             checks.append('Standalone version command without Python/site-packages on PATH')
             self_report = work / 'self-test.json'
             output = subprocess.run([str(executable), '--self-test', '--report', str(self_report)], env=env, cwd=work,
@@ -128,9 +130,11 @@ def main():
             assert self_test['blank_candidates'] == 0 and len(self_test['bundled_models']) == 3
             shutil.copyfile(self_report, reports / 'windows-exe-self-test.json')
             checks.append('Actual bundled ONNX inference: Chinese fixture 3/3; blank fixture 0; all model SHA256 match')
-            licenses = subprocess.run([str(executable), '--licenses'], env=env, cwd=work,
+            licenses_file = work / 'licenses.txt'
+            licenses = subprocess.run([str(executable), '--licenses-file', str(licenses_file)], env=env, cwd=work,
                                       capture_output=True, text=True, encoding='utf-8', timeout=90, check=True)
-            assert 'Apache' in licenses.stdout and 'PYTHON-LICENSE' in licenses.stdout
+            license_text = licenses_file.read_text(encoding='utf-8')
+            assert 'Apache' in license_text and 'PYTHON-LICENSE' in license_text
             checks.append('Embedded third-party license texts readable from EXE')
             ready = work / 'ready.json'
             with (reports / 'windows-exe-server.log').open('w', encoding='utf-8') as log:
