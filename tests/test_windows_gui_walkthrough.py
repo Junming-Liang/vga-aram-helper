@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -179,7 +180,7 @@ class WindowsGuiWalkthroughTests(unittest.TestCase):
         desktop.click.assert_not_called()
 
     def test_nonwindows_reports_failed_and_not_run_never_passed(self):
-        with tempfile.TemporaryDirectory() as directory,patch.object(gui.os,'name','posix'):
+        with tempfile.TemporaryDirectory() as directory,patch.object(gui,'os',SimpleNamespace(name='posix',environ=os.environ)):
             code=gui.main(['--exe','missing.exe','--report-dir',directory])
             report=json.loads((Path(directory)/'windows-gui-walkthrough.json').read_text())
             self.assertEqual(code,1)
