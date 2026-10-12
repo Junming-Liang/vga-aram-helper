@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+private-data*.json
+private/
+reports/*private*
+*.zip
+
+.venv/
+.venv-ocr/
+reports/synthetic-*.png
+reports/ocr-smoke-output.txt

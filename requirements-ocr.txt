@@ -1,0 +1,4 @@
+# Optional CPU-only local screenshot OCR. Install in a virtual environment.
+# Official PyPI wheels; no paid API or API key.
+rapidocr==3.10.0
+onnxruntime==1.31.0
