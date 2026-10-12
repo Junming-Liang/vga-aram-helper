@@ -562,6 +562,8 @@ def main():
         # Nine minutes for work, with a separate bounded cleanup reserve below.
         budget = Deadline(540)
         with smoke_workspace() as work, rejecting_proxy() as (proxy, counts):
+            # Windows TEMP may use an 8.3 alias; updater plans canonicalize paths.
+            work = work.resolve()
             if shutil.disk_usage(work).free < 6 * 1024**3:
                 raise AssertionError('At least 6 GiB free temporary disk space is required')
             native = NativeJob()

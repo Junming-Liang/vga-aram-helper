@@ -34,7 +34,7 @@ class WindowsOtaHarnessTests(unittest.TestCase):
 
     def test_plan_uses_exact_local_copies_and_real_parent_pid(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()  # Match production canonicalization of Windows 8.3 TEMP aliases.
             exe = root / 'VGA-Aram-Helper.exe'
             exe.write_bytes(b'MZlocal unchanged fake fixture; never executed')
             digest = smoke.sha256(exe)
