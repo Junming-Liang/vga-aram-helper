@@ -162,6 +162,25 @@ class NativePackagingTests(unittest.TestCase):
             value=self.geometry_fixture();edit(value)
             with self.assertRaises(RuntimeError):native_smoke.validate_physical_geometry(value,1)
 
+    def test_failed_native_report_exposes_only_bounded_synthetic_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'native.json'
+            self.assertEqual(native_smoke.native_failure_summary(path),{'report_present':False})
+            path.write_text(json.dumps({'status':'failed','error_type':'AssertionError','error':'X'*3000,
+                'error_traceback':'trace'*2000,'checks':['step '+str(i) for i in range(20)],
+                'capture_passed':True,'ocr_passed':'true','image_base64':'not-to-print',
+                'environment':{'SECRET':'not-to-read'}}),encoding='utf-8')
+            result=native_smoke.native_failure_summary(path)
+            self.assertEqual(result['status'],'failed');self.assertEqual(len(result['error']),2000)
+            self.assertEqual(len(result['error_traceback']),4000)
+            self.assertEqual(result['last_completed_checks'],['step '+str(i) for i in range(12,20)])
+            self.assertTrue(result['capture_passed']);self.assertNotIn('ocr_passed',result)
+            self.assertNotIn('image_base64',result);self.assertNotIn('environment',result)
+            path.write_bytes(b'X'*(128*1024+1))
+            self.assertIn('128 KiB',native_smoke.native_failure_summary(path)['diagnostic_error'])
+            path.write_text('{invalid',encoding='utf-8')
+            self.assertIn('diagnostic_error',native_smoke.native_failure_summary(path))
+
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')
         self.assertIn('console=False', spec)

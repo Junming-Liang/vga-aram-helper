@@ -7,7 +7,7 @@ from PySide6 import QtCore,QtWidgets
 from engine import load_data
 from hero_recognition import PortraitMatcher,recognize_frame
 from local_ocr import LocalOCR
-from native_smoke import smoke_dimensions,smoke_pixmap,inspect_smoke_layout
+from native_smoke import smoke_dimensions,smoke_pixmap,inspect_smoke_layout,shrink_smoke_mock
 from native_state import automatic_candidates
 from synthetic_vision import portraits,configure_data
 app=QtWidgets.QApplication([]);widget=QtWidgets.QWidget();widget.winId()
@@ -34,5 +34,8 @@ overlay.tier_labels[0].resize(1,1)
 try:inspect_smoke_layout(overlay)
 except AssertionError:pass
 else:raise AssertionError('Diagnostic accepted deliberately clipped tier label')
+before=widget.size();widget.resize(before.width()-20,before.height()-20);app.processEvents()
+assert widget.size()==before,'Regression premise: fixture pixmap minimum should prevent naive shrink'
+shrink_smoke_mock(widget,image);assert widget.width()<before.width() and widget.height()<before.height()
 widget.close();overlay.close();app.processEvents();assert not widget.isVisible() and not overlay.isVisible()
-print(json.dumps({'status':'passed','scope':'Original Qt-rendered fixture and local OCR only; no Windows capture or physical monitor proof','qt_platform':app.platformName(),'requested_app_scale':float(os.environ.get('QT_SCALE_FACTOR','1')),'qwindow_dpr':dpr,'rendered_physical_size':[pixels.width(),pixels.height()],'layout_checks_passed':True,'clipped_label_rejected':True,'hero':result['hero_observation']['hero'],'recognized':[c['name'] for c in result['automatic_candidates']]},ensure_ascii=False))
+print(json.dumps({'status':'passed','scope':'Original Qt-rendered fixture and local OCR only; no Windows capture or physical monitor proof','qt_platform':app.platformName(),'requested_app_scale':float(os.environ.get('QT_SCALE_FACTOR','1')),'qwindow_dpr':dpr,'rendered_physical_size':[pixels.width(),pixels.height()],'layout_checks_passed':True,'clipped_label_rejected':True,'mock_minimum_released_and_shrunk':True,'hero':result['hero_observation']['hero'],'recognized':[c['name'] for c in result['automatic_candidates']]},ensure_ascii=False))

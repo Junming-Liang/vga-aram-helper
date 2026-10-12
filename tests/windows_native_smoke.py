@@ -90,6 +90,36 @@ def validate_report(result, version, app_scale=1):
     validate_physical_geometry(result, app_scale)
 
 
+def native_failure_summary(path):
+    """Bounded textual diagnostics from this run's OWN synthetic report only.
+
+    This never exposes image bytes, arbitrary artifact entries or environment
+    variables. It is informative only and cannot turn a failed test into a pass.
+    """
+    try:
+        if not path.is_file():
+            return {'report_present': False}
+        if path.stat().st_size > 128 * 1024:
+            return {'report_present': True, 'diagnostic_error': 'Native JSON exceeded 128 KiB'}
+        value = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(value, dict):
+            raise ValueError('Native JSON was not an object')
+        result = {'report_present': True}
+        for name, limit in (('status', 40), ('error_type', 120), ('error', 2000),
+                            ('error_traceback', 4000), ('qt_platform', 80), ('applicationVersion', 40)):
+            if isinstance(value.get(name), str):
+                result[name] = value[name][:limit]
+        if isinstance(value.get('checks'), list):
+            result['last_completed_checks'] = [item[:500] for item in value['checks'][-8:] if isinstance(item, str)]
+        for name in ('native_window', 'capture_passed', 'ocr_passed', 'physical_mock_geometry_passed',
+                     'overlay_layout_passed', 'click_through_passed', 'window_closed'):
+            if type(value.get(name)) is bool:
+                result[name] = value[name]
+        return result
+    except (OSError, ValueError, UnicodeError) as exc:
+        return {'diagnostic_error': type(exc).__name__ + ': native JSON could not be read'}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exe', type=Path, required=True)
@@ -129,6 +159,7 @@ def main():
                         for path in logs.glob('*.txt'):
                             shutil.copyfile(path, reports / (prefix + '-' + path.name))
                 if code != 0:
+                    result['native_failure'] = native_failure_summary(report_path)
                     raise RuntimeError(f'Native EXE exited with code {code}')
                 native = json.loads(report_path.read_text(encoding='utf-8'))
                 validate_report(native, version, float(args.app_scale))

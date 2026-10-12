@@ -11,6 +11,7 @@ import math
 import os
 import sys
 import time
+import traceback
 from PySide6 import QtCore,QtGui,QtWidgets
 from native_state import display_cards
 
@@ -32,6 +33,15 @@ def smoke_pixmap(portrait,cards_path,width,height,dpr):
     if not pixmap.loadFromData(encoded(canvas)):raise RuntimeError('Original mock artwork could not be decoded')
     pixmap.setDevicePixelRatio(dpr)
     return pixmap
+
+
+def shrink_smoke_mock(mock,image):
+    """Release only the owned fixture's pixmap minimum before resize testing."""
+    before=mock.size()
+    image.clear();mock.layout().invalidate();mock.layout().activate()
+    mock.resize(before.width()-20,before.height()-20)
+    QtWidgets.QApplication.processEvents()
+    assert mock.width()<before.width() and mock.height()<before.height(),'Owned diagnostic mock did not shrink'
 
 
 def inspect_smoke_layout(overlay):
@@ -66,7 +76,7 @@ def start_smoke(control,report_path,screenshot_path):
     def save():
         report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
     def fail(exc):
-        report.update(status='failed',error=str(exc));save()
+        report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
         for widget in control._smoke_objects:widget.close()
         control.close();app.exit(1)
     def run(fn):
@@ -207,7 +217,12 @@ def start_smoke(control,report_path,screenshot_path):
         control.state.confirm(names,control.data['augments']);control.last_observation=__import__('time').monotonic();control.last_rect=control.capture.rect(control.target)
         mock.move(mock.x()+7,mock.y()+5);QtWidgets.QApplication.processEvents();control.check_target();assert control.state.confirmed and overlay.isVisible();overlay._verify_rect(control.capture.rect(control.target));checks.append('Real same-size mock translation preserves fresh confirmed identity/offers and repositions overlay inside the new physical client bounds')
         control.last_observation=time.monotonic()-5;control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Expired observations cannot be revived by translating the target window')
-        control.state.confirm(names,control.data['augments']);control.last_observation=time.monotonic();mock.resize(mock.width()-20,mock.height()-20);QtWidgets.QApplication.processEvents();control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Real target size change still invalidates cards pending fresh recognition')
+        control.state.confirm(names,control.data['augments']);control.last_observation=time.monotonic()
+        before_resize=control.capture.rect(control.target);shrink_smoke_mock(mock,image);after_resize=control.capture.rect(control.target)
+        assert after_resize.width<before_resize.width and after_resize.height<before_resize.height,'Actual physical mock size did not shrink'
+        assert inside(work_area,native_rect(int(mock.winId()))),'Resized own mock escaped physical work area'
+        report['resize_physical_before']={'width':before_resize.width,'height':before_resize.height};report['resize_physical_after']={'width':after_resize.width,'height':after_resize.height}
+        control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Actual physical mock size changed after clearing its own artwork minimum; production watchdog hides old cards pending fresh recognition')
         control.state.confirm(names,control.data['augments']);mock.showMinimized();QtWidgets.QApplication.processEvents();control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Real mock minimization hides old cards through production watchdog')
         control.close();mock.close();report['window_closed']=not control.isVisible() and not overlay.isVisible() and not mock.isVisible() and not control.hotkey_registered
         assert report['window_closed'];report['status']='passed';checks.append('Control, overlay and mock closed; timer monitoring and registered hotkey released');save();app.exit(0)
