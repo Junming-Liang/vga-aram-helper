@@ -2,6 +2,8 @@
 
 仓库提供源码验证和单文件 EXE 验收两条手动工作流。测试结果以对应提交的 Actions 日志和报告为准；已有记录见 [验证状态](reports/VALIDATION.md)。
 
+另有手动只读工作流 `Test native Windows OTA transactions`，复用固定 SHA-256 的已发布 EXE，专门测试同版本原生更新事务、并发互斥和版本不符回滚。它不重新发布软件，也不上传大型二进制产物。范围与尚未覆盖的两版本升级/完整下载交接见 [更新说明](UPDATES.md#原生事务专项验证)；实际结果以该次运行报告为准。
+
 ## 单文件 EXE 验收
 
 在 [Build and test Windows EXE](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml) 中选择目标提交，保留 `run_browser_test` 以运行浏览器检查。
