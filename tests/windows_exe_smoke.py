@@ -5,6 +5,7 @@ from contextlib import ExitStack
 import base64
 import hashlib
 import json
+import ntpath
 import os
 from pathlib import Path
 import platform
@@ -16,6 +17,24 @@ import time
 from urllib.request import ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def isolated_windows_environment(environ, work):
+    """A copied Windows environment is a case-sensitive dict; normalize its keys."""
+    env = {key.upper(): value for key, value in environ.items()}
+    for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX'):
+        env.pop(key, None)
+    system_root = env.get('SYSTEMROOT') or env.get('WINDIR')
+    if not system_root or not ntpath.isabs(system_root):
+        raise RuntimeError('Windows SystemRoot/WINDIR must identify the system directory for isolated EXE testing')
+    env['SYSTEMROOT'] = system_root
+    # Windows path syntax is deliberate, so this helper can be regression-tested
+    # on other hosts without ever adding the maintainer's Python to child PATH.
+    env['PATH'] = ';'.join((ntpath.join(system_root, 'System32'), system_root))
+    env['VGA_STATE_DIR'] = str(work / 'state')
+    env['LOCALAPPDATA'] = str(work / 'local-appdata')
+    env['PYTHONUTF8'] = '1'
+    return env
 
 
 def terminate_tree(process):
@@ -53,13 +72,7 @@ def main():
             work = Path(temporary)
             executable = work / 'VGA-Aram-Helper.exe'
             shutil.copyfile(original, executable)
-            env = os.environ.copy()
-            for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX'):
-                env.pop(key, None)
-            env['PATH'] = os.pathsep.join((str(Path(env['SystemRoot']) / 'System32'), env['SystemRoot']))
-            env['VGA_STATE_DIR'] = str(work / 'state')
-            env['LOCALAPPDATA'] = str(work / 'local-appdata')
-            env['PYTHONUTF8'] = '1'
+            env = isolated_windows_environment(os.environ, work)
             # The only program in the working directory is the complete EXE.
             output = subprocess.run([str(executable), '--version'], env=env, cwd=work,
                                     capture_output=True, text=True, encoding='utf-8', timeout=90, check=True)

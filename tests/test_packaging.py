@@ -17,9 +17,39 @@ import model_inventory
 spec = importlib.util.spec_from_file_location('build_windows', ROOT / 'scripts' / 'build_windows.py')
 build_windows = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build_windows)
+smoke_spec = importlib.util.spec_from_file_location('windows_exe_smoke', ROOT / 'tests' / 'windows_exe_smoke.py')
+windows_exe_smoke = importlib.util.module_from_spec(smoke_spec)
+smoke_spec.loader.exec_module(windows_exe_smoke)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_smoke_environment_handles_uppercase_systemroot(self):
+        original = {'SYSTEMROOT': r'C:\Windows', 'PATH': r'C:\Python312', 'TEMP': r'C:\Temp'}
+        result = windows_exe_smoke.isolated_windows_environment(original, Path('work'))
+        self.assertEqual(result['PATH'], r'C:\Windows\System32;C:\Windows')
+        self.assertEqual(result['SYSTEMROOT'], r'C:\Windows')
+        self.assertEqual(result['TEMP'], r'C:\Temp')
+        self.assertEqual(original['PATH'], r'C:\Python312')
+
+    def test_smoke_environment_removes_python_regardless_of_case(self):
+        original = {'SystemRoot': r'C:\Windows', 'Path': r'C:\Python312', 'PythonHome': 'bad',
+                    'PythonPath': 'bad', 'virtual_env': 'bad', 'conda_prefix': 'bad', 'LocalAppData': 'old'}
+        result = windows_exe_smoke.isolated_windows_environment(original, Path('work'))
+        self.assertEqual(result['PATH'], r'C:\Windows\System32;C:\Windows')
+        self.assertEqual(result['LOCALAPPDATA'], str(Path('work') / 'local-appdata'))
+        self.assertEqual(result['VGA_STATE_DIR'], str(Path('work') / 'state'))
+        for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX'):
+            self.assertNotIn(key, result)
+        self.assertTrue(all(key == key.upper() for key in result))
+
+    def test_smoke_environment_accepts_windir_or_fails_closed(self):
+        result = windows_exe_smoke.isolated_windows_environment({'windir': r'D:\Windows'}, Path('work'))
+        self.assertEqual(result['SYSTEMROOT'], r'D:\Windows')
+        self.assertEqual(result['PATH'], r'D:\Windows\System32;D:\Windows')
+        for environ in ({}, {'SYSTEMROOT': 'relative'}):
+            with self.subTest(environ=environ), self.assertRaises(RuntimeError):
+                windows_exe_smoke.isolated_windows_environment(environ, Path('work'))
+
     def test_version_command_has_no_ocr_or_update_dependency(self):
         output = io.StringIO()
         with redirect_stdout(output), self.assertRaises(SystemExit) as result:
