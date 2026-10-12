@@ -156,6 +156,32 @@ class WindowsGuiWalkthroughTests(unittest.TestCase):
         self.assertTrue(gui.intersects([0,0,100,100],[99,99,10,10]))
         self.assertFalse(gui.intersects([0,0,100,100],[100,0,10,10]))
 
+    def test_normal_startup_waits_for_source_and_button_in_one_snapshot(self):
+        button={'name':'开始窗口截图监测','enabled':True}
+        source={'name':'软件 0.3.0 · 来源日期 2026-09-07 · 游戏资料版本 16.17 · 本次启动已校验虎牙海斗 wiki 数据。','enabled':True}
+        stale=[{'name':'正在检查公开数据，首次启动可能需要数十秒…','enabled':True},button]
+        self.assertFalse(gui.normal_startup_ready(stale))
+        self.assertFalse(gui.normal_startup_ready([source,dict(button,enabled=False)]))
+        self.assertTrue(gui.normal_startup_ready([source,button]))
+        self.assertFalse(gui.normal_startup_ready([source,source,button]))
+        for invalid in ('虚构演示 软件 0.3.0 · 来源日期 2026-09-07','资料加载失败 软件 0.3.0 · 来源日期 2026-09-07'):
+            self.assertFalse(gui.normal_startup_ready([dict(source,name=invalid),button]))
+
+    def test_actual_qt_combo_value_contract_and_geometry_order(self):
+        target={'name':'1 选择窗口与英雄','type':'ControlType.ComboBox','value':'请选择你要监测的游戏窗口','rect':[112,170,808,33]}
+        hero={'name':'手动确认英雄','type':'ControlType.ComboBox','value':gui.HERO,'rect':[112,210,884,33]}
+        self.assertEqual(gui.combo_boxes([hero,target]),[target,hero])
+        self.assertEqual(gui.text_values(gui.combo_boxes([hero,target])),['请选择你要监测的游戏窗口',gui.HERO])
+        with self.assertRaises(AssertionError):gui.combo_boxes([target])
+
+    def test_stale_uia_startup_snapshot_is_retried_before_acceptance(self):
+        button={'name':'开始窗口截图监测','enabled':True}
+        ready=[button,{'name':'软件 0.3.0 · 来源日期 2026-09-07','enabled':True}]
+        fixture=Mock();fixture.snapshot.side_effect=[[button],ready]
+        observed=gui.wait_nodes(fixture,Mock(),123,gui.normal_startup_ready,gui.time.monotonic()+2,'not ready')
+        self.assertEqual(observed,ready)
+        self.assertEqual(fixture.snapshot.call_count,2)
+
     def test_clickthrough_requires_event_time_visible_owned_overlay(self):
         event={'hwnd':123,'pid':45,'visible':True,'contains_click':True,'transparent_input':True,
                'extended_style':0x00080000|0x08000000|0x80|0x8|0x20,'observed_at':'actual fixture MouseDown event'}

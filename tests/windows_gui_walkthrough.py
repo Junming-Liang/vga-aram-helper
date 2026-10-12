@@ -252,6 +252,24 @@ def element(nodes, caption=None, kind=None):
 
 
 
+
+
+def combo_boxes(nodes):
+    combos=sorted((n for n in nodes if n['type']=='ControlType.ComboBox'),key=lambda n:n['rect'][1])
+    if len(combos)!=2:
+        raise AssertionError('Expected the normal target and hero UIA combo boxes')
+    return combos
+
+
+def normal_startup_ready(nodes):
+    # UIA enumerates controls sequentially while Qt's load completion is live.
+    # Start can become enabled after the old source label was already sampled;
+    # require both independent readiness observations in one returned snapshot.
+    sources=[n['name'] for n in nodes if '来源日期' in n['name'] and '软件 ' in n['name']]
+    return (any(n['name']=='开始窗口截图监测' and n['enabled'] for n in nodes)
+            and len(sources)==1 and '演示' not in sources[0] and '资料加载失败' not in sources[0])
+
+
 def valid_overlay_click(ack, hwnd, pid):
     event=ack.get('click_overlay') or {}
     required=0x00080000|0x08000000|0x80|0x8|0x20
@@ -641,8 +659,8 @@ def run_walkthrough(original, reports, report, budget):
                 app_hwnd=windows[0]['hwnd'];desktop.activate(app_hwnd)
                 desktop.u.ShowWindow(app_hwnd,3)  # Maximize our app to expose its scrollable controls.
                 nodes=wait_nodes(fixture,desktop,app_hwnd,
-                    lambda ns:any(n['name']=='开始窗口截图监测' and n['enabled'] for n in ns),
-                    budget.until(75),'Normal public-data startup did not enable monitoring')
+                    normal_startup_ready,
+                    budget.until(75),'Normal public-data startup did not expose both ready controls and valid non-demo provenance')
                 source=[n['name'] for n in nodes if '来源日期' in n['name'] and '软件 ' in n['name']]
                 if len(source)!=1 or '演示' in source[0] or '资料加载失败' in source[0]:
                     raise AssertionError('UIA did not expose normal non-demo public-data provenance')
@@ -652,28 +670,34 @@ def run_walkthrough(original, reports, report, budget):
             with stage(report,'target_and_hero') as result:
                 desktop.click_element(app_hwnd,element(nodes,'刷新窗口','Button'))
                 nodes=fixture.snapshot(desktop,app_hwnd)
-                combos=sorted((n for n in nodes if n['type']=='ControlType.ComboBox'),key=lambda n:n['rect'][1])
-                if len(combos)!=2:raise AssertionError('Expected the normal target and hero UIA combo boxes')
+                combos=combo_boxes(nodes)
                 desktop.click_element(app_hwnd,combos[0]);desktop.key(app_hwnd,0x1B);desktop.key(app_hwnd,0x24)
+                nodes=wait_nodes(fixture,desktop,app_hwnd,
+                    lambda ns:text_values(combo_boxes(ns)[:1])==['请选择你要监测的游戏窗口'],
+                    budget.until(3),'Target selector did not acknowledge Home/reset')
                 selected=False
                 for _ in range(32):
+                    previous=text_values(combo_boxes(nodes)[:1])
                     desktop.key(app_hwnd,0x28)
-                    nodes=fixture.snapshot(desktop,app_hwnd)
-                    combos=sorted((n for n in nodes if n['type']=='ControlType.ComboBox'),key=lambda n:n['rect'][1])
-                    if fixture.title in ' '.join(str(v) for v in text_values(combos[:1])):
+                    nodes=wait_nodes(fixture,desktop,app_hwnd,
+                        lambda ns:text_values(combo_boxes(ns)[:1])!=previous,
+                        budget.until(3),'Target selector did not acknowledge the next keyboard selection')
+                    combos=combo_boxes(nodes)
+                    if text_values(combos[:1])==[fixture.title]:
                         selected=True;break
                 if not selected:raise AssertionError('Normal target selector did not expose/select the owned fixture')
                 desktop.click_element(app_hwnd,combos[1]);desktop.type_text(app_hwnd,HERO)
                 desktop.key(app_hwnd,0x0D);desktop.key(app_hwnd,0x1B)
-                nodes=fixture.snapshot(desktop,app_hwnd)
-                if not any(HERO in str(value) for value in text_values(nodes)):
-                    raise AssertionError('Hero keyboard entry was not acknowledged by UIA')
+                nodes=wait_nodes(fixture,desktop,app_hwnd,
+                    lambda ns:text_values(combo_boxes(ns)[1:])==[HERO],
+                    budget.until(3),'Hero keyboard entry was not acknowledged by UIA')
                 result.update(target_title=fixture.title,hero=HERO,input_method='UIA geometry + ordinary SendInput')
             with stage(report,'start_and_ocr') as result:
                 desktop.click_element(app_hwnd,visible_element(fixture,desktop,app_hwnd,'开始窗口截图监测','Button'))
-                nodes=fixture.snapshot(desktop,app_hwnd)
-                if not element(nodes,'停止','Button')['enabled']:
-                    raise AssertionError('Visible Start action did not enable Stop')
+                nodes=wait_nodes(fixture,desktop,app_hwnd,
+                    lambda ns:element(ns,'停止','Button')['enabled']
+                              and element(ns,'确认英雄与三项，显示资料叠加','Button')['enabled'],
+                    budget.until(3),'Visible Start action did not enable Stop and confirmation')
                 desktop.activate(fixture.hwnd)
                 nodes=wait_nodes(fixture,desktop,app_hwnd,
                     lambda ns:all(name in text_values(ns) for name in NAMES)
@@ -685,9 +709,9 @@ def run_walkthrough(original, reports, report, budget):
                 time.sleep(.35)  # Let normal 200 ms foreground-loss invalidation settle.
                 confirm=visible_element(fixture,desktop,app_hwnd,'确认英雄与三项，显示资料叠加','Button')
                 desktop.click_element(app_hwnd,confirm)
-                nodes=fixture.snapshot(desktop,app_hwnd)
-                if not any('名称已手动确认' in n['name'] for n in nodes):
-                    raise AssertionError('Normal confirmation handler did not confirm candidates')
+                nodes=wait_nodes(fixture,desktop,app_hwnd,
+                    lambda ns:any('名称已手动确认' in n['name'] for n in ns),
+                    budget.until(3),'Normal confirmation handler did not confirm candidates')
                 result.update(screenshot=evidence.capture('03-manual-confirmation',app_hwnd),names=NAMES,hero=HERO)
             with stage(report,'overlay_clickthrough') as result:
                 desktop.activate(fixture.hwnd)
@@ -731,19 +755,24 @@ def run_walkthrough(original, reports, report, budget):
                     if len(toggle)!=1:raise AssertionError('Click-through toggle is ambiguous')
                     node=visible_element(fixture,desktop,app_hwnd,toggle[0]['name'],'Button')
                     desktop.click_element(app_hwnd,node)
-                    current=job.windows(target,OVERLAY_TITLE,visible=False)
-                    if len(current)!=1:raise AssertionError('Overlay identity missing after normal toggle')
-                    observed=desktop.overlay_metadata(current[0]['hwnd'])
-                    if bool(observed['extended_style'] & 0x20)!=enabled:
-                        raise AssertionError('Normal toggle did not change the OS transparent-input style')
+                    def toggled(ns):
+                        caption='鼠标穿透：'+('开' if enabled else '关')
+                        if not any(n['type']=='ControlType.Button' and n['name'].startswith(caption) for n in ns):
+                            return False
+                        current=job.windows(target,OVERLAY_TITLE,visible=False)
+                        if len(current)!=1:return False
+                        observed=desktop.overlay_metadata(current[0]['hwnd'])
+                        return bool(observed['extended_style'] & 0x20)==enabled
+                    nodes=wait_nodes(fixture,desktop,app_hwnd,toggled,budget.until(3),
+                                     'Normal toggle did not acknowledge its caption and OS transparent-input style')
                 result['visible_toggle_off_then_on']=True
             with stage(report,'stop') as result:
                 desktop.click_element(app_hwnd,visible_element(fixture,desktop,app_hwnd,'停止','Button'))
-                nodes=fixture.snapshot(desktop,app_hwnd)
-                if element(nodes,'停止','Button')['enabled'] or element(nodes,'确认英雄与三项，显示资料叠加','Button')['enabled']:
-                    raise AssertionError('Normal Stop action left monitoring controls enabled')
-                if not any('监测已停止' in n['name'] for n in nodes) or job.windows(target,OVERLAY_TITLE):
-                    raise AssertionError('Normal Stop action did not hide overlay/report stopped')
+                nodes=wait_nodes(fixture,desktop,app_hwnd,
+                    lambda ns:not element(ns,'停止','Button')['enabled']
+                        and not element(ns,'确认英雄与三项，显示资料叠加','Button')['enabled']
+                        and any('监测已停止' in n['name'] for n in ns) and not job.windows(target,OVERLAY_TITLE),
+                    budget.until(3),'Normal Stop action did not disable controls, hide overlay and report stopped')
                 result['overlay_hidden']=True
             with stage(report,'close') as result:
                 desktop.key(app_hwnd,0x73,(0x12,))  # Alt+F4, normal owned-window close.
