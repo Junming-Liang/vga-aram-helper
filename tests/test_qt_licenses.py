@@ -16,6 +16,26 @@ from scripts.build_windows import assert_archive_inventory, verify_source_checko
 
 
 class QtLicensesTests(unittest.TestCase):
+    def test_windows_git_checkout_preserves_verbatim_notice_bytes(self):
+        relative = Path('packaging/qt-licenses/pyside-setup/LICENSES/Apache-2.0.txt')
+        original = (ROOT / relative).read_bytes()
+        self.assertIn(b'\n', original)
+        self.assertNotIn(b'\r\n', original)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def git(*args):
+                return subprocess.run(['git', '-c', 'core.autocrlf=true', *args], cwd=root,
+                                      check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            git('init')
+            shutil.copyfile(ROOT / '.gitattributes', root / '.gitattributes')
+            (root / relative).parent.mkdir(parents=True)
+            (root / relative).write_bytes(original)
+            git('add', '.gitattributes', relative.as_posix())
+            (root / relative).unlink()
+            git('checkout-index', '--force', '--all')
+            self.assertEqual((root / relative).read_bytes(), original)
+            self.assertEqual(git('show', ':' + relative.as_posix()).stdout, original)
+
     def test_source_archive_requires_clean_tracked_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
