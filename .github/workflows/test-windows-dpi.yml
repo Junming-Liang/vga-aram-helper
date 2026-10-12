@@ -1,0 +1,95 @@
+name: Test Windows overlay scaling
+
+# Manual source-level regression on our own Windows HWNDs. No app release,
+# screenshot, input simulation, display setting change or large artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vga-windows-overlay-scaling-validation
+  cancel-in-progress: false
+
+jobs:
+  overlay-scaling:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install the same pinned QtWidgets runtime used by the application
+        run: python -m pip install --disable-pip-version-check PySide6-Essentials==6.11.2 shiboken6==6.11.2
+      - name: Check geometry harness and pure coordinate regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_windows_dpi_matrix.py' -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p 'test_overlay_geometry.py' -v
+      - name: Extract exact historical v0.3 overlay source
+        run: |
+          @'
+          from pathlib import Path
+          import hashlib, subprocess
+          source = subprocess.run(['git', 'show', '1ce516e967bbe153fa1dcf6e8289abf86185f04c:native_ui.py'], check=True, stdout=subprocess.PIPE).stdout
+          expected = '615f7b4214ada9bdda346841af83271e37e374b8f05bc042b94ecfbdb01fb3ce'
+          if hashlib.sha256(source).hexdigest() != expected:
+              raise SystemExit('Historical source hash mismatch')
+          target = Path('build/dpi-history/native_ui.py')
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_bytes(source)
+          '@ | python -
+      - name: Measure historical source against owned Windows target windows
+        run: python tests/windows_dpi_matrix.py --implementation-file build/dpi-history/native_ui.py --support-root . --report-dir reports --expect historical
+      - name: Require current source to fit or safely hide at controlled Qt scales
+        run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
+      - name: Check bounded geometry evidence storage
+        id: evidence_budget
+        if: ${{ always() }}
+        run: python scripts/check_artifact_budget.py --evidence-only
+      - name: Retain small geometry reports
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dpi-evidence-${{ github.sha }}
+          path: |
+            reports/windows-dpi-*.json
+            reports/windows-dpi-*.log
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Summarize measured geometry and limits
+        if: ${{ always() }}
+        run: |
+          '## Windows overlay scaling regression' >> $env:GITHUB_STEP_SUMMARY
+          'Actual source QtWidgets and owned Win32 windows, using per-process QT_SCALE_FACTOR. This is not a frozen-EXE test, changed OS scaling, real 4K/ultrawide or mixed-monitor validation, or game compatibility evidence.' >> $env:GITHUB_STEP_SUMMARY
+          @'
+          import json, os
+          from pathlib import Path
+          for path in sorted(Path('reports').glob('windows-dpi-*-matrix.json')):
+              source = json.loads(path.read_text(encoding='utf-8'))
+              summary = {key: source.get(key) for key in ('status', 'scope', 'source_metadata', 'gate_errors', 'error')}
+              summary['children'] = []
+              for child in source.get('children', []):
+                  item = {key: child.get(key) for key in ('qt_scale_factor', 'status', 'qt_platform', 'process_exit_code', 'owned_windows_destroyed', 'error')}
+                  item['cases'] = [{key: row.get(key) for key in ('id', 'expectation', 'visible', 'compact', 'target_dpi', 'overlay_dpi', 'qt_window_dpr', 'target_client_physical', 'overlay_window_physical', 'qt_logical_size', 'candidate_issues', 'error')} for row in child.get('cases', [])]
+                  summary['children'].append(item)
+              text = json.dumps(summary, ensure_ascii=False, indent=2)
+              if len(text.encode('utf-8')) > 150000:
+                  raise SystemExit('Geometry summary exceeded its size bound')
+              print(text)
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+                  output.write('\n### ' + path.name + '\n' + text + '\n')
+          '@ | python -
