@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.3.0 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.0 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.3.0
+  group: vga-native-preview-v0.4.0
   cancel-in-progress: false
 
 jobs:
@@ -84,7 +84,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-preview-evidence-${{ github.sha }}
-          path: reports/windows-*
+          path: |
+            reports/windows-*
+            reports/hero-recognition-genuine.json
           if-no-files-found: error
           retention-days: 1
       - name: Write run summary
