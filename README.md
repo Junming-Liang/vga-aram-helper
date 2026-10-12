@@ -1,14 +1,27 @@
+<!-- project-header:start -->
 <p align="center">
-  <img src="assets/branding/vga-icon-128.png" width="96" height="96" alt="VGA乱斗助手图标">
+  <img src="assets/branding/vga-icon-128.png" width="112" height="112" alt="VGA乱斗助手图标">
 </p>
+<h1 align="center">VGA乱斗助手</h1>
+<p align="center"><strong>英雄专属三选一 · 本地截图识别 · 公开数据参考</strong></p>
+<p align="center">
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.3.0-0891b2" alt="源码版本 v0.3.0"></a>
+  <a href="WINDOWS_EXECUTABLE.md"><img src="https://img.shields.io/badge/status-in%20development-d97706" alt="开发中，尚未正式发布"></a>
+</p>
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="WINDOWS_EXECUTABLE.md">Windows 指南</a> ·
+  <a href="DATA.md">推荐与统计</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a> ·
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/issues">反馈问题</a>
+</p>
+<!-- project-header:end -->
 
-# VGA乱斗助手
+选好英雄，填入当前回合的三个海克斯，即可查看英雄专属推荐顺位、评级和统计数据。免费、开源，无需登录；截图识别在本机运行，不需要 AI 订阅或 API key。
 
-英雄海克斯三选一参考工具。选好英雄，填入当前回合的三个海克斯，即可查看英雄专属推荐顺位、评级和统计数据。
-
-免费、开源，无需登录。截图识别在本机运行，不需要 AI 订阅或 API key。
-
-[快速开始](#快速开始) · [Windows 便携版](WINDOWS_EXECUTABLE.md) · [参与贡献](CONTRIBUTING.md) · [反馈问题](https://github.com/Junming-Liang/vga-aram-helper/issues)
+CI 徽章对应最近一次手动构建与测试，不代表游戏内适配已经验收。当前尚无正式 Release。
 
 ## 功能
 
