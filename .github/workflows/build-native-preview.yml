@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.0 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.1 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.0
+  group: vga-native-preview-v0.4.1
   cancel-in-progress: false
 
 jobs:
@@ -75,6 +75,8 @@ jobs:
         run: python tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe --browser
       - name: Test actual native overlay against a synthetic mock window
         run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Test owned client-to-game screenshot selection handoff
+        run: python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe
       - name: Always check the small-evidence artifact budget
         id: evidence_budget
         if: ${{ always() }}
@@ -87,6 +89,7 @@ jobs:
           path: |
             reports/windows-*
             reports/hero-recognition-genuine.json
+            reports/champion-select-genuine.json
           if-no-files-found: error
           retention-days: 1
       - name: Write run summary
