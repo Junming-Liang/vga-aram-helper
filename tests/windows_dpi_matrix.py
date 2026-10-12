@@ -69,6 +69,37 @@ def expectation_for(case, scale):
     return case[4]
 
 
+def translation_tolerance_px(delta, dpr):
+    """A capped position-only allowance for a nonintegral Qt logical move.
+
+    Integral logical displacements remain exact. This narrow allowance is at
+    most ONE physical pixel, never a general layout or containment tolerance.
+    """
+    if not isinstance(dpr, (int, float)) or isinstance(dpr, bool) or not math.isfinite(dpr) or dpr <= 0:
+        raise ValueError('Translation requires a finite positive effective DPR')
+    logical_delta = delta / dpr
+    return 0 if math.isclose(logical_delta, round(logical_delta), rel_tol=0, abs_tol=1e-9) else 1
+
+
+def translation_matches(before, after):
+    dpr = before.get('qt_window_dpr')
+    if (not isinstance(dpr, (int, float)) or isinstance(dpr, bool)
+            or not math.isfinite(dpr) or dpr <= 0 or after.get('qt_window_dpr') != dpr):
+        return False
+    a, b = before['overlay_window_physical'], after['overlay_window_physical']
+    ta, tb = before['target_client_physical'], after['target_client_physical']
+    if any(a[k] != b[k] or ta[k] != tb[k] for k in ('width', 'height')):
+        return False
+    for axis in ('x', 'y'):
+        measured_target_delta = tb[axis] - ta[axis]
+        # The fixture itself must have made the requested physical translation.
+        if measured_target_delta != 5:
+            return False
+        if abs((b[axis] - a[axis]) - measured_target_delta) > translation_tolerance_px(measured_target_delta, dpr):
+            return False
+    return True
+
+
 def case_issues(row):
     """Fail closed: hidden required cases, clipped children and stale UI fail."""
     issues = []
@@ -147,8 +178,7 @@ def validate_matrix(report, expect):
             if cases[0].get('overlay_window_physical') != cases[1].get('overlay_window_physical'):
                 errors.append(prefix + 'repeat_placement_drifted')
             if len(cases) >= 3 and all(r.get('visible') for r in cases[:3]):
-                a, b = cases[0]['overlay_window_physical'], cases[2]['overlay_window_physical']
-                if b != dict(a, x=a['x'] + 5, y=a['y'] + 5):
+                if not translation_matches(cases[0], cases[2]):
                     errors.append(prefix + 'pure_translation_changed_overlay_size_or_offset')
     if expect == 'historical':
         # Must observe a high-scale layout/geometry regression in a required-fit

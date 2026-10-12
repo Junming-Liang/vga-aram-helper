@@ -2,7 +2,7 @@
 import copy
 import unittest
 from windows_dpi_matrix import (CASES, SCALES, SCOPE, EXPECTED_CARD_NAMES, EXPECTED_TIERS, case_issues,
-    clean_child_environment, contains, expectation_for, rectangle, validate_matrix)
+    clean_child_environment, contains, expectation_for, rectangle, translation_matches, translation_tolerance_px, validate_matrix)
 
 
 def good_row(case, scale):
@@ -119,6 +119,68 @@ class Gate(unittest.TestCase):
     def test_source_scope_cannot_be_overclaimed(self):
         report=good_matrix();report['scope']['real_game_or_vanguard_tested']=True
         self.assertIn('not_actual_windows_source_scope',validate_matrix(report,'candidate'))
+
+
+class TranslationQuantization(unittest.TestCase):
+    def measured_pair(self, dpr, before_rect, after_rect):
+        before, after = good_row(CASES[0], str(dpr)), good_row(CASES[2], str(dpr))
+        before['overlay_window_physical'] = rectangle(*before_rect)
+        after['overlay_window_physical'] = rectangle(*after_rect)
+        return before, after
+
+    def test_actual_windows_150_percent_position_rounding(self):
+        pair = self.measured_pair(1.5, (29,228,927,366), (33,233,927,366))
+        self.assertTrue(translation_matches(*pair))
+
+    def test_actual_windows_200_percent_position_rounding(self):
+        pair = self.measured_pair(2, (34,34,916,554), (40,40,916,554))
+        self.assertTrue(translation_matches(*pair))
+
+    def test_only_nonintegral_logical_moves_allow_one_physical_pixel(self):
+        self.assertEqual([0,0,1,1,0], [translation_tolerance_px(5, float(s)) for s in SCALES])
+        self.assertEqual(1, translation_tolerance_px(5, 4))  # Always capped.
+        self.assertEqual(0, translation_tolerance_px(0, 2))
+
+    def test_two_physical_pixel_drift_fails_each_axis_and_direction(self):
+        for dpr in (1.5, 2):
+            for axis in ('x','y'):
+                for drift in (-2,2):
+                    before, after = self.measured_pair(dpr, (29,100,900,200), (34,105,900,200))
+                    after['overlay_window_physical'][axis] += drift
+                    self.assertFalse(translation_matches(before, after))
+
+    def test_integral_logical_moves_reject_one_pixel_drift(self):
+        for dpr in (1,1.25,2.5):
+            before, after = self.measured_pair(dpr, (29,100,900,200), (35,105,900,200))
+            self.assertFalse(translation_matches(before, after))
+
+    def test_size_change_gets_no_tolerance(self):
+        for dimension in ('width','height'):
+            before, after = self.measured_pair(2, (34,34,916,554), (40,40,916,554))
+            after['overlay_window_physical'][dimension] += 1
+            self.assertFalse(translation_matches(before, after))
+
+    def test_dpr_change_cannot_be_masked_as_translation(self):
+        before, after = self.measured_pair(2, (34,34,916,554), (40,40,916,554))
+        after['qt_window_dpr'] = 1.5
+        self.assertFalse(translation_matches(before, after))
+
+    def test_target_must_actually_move_five_physical_pixels(self):
+        before, after = self.measured_pair(2, (34,34,916,554), (40,40,916,554))
+        after['target_client_physical']['x'] = before['target_client_physical']['x']
+        self.assertFalse(translation_matches(before, after))
+
+    def test_measured_pairs_pass_matrix_gate_without_weakening_repeated_placement(self):
+        report = good_matrix()
+        for index, dpr, a, b in ((2,1.5,(29,228,927,366),(33,233,927,366)),
+                                  (3,2,(34,34,916,554),(40,40,916,554))):
+            before, after = self.measured_pair(dpr,a,b)
+            rows = report['children'][index]['cases']
+            rows[0], rows[2] = before, after
+            rows[1]['overlay_window_physical'] = dict(before['overlay_window_physical'])
+        self.assertEqual([],validate_matrix(report,'candidate'))
+        report['children'][3]['cases'][1]['overlay_window_physical']['x'] += 1
+        self.assertIn('2:repeat_placement_drifted',validate_matrix(report,'candidate'))
 
 
 class Environment(unittest.TestCase):
