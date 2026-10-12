@@ -29,6 +29,14 @@
 
 普通构建在全部检查通过后上传 EXE、清单、校验文件和许可文件。专用预览发布工作流则在同一任务最后一步直接发布经校验的 prerelease，不额外上传大型 Actions artifact；只保留预算允许的小型证据。失败时仅上传可用的测试证据。Artifact 保留一天，需及时下载；具体命名见 [Windows 构建指南](WINDOWS_EXECUTABLE.md)。
 
+## v0.4.2 缩放验证
+
+[发布测试第 8 次运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)对应提交 `151bb0a5d0a73946bad5e603c8f07373ed19248e`。同一个 EXE 在 `QT_SCALE_FACTOR=1/1.5/2` 下分别完成原生捕获、OCR、自动英雄、三个资料卡布局、状态失效与关闭检查。每次使用固定 960×600 物理像素的原创模拟窗口，位于 1024×728 像素工作区内，叠加层严格位于其客户区内。
+
+同次构建另运行五档进程缩放的源码矩阵，共 35 个窗口用例，覆盖重复定位、窗口平移、紧凑布局、过小窗口隐藏与恢复。非整数逻辑位移允许至多一个物理像素的坐标舍入；尺寸、重复定位和边界检查保持严格。该矩阵的实现文件哈希与同版源码 ZIP 一致。
+
+这些检查未更改 Windows 显示设置，不能证明真实多显示器 DPI、完整可见的 4K 布局、实战 OCR 或视觉字体质量。用户报告的具体尺寸错误尚未复现到其原始配置。
+
 ## 源码验证
 
 [Manual Windows validation](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-validation.yml) 适合只检查源码、不打包 EXE 的改动：
