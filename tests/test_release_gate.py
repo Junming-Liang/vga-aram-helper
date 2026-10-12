@@ -21,12 +21,40 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.4.1'
+VERSION = '0.4.2'
 
 
 def current_provenance():
     return {'repository': gate.REPOSITORY, 'source_sha': SHA, 'run_id': RUN_ID, 'run_attempt': RUN_ATTEMPT,
             'workflow': gate.PREVIEW_WORKFLOW, 'event': 'workflow_dispatch', 'branch': 'main'}
+
+
+def source_matrix_fixture():
+    """Original synthetic report data; no Qt or Windows runtime is invoked."""
+    harness = gate.dpi_matrix
+    children = []
+    for scale in harness.SCALES:
+        rows = []
+        for case in harness.CASES:
+            name, width, height, offset, _ = case
+            expectation = harness.expectation_for(case, scale)
+            shown = expectation != 'hidden'
+            rows.append(dict(id=name, expectation=expectation, visible=shown,
+                target_fully_onscreen=True, target_native_visible=True, same_process_owned_windows=True,
+                target_pmv2=True, overlay_pmv2=True, target_dpi=96,
+                qt_window_dpr=float(scale), target_qt_scale_mismatch=float(scale) != 1.,
+                target_client_physical=harness.rectangle(10 + offset, 10 + offset, width, height),
+                overlay_window_physical=harness.rectangle(20 + offset, 20 + offset, min(width - 20, 900), min(height - 20, 200)),
+                geometry_mapping_matches=True, layout_issues=[], visible_card_count=3 if shown else 0,
+                visible_tier_count=3 if shown else 0,
+                visible_card_names=list(harness.EXPECTED_CARD_NAMES) if shown else [],
+                visible_tier_text=list(harness.EXPECTED_TIERS) if shown else [],
+                error=None if shown else 'Layout does not fit', error_type=None if shown else 'CaptureUnavailable'))
+        children.append(dict(qt_scale_factor=scale, status='completed', process_exit_code=0,
+            qt_platform='windows', frozen=False, process_pmv2=True, owned_windows_destroyed=True,
+            cases=rows, timed_out=False))
+    return dict(schema_version=1, status='candidate_passed', expect='candidate',
+        scope=copy.deepcopy(harness.SCOPE), os_name='nt', gate_errors=[], children=children)
 
 
 class ReleaseFixture(unittest.TestCase):
@@ -68,15 +96,29 @@ class ReleaseFixture(unittest.TestCase):
                          'bundled_models': models}
         self.native_smoke = {'status': 'passed', 'executable_sha256': self.hash, 'applicationVersion': VERSION,
                              'process_exited': True, 'native_report': 'windows-native-overlay.json',
-                             'native_screenshot': 'windows-native-overlay.png'}
+                             'native_screenshot': 'windows-native-overlay.png', 'requested_app_scale': 1.0}
         self.native = {'status': 'passed', 'backend': 'qtwidgets', 'frozen': True, 'qt_platform': 'windows',
                        'applicationVersion': VERSION, 'native_window': True, 'window_closed': True,
                        'capture_passed': True, 'ocr_passed': True, 'click_through_passed': True,
                        'screenshot_method': 'Qt QWidget.grab synthetic mock and overlay composite',
                        'source_tier_display_passed': True, 'source_tier_hero_specific': True, 'source_tier_missing_passed': True,
                        'source_tier_screen_order_preserved': True, 'source_tier_no_winrate_display': True,
-                       'source_tier_rendered': ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3']}
+                       'source_tier_rendered': ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+                       'recognized': ['星火共鸣', '晶盾回路', '风步微光'],
+                       'requested_app_scale': 1.0, 'mock_qwindow_dpr': 1.0, 'overlay_qwindow_dpr': 1.0,
+                       'desktop_work_area_physical': dict(x=0, y=0, width=1024, height=720),
+                       'mock_window_physical': dict(x=20, y=20, width=960, height=600),
+                       'clientRect': dict(x=20, y=20, width=960, height=600),
+                       'overlay_window_physical': dict(x=40, y=200, width=920, height=400),
+                       'overlay_compact': False, 'physical_mock_geometry_passed': True, 'overlay_layout_passed': True}
         self.native.update(dict.fromkeys(gate.NATIVE_AUTOMATION_FIELDS, True))
+        self.extra_scale_smokes, self.extra_natives = {}, {}
+        for scale, prefix in gate.NATIVE_SCALES[1:]:
+            self.extra_scale_smokes[prefix] = dict(self.native_smoke, requested_app_scale=scale,
+                native_report=prefix + '-overlay.json', native_screenshot=prefix + '-overlay.png')
+            self.extra_natives[prefix] = copy.deepcopy(self.native)
+            self.extra_natives[prefix].update(requested_app_scale=scale, mock_qwindow_dpr=scale,
+                overlay_qwindow_dpr=scale, overlay_compact=scale == 2.)
         self.selection_smoke = {'status': 'passed', 'executable_sha256': self.hash, 'applicationVersion': VERSION,
                                 'process_exited': True, 'owned_processes_exited': True, 'game_launched_after_selection_request': True, 'native_report': 'windows-selection-handoff.json'}
         self.selection = {'status': 'passed', 'backend': 'qtwidgets', 'frozen': True, 'qt_platform': 'windows', 'applicationVersion': VERSION}
@@ -109,11 +151,17 @@ class ReleaseFixture(unittest.TestCase):
         source_patch.start()
         self.addCleanup(source_patch.stop)
         source = self.release / f'vga-aram-helper-{VERSION}-source.zip'
+        self.source_entries = {name: b'Unit-test source fixture' for name in
+            ('launcher.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py',
+             'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py',
+             'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
+             'scripts/build_windows.py', 'tests/windows_dpi_matrix.py', 'packaging/VGA-Aram-Helper.spec')}
+        for name in gate.DPI_SOURCE_FILES:
+            self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
         with zipfile.ZipFile(source, 'w') as archive:
             archive.comment = SHA.encode('ascii')
-            for name in ('launcher.py', 'native_ui.py', 'native_state.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
-                         'scripts/build_windows.py', 'packaging/VGA-Aram-Helper.spec'):
-                archive.writestr(name, 'Unit-test source fixture')
+            for name, data in self.source_entries.items():
+                archive.writestr(name, data)
         self.access = {'source_commit': SHA, 'application_source': {'filename': source.name,
                        'size': source.stat().st_size, 'sha256': gate.digest(source)}, 'qt_sources': qt_sources}
         self.build['source_access'] = copy.deepcopy(self.access)
@@ -122,10 +170,13 @@ class ReleaseFixture(unittest.TestCase):
         self.selection_genuine['implementation_sha256'] = {'champion_select.py': hashlib.sha256(b'Unit-test source fixture').hexdigest()}
         self.genuine = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
         self.genuine['implementation_sha256'] = dict.fromkeys(('hero_recognition.py', 'hero_portraits.py'), hashlib.sha256(b'Unit-test source fixture').hexdigest())
+        self.dpi_report = source_matrix_fixture()
+        self.dpi_report['source_metadata'] = [dict(path='D:\\a\\vga-aram-helper\\vga-aram-helper\\' + name,
+            sha256=hashlib.sha256(self.source_entries[name]).hexdigest()) for name in gate.DPI_SOURCE_FILES]
         self.write_reports()
-        for name in ('windows-exe-ui.png', 'windows-native-overlay.png'):
-            (self.evidence / name).write_bytes(self.make_png())
-        for name in ('windows-exe-self-test.log', 'windows-exe-server.log', 'windows-native-process.log', 'windows-build-environment.txt'):
+        for number, name in enumerate(name for name in gate.EVIDENCE_NAMES if name.endswith('.png')):
+            (self.evidence / name).write_bytes(self.make_png(pixels=(b'\x00' + bytes([number, 34, 51]) * 2) * 2))
+        for name in (name for name in gate.EVIDENCE_NAMES if name.endswith('.log') or name == 'windows-build-environment.txt'):
             (self.evidence / name).write_text('fixture\n', encoding='utf-8')
 
     @staticmethod
@@ -157,6 +208,10 @@ class ReleaseFixture(unittest.TestCase):
         self.write_json(self.evidence / 'windows-exe-self-test.json', self.selftest)
         self.write_json(self.evidence / 'windows-native-smoke.json', self.native_smoke)
         self.write_json(self.evidence / 'windows-native-overlay.json', self.native)
+        for _, prefix in gate.NATIVE_SCALES[1:]:
+            self.write_json(self.evidence / (prefix + '-smoke.json'), self.extra_scale_smokes[prefix])
+            self.write_json(self.evidence / (prefix + '-overlay.json'), self.extra_natives[prefix])
+        self.write_json(self.evidence / 'windows-dpi-candidate-matrix.json', self.dpi_report)
         self.write_json(self.evidence / 'windows-artifact-budget.json', self.budget)
 
     def verify(self, **kwargs):
@@ -165,14 +220,219 @@ class ReleaseFixture(unittest.TestCase):
         args.update(kwargs)
         return gate.verify(**args)
 
+    def native_reports(self):
+        return [(1.0, 'windows-native', self.native_smoke, self.native)] + [
+            (scale, prefix, self.extra_scale_smokes[prefix], self.extra_natives[prefix])
+            for scale, prefix in gate.NATIVE_SCALES[1:]]
+
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.4.1')
+        self.assertEqual(result['tag'], 'v0.4.2')
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
+        self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
+        self.assertTrue(all(row['overlay_layout_passed'] for row in result['native_scale_summary']))
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
             self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)
+
+    def test_each_frozen_scale_requires_every_old_and_new_native_flag(self):
+        for scale, _, _, native in self.native_reports():
+            for field in (*gate.NATIVE_REQUIRED_FIELDS, *gate.NATIVE_AUTOMATION_FIELDS, 'physical_mock_geometry_passed'):
+                for bad in (None, False, 1, 'true'):
+                    native[field] = bad
+                    self.write_reports()
+                    with self.subTest(scale=scale, field=field, bad=bad), self.assertRaises(gate.VerificationError):
+                        self.verify()
+                native.pop(field)
+                self.write_reports()
+                with self.subTest(scale=scale, missing=field), self.assertRaises(gate.VerificationError):
+                    self.verify()
+                native[field] = True
+
+    def test_each_frozen_scale_requires_exact_same_exe_and_own_evidence_names(self):
+        for scale, _, smoke, native in self.native_reports():
+            for field, bad in [('executable_sha256', '0' * 64), ('applicationVersion', '0.4.1'),
+                               ('process_exited', False), ('status', 'failed'), ('error', None),
+                               ('native_report', 'other-overlay.json'), ('native_screenshot', 'other-overlay.png')]:
+                original = copy.deepcopy(smoke)
+                smoke[field] = bad
+                self.write_reports()
+                with self.subTest(scale=scale, field=field), self.assertRaises(gate.VerificationError): self.verify()
+                smoke.clear(); smoke.update(original)
+            for field, bad in [('frozen', False), ('qt_platform', 'offscreen'), ('backend', 'browser'),
+                               ('applicationVersion', '0.4.1'), ('status', 'failed'), ('error', None),
+                               ('recognized', ['星火共鸣', '晶盾回路']), ('source_tier_rendered', ['T1', 'T2', 'T3'])]:
+                original = copy.deepcopy(native)
+                native[field] = bad
+                self.write_reports()
+                with self.subTest(scale=scale, field=field), self.assertRaises(gate.VerificationError): self.verify()
+                native.clear(); native.update(original)
+
+    def test_requested_scales_and_effective_dprs_are_numeric_finite_and_exact(self):
+        for scale, _, smoke, native in self.native_reports():
+            for report in (smoke, native):
+                for bad in (None, True, str(scale), scale + .01, float('nan'), float('inf')):
+                    report['requested_app_scale'] = bad
+                    self.write_reports()
+                    with self.subTest(scale=scale, requested=bad), self.assertRaises(gate.VerificationError): self.verify()
+                report['requested_app_scale'] = scale
+            for field in ('mock_qwindow_dpr', 'overlay_qwindow_dpr'):
+                for bad in (None, True, str(scale), 0, scale + .011, float('nan'), float('inf')):
+                    native[field] = bad
+                    self.write_reports()
+                    with self.subTest(scale=scale, field=field, bad=bad), self.assertRaises(gate.VerificationError): self.verify()
+                native[field] = scale
+            for bad in (None, 0, 1, 'false'):
+                native['overlay_compact'] = bad
+                self.write_reports()
+                with self.subTest(scale=scale, compact=bad), self.assertRaises(gate.VerificationError): self.verify()
+            native['overlay_compact'] = scale == 2.
+
+    def test_effective_dpr_small_measurement_tolerance_is_bounded(self):
+        for scale, _, _, native in self.native_reports():
+            native['mock_qwindow_dpr'] = scale + .009
+            native['overlay_qwindow_dpr'] = scale - .009
+        self.write_reports()
+        self.verify()
+
+    def test_each_scale_requires_fixed_physical_size_and_strict_nested_containment(self):
+        for scale, _, _, native in self.native_reports():
+            mutations = [
+                ('clientRect', 'width', 640), ('clientRect', 'height', 400),
+                ('clientRect', 'x', 19), ('clientRect', 'y', 21),
+                ('mock_window_physical', 'x', -1), ('mock_window_physical', 'y', -1),
+                ('mock_window_physical', 'width', 2000), ('mock_window_physical', 'height', 2000),
+                ('overlay_window_physical', 'x', 20), ('overlay_window_physical', 'y', 20),
+                ('overlay_window_physical', 'x', 60), ('overlay_window_physical', 'y', 220),
+                ('overlay_window_physical', 'width', 961), ('overlay_window_physical', 'height', 601),
+            ]
+            for rect, field, bad in mutations:
+                old = native[rect][field]
+                native[rect][field] = bad
+                self.write_reports()
+                with self.subTest(scale=scale, rect=rect, field=field), self.assertRaises(gate.VerificationError): self.verify()
+                native[rect][field] = old
+            for rect in ('desktop_work_area_physical', 'mock_window_physical', 'clientRect', 'overlay_window_physical'):
+                original = copy.deepcopy(native[rect])
+                for bad in (None, {}, dict(original, x=True), dict(original, x=1.5), dict(original, width=0),
+                            dict(original, height=-1), dict(original, width='960'), dict(original, extra=1)):
+                    native[rect] = bad
+                    self.write_reports()
+                    with self.subTest(scale=scale, rect=rect, bad=bad), self.assertRaises(gate.VerificationError): self.verify()
+                native[rect] = original
+
+    def test_all_scale_files_and_source_matrix_are_mandatory(self):
+        names = [name for name in gate.EVIDENCE_NAMES if name.startswith(('windows-native', 'windows-dpi-'))]
+        self.assertEqual(len(names), 13)
+        for name in names:
+            path = self.evidence / name
+            saved = path.read_bytes()
+            path.unlink()
+            with self.subTest(name=name), self.assertRaises(gate.VerificationError): self.verify()
+            path.write_bytes(saved)
+
+    def test_each_scale_png_is_valid_distinct_and_only_default_is_standalone(self):
+        original_png = (self.evidence / 'windows-native-overlay.png').read_bytes()
+        for _, prefix in gate.NATIVE_SCALES[1:]:
+            path = self.evidence / (prefix + '-overlay.png')
+            saved = path.read_bytes()
+            for bad in (b'not a PNG', original_png):
+                path.write_bytes(bad)
+                with self.subTest(prefix=prefix, bad=bad[:8]), self.assertRaises(gate.VerificationError): self.verify()
+            path.write_bytes(saved)
+        result = self.verify()
+        self.assertEqual([row['name'] for row in result['assets'] if row['name'].endswith('.png')], ['windows-native-overlay.png'])
+
+    def test_source_matrix_identity_scope_and_full_pure_validation_are_required(self):
+        original = copy.deepcopy(self.dpi_report)
+        for field, bad in [('schema_version', True), ('status', 'historical_regression_observed'), ('expect', 'historical'),
+                           ('os_name', 'posix'), ('gate_errors', ['regression']), ('error', None),
+                           ('scope', dict(original['scope'], frozen_executable_tested=True)), ('children', [])]:
+            self.dpi_report = dict(original, **{field: bad})
+            self.write_reports()
+            with self.subTest(field=field), self.assertRaises(gate.VerificationError): self.verify()
+        for mutation in ('missing_scale', 'offscreen', 'frozen', 'cleanup', 'layout_clipped', 'hidden_required',
+                         'card_missing', 'changed_tier', 'placement_drift', 'translation_drift', 'wrong_dpr',
+                         'changed_fixture', 'escaped_overlay', 'malformed_case'):
+            self.dpi_report = copy.deepcopy(original)
+            child = self.dpi_report['children'][3]
+            row = child['cases'][0]
+            if mutation == 'missing_scale': self.dpi_report['children'].pop()
+            elif mutation == 'offscreen': child['qt_platform'] = 'offscreen'
+            elif mutation == 'frozen': child['frozen'] = True
+            elif mutation == 'cleanup': child['owned_windows_destroyed'] = False
+            elif mutation == 'layout_clipped': row['layout_issues'] = ['clipped']
+            elif mutation == 'hidden_required': row.update(visible=False, error='small', error_type='CaptureUnavailable')
+            elif mutation == 'card_missing': row['visible_card_count'] = 2
+            elif mutation == 'changed_tier': row['visible_tier_text'].reverse()
+            elif mutation == 'placement_drift': child['cases'][1]['overlay_window_physical']['x'] += 1
+            elif mutation == 'translation_drift': child['cases'][2]['overlay_window_physical']['x'] += 2
+            elif mutation == 'wrong_dpr': row['qt_window_dpr'] = 1.
+            elif mutation == 'changed_fixture': row['target_client_physical']['width'] = 480
+            elif mutation == 'escaped_overlay': row['overlay_window_physical']['x'] = -50
+            else: row.pop('target_client_physical')
+            self.write_reports()
+            with self.subTest(mutation=mutation), self.assertRaises(gate.VerificationError): self.verify()
+
+    def test_source_matrix_requires_exact_four_release_source_hashes(self):
+        original = copy.deepcopy(self.dpi_report['source_metadata'])
+        for bad in ([], original[:-1], original + [original[0]], [None] * 4,
+                    [dict(row, sha256='0' * 64) for row in original],
+                    [dict(row, path=row['path'] + '.bak') for row in original]):
+            self.dpi_report['source_metadata'] = bad
+            self.write_reports()
+            with self.subTest(metadata=bad), self.assertRaises(gate.VerificationError): self.verify()
+        for field, bad in [('path', '../native_ui.py'), ('path', original[1]['path']),
+                           ('sha256', original[1]['sha256']), ('sha256', True)]:
+            self.dpi_report['source_metadata'] = copy.deepcopy(original)
+            self.dpi_report['source_metadata'][0][field] = bad
+            self.write_reports()
+            with self.subTest(field=field, bad=bad), self.assertRaises(gate.VerificationError): self.verify()
+        self.dpi_report['source_metadata'] = [dict(row, path=row['path'].replace('\\', '/')) for row in original]
+        self.write_reports()
+        self.verify()
+
+    def test_source_matrix_hashes_cannot_fuzz_lf_crlf_or_run_archived_code(self):
+        source = self.release / self.access['application_source']['filename']
+        path = self.evidence / 'windows-dpi-candidate-matrix.json'
+        for name in gate.DPI_SOURCE_FILES:
+            entries = copy.deepcopy(self.source_entries)
+            entries[name] = entries[name].replace(b'\r\n', b'\n')
+            # This intentionally invalid Python must never be imported/executed.
+            entries['tests/windows_dpi_matrix.py'] = b'raise AssertionError("Archive code executed")\n'
+            with zipfile.ZipFile(source, 'w') as archive:
+                for item, data in entries.items(): archive.writestr(item, data)
+            with self.subTest(name=name), self.assertRaises(gate.VerificationError):
+                gate.verify_dpi_matrix(path, source)
+        with zipfile.ZipFile(source, 'w') as archive:
+            for item, data in self.source_entries.items(): archive.writestr(item, data)
+        gate.verify_dpi_matrix(path, source)
+
+    def test_overlay_geometry_and_matrix_harness_are_required_source_inputs(self):
+        source = self.release / self.access['application_source']['filename']
+        for missing in ('overlay_geometry.py', 'screen_capture.py', 'tests/windows_dpi_matrix.py'):
+            with zipfile.ZipFile(source, 'w') as archive:
+                archive.comment = SHA.encode()
+                for name, data in self.source_entries.items():
+                    if name != missing: archive.writestr(name, data)
+            self.access['application_source'].update(size=source.stat().st_size, sha256=gate.digest(source))
+            self.build['source_access'] = copy.deepcopy(self.access)
+            self.write_json(self.release / 'source-access.json', self.access)
+            self.write_reports()
+            with self.subTest(missing=missing), self.assertRaises(gate.VerificationError): self.verify()
+
+    def test_scaling_notes_preserve_the_confirmed_fix_and_unverified_user_error_limits(self):
+        self.verify()
+        notes = (self.output / 'release-notes.txt').read_text()
+        for phrase in ('confirmed Qt logical/Win32 physical coordinate mismatch', 'rigid overlay layout',
+                       'user-reported exact error remains unconfirmed', 'SAME frozen EXE',
+                       'QT_SCALE_FACTOR 1, 1.5 and 2', 'fixed physical 960x600', 'same-build source-only Windows matrix',
+                       'Baseline HTTP/browser tests also ran once on that same EXE',
+                       'real OS 125/150/200/250-percent monitor behavior', 'mixed-DPI monitor transitions',
+                       'full visible 4K', 'visual font quality', 'real-game validation', 'Vanguard approval',
+                       'native OTA swap/rollback remain unverified', 'prerelease=true', 'does NOT discover this preview'):
+            self.assertIn(phrase, notes)
 
     def test_selection_handoff_requires_owned_windows_frozen_exe_and_all_flags(self):
         original = copy.deepcopy(self.selection)
@@ -466,7 +726,7 @@ class ReleaseFixture(unittest.TestCase):
     def test_preview_cannot_publish_wrong_source_hash_version_size_or_provenance(self):
         valid = self.verify()
         for key, value in [('source_sha', 'b' * 40), ('exe_sha256', '0' * 64), ('version', '0.5.0'),
-                           ('tag', 'v0.5.0'), ('version', '0.3.0'), ('tag', 'v0.3.0'), ('exe_size', 0), ('run_id', RUN_ID + 1), ('run_attempt', 2)]:
+                           ('tag', 'v0.5.0'), ('version', '0.4.1'), ('tag', 'v0.4.1'), ('version', '0.3.0'), ('tag', 'v0.3.0'), ('exe_size', 0), ('run_id', RUN_ID + 1), ('run_attempt', 2)]:
             result = dict(valid, **{key: value})
             with self.subTest(key=key), patch.object(gate, 'gh_api') as api, self.assertRaises(gate.VerificationError):
                 gate.publish(result, self.output / 'release-notes.txt', current_provenance())
@@ -482,7 +742,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.1/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.2/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -601,11 +861,11 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.4.1', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.2', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.4.1', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.1',
+        return {'id': 123, 'tag_name': 'v0.4.2', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.2',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
 
@@ -617,7 +877,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.1', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.2', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -628,7 +888,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.4.1', ' '.join(publish))
+        self.assertNotIn('v0.4.2', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -695,12 +955,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.4.1', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.2', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.1'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.2'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.4.1')
+            gate.find_release(gate.REPOSITORY, 'v0.4.2')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -717,13 +977,47 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.4.1'])
+                gate.gh_run(['release', 'create', 'v0.4.2'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.1'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.2'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 
 class WorkflowSafetyTests(unittest.TestCase):
+    def test_windows_git_archive_preserves_all_four_evaluated_dpi_module_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            def git(*args):
+                return subprocess.run(['git', '-c', 'core.autocrlf=true', *args], cwd=root,
+                                      check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            git('init')
+            (root / '.gitattributes').write_bytes((ROOT / '.gitattributes').read_bytes())
+            for name in gate.DPI_SOURCE_FILES:
+                (root / name).write_bytes((ROOT / name).read_bytes())
+            git('add', '.gitattributes', *gate.DPI_SOURCE_FILES)
+            git('-c', 'user.name=Packaging test', '-c', 'user.email=packaging-test@example.invalid',
+                'commit', '--no-gpg-sign', '-m', 'DPI source archive fixture')
+            for name in gate.DPI_SOURCE_FILES:
+                (root / name).unlink()
+            git('checkout-index', '--force', '--all')
+            source = root / 'source.zip'
+            git('archive', '--format=zip', '--output', str(source), 'HEAD')
+            report = source_matrix_fixture()
+            # Precisely model the Windows harness: hash the actual post-checkout
+            # bytes, never Linux canonical bytes or a normalized approximation.
+            report['source_metadata'] = gate.dpi_matrix.source_metadata(root / 'native_ui.py', root)
+            self.assertEqual(len(report['source_metadata']), 4)
+            with zipfile.ZipFile(source) as archive:
+                for row in report['source_metadata']:
+                    name = Path(row['path']).name
+                    checkout = (root / name).read_bytes()
+                    self.assertIn(b'\r\n', checkout)
+                    self.assertEqual(archive.read(name), checkout)
+                    self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), row['sha256'])
+            path = root / 'windows-dpi-candidate-matrix.json'
+            path.write_text(json.dumps(report), encoding='utf-8')
+            gate.verify_dpi_matrix(path, source)
+
     def test_windows_git_archive_preserves_evaluated_portrait_module_bytes(self):
         report = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
         selection = json.loads((ROOT / 'reports/champion-select-genuine.json').read_text(encoding='utf-8'))

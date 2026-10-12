@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.1-0891b2" alt="源码版本 v0.4.1"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.2-0891b2" alt="源码版本 v0.4.2"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.1"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.1 预览版"></a>
 </p>
 <p align="center">
@@ -76,6 +76,8 @@ python launcher.py
 采集范围为所选前台窗口的可见客户区；启用选人接续时，还包括经安装路径和进程创建时间核验的本局新游戏窗口。仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网仅用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
 
 ## 预览版与兼容性
+
+v0.4.2 源码调整了叠加缩放与小窗口布局：以叠加自身的 Qt 缩放计算物理位置，空间不足时保留三个名称、评级和来源信息，隐藏长说明；新鲜资料可随同一窗口平移，尺寸变化仍等待重新识别。[真实 Windows 源码测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38278251508)已通过 100%–250% 进程缩放的 35 个窗口用例，过小窗口明确隐藏后可恢复。这不是实际多显示器 DPI 或真实游戏验证，也尚未确认某次用户报错的原因。新版 EXE 发布测试待完成；上方下载仍为已发布的 v0.4.1。
 
 v0.4.1 已通过 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38265698203)：在原创客户端与游戏模拟窗口中验证了选人识别和本局接续、自动英雄与三候选显示、未知或更换英雄时清除旧资料、人工回退及关闭清理。当前公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 

@@ -6,7 +6,9 @@ by the final workflow step. An existing tag/release is never updated or replaced
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -19,9 +21,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.microsoft_runtime import verify_runtime_evidence, verify_notice_archive
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.1'
+PREVIEW_VERSION = '0.4.2'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
+NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
+                         'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
+                         'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
+NATIVE_SCALES = ((1.0, 'windows-native'), (1.5, 'windows-native-scale150'), (2.0, 'windows-native-scale200'))
+DPI_SOURCE_FILES = ('native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py')
+# Load only the trusted local pure validator, never Python from a source archive.
+# An installed package named "tests" must not select a different validator.
+_dpi_spec = importlib.util.spec_from_file_location('release_windows_dpi_matrix',
+    Path(__file__).resolve().parents[1] / 'tests' / 'windows_dpi_matrix.py')
+dpi_matrix = importlib.util.module_from_spec(_dpi_spec)
+_dpi_spec.loader.exec_module(dpi_matrix)
 
 SELECTION_FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed', 'champion_select_session_carry_passed', 'champion_select_stale_clear_passed', 'champion_select_window_scope_passed', 'metadata_query_passed')
 
@@ -35,10 +48,11 @@ MODEL_HASHES = {
 }
 EVIDENCE_NAMES = ('windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
-                  'windows-build-environment.txt', 'windows-native-smoke.json',
-                  'windows-native-overlay.json', 'windows-native-overlay.png',
-                  'windows-native-process.log', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
-                  'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json')
+                  'windows-build-environment.txt', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
+                  'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json',
+                  'windows-dpi-candidate-matrix.json') + tuple(
+                      prefix + '-' + suffix for _, prefix in NATIVE_SCALES
+                      for suffix in ('smoke.json', 'overlay.json', 'overlay.png', 'process.log'))
 QT_VERSION = '6.11.2'
 PSL_SOURCE_URL = 'https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat'
 PSL_SOURCE_SHA256 = '5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184'
@@ -254,10 +268,102 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'launcher.py', 'native_ui.py', 'native_state.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
-                 'scripts/build_windows.py', 'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
+        require({'launcher.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
+                 'scripts/build_windows.py', 'tests/windows_dpi_matrix.py', 'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
                 'Application source archive lacks native packaging inputs')
     return assets
+
+
+def verify_dpi_matrix(path, source_archive):
+    """Bind the complete source-only Windows matrix to same-release raw bytes."""
+    report = read_json(path)
+    require(isinstance(report, dict) and type(report.get('schema_version')) is int and
+            report['schema_version'] == 1 and report.get('status') == 'candidate_passed' and
+            report.get('expect') == 'candidate' and report.get('os_name') == 'nt' and
+            report.get('gate_errors') == [] and 'error' not in report,
+            'Windows candidate source matrix did not pass')
+    try:
+        errors = dpi_matrix.validate_matrix(report, 'candidate')
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+        raise VerificationError('Malformed Windows candidate source matrix') from exc
+    require(not errors, 'Windows candidate source matrix failed: ' + ', '.join(errors))
+    rows = report.get('source_metadata')
+    require(isinstance(rows, list) and len(rows) == len(DPI_SOURCE_FILES),
+            'Windows source matrix implementation inventory mismatch')
+    hashes = {}
+    for row in rows:
+        require(isinstance(row, dict) and isinstance(row.get('path'), str) and
+                isinstance(row.get('sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', row['sha256']),
+                'Windows source matrix implementation path/hash missing')
+        # The harness records absolute Windows paths. Only normalize separators
+        # to identify an exact expected basename; never normalize file bytes.
+        parts = row['path'].replace('\\', '/').split('/')
+        name = parts[-1]
+        require('..' not in parts and name in DPI_SOURCE_FILES and name not in hashes,
+                'Windows source matrix implementation inventory mismatch')
+        hashes[name] = row['sha256']
+    require(set(hashes) == set(DPI_SOURCE_FILES), 'Windows source matrix implementation inventory mismatch')
+    with zipfile.ZipFile(source_archive) as archive:
+        for name, checksum in hashes.items():
+            require(archive.namelist().count(name) == 1 and hashlib.sha256(archive.read(name)).hexdigest() == checksum,
+                    'Windows source matrix evaluated different release source bytes: ' + name)
+
+
+def physical_rectangle(value, label):
+    require(isinstance(value, dict) and set(value) == {'x', 'y', 'width', 'height'} and
+            all(type(value[key]) is int for key in value) and value['width'] > 0 and value['height'] > 0,
+            'Invalid physical rectangle: ' + label)
+    return value
+
+
+def contains_rectangle(outer, inner, strict=False):
+    margin = 1 if strict else 0
+    return (inner['x'] >= outer['x'] + margin and inner['y'] >= outer['y'] + margin and
+            inner['x'] + inner['width'] <= outer['x'] + outer['width'] - margin and
+            inner['y'] + inner['height'] <= outer['y'] + outer['height'] - margin)
+
+
+def verify_native_scale(files, checksum, version, scale, prefix):
+    smoke = read_json(files[prefix + '-smoke.json'])
+    native = read_json(files[prefix + '-overlay.json'])
+    require(smoke.get('status') == 'passed' and 'error' not in smoke and
+            smoke.get('executable_sha256') == checksum and smoke.get('applicationVersion') == version and
+            smoke.get('process_exited') is True, 'Native smoke failed, did not exit, or tested different EXE/version: ' + prefix)
+    require(smoke.get('native_report') == prefix + '-overlay.json' and
+            smoke.get('native_screenshot') == prefix + '-overlay.png', 'Native smoke references unexpected evidence: ' + prefix)
+    require(native.get('status') == 'passed' and 'error' not in native and native.get('backend') == 'qtwidgets' and
+            native.get('frozen') is True and native.get('qt_platform') == 'windows' and
+            native.get('applicationVersion') == version, 'Native evidence is not passing frozen QtWidgets on Windows: ' + prefix)
+    require(all(native.get(field) is True for field in NATIVE_REQUIRED_FIELDS),
+            'Required native window/capture/OCR/click-through/close/source-tier proof missing: ' + prefix)
+    require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
+            'Automatic hero/candidate native lifecycle proof missing: ' + prefix)
+    require(native.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光'],
+            'Actual native OCR did not recognize the three original mock choices: ' + prefix)
+    require(native.get('source_tier_rendered') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+            'Actual native literal source-tier rendering evidence is missing or changed: ' + prefix)
+    require(isinstance(native.get('screenshot_method'), str) and native['screenshot_method'].strip(),
+            'Native screenshot method missing: ' + prefix)
+    for report in (smoke, native):
+        require(type(report.get('requested_app_scale')) in (int, float) and report['requested_app_scale'] == scale,
+                'Native requested app scale differs from required scale: ' + prefix)
+    for field in ('mock_qwindow_dpr', 'overlay_qwindow_dpr'):
+        value = native.get(field)
+        require(type(value) in (int, float) and math.isfinite(value) and abs(value - scale) <= .01,
+                'Native QWindow DPR does not match requested app scale on the 96-DPI runner: ' + prefix)
+    require(native.get('physical_mock_geometry_passed') is True and type(native.get('overlay_compact')) is bool,
+            'Native fixed physical mock/compact-layout evidence missing: ' + prefix)
+    work = physical_rectangle(native.get('desktop_work_area_physical'), 'work area')
+    mock = physical_rectangle(native.get('mock_window_physical'), 'mock window')
+    client = physical_rectangle(native.get('clientRect'), 'mock client')
+    overlay = physical_rectangle(native.get('overlay_window_physical'), 'overlay window')
+    require((client['width'], client['height']) == (960, 600), 'Native mock client must remain physical 960x600: ' + prefix)
+    require(contains_rectangle(work, mock) and contains_rectangle(mock, client) and
+            contains_rectangle(client, overlay, strict=True), 'Native physical windows escaped their required bounds: ' + prefix)
+    verify_png(files[prefix + '-overlay.png'])
+    return {key: native[key] for key in ('requested_app_scale', 'mock_qwindow_dpr', 'overlay_qwindow_dpr',
+        'desktop_work_area_physical', 'mock_window_physical', 'clientRect', 'overlay_window_physical',
+        'overlay_compact', 'physical_mock_geometry_passed', 'overlay_layout_passed')}
 
 
 def verify_genuine_report(path, source_archive, version):
@@ -520,28 +626,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     models = selftest.get('bundled_models', [])
     require(len(models) == 3 and {m.get('name'): m.get('sha256') for m in models} == MODEL_HASHES, 'Bundled model identity mismatch')
     verify_png(files['windows-exe-ui.png'])
-    native_smoke = read_json(files['windows-native-smoke.json'])
-    native = read_json(files['windows-native-overlay.json'])
-    require(native_smoke.get('status') == 'passed' and 'error' not in native_smoke and
-            native_smoke.get('executable_sha256') == checksum and native_smoke.get('applicationVersion') == version and
-            native_smoke.get('process_exited') is True, 'Native smoke failed, did not exit, or tested different EXE/version')
-    require(native_smoke.get('native_report') == 'windows-native-overlay.json' and
-            native_smoke.get('native_screenshot') == 'windows-native-overlay.png', 'Native smoke references unexpected evidence')
-    require(native.get('status') == 'passed' and 'error' not in native and native.get('backend') == 'qtwidgets' and
-            native.get('frozen') is True and native.get('qt_platform') == 'windows' and
-            native.get('applicationVersion') == version, 'Native evidence is not passing frozen QtWidgets on Windows')
-    require(all(native.get(field) is True for field in
-            ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
-             'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
-             'source_tier_screen_order_preserved', 'source_tier_no_winrate_display')),
-            'Required native window/capture/OCR/click-through/close/source-tier proof missing')
-    require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
-            'Automatic hero/candidate native lifecycle proof missing')
-    require(native.get('source_tier_rendered') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
-            'Actual native literal source-tier rendering evidence is missing or changed')
-    require(isinstance(native.get('screenshot_method'), str) and native['screenshot_method'].strip(),
-            'Native screenshot method missing')
-    verify_png(files['windows-native-overlay.png'])
+    native_scales = [verify_native_scale(files, checksum, version, scale, prefix) for scale, prefix in NATIVE_SCALES]
+    require(len({digest(files[prefix + '-overlay.png']) for _, prefix in NATIVE_SCALES}) == len(NATIVE_SCALES),
+            'Native scale screenshots must be distinct original evidence')
     selection_smoke = read_json(files['windows-selection-smoke.json'])
     selection = read_json(files['windows-selection-handoff.json'])
     require(selection_smoke.get('status') == 'passed' and 'error' not in selection_smoke and
@@ -567,6 +654,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         except (RuntimeError, KeyError, ValueError) as exc:
             raise VerificationError('Microsoft component notices/source proof missing or changed: ' + str(exc)) from exc
     assets.extend(verify_source_access(release_dir, build, source_sha, version))
+    verify_dpi_matrix(files['windows-dpi-candidate-matrix.json'],
+        release_dir / f'vga-aram-helper-{version}-source.zip')
     genuine_counts = verify_genuine_report(files['hero-recognition-genuine.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip', version)
     selection_counts = verify_selection_genuine_report(files['champion-select-genuine.json'],
@@ -583,6 +672,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     assets.append(files['windows-native-overlay.png'])
     result = {'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
+              'native_scale_summary': native_scales,
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
@@ -590,7 +680,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
              'Native overlay PREVIEW with screenshot-only automatic identification of the player’s own bottom-HUD portrait. '
              'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
-             'This version adds screenshot-only champion-select name detection and explicit client-to-game session capture. '
+             'This version fixes a confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout under per-process application scaling. '
+             'It uses measured QWindow device-pixel ratios, bounded responsive layouts and a compact layout where required. '
+             'The user-reported exact error remains unconfirmed; this fix is not evidence that their specific machine or error has been reproduced. '
+             'Screenshot-only champion-select name detection and explicit client-to-game session capture remain available. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
              'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
@@ -601,10 +694,17 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              f'Tested source commit: {source_sha}\nEXE SHA256: {checksum}\n'
              f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n'
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
-             'frozen QtWidgets native windows, local capture/portrait matching/OCR, automatic hero and three-choice flow, '
+             'the SAME frozen EXE at controlled QT_SCALE_FACTOR 1, 1.5 and 2 on an unchanged 96-DPI desktop, '
+             'each with a fixed physical 960x600 owned mock client fully inside the work area and an overlay strictly inside that client. '
+             'Each scale independently exercises frozen QtWidgets native windows, local capture/portrait matching/OCR, automatic hero and three-choice flow, '
              'unknown/changed-hero clearing, manual fallback, hide-before-capture, click-through, close/cleanup, source-tier rendering '
-             '(including missing-grade fallback, original slot order and no displayed win rate/rank), and baseline HTTP/browser tests. '
+             '(including missing-grade fallback, original slot order and no displayed win rate/rank), and visible child/text layout checks. '
+             'Baseline HTTP/browser tests also ran once on that same EXE. '
              'A separate owned synthetic client/game fixture exercises actual Windows metadata and screenshot-based selection-to-game carry; ambiguity and stale-session cases are focused state tests. '
+             'A separate same-build source-only Windows matrix at application scales 1, 1.25, 1.5, 2 and 2.5 checks required visible layouts, '
+             'three-card text/tier containment, repeated placement, target translation and safe hide/recovery; its four implementation file hashes exactly match the attached application source ZIP. '
+             'That source matrix does not test the frozen EXE, pixels, input or real game. '
+             'Controlled application scaling does not establish real OS 125/150/200/250-percent monitor behavior, mixed-DPI monitor transitions, full visible 4K or visual font quality. '
              'Screenshots and machine evidence are attached; this statement does not claim human visual inspection. '
              'No process-memory reads, game injection, Vanguard approval or real-game compatibility claim. '
              f'A separate source-bound Linux still-screenshot report records {genuine_counts["positive_recognized"]}/{genuine_counts["positive_cases"]} selected positive examples recognized, '
@@ -789,7 +889,7 @@ def main():
     result = verify(args.release_dir, args.evidence_dir, args.repository, args.source_sha, args.output_dir, args.run_id, args.run_attempt)
     require(result['version'] == PREVIEW_VERSION, f'This manual preview approval covers v{PREVIEW_VERSION} only')
     summary = {key: result[key] for key in ('repository', 'run_id', 'run_attempt', 'source_sha', 'version', 'tag',
-                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
+                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'native_scale_summary', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
     summary.update(prerelease=True, release_asset_count=len(result['assets']),
                    evidence_file_count=len(result['evidence_sha256']), evidence_sha256=result['evidence_sha256'])
     print(json.dumps(summary, indent=2), flush=True)

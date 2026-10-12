@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.1",
+  "applicationVersion": "0.4.2",
   "status": "passed",
   "scope": "Small local Linux still-image evaluation only: one July2025 Traditional Chinese post-choice client modified by a third-party plugin, plus three June2025 prerelease initial-card images representing two distinct scenes (one scene has resized/original variants). Not current stock-client, live trade/cancel sequence, native Windows, or Riot/Vanguard compatibility proof. Images are not redistributed.",
   "platform": "Linux",
@@ -12,8 +12,8 @@
     "positive_recognized": 1,
     "negative_cases": 3,
     "negative_abstained": 3,
-    "wrong_hero_predictions": 0,
-    "distinct_negative_scenes": 2
+    "distinct_negative_scenes": 2,
+    "wrong_hero_predictions": 0
   },
   "cases": [
     {
@@ -40,7 +40,7 @@
       "limitations": "Not cleared for redistribution; internal read-only fixture",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 1.007
+      "elapsed_seconds": 0.805
     },
     {
       "source_url": "https://fistbump-news.jp/imgs/p/6ctlLP6jpu3fsvWRdHSre9LTZN5buNzb2tnY/7592.png",
@@ -66,7 +66,7 @@
       "limitations": "Published resized691x389 prerelease screenshot, not current2026live client evidence",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.183
+      "elapsed_seconds": 0.128
     },
     {
       "source_url": "https://truth.bahamut.com.tw/s01/202507/3d5a666acf0ca57c63d625bb2681679e.WEBP",
@@ -147,7 +147,7 @@
       "limitations": "Plugin-modified client screenshot; firstparty stock UI and current2026Mayhem coverage not proven; never execute/install referenced plugin",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.516
+      "elapsed_seconds": 0.332
     },
     {
       "source_url": "https://fistbump-news.jp/imgs/zoom1/7592.png",
@@ -173,7 +173,7 @@
       "limitations": "June2025 prerelease screenshot, not current2026live client evidence; same scene as initial-threecards resized image, not independent fixture",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.285
+      "elapsed_seconds": 0.199
     }
   ]
 }

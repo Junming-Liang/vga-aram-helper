@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.1-0891b2" alt="Source version v0.4.1"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.2-0891b2" alt="Source version v0.4.2"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.1"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.1 preview"></a>
 </p>
 <p align="center">
@@ -76,6 +76,8 @@ Reference data comes from [Huya's official public wiki](https://gametool.huya.co
 Capture is limited to visible client-area pixels of the selected foreground window and, when selection handoff is enabled, its unique new game window verified by installation path and process creation time. Game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Network requests only fetch public reference data, Riot Data Dragon portrait templates and software updates. Screenshots are never sent to those services. Riot-owned portraits stay in the local cache and are not bundled in the source or EXE.
 
 ## Preview and compatibility
+
+The v0.4.2 source adapts overlay placement to its own Qt scale and uses a compact layout when needed, preserving three names, tiers and source metadata while hiding long descriptions. Fresh cards follow translations of the same window; resizing still requires new recognition. [Actual Windows source tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38278251508) passed 35 window cases at controlled 100%–250% process scaling, including explicit small-window rejection and recovery. This does not verify real mixed-DPI monitors, gameplay, or the cause of an individual user error. New EXE release tests are pending; the download above remains the released v0.4.1.
 
 v0.4.1 passed its [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38265698203): original client and game mock windows verified champion-select recognition and session handoff, automatic champion and three-choice display, stale-card clearing for unknown or changed champions, manual fallback, and shutdown cleanup. In a small public screenshot sample, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 

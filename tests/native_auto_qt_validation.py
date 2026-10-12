@@ -14,7 +14,11 @@ from local_ocr import LocalOCR
 from screen_capture import CaptureUnavailable
 app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([]);checks=[]
 from native_smoke import smoke_dimensions
-assert smoke_dimensions(1024,728)==(964,602);checks.append('Windows runner1024x728 work area fits964x602 supported own-HUD mock without changing display settings')
+assert smoke_dimensions(1024,728)==(960,600);checks.append('Physical1024x728 work area fits fixed960x600 own-HUD mock without changing display settings')
+for invalid in [(999,728),(1024,639),(True,728),(1024,728.0)]:
+    try:smoke_dimensions(*invalid)
+    except ValueError:pass
+    else:raise AssertionError('Unsupported physical work area accepted')
 with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen: no Windows capture')):
     w=ControlWindow(lambda:{'data':load_data(ROOT/'fixtures/demo.json'),'status':{}},state_dir=Path(temp),current_executable=Path('/unused.exe'),current_version='test',frozen=False,enable_updates=False)
     for _ in range(40):

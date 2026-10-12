@@ -7,6 +7,7 @@ from pathlib import Path
 import ctypes
 from ctypes import wintypes as W
 import json
+import math
 import os
 import sys
 import time
@@ -15,9 +16,48 @@ from native_state import display_cards
 
 
 def smoke_dimensions(width,height):
-    width=min(1280,width-60);height=min(720,height-70,int(width/1.6))
-    if width<64 or height<600:raise ValueError('Desktop cannot fit supported600px own-HUD mock')
-    return width,height
+    if any(not isinstance(v,int) or isinstance(v,bool) for v in (width,height)) or width<1000 or height<640:
+        raise ValueError('Physical desktop work area cannot fit the fixed960x600 own-HUD mock with20px margins')
+    return 960,600
+
+def smoke_pixmap(portrait,cards_path,width,height,dpr):
+    """Original fixed-physical diagnostic artwork, never a user screenshot."""
+    from PIL import Image
+    from synthetic_vision import frame,encoded
+    if not math.isfinite(dpr) or dpr<=0:raise ValueError('Invalid artwork DPR')
+    canvas=frame(portrait,width=width,height=height)
+    cards=Image.open(cards_path).convert('RGB').resize((width,height),Image.Resampling.LANCZOS)
+    canvas.paste(cards.crop((0,0,width,round(height*.8))),(0,0))
+    pixmap=QtGui.QPixmap()
+    if not pixmap.loadFromData(encoded(canvas)):raise RuntimeError('Original mock artwork could not be decoded')
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def inspect_smoke_layout(overlay):
+    """Diagnostic-only check of actual visible Qt layout, including text fit."""
+    if not overlay.isVisible():raise AssertionError('Overlay is not visible')
+    rows=[]
+    for widget in overlay.findChildren(QtWidgets.QWidget):
+        if not widget.isVisibleTo(overlay):continue
+        parent=widget.parentWidget();pos=widget.mapTo(overlay,QtCore.QPoint(0,0))
+        assert widget.width()>0 and widget.height()>0
+        assert pos.x()>=0 and pos.y()>=0 and pos.x()+widget.width()<=overlay.width() and pos.y()+widget.height()<=overlay.height(),'Visible widget escapes overlay'
+        if parent:
+            assert widget.x()>=0 and widget.y()>=0 and widget.x()+widget.width()<=parent.width() and widget.y()+widget.height()<=parent.height(),'Visible widget escapes parent'
+        row={'type':type(widget).__name__,'logical_rect':{'x':pos.x(),'y':pos.y(),'width':widget.width(),'height':widget.height()}}
+        if isinstance(widget,QtWidgets.QLabel):
+            required=widget.heightForWidth(widget.width());minimum=widget.minimumSizeHint().width()
+            assert required<=widget.height()+1,('Label height clipped',widget.text(),required,widget.height())
+            assert minimum<=widget.width()+1,('Label width clipped',widget.text(),minimum,widget.width())
+            row.update(text=widget.text(),required_height_at_width=required,minimum_width=minimum)
+        rows.append(row)
+    assert len(overlay.cards)==3 and len(overlay.tier_labels)==3 and all(label.isVisibleTo(overlay) for label in overlay.tier_labels)
+    for i,card in enumerate(overlay.cards):
+        labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
+        assert labels[0].isVisibleTo(overlay) and labels[0].text()==f"选项 {card['slot']} · {card['name']}"
+    return rows
+
 
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
@@ -35,26 +75,46 @@ def start_smoke(control,report_path,screenshot_path):
     if os.name!='nt' or app.platformName()!='windows':return fail(RuntimeError('Native Windows smoke requires the real Windows Qt platform, not offscreen/minimal.'))
     if not control.capture:return fail(RuntimeError('Win32 capture adapter unavailable'))
     control.watchdog.stop();control.monitor.stop()
-    available=app.primaryScreen().availableGeometry();mock_width,mock_height=smoke_dimensions(available.width(),available.height())
-    if mock_height<600:return fail(RuntimeError('Automatic-HUD smoke needs a landscape mock client at least600px high.'))
-    mock=QtWidgets.QWidget();mock.setWindowTitle('VGA original synthetic mock game');mock.resize(mock_width,mock_height)
+    # SPI_GETWORKAREA only reads physical bounds; never change OS settings.
+    u=control.capture.u;u.SystemParametersInfoW.argtypes=[W.UINT,W.UINT,W.LPVOID,W.UINT];u.SystemParametersInfoW.restype=W.BOOL
+    available=W.RECT()
+    if not u.SystemParametersInfoW(0x0030,0,ctypes.byref(available),0):return fail(RuntimeError('Physical work area unavailable'))
+    work_area={'x':available.left,'y':available.top,'width':available.right-available.left,'height':available.bottom-available.top}
+    mock_width,mock_height=smoke_dimensions(work_area['width'],work_area['height'])
+    requested_scale=float(os.environ.get('QT_SCALE_FACTOR','1'))
+    if not math.isfinite(requested_scale) or not .5<=requested_scale<=4:return fail(ValueError('Unsupported diagnostic app scale'))
+    report.update(requested_app_scale=requested_scale,desktop_work_area_physical=work_area)
+    mock=QtWidgets.QWidget(None,QtCore.Qt.WindowType.Window|QtCore.Qt.WindowType.FramelessWindowHint);mock.setWindowTitle('VGA original synthetic mock game');mock.winId()
+    mock_dpr=float(mock.windowHandle().devicePixelRatio())
+    if not math.isfinite(mock_dpr) or mock_dpr<=0:return fail(ValueError('Invalid native mock DPR'))
+    mock.resize(round(mock_width/mock_dpr),round(mock_height/mock_dpr))
+    def native_rect(hwnd):
+        rect=W.RECT()
+        if not u.GetWindowRect(hwnd,ctypes.byref(rect)):raise RuntimeError('Owned native window rectangle unavailable')
+        return {'x':rect.left,'y':rect.top,'width':rect.right-rect.left,'height':rect.bottom-rect.top}
+    def inside(outer,inner):
+        return inner['width']>0 and inner['height']>0 and inner['x']>=outer['x'] and inner['y']>=outer['y'] and inner['x']+inner['width']<=outer['x']+outer['width'] and inner['y']+inner['height']<=outer['y']+outer['height']
+
     layout=QtWidgets.QVBoxLayout(mock);layout.setContentsMargins(0,0,0,0)
     image=QtWidgets.QLabel();image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-    from synthetic_vision import portraits,frame,encoded,configure_data
-    from PIL import Image
+    from synthetic_vision import portraits,configure_data
     from hero_recognition import PortraitMatcher,recognize_frame
     bank=portraits()
     configure_data(control.data)
     control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
     def paint_mock(key='9001'):
-        canvas=frame(bank[key],width=mock_width,height=mock_height)
-        cards=Image.open(root/'fixtures/auto-scene.png').convert('RGB').resize((mock_width,mock_height),Image.Resampling.LANCZOS)
-        canvas.paste(cards.crop((0,0,mock_width,round(mock_height*.8))),(0,0))
-        pixmap=QtGui.QPixmap();assert pixmap.loadFromData(encoded(canvas));image.setPixmap(pixmap)
+        image.setPixmap(smoke_pixmap(bank[key],root/'fixtures/auto-scene.png',mock_width,mock_height,float(mock.windowHandle().devicePixelRatio())))
     paint_mock();layout.addWidget(image)
-    mock.move(available.x()+20,available.y()+20);control._smoke_objects.append(mock)
+    control._smoke_objects.append(mock)
     def prepare():
-        control.hide();mock.show();mock.raise_();mock.activateWindow()
+        control.hide();mock.show()
+        assert u.SetWindowPos(int(mock.winId()),None,work_area['x']+20,work_area['y']+20,mock_width,mock_height,0x0004|0x0040),'Could not place owned physical mock'
+        app.processEvents();paint_mock();app.processEvents();mock.raise_();mock.activateWindow()
+        actual=control.capture.rect(control.capture.info(int(mock.winId())))
+        assert (actual.width,actual.height)==(mock_width,mock_height),('Mock physical dimensions changed',actual)
+        assert inside(work_area,native_rect(int(mock.winId()))),'Owned mock must be fully inside physical work area'
+        report.update(mock_qwindow_dpr=float(mock.windowHandle().devicePixelRatio()),mock_window_physical=native_rect(int(mock.winId())),physical_mock_geometry_passed=True)
+
         report['controlHwnd']=int(control.winId());report['mockHwnd']=int(mock.winId());report['overlayHwnd']=int(control.overlay.winId())
         report['native_window']=all(control.capture.u.IsWindow(h) for h in (report['controlHwnd'],report['mockHwnd'],report['overlayHwnd']))
         assert report['native_window'];checks.append('Real QtWidgets control, overlay and synthetic mock HWNDs exist')
@@ -124,6 +184,9 @@ def start_smoke(control,report_path,screenshot_path):
         assert all(formatted not in visible_text for rate in fixture_rates if isinstance(rate,(int,float)) for formatted in (f'{rate:g}%',f'{rate:.2f}%',f'{rate}%'))
         checks.append('Overlay is layered/topmost/noactivate/transparent and does not steal foreground focus')
         report['overlayStyle']=hex(style);report['foregroundPreserved']=True
+        report.update(overlay_qwindow_dpr=float(overlay.windowHandle().devicePixelRatio()),overlay_window_physical=native_rect(hwnd),overlay_compact=overlay._compact)
+        assert inside(report['clientRect'],report['overlay_window_physical']),'Actual native overlay escaped fixed physical mock'
+        report['overlay_layout_widgets']=inspect_smoke_layout(overlay);report['overlay_layout_passed']=True
         # Actual Win32 point hit test at a point inside the overlay; no game input.
         rect=W.RECT();u.GetWindowRect.argtypes=[W.HWND,ctypes.POINTER(W.RECT)];u.GetWindowRect.restype=W.BOOL;assert u.GetWindowRect(hwnd,ctypes.byref(rect))
         point=W.POINT(rect.left+(rect.right-rect.left)//2,rect.top+20)
@@ -134,7 +197,8 @@ def start_smoke(control,report_path,screenshot_path):
         report['click_through_passed']=True;checks.append('Real OS point hit testing reaches the mock through overlay; click-through toggle changes WS_EX_TRANSPARENT')
         assert control.hotkey_registered,'Ctrl+Alt+O registration failed in test session';checks.append('RegisterHotKey succeeded without input hooks')
         # Compose ONLY our two rendered widgets; never save a user desktop screenshot.
-        canvas=QtGui.QPixmap(1100,780);canvas.fill(QtGui.QColor('#102029'));painter=QtGui.QPainter(canvas);painter.drawPixmap(0,0,mock.grab());painter.drawPixmap(20,530,overlay.grab().scaled(1060,230,QtCore.Qt.AspectRatioMode.KeepAspectRatio));painter.end()
+        mock_pixels=mock.grab();mock_pixels.setDevicePixelRatio(1);overlay_pixels=overlay.grab();overlay_pixels.setDevicePixelRatio(1)
+        canvas=QtGui.QPixmap(1100,780);canvas.fill(QtGui.QColor('#102029'));painter=QtGui.QPainter(canvas);painter.drawPixmap(0,0,mock_pixels);painter.drawPixmap(20,530,overlay_pixels.scaled(1060,230,QtCore.Qt.AspectRatioMode.KeepAspectRatio));painter.end()
         screenshot_path.parent.mkdir(parents=True,exist_ok=True);assert canvas.save(str(screenshot_path),'PNG')
         report['screenshot']=str(screenshot_path);report['screenshot_method']='Qt QWidget.grab of our synthetic mock and overlay only, composited locally; OS capture/OCR separately asserted'
         checks.append('Original synthetic native mock/overlay rendering saved, with no user desktop pixels')

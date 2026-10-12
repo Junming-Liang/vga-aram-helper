@@ -100,18 +100,19 @@ class NativePackagingTests(unittest.TestCase):
             self.assertIn('Apache', (root / 'licenses.txt').read_text())
 
     def test_native_acceptance_rejects_browser_offscreen_and_incomplete_proof(self):
-        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.1',
+        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.2',
                  'native_window':True, 'window_closed':True, 'capture_passed':True, 'ocr_passed':True,
                  'click_through_passed':True, 'qt_platform':'windows', 'screenshot_method':'win32 desktop capture',
                  'source_tier_display_passed':True, 'source_tier_hero_specific':True, 'source_tier_missing_passed':True,
                  'source_tier_screen_order_preserved':True, 'source_tier_no_winrate_display':True,
                  'source_tier_rendered':['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']}
         valid.update(dict.fromkeys(native_smoke.NATIVE_AUTOMATION_FIELDS, True))
-        native_smoke.validate_report(valid, '0.4.1')
+        valid.update(self.geometry_fixture())
+        native_smoke.validate_report(valid, '0.4.2')
         for field in native_smoke.NATIVE_AUTOMATION_FIELDS:
             for bad in (False, None, 1, 'true'):
                 with self.subTest(field=field, value=bad), self.assertRaises(RuntimeError):
-                    native_smoke.validate_report(dict(valid, **{field: bad}), '0.4.1')
+                    native_smoke.validate_report(dict(valid, **{field: bad}), '0.4.2')
         for key, value in [('qt_platform','offscreen'),('backend','browser'),('frozen',False),('ocr_passed',False),
                            ('capture_passed',False),('click_through_passed',False),('window_closed',False),('error','failure'),
                            ('source_tier_display_passed',False),('source_tier_hero_specific',False),
@@ -119,13 +120,54 @@ class NativePackagingTests(unittest.TestCase):
                            ('source_tier_no_winrate_display',False),('source_tier_rendered',[])]:
             result = dict(valid, **{key:value})
             with self.subTest(key=key), self.assertRaises(RuntimeError):
-                native_smoke.validate_report(result, '0.4.1')
+                native_smoke.validate_report(result, '0.4.2')
+
+    @staticmethod
+    def geometry_fixture(scale=1):
+        return dict(physical_mock_geometry_passed=True, overlay_layout_passed=True, requested_app_scale=scale,
+                    mock_qwindow_dpr=scale, overlay_qwindow_dpr=scale, overlay_compact=False,
+                    desktop_work_area_physical=dict(x=0,y=0,width=1024,height=728),
+                    mock_window_physical=dict(x=12,y=20,width=960,height=600),
+                    clientRect=dict(x=12,y=20,width=960,height=600),
+                    overlay_window_physical=dict(x=32,y=350,width=920,height=240))
+
+    def test_three_native_scales_keep_distinct_evidence_and_explicit_environment(self):
+        self.assertEqual([native_smoke.evidence_prefix(s) for s in native_smoke.APP_SCALES],
+                         ['windows-native','windows-native-scale150','windows-native-scale200'])
+        with tempfile.TemporaryDirectory() as temporary:
+            before={'SystemRoot':r'C:\Windows','QT_SCALE_FACTOR':'9','QT_QPA_PLATFORM':'offscreen',
+                    'QT_SCREEN_SCALE_FACTORS':'7','QT_PLUGIN_PATH':'untrusted','PYSIDE_DESIGNER_PLUGINS':'untrusted'}
+            env=native_smoke.native_environment(before,Path(temporary),'1.5')
+            self.assertEqual(env['QT_SCALE_FACTOR'],'1.5')
+            self.assertEqual([key for key in env if key.startswith(('QT_','PYSIDE_'))],['QT_SCALE_FACTOR'])
+            self.assertEqual(before['QT_SCALE_FACTOR'],'9')
+        for invalid in ('0','1.25','2.5','nan'):
+            with self.subTest(scale=invalid),self.assertRaises(ValueError):native_smoke.evidence_prefix(invalid)
+
+    def test_actual_native_scale_geometry_cannot_be_smaller_or_outside(self):
+        for scale in (1,1.5,2):
+            native_smoke.validate_physical_geometry(self.geometry_fixture(scale),scale)
+            for key,value in [('requested_app_scale',1 if scale!=1 else 2),('mock_qwindow_dpr',0),
+                              ('overlay_qwindow_dpr',float('nan')),('physical_mock_geometry_passed',1),('overlay_layout_passed',False),
+                              ('overlay_compact',None)]:
+                with self.subTest(scale=scale,key=key),self.assertRaises(RuntimeError):
+                    native_smoke.validate_physical_geometry(dict(self.geometry_fixture(scale),**{key:value}),scale)
+        for key in ('desktop_work_area_physical','mock_window_physical','clientRect','overlay_window_physical'):
+            value=self.geometry_fixture();value[key]['width']=True
+            with self.subTest(key=key),self.assertRaises(RuntimeError):native_smoke.validate_physical_geometry(value,1)
+        for edit in (lambda d:d['clientRect'].update(width=640,height=400),
+                     lambda d:d['overlay_window_physical'].update(x=11),
+                     lambda d:d['mock_window_physical'].update(x=-1),
+                     lambda d:d['clientRect'].update(y=19)):
+            value=self.geometry_fixture();edit(value)
+            with self.assertRaises(RuntimeError):native_smoke.validate_physical_geometry(value,1)
 
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')
         self.assertIn('console=False', spec)
         self.assertIn('hero_portraits', spec)
         self.assertIn('hero_recognition', spec)
+        self.assertIn('overlay_geometry', spec)
         self.assertIn('windows.manifest', spec)
         self.assertIn('PerMonitorV2', (ROOT/'packaging/windows.manifest').read_text())
         self.assertNotIn('PySide6-Addons', (ROOT/'requirements-build.txt').read_text())

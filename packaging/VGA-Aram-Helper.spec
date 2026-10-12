@@ -13,7 +13,7 @@ verify_models()  # Missing/changed wheel models fail the build, never download a
 binaries = []
 datas = [(str(ROOT / 'static'), 'static'), (str(ROOT / 'fixtures'), 'fixtures'),
          (str(ROOT / 'build' / 'licenses'), 'licenses'), (str(ROOT / 'LICENSE'), '.'), (str(ROOT / 'assets' / 'branding'), 'assets/branding')]
-hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'native_state', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke']
+hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke']
 # Includes RapidOCR config, dictionaries, three ONNX models and package metadata.
 # Optional CUDA/Paddle/Torch engines are not dependencies of the chosen CPU runtime.
 for package in ('rapidocr', 'onnxruntime'):
