@@ -1,0 +1,62 @@
+name: Test normal Windows desktop use
+
+# Manual read-only test of the unchanged published EXE and ordinary desktop input.
+# No remote desktop, app test mode, release write, repository/Release images or large artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vga-normal-windows-gui-validation
+  cancel-in-progress: false
+
+jobs:
+  normal-gui:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Check external GUI harness and workflow boundaries
+        run: python -m unittest discover -s tests -p 'test_*gui*.py' -v
+      - name: Fetch exact already-published owned executable
+        run: python scripts/fetch_ota_fixture.py
+      - name: Verify input desktop and exercise the normal executable
+        run: python tests/windows_gui_walkthrough.py --exe build/ota-fixture/VGA-Aram-Helper.exe
+      - name: Check bounded screenshot and report storage
+        id: evidence_budget
+        if: ${{ always() }}
+        run: python scripts/check_artifact_budget.py --evidence-only
+      - name: Retain small desktop-test evidence through the normal artifact route
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-evidence-${{ github.sha }}
+          path: reports/windows-gui-*
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Summarize actual desktop feasibility and observations
+        if: ${{ always() }}
+        run: |
+          '## Normal Windows desktop test' >> $env:GITHUB_STEP_SUMMARY
+          'External ordinary UI input into the unchanged published application and our own synthetic mock window. No real game or anti-cheat compatibility claim.' >> $env:GITHUB_STEP_SUMMARY
+          'An input-desktop feasibility failure is not a passed GUI test. Capture-excluded overlay content must not be replaced by an offscreen rendering.' >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path reports/windows-gui-walkthrough.json) {
+            Get-Content reports/windows-gui-walkthrough.json >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'The external desktop harness did not complete.' >> $env:GITHUB_STEP_SUMMARY
+          }
