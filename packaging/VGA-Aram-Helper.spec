@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dyn
 ROOT = Path(SPECPATH).parent
 sys.path.insert(0, str(ROOT))
 from model_inventory import verify_models
+from scripts.microsoft_runtime import replace_runtime_entries
 verify_models()  # Missing/changed wheel models fail the build, never download at runtime.
 
 binaries = []
@@ -36,9 +37,14 @@ a = Analysis([str(ROOT / 'launcher.py')], pathex=[str(ROOT)], binaries=binaries,
 # Keep Qt's required Network dependency with its native Windows/certificate
 # backends, but omit the unused OpenSSL and PDF plugins. Application HTTPS uses
 # Python's separately bundled SSL runtime, not Qt's optional OpenSSL backend.
+# TUIO network touch input is unused by the mouse-driven overlay/control window.
 a.binaries = [entry for entry in a.binaries
               if Path(entry[0]).name.lower() not in {'opengl32sw.dll', 'd3dcompiler_47.dll',
-                  'qopensslbackend.dll', 'qpdf.dll', 'qt6pdf.dll', 'qt6pdfwidgets.dll'}]
+                  'qopensslbackend.dll', 'qpdf.dll', 'qt6pdf.dll', 'qt6pdfwidgets.dll',
+                  'qtuiotouchplugin.dll'}]
+# Use only the signed, unmodified release CRT supplied by the Community product
+# installed for this build, consistently replacing root and package duplicates.
+a.binaries = replace_runtime_entries(a.binaries)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='VGA-Aram-Helper',
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,

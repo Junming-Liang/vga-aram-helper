@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from tests.test_microsoft_runtime import runtime_fixture
+from scripts import microsoft_runtime as ms_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('verify_release', ROOT / 'scripts' / 'verify_release.py')
@@ -53,6 +55,11 @@ class ReleaseFixture(unittest.TestCase):
                       'manifest': self.manifest, 'bundled_models': models,
                       'archive_inventory': {'model_assets': 3, 'required_runtime_dlls':
                           sorted(gate.RUNTIME_DLLS), 'qt_binaries': ['PySide6/' + name for name in sorted(gate.QT_RUNTIME_DLLS - {'qwindows.dll'})] + ['PySide6/plugins/platforms/qwindows.dll']}}
+        self.build['archive_inventory']['qt_binaries'] += ['pyside6/' + row['filename'] for row in runtime_fixture()['files']]
+        proof = runtime_fixture()
+        paths = ['pyside6/' + row['filename'] for row in proof['files']] + ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll']
+        self.build['archive_inventory']['microsoft_runtime'] = {'provenance': proof, 'embedded_files': [
+            {'path': path, 'size': 2048, 'sha256': hashlib.sha256(b'X' * 2048).hexdigest()} for path in sorted(paths)]}
         self.smoke = {'status': 'passed', 'executable_sha256': self.hash,
                       'checks': sorted(gate.BASELINE_CHECKS),
                       'health': {'status': 'ok', 'applicationVersion': VERSION, 'ocr_enabled': True}}
@@ -73,6 +80,8 @@ class ReleaseFixture(unittest.TestCase):
                        'proposed_upper_estimate_bytes': 1_000_000, 'projected_bytes': 101_000_000,
                        'project_budget_bytes': 500_000_000, 'reserve_bytes': 10_000_000}
         self.license_entries = {name: b'Unit-test full license fixture' for name in gate.QT_NOTICE_FILES}
+        self.license_entries.update({'microsoft-runtime/' + name: (ms_runtime.NOTICE_ROOT / name).read_bytes() for name in ms_runtime.NOTICE_HASHES})
+        self.license_entries['microsoft-runtime/BUILD-PROVENANCE.json'] = json.dumps(runtime_fixture()).encode()
         self.license_entries['qt-licenses/SOURCE_AND_RELINKING.txt'] = ('SOURCE AND RELINKING: https://download.qt.io/official_releases/ source access fixture. '
             + gate.PSL_SOURCE_URL + ' SHA256 ' + gate.PSL_SOURCE_SHA256).encode('utf-8')
         self.provenance = {'schema_version': 1, 'upstream_version': gate.QT_VERSION, 'files': []}
@@ -381,6 +390,51 @@ class ReleaseFixture(unittest.TestCase):
         with patch.object(gate, 'gh_api') as api, self.assertRaises(gate.VerificationError):
             gate.publish(valid, self.output / 'release-notes.txt', {})
         api.assert_not_called()
+
+    def test_release_notes_make_microsoft_scope_and_terms_conspicuous(self):
+        self.verify()
+        notes = (self.output / 'release-notes.txt').read_text()
+        self.assertIn('MICROSOFT RUNTIME TERMS: READ BEFORE USE', notes)
+        self.assertIn('requires agreement to their Microsoft end-user terms', notes)
+        self.assertIn('not the MIT application or LGPL Qt components', notes)
+        self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.3.0/third-party-licenses.zip', notes)
+
+    def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
+        for name in ms_runtime.NOTICE_HASHES:
+            key = 'microsoft-runtime/' + name
+            data = self.license_entries.pop(key)
+            self.write_license_archive()
+            with self.subTest(missing=name), self.assertRaises(gate.VerificationError): self.verify()
+            self.license_entries[key] = data + b'altered'
+            self.write_license_archive()
+            with self.subTest(changed=name), self.assertRaises(gate.VerificationError): self.verify()
+            self.license_entries[key] = data
+        self.license_entries['microsoft-runtime/BUILD-PROVENANCE.json'] = b'{}'
+        self.write_license_archive()
+        with self.assertRaises(gate.VerificationError): self.verify()
+
+    def test_missing_changed_microsoft_runtime_identity_fails(self):
+        for value in ([], None, {'provenance': runtime_fixture(), 'embedded_files': []}):
+            self.build['archive_inventory']['microsoft_runtime'] = value
+            self.write_reports()
+            with self.subTest(value=value), self.assertRaises(gate.VerificationError):
+                self.verify()
+
+    def test_actual_full_windows_inventory_only_excludes_unused_tuio(self):
+        inventory = json.loads((ROOT / 'tests' / 'qt-runtime-windows-6.11.2.json').read_text())['qt_binaries']
+        self.assertEqual(len(inventory), 34)
+        excluded = 'pyside6/plugins/generic/qtuiotouchplugin.dll'
+        with self.assertRaisesRegex(gate.VerificationError, 'qtuiotouchplugin'):
+            gate.verify_qt_runtime(inventory)
+        self.assertEqual(gate.verify_qt_runtime([name for name in inventory if name != excluded]),
+                         set(inventory) - {excluded})
+        for unexpected in ('pyside6/msvcp140d.dll', 'pyside6/vcruntime140d.dll',
+                           'pyside6/msvcp140_3.dll', 'pyside6/concrt140.dll',
+                           'pyside6/debug_nonredist/msvcp140.dll', 'pyside6/other/msvcp140.dll',
+                           'pyside6/plugins/generic/unknown.dll'):
+            with self.subTest(unexpected=unexpected), self.assertRaises(gate.VerificationError):
+                gate.verify_qt_runtime([name for name in inventory if name != excluded] + [unexpected])
 
     def test_qt_runtime_rejects_unreviewed_modules_binding_dlls_and_plugin_trees(self):
         runtime = self.build['archive_inventory']['qt_binaries']

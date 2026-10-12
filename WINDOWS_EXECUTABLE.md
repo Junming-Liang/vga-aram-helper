@@ -8,6 +8,8 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 取得构建产物后：
 
+运行前请阅读并同意同一 Release 的 `third-party-licenses.zip` 中 `microsoft-runtime/MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt`。微软运行库条款只适用于所列五个微软 DLL，不限制 MIT 应用源码或 Qt 的 LGPL 修改/重建权利。
+
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
 3. 在列表中明确选择目标窗口，选择英雄，点击开始监测。候选由本机 OCR 提取，仍需人工核对三个名称后确认显示。
@@ -59,13 +61,13 @@ SHA-256 可检查文件损坏或不一致，但不能替代代码签名，也不
 
 ### 本地构建
 
-安装 Python 3.12 x64 和 Git，使用干净的 Git checkout（全部构建输入已提交），在 PowerShell 中运行：
+安装 Python 3.12 x64 和 Git，使用干净的 Git checkout（全部构建输入已提交）。打包前还需在有效的 [Visual Studio Community 2022 许可](https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/) 下准备 `build/microsoft-runtime`：五个受支持的发行 DLL 与验证来源清单。自动准备脚本 `scripts/install-community-runtime.ps1 -AcceptCommunityLicense` 目前明确限于临时 GitHub 托管 Windows runner；不在个人电脑上自动安装。维护者可在自己的公开源码分支手动运行所附工作流，或在自己的有效许可下参考该开源脚本适配本地准备步骤，保留签名、依赖与来源验证。普通 EXE 使用者不需要执行这些步骤。
 
 ```powershell
 .\scripts\build-windows.ps1
 ```
 
-脚本在项目目录创建 `.venv-build`，从官方 PyPI 安装固定顶层版本的依赖，构建并运行 EXE 冒烟测试。
+脚本在项目目录创建 `.venv-build`，从官方 PyPI 安装固定顶层版本的依赖，构建并运行 EXE 冒烟测试。微软 DLL 来自实际安装的 Community 发行目录；其签名、版本、依赖和逐字节来源均需验证，不能以 CI 预装运行库代替。托管 runner 的官方安装失败或要求重启时停止构建，不自动重启。
 
 - EXE：`dist\VGA-Aram-Helper.exe`
 - 发布文件：`dist\release\`

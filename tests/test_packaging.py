@@ -231,6 +231,12 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'msvcp140.dll'):
             build_windows.assert_archive_inventory(['python312.dll'])
 
+    def test_unused_tuio_input_plugin_is_excluded_and_rejected(self):
+        source = (ROOT / 'packaging' / 'VGA-Aram-Helper.spec').read_text(encoding='utf-8')
+        self.assertIn("'qtuiotouchplugin.dll'", source)
+        with self.assertRaisesRegex(RuntimeError, 'TUIO network input'):
+            build_windows.assert_archive_inventory(['PySide6/plugins/generic/qtuiotouchplugin.dll'])
+
     def test_spec_contains_onefile_and_actual_icon(self):
         source = (ROOT / 'packaging' / 'VGA-Aram-Helper.spec').read_text(encoding='utf-8')
         self.assertIn('a.binaries, a.datas', source)

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "prepared_utc": "2026-10-12",
+  "purpose": "Proposed Microsoft component notices; Community Section 4 redistribution route and distinct runtime end-user terms.",
+  "source_documents": [
+    {
+      "role": "publisher_distribution_agreement",
+      "official_page": "https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/",
+      "local_supplied_text_sha256": "0ff50aa7e32670b49af349ede7b464bed38cee0eb496767bd01c5f21223375a4",
+      "notice_file": "VISUAL_STUDIO_COMMUNITY_2022_LICENSE.txt",
+      "treatment": "Byte-identical copy of provided verified full agreement text."
+    },
+    {
+      "role": "runtime_end_user_terms_not_distribution_grant",
+      "official_page": "https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/",
+      "official_document_url": "https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx",
+      "source_size": 39644,
+      "source_sha256": "f1e3d56ceb2ad68aae0711b910375009e651ac5530fa0760f0dea6e81e54fae1",
+      "notice_file": "MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt",
+      "treatment": "All 34 body paragraphs preserved as plain text in original order; no wording changes; automatic Word numbering/layout not reproduced. No tables, substantive notes or tracked changes."
+    }
+  ],
+  "official_distributable_list": "https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution",
+  "runtime_filenames": [
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll"
+  ],
+  "files": [
+    {
+      "path": "INTEGRATION.txt",
+      "size": 2246,
+      "sha256": "9fd3306386ab2f7181b0dc8c35f932ada40133abb41207121ecbac60e914b8e2"
+    },
+    {
+      "path": "MICROSOFT_RUNTIME_NOTICE.txt",
+      "size": 2010,
+      "sha256": "77c9c3f71f4049c34808d0c0082075eebb562e76eccaf27cd4fbe820b20cffd3"
+    },
+    {
+      "path": "MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt",
+      "size": 6592,
+      "sha256": "5d7d60ce25f23875bfb5abf5583d3caa9305ba61c01d7f8cbfc06f8b0d2bab22"
+    },
+    {
+      "path": "VISUAL_STUDIO_COMMUNITY_2022_LICENSE.txt",
+      "size": 18963,
+      "sha256": "0ff50aa7e32670b49af349ede7b464bed38cee0eb496767bd01c5f21223375a4"
+    }
+  ]
+}

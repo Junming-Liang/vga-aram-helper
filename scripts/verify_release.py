@@ -12,8 +12,11 @@ from pathlib import Path
 import re
 import subprocess
 import struct
+import sys
 import zlib
 import zipfile
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.microsoft_runtime import verify_runtime_evidence, verify_notice_archive
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
 PREVIEW_VERSION = '0.3.0'
@@ -36,6 +39,11 @@ QT_VERSION = '6.11.2'
 PSL_SOURCE_URL = 'https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat'
 PSL_SOURCE_SHA256 = '5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184'
 QT_RUNTIME_DLLS = {'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qwindows.dll'}
+# Proprietary Microsoft release runtimes, reviewed separately from Qt LGPL
+# sources. Only these observed dependency names are eligible; no debug/runtime
+# prefix wildcard is permitted. Their notice and original bytes are checked too.
+MICROSOFT_RUNTIME_DLLS = {'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
+                          'vcruntime140.dll', 'vcruntime140_1.dll'}
 RUNTIME_DLLS = {'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll'} | QT_RUNTIME_DLLS
 QT_NOTICE_FILES = ('qt-licenses/NOTICE.txt', 'qt-licenses/SOURCE_AND_RELINKING.txt',
                    'qt-licenses/PROVENANCE.json',
@@ -249,7 +257,7 @@ def verify_source_access(release_dir, build, source_sha, version):
 
 
 def verify_qt_runtime(binaries):
-    """Reject any DLL/plugin whose upstream module is outside reviewed sources."""
+    """Reject any DLL/plugin outside the separately reviewed component inventory."""
     paths = {name.replace('\\', '/').casefold() for name in binaries}
     require(len(paths) == len(binaries), 'Duplicate Qt runtime paths')
     allowed_dlls = {'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qt6svg.dll', 'qt6network.dll', 'pyside6.abi3.dll'}
@@ -269,6 +277,8 @@ def verify_qt_runtime(binaries):
             relative = path.removeprefix('pyside6/')
         else:
             relative = path
+        if path.startswith('pyside6/') and relative in MICROSOFT_RUNTIME_DLLS:
+            continue
         if relative in allowed_dlls or relative in allowed_bindings:
             continue
         plugin_path = relative.removeprefix('qt/')
@@ -368,6 +378,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     require(len(qt_binaries) <= 100 and all(len(name) <= 240 for name in qt_binaries), 'Unexpectedly large Qt inventory')
     print(json.dumps({'qt_binaries_under_review': sorted(qt_binaries)}, indent=2), flush=True)
     qt_paths = verify_qt_runtime(qt_binaries)
+    try:
+        verify_runtime_evidence(inventory.get('microsoft_runtime', {}), qt_paths)
+    except (RuntimeError, TypeError, AttributeError) as exc:
+        raise VerificationError('Licensed Microsoft runtime evidence is missing or changed: ' + str(exc)) from exc
     require(smoke.get('status') == 'passed' and 'error' not in smoke and smoke.get('executable_sha256') == checksum, 'EXE smoke failed or tested different bytes')
     require(BASELINE_CHECKS.issubset(set(smoke.get('checks', []))), 'Required browser/comparison/OCR smoke evidence is missing')
     require(smoke.get('health', {}).get('applicationVersion') == version, 'HTTP smoke version mismatch')
@@ -406,6 +420,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     licenses = assets[3]
     with zipfile.ZipFile(licenses) as archive:
         verify_qt_licenses(archive, build)
+        try:
+            verify_notice_archive(archive, inventory['microsoft_runtime'])
+        except (RuntimeError, KeyError, ValueError) as exc:
+            raise VerificationError('Microsoft component notices/source proof missing or changed: ' + str(exc)) from exc
     assets.extend(verify_source_access(release_dir, build, source_sha, version))
     output_dir.mkdir(parents=True, exist_ok=True)
     require(not output_dir.is_symlink(), 'Output directory cannot be a symlink')
@@ -438,6 +456,14 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'Unsigned executable: SmartScreen may warn about an unknown publisher. No signing or antivirus certification claim.\n'
              'This is prerelease=true. The existing stable /releases/latest OTA endpoint does NOT discover this preview. '
              'Download manually if you choose to try it. The fixed v0.3.0 tag preserves the tested immutable manifest URL.\n\n'
+             'MICROSOFT RUNTIME TERMS: READ BEFORE USE\n'
+             'Using the bundled Microsoft Visual C++ runtime components requires agreement to their Microsoft end-user terms. '
+             f'Read [the same-release complete terms and scope notice](https://github.com/{REPOSITORY}/releases/download/{tag}/third-party-licenses.zip), '
+             'under microsoft-runtime/MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt and MICROSOFT_RUNTIME_NOTICE.txt, before use. '
+             'These conditions apply only to the five named Microsoft CRT DLLs, not the MIT application or LGPL Qt components. '
+             'The publisher distribution basis is the approved Visual Studio Community 2022 installation/use and its Section 4; '
+             'the runtime end-user terms themselves do not grant redistribution rights. The build record proves installed product, '
+             'Microsoft signatures, x64 dependency inspection and unchanged source-to-EXE DLL hashes.\n\n'
              'QT / PYSIDE / SHIBOKEN: LGPLv3\n'
              'Applicable Qt, PySide6 and Shiboken6 6.11.2 shared libraries are offered under LGPLv3. '
              'Their notices and complete LGPL/GPL license texts are in third-party-licenses.zip, including '
@@ -459,7 +485,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'https://doc.qt.io/qt-6.11/windows-building.html\n'
              'https://doc.qt.io/qtforpython-6/building_from_source/index.html\n'
              'Prepare the remaining pinned requirements before replacing Qt. Install the modified ABI-compatible Qt/PySide/Shiboken '
-             'libraries into that same Python packaging environment. From the application source root run:\n'
+             'libraries into that same Python packaging environment. Read and accept the Community terms before preparing licensed '
+             'CRT inputs. The supplied install-community-runtime.ps1 -AcceptCommunityLicense route is limited to an ephemeral GitHub-hosted '
+             'Windows runner; use your own source fork/workflow, or adapt that open-source preparation step under your own valid license '
+             'for local tooling while retaining signature, dependency and source checks. From the application source root run:\n'
              'python scripts/build_windows.py\n'
              'Do not reinstall the official pinned Qt wheels after installing modified libraries. Retain the native resources/specification, '
              'record your modifications and their source, and run the supplied Windows/native acceptance tests on your rebuilt EXE. '

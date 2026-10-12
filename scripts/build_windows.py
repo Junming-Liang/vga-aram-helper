@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from app_version import __version__
 from model_inventory import verify_models
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
+from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
 
 
 def sha256(path):
@@ -58,6 +59,7 @@ def collect_licenses(destination):
         if metadata.version(package) != QT_VERSION:
             raise RuntimeError('Qt dependency version changed; regenerate exact-version licenses')
     _, qt_license_files = copy_bundle(ROOT / 'packaging' / 'qt-licenses', destination)
+    microsoft_license_files = copy_notices(destination)
     inventory = []
     for distribution in sorted(metadata.distributions(), key=lambda item: item.metadata['Name'].casefold()):
         name = distribution.metadata['Name']
@@ -83,6 +85,8 @@ def collect_licenses(destination):
     shutil.copyfile(python_license, destination / 'PYTHON-LICENSE.txt')
     shutil.copyfile(ROOT / 'LICENSE', destination / 'VGA-APP-LICENSE.txt')
     shutil.copyfile(ROOT / 'THIRD_PARTY_NOTICES.md', destination / 'THIRD_PARTY_NOTICES.md')
+    inventory.append({'name': 'Microsoft Visual C++ Runtime', 'license_expression': 'LicenseRef-Microsoft-Visual-Cpp-Runtime',
+                      'license_files': microsoft_license_files, 'version': 'See microsoft-runtime/BUILD-PROVENANCE.json'})
     (destination / 'dependency-inventory.json').write_text(json.dumps(inventory, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     required = ('rapidocr', 'onnxruntime', 'numpy', 'pillow', 'opencv-python-headless', 'pyside6_essentials', 'shiboken6')
     for name in required:
@@ -111,6 +115,8 @@ def assert_archive_inventory(names):
         raise RuntimeError('Unexpected optional OpenGL/shader runtime in raster QtWidgets package')
     if {'qopensslbackend.dll', 'qpdf.dll', 'qt6pdf.dll', 'qt6pdfwidgets.dll'} & basenames:
         raise RuntimeError('Unexpected optional Qt OpenSSL/PDF plugin in native package')
+    if 'qtuiotouchplugin.dll' in basenames:
+        raise RuntimeError('Unexpected optional TUIO network input plugin in native package')
     for name in ('PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx'):
         if 'rapidocr/models/' + name.lower() not in normalized:
             missing.append('rapidocr/models/' + name)
@@ -165,8 +171,11 @@ def main():
     if not executable.is_file() or executable.stat().st_size < 30_000_000:
         raise RuntimeError('Expected bundled executable missing or implausibly small')
     from PyInstaller.archive.readers import CArchiveReader
-    bundled = assert_archive_inventory(CArchiveReader(str(executable)).toc)
+    archive = CArchiveReader(str(executable))
+    bundled = assert_archive_inventory(archive.toc)
+    bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
     print(json.dumps({'qt_binaries': bundled['qt_binaries']}, indent=2), flush=True)
+    print(json.dumps({'licensed_microsoft_runtime': bundled['microsoft_runtime']}, indent=2), flush=True)
     release = ROOT / 'dist' / 'release'
     release.mkdir(exist_ok=True)
     named = release / f'vga-aram-helper-{__version__}-windows-x64.exe'

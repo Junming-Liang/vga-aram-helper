@@ -1,0 +1,39 @@
+MICROSOFT VISUAL C++ RUNTIME NOTICE AND SCOPE
+
+© Microsoft Corporation. All rights reserved.
+
+The following Microsoft Visual C++ Runtime DLLs included in this application are
+proprietary Microsoft components (the "Microsoft runtime components"):
+
+- msvcp140.dll
+- msvcp140_1.dll
+- msvcp140_2.dll
+- vcruntime140.dll
+- vcruntime140_1.dll
+
+The accompanying MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt contains
+Microsoft's full end-user license terms. Those terms apply to the Microsoft
+runtime components only. Review and agree to those terms before using those
+components. The same-release build record identifies their installed Visual
+Studio Community source paths, versions, signatures and exact file hashes.
+
+The publisher's redistribution basis is the Distributable Code provisions in
+Section 4 of the separately included VISUAL_STUDIO_COMMUNITY_2022_LICENSE.txt,
+together with the applicable Visual Studio Distributable List and the publisher's
+validly licensed Visual Studio Community installation/use. The runtime end-user
+terms are not a redistribution grant. Authorized redistributors must rely on
+their applicable distribution rights and comply with the accompanying Community
+agreement and Distributable List; the end-user terms do not grant those rights.
+
+These Microsoft-component terms do not apply to this application's original
+MIT-licensed code or to Qt, PySide6, Shiboken6 or other separately licensed
+components. Their own licenses remain in effect, including applicable LGPL
+rights to modify, debug modifications, replace and relink LGPL components.
+The Microsoft components remain separate proprietary object code. This notice
+does not relicense those components under MIT, LGPL or GPL and does not limit
+rights that mandatory applicable law preserves.
+
+Official sources:
+https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
+https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution

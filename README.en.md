@@ -44,6 +44,8 @@ The portable edition has not been officially released. Check [Releases](https://
 
 After obtaining a verified build, place it in a folder you can write to and double-click it. Normal use requires no browser or local URL. Close the main control window to exit. See the [Windows guide](WINDOWS_EXECUTABLE.md).
 
+Before use, read and agree to the Microsoft runtime terms in the same Release's license ZIP. They apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. See [third-party notices](THIRD_PARTY_NOTICES.md) for the complete scope.
+
 ### Run from source
 
 Developers need Python 3.12 x64. Run the following commands in a virtual environment inside the project directory:

@@ -1,0 +1,38 @@
+MICROSOFT RUNTIME NOTICE INTEGRATION
+
+These are proposed redistribution notices for the official Visual Studio 2022
+Community sourcing route. They do not independently establish that a particular
+build used the licensed installation or that its binary verification passed.
+
+Include the complete following files unchanged in the EXE's readable license
+directory and in the same-release third-party-licenses.zip:
+- MICROSOFT_RUNTIME_NOTICE.txt
+- MICROSOFT_VISUAL_CPP_2015_2022_RUNTIME_TERMS.txt
+- VISUAL_STUDIO_COMMUNITY_2022_LICENSE.txt
+- PROVENANCE.json
+
+Make the Microsoft-component-only scope and agreement requirement conspicuous
+before recipients use the bundled Microsoft components, with access to the
+same-release license files. Merely embedding a file is not proof of recipient
+agreement. Preserve MIT and LGPL rights for separately licensed components.
+
+Retain a release-specific manifest for the five actual redistributed CRT DLLs:
+source installation path within Community VC/redist/MSVC/<version>/x64/
+Microsoft.VC143.CRT, serviced version, valid Microsoft signature result, size
+and SHA-256. Verify every corresponding EXE/root/PySide archive copy matches
+those chosen DLLs. Do not use the earlier PySide wheel hashes as the expected
+values after substitution, and do not label the runtime EULA as the grant.
+
+Collect the actual Windows Python installation's complete LICENSE.txt
+separately, preserving any appended PC/crtlicense.txt notice and other licenses.
+Do not replace that actual Windows-build file with a Linux PSF-only license or
+with a notice fetched for an unverified Python patch version.
+
+The two official agreement texts have not been rewritten. The Community text
+is a byte-identical copy of the provided verified text. Runtime text is a
+plain-text representation of all 34 body paragraphs from the verified Microsoft
+DOCX, including its exceptions, warranty/liability/export provisions and EULA ID;
+Word's automatic list numbering/layout is not reproduced. There are no tables,
+substantive footnotes/endnotes or tracked changes in that source. The original
+DOCX URL and hash are recorded for exact source verification. No installation,
+acceptance, download by a recipient, or legal enforceability is certified here.

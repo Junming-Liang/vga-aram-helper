@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "audit_date_utc": "2026-10-12",
+  "classification": "Microsoft proprietary Visual C++ runtime, separate from Qt/PySide LGPL.",
+  "wheel": {
+    "filename": "pyside6_essentials-6.11.2-cp310-abi3-win_amd64.whl",
+    "size": 76913043,
+    "sha256": "c8a29def77032773a30879f7f24415b5395ad08592d147c170824ef4c735dfc1",
+    "official_release_url": "https://pypi.org/project/PySide6-Essentials/6.11.2/",
+    "sha256_matches_official_pypi_release": true
+  },
+  "upstream_bundler": {
+    "project": "pyside-setup",
+    "version": "6.11.2",
+    "source_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+    "source_archive_sha256": "cba47efbaad1bedd529725cbc14e21f156c7a19366f07b3edfbb076ffd7afdf8",
+    "path": "build_scripts/platforms/windows_desktop.py",
+    "sha256": "2f80d2094278bc6db051883c85f0831ba7d6dc99b8d1fe537e9ee47318d11090",
+    "official_source_url": "https://code.qt.io/cgit/pyside/pyside-setup.git/tree/build_scripts/platforms/windows_desktop.py?h=v6.11.2",
+    "observations": [
+      "The msvc_redist list at lines 209-220 includes all five recorded DLLs.",
+      "The bundler calls download_qt_dependency_dlls for Shiboken and PySide packaging at lines 197-204.",
+      "The exact-version bundler references pyside_qt_deps_684_64_2022.7z on Qt servers. The archive currently available at that mutable URL contains different bytes for all five DLLs and no license or permission text; it is not asserted to be the original source of this wheel."
+    ]
+  },
+  "wheel_notice_audit": {
+    "microsoft_license_notice_files_found": [],
+    "only_explicit_wheel_license_file": "pyside6_essentials-6.11.2.dist-info/licenses/LicenseRef-Qt-Commercial.txt",
+    "warning": "Qt license metadata does not establish a Microsoft redistribution grant. Embedded Microsoft copyright/version notices remain in the unchanged DLLs. No Microsoft consumer redistributable EULA has been added as a grant."
+  },
+  "files": [
+    {
+      "filename": "msvcp140.dll",
+      "wheel_path": "PySide6/msvcp140.dll",
+      "expected_archive_path": "pyside6/msvcp140.dll",
+      "size": 549176,
+      "sha256": "4c667b706893593812cd111b369ba6a77f54d1f1b1ae87cf3bf37692663cfba2",
+      "version_resource": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Microsoft® C Runtime Library",
+        "FileVersion": "14.44.35211.0",
+        "ProductName": "Microsoft® Visual Studio®",
+        "ProductVersion": "14.44.35211.0",
+        "LegalCopyright": "© Microsoft Corporation. All rights reserved.",
+        "OriginalFilename": "msvcp140.dll"
+      }
+    },
+    {
+      "filename": "msvcp140_1.dll",
+      "wheel_path": "PySide6/msvcp140_1.dll",
+      "expected_archive_path": "pyside6/msvcp140_1.dll",
+      "size": 27448,
+      "sha256": "d419d24b0a76366f5c9d908b0e45fe70e9e9154bb8ad5f3de42070f2337f857b",
+      "version_resource": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Microsoft® C Runtime Library _1",
+        "FileVersion": "14.44.35211.0",
+        "ProductName": "Microsoft® Visual Studio®",
+        "ProductVersion": "14.44.35211.0",
+        "LegalCopyright": "© Microsoft Corporation. All rights reserved.",
+        "OriginalFilename": "msvcp140_1.dll"
+      }
+    },
+    {
+      "filename": "msvcp140_2.dll",
+      "wheel_path": "PySide6/msvcp140_2.dll",
+      "expected_archive_path": "pyside6/msvcp140_2.dll",
+      "size": 271672,
+      "sha256": "89917964abb6ca16a260cab258e180c3abc239b5af00eed659d0edf0efdd339c",
+      "version_resource": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Microsoft® C Runtime Library _2",
+        "FileVersion": "14.44.35211.0",
+        "ProductName": "Microsoft® Visual Studio®",
+        "ProductVersion": "14.44.35211.0",
+        "LegalCopyright": "© Microsoft Corporation. All rights reserved.",
+        "OriginalFilename": "msvcp140_2.dll"
+      }
+    },
+    {
+      "filename": "vcruntime140.dll",
+      "wheel_path": "PySide6/vcruntime140.dll",
+      "expected_archive_path": "pyside6/vcruntime140.dll",
+      "size": 116024,
+      "sha256": "f893ae75a1a24eea174d982f94bc80ce2448201eaa919a73c0653a5657685de4",
+      "version_resource": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Microsoft® C Runtime Library",
+        "FileVersion": "14.44.35211.0",
+        "ProductName": "Microsoft® Visual Studio®",
+        "ProductVersion": "14.44.35211.0",
+        "LegalCopyright": "© Microsoft Corporation. All rights reserved.",
+        "OriginalFilename": "vcruntime140.dll"
+      }
+    },
+    {
+      "filename": "vcruntime140_1.dll",
+      "wheel_path": "PySide6/vcruntime140_1.dll",
+      "expected_archive_path": "pyside6/vcruntime140_1.dll",
+      "size": 41272,
+      "sha256": "48aa2783793ea18ab3c2c71d420d4fff9814e662a1ff810053c6e5250061a716",
+      "version_resource": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Microsoft® C Runtime Library",
+        "FileVersion": "14.44.35211.0",
+        "ProductName": "Microsoft® Visual Studio®",
+        "ProductVersion": "14.44.35211.0",
+        "LegalCopyright": "© Microsoft Corporation. All rights reserved.",
+        "OriginalFilename": "vcruntime140_1.dll"
+      }
+    }
+  ],
+  "qt_prebuilt_archive_check": {
+    "official_source_url": "https://download.qt.io/development_releases/prebuilt/vcredist/pyside_qt_deps_684_64_2022.7z",
+    "retrieved_utc": "2026-10-12",
+    "sha256": "d4e84102a183ffc5f28e07c24384893bd88802709626097f60e3b2e69bd39570",
+    "only_dll_entries": true,
+    "notice_or_terms_found": false,
+    "target_dlls_match_wheel": false,
+    "evidence_file": "vga-qt-prebuilt-vcredist-audit.json"
+  }
+}
