@@ -5,3 +5,4 @@ packaging/microsoft-runtime/** -text
 # Keep evaluated portrait module bytes identical in Windows checkout and git archive.
 hero_recognition.py text eol=lf
 hero_portraits.py text eol=lf
+champion_select.py text eol=lf
