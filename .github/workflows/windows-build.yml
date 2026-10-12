@@ -74,6 +74,10 @@ jobs:
           if ($env:RUN_BROWSER_TEST -eq 'true') { $arguments += '--browser' }
           python @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test actual native overlay against a synthetic mock window
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Check existing and proposed artifact storage before upload
+        run: python scripts/check_artifact_budget.py
       - name: Upload tested executable, exact checksum and OTA manifest
         # This only stores a downloadable run artifact. It does not publish a release.
         if: ${{ success() }}
@@ -105,4 +109,9 @@ jobs:
           }
           if (Test-Path dist/release/SHA256SUMS.txt) {
             Get-Content dist/release/SHA256SUMS.txt >> $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path reports/windows-native-smoke.json) {
+            Get-Content reports/windows-native-smoke.json >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Native overlay verification did not complete; do not treat this build as verified.' >> $env:GITHUB_STEP_SUMMARY
           }
