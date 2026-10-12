@@ -1,6 +1,6 @@
 # Champion-select handoff / 选人衔接（v0.4.1）
 
-Experimental screenshot-only selection recognition. Select the League client and explicitly Start with handoff enabled. No nickname setup or hero preselection is required. The current source is awaiting its new Windows EXE gate; v0.4.0 release evidence does not prove this feature.
+Experimental screenshot-only selection recognition. Select the League client and explicitly Start with handoff enabled. No nickname setup or hero preselection is required. The [v0.4.1 Windows EXE gate](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38265698203) passed with original owned client/game fixtures, actual window metadata and local OCR. This validates the synthetic session flow; current real-client and live-game compatibility remain unverified.
 
 ## Evidence and limits
 
