@@ -1,0 +1,104 @@
+QT 6.11.2 / PYSIDE 6.11.2 — SOURCE AND RELINKING INFORMATION
+
+This application's own source is MIT-licensed. The LGPLv3 option is selected for
+applicable PySide6, Shiboken6 and Qt shared libraries; their licenses and the
+licenses of embedded third-party code remain in force. Including GPL texts here
+does not relicense this application's original MIT code under the GPL.
+
+The application imports QtCore, QtGui and QtWidgets. QtGui packaging may also
+collect QtSvg and Qt Image Formats plugins. NOTICE.txt, ATTRIBUTIONS.json and the
+source-relative files in this directory cover those upstream modules. Some
+notices concern optional features or other platforms and are preserved as a
+conservative superset. Qt Widgets has no separate third-party attribution entry
+in the inspected source; it uses QtCore/QtGui and their platform/plugin code.
+
+FULL LIBRARY SOURCE, NOT JUST LICENSE TEXTS
+
+This directory contains license texts and notices. It does not contain the full
+corresponding source of the LGPL libraries. A generic Qt website link, the MIT
+application source alone, or an unverified version tag is not a replacement for
+the library-source obligations.
+
+The verified official release archives from which these notices were copied are:
+
+1. PySide6 and Shiboken6 6.11.2:
+https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz
+SHA-256: cba47efbaad1bedd529725cbc14e21f156c7a19366f07b3edfbb076ffd7afdf8
+
+2. Qt Base 6.11.2 (QtCore, QtGui, QtWidgets and Qt Base plugins):
+https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-6.11.2.tar.xz
+SHA-256: 5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22
+
+3. Qt SVG 6.11.2:
+https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtsvg-everywhere-src-6.11.2.tar.xz
+SHA-256: d594337feca84c26fb67fe87b85e6a5c12fda404b611d905f9d138210c311876
+
+4. Qt Image Formats 6.11.2:
+https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtimageformats-everywhere-src-6.11.2.tar.xz
+SHA-256: cecd8900f34b6550076309bc94f62f828008b633a4239e0a08c86788f41001f8
+
+Each SHA-256 was checked against the official archive's .sha256 sidecar on
+2026-10-12. PROVENANCE.json records these URLs, hashes and all copied files.
+These archives establish notice provenance. The distributor must still verify
+that the corresponding source, patches, generated/source inputs and build
+configuration supplied to recipients correspond to the actual bundled wheels
+and every included LGPL library. No Qt/PySide/Shiboken source changes are made by
+this application's packaging; record any later changes in the release sources.
+
+RELEASE DISTRIBUTOR CHECKLIST
+
+- Retain prominent use/licensing notices and full LGPLv3 and GPLv3 texts. Also
+  keep the applicable third-party copyright, license and patent notices.
+- Supply the complete corresponding source for the actual LGPL library binaries,
+  including modifications and necessary build scripts/instructions. For an
+  online release, a practical approach is to offer the exact source packages and
+  required build materials alongside the binary, with clear download directions,
+  under a method permitted by GPLv3 section 6 as incorporated by LGPLv3. Ensure
+  recipients retain equivalent access; do not rely on a generic upstream home
+  page. If choosing a written-offer route instead, verify and fulfill that route's
+  duration, access and other terms. This file itself makes no written source offer.
+- Include the same-release MIT application source, requirements, PyInstaller
+  specification, resources and build scripts used to create the EXE, with the
+  exact dependency/wheel versions, hashes and native Windows build information.
+- Keep users able to modify the LGPL components and recombine/relink and run the
+  application with those modifications. A PyInstaller one-file EXE dynamically
+  loads extracted libraries, but ephemeral extraction alone is not evidence of
+  a suitable user-replaceable mechanism under LGPLv3 section 4(d)(1).
+- For this one-file design, document and test the source/rebuild route under
+  section 4(d)(0): provide the Minimal Corresponding Source and Corresponding
+  Application Code in a form allowing a modified-library rebuild, with suitable
+  rights, build instructions and any required installation information. Supplying
+  public MIT source helps but does not automatically establish that the whole
+  obligation has been met. Do not prohibit reverse engineering for debugging
+  modifications to LGPL portions, and do not require a secret signing key to run
+  a user's modified build.
+- Inspect the final DLL/plugin inventory. This notice bundle does not cover
+  QtWebEngine/QtPdf, QML/Quick, Mesa opengl32sw.dll, Microsoft runtimes/compiler
+  DLLs, system-provided TIFF/WebP dependencies, or other added modules merely
+  because a PySide wheel happens to contain them. Collect their exact licenses
+  and matching source as applicable, or exclude components the application does
+  not need. Audit the actual archive, not just the Python import list.
+
+MODIFIED-LIBRARY REBUILD ROUTE FOR RECIPIENTS
+
+Use the source archive for the same application release and the documented
+native Windows x64 build environment. Build/install ABI-compatible modified
+Qt 6.11.2 and, when needed, modified PySide6/Shiboken6 from the corresponding
+sources. Preserve the module versions/architecture expected by the application.
+Install those replacement libraries into the packaging environment, retain the
+application sources/resources, then rerun the supplied PyInstaller spec/build
+steps. A normal build step that reinstalls the official pinned wheel can replace
+your modified libraries; adapt or bypass that dependency-installation step after
+installing replacements. Test that the rebuilt EXE actually loads the modified
+library and that the native UI and OCR smoke tests pass. The distributor should
+publish the concrete tested commands and any additional toolchain inputs with
+the release; these general directions do not claim a rebuild has been verified.
+
+Official guidance and full controlling texts:
+https://www.qt.io/development/open-source-lgpl-obligations
+https://doc.qt.io/qtforpython-6/building_from_source/index.html
+https://doc.qt.io/qt-6.11/windows-building.html
+pyside-setup/LICENSES/LGPL-3.0-only.txt (especially section 4)
+pyside-setup/LICENSES/GPL-3.0-only.txt (especially section 6)
+
+This is technical packaging guidance, not a legal opinion or compliance guarantee.

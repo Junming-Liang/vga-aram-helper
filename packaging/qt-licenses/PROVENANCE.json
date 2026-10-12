@@ -1,0 +1,1068 @@
+{
+  "schema_version": 1,
+  "upstream_version": "6.11.2",
+  "retrieved_utc": "2026-10-12",
+  "scope": "PySide6-Essentials/shiboken6; QtCore, QtGui, QtWidgets, QtSvg and Qt Image Formats. Conservative source notice superset, not final binary SBOM.",
+  "archives": [
+    {
+      "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "size": 18053248,
+      "sha256": "cba47efbaad1bedd529725cbc14e21f156c7a19366f07b3edfbb076ffd7afdf8",
+      "project": "pyside-setup",
+      "upstream_filename": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "sha256_url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz.sha256",
+      "sha256_verified_against_official_sidecar": true
+    },
+    {
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-6.11.2.tar.xz",
+      "size": 50582668,
+      "sha256": "5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22",
+      "project": "qtbase",
+      "upstream_filename": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "sha256_url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-6.11.2.tar.xz.sha256",
+      "sha256_verified_against_official_sidecar": true
+    },
+    {
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtsvg-everywhere-src-6.11.2.tar.xz",
+      "size": 2341860,
+      "sha256": "d594337feca84c26fb67fe87b85e6a5c12fda404b611d905f9d138210c311876",
+      "project": "qtsvg",
+      "upstream_filename": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "sha256_url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtsvg-everywhere-src-6.11.2.tar.xz.sha256",
+      "sha256_verified_against_official_sidecar": true
+    },
+    {
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "size": 2050424,
+      "sha256": "cecd8900f34b6550076309bc94f62f828008b633a4239e0a08c86788f41001f8",
+      "project": "qtimageformats",
+      "upstream_filename": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "sha256_url": "https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtimageformats-everywhere-src-6.11.2.tar.xz.sha256",
+      "sha256_verified_against_official_sidecar": true
+    }
+  ],
+  "files": [
+    {
+      "path": "pyside-setup/LICENSES/Apache-2.0.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/Apache-2.0.txt",
+      "size": 10398,
+      "sha256": "e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb"
+    },
+    {
+      "path": "pyside-setup/LICENSES/BSD-3-Clause.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/BSD-3-Clause.txt",
+      "size": 1478,
+      "sha256": "62803a6fcceef9091a129d7293d2469ea332b35d30f5e1bc4c628a9f35f3d29c"
+    },
+    {
+      "path": "pyside-setup/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "size": 22955,
+      "sha256": "110535522396708cea37c72a802c5e7e81391139f5f7985631c93ef242b206a4"
+    },
+    {
+      "path": "pyside-setup/LICENSES/GPL-2.0-only.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/GPL-2.0-only.txt",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "pyside-setup/LICENSES/GPL-3.0-only.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/GPL-3.0-only.txt",
+      "size": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "pyside-setup/LICENSES/LGPL-3.0-only.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/LGPL-3.0-only.txt",
+      "size": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "pyside-setup/LICENSES/Qt-GPL-exception-1.0.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/LICENSES/Qt-GPL-exception-1.0.txt",
+      "size": 965,
+      "sha256": "40678d338ce53cd93f8b22b281a2ecbcaa3ee65ce60b25ffb0c462b0530846b2"
+    },
+    {
+      "path": "pyside-setup/sources/shiboken6/libshiboken/bufferprocs_py37.h",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/sources/shiboken6/libshiboken/bufferprocs_py37.h",
+      "size": 5630,
+      "sha256": "7717a874ab6a950ca55f6144efb934a086d16a7c9935d137eeb46afe96bd03fd"
+    },
+    {
+      "path": "pyside-setup/sources/shiboken6/libshiboken/qt_attribution.json",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/sources/shiboken6/libshiboken/qt_attribution.json",
+      "size": 610,
+      "sha256": "1b643e281a9ccb592cfb5df7fc457b9b466f35de6e91ccce76589e85e047573c"
+    },
+    {
+      "path": "pyside-setup/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/PSF-3.7.0.txt",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/PSF-3.7.0.txt",
+      "size": 2445,
+      "sha256": "e5bdc4b568f0016df16652c4769bafde76641b61409149100ee53b708c8f1219"
+    },
+    {
+      "path": "pyside-setup/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/qt_attribution.json",
+      "upstream_archive": "pyside-setup-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "pyside-setup-everywhere-src-6.11.2/sources/shiboken6/shibokenmodule/files.dir/shibokensupport/signature/qt_attribution.json",
+      "size": 591,
+      "sha256": "6197e61575b0f1a65fc4a32647e48c6a4897aa104ad9e5e397cec8fecdcc2f59"
+    },
+    {
+      "path": "qtbase/LICENSES/AFL-2.1.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/AFL-2.1.txt",
+      "size": 8948,
+      "sha256": "93bb4f7417aa775bab9026cc3d0af28aeb64451fc5a8ec651876785edd8eaf9b"
+    },
+    {
+      "path": "qtbase/LICENSES/Apache-2.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Apache-2.0.txt",
+      "size": 10398,
+      "sha256": "e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb"
+    },
+    {
+      "path": "qtbase/LICENSES/BSD-2-Clause.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/BSD-2-Clause.txt",
+      "size": 1276,
+      "sha256": "8fda146749ca071ac9cdce2e24d25444676ea48d1f9dccc2b7c15c054b717db8"
+    },
+    {
+      "path": "qtbase/LICENSES/BSD-3-Clause.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/BSD-3-Clause.txt",
+      "size": 1469,
+      "sha256": "9f0490f18656c6f2435bd14f603ef0c96434d1825615363dce43abb42ed1dcce"
+    },
+    {
+      "path": "qtbase/LICENSES/BSD-4-Clause.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/BSD-4-Clause.txt",
+      "size": 1672,
+      "sha256": "83faa0d205c316ce3efeafee465b6a165914fb29595968c08dc6437021b7b6fd"
+    },
+    {
+      "path": "qtbase/LICENSES/BSL-1.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/BSL-1.0.txt",
+      "size": 1340,
+      "sha256": "3abd6471b9a9a08d65ce771143f8e278bb4c1aeb10c1c2d476935a6b049653f5"
+    },
+    {
+      "path": "qtbase/LICENSES/Bitstream-Vera.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Bitstream-Vera.txt",
+      "size": 8816,
+      "sha256": "7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93"
+    },
+    {
+      "path": "qtbase/LICENSES/CC0-1.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/CC0-1.0.txt",
+      "size": 7048,
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    },
+    {
+      "path": "qtbase/LICENSES/FTL.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/FTL.txt",
+      "size": 6743,
+      "sha256": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1"
+    },
+    {
+      "path": "qtbase/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "size": 22955,
+      "sha256": "110535522396708cea37c72a802c5e7e81391139f5f7985631c93ef242b206a4"
+    },
+    {
+      "path": "qtbase/LICENSES/GPL-2.0-only.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/GPL-2.0-only.txt",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "qtbase/LICENSES/GPL-2.0-or-later.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/GPL-2.0-or-later.txt",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "qtbase/LICENSES/GPL-3.0-only.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/GPL-3.0-only.txt",
+      "size": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "qtbase/LICENSES/HPND.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/HPND.txt",
+      "size": 1188,
+      "sha256": "67ac968431270291f5e9cd3ed76705e1169f57082ee102093b2543b28cef63cf"
+    },
+    {
+      "path": "qtbase/LICENSES/IJG.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/IJG.txt",
+      "size": 1815,
+      "sha256": "1cb448f5e2e6d3aca60943f4eee1a04675628dc0266a074a42bc1560ebc28d61"
+    },
+    {
+      "path": "qtbase/LICENSES/IPL-1.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/IPL-1.0.txt",
+      "size": 11789,
+      "sha256": "d5328e672fb1bff47ee18e890784541453380081cf3771bb7b3c06fc19c7d503"
+    },
+    {
+      "path": "qtbase/LICENSES/Imlib2.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Imlib2.txt",
+      "size": 1986,
+      "sha256": "8846f2baba1a7f4c36f7ca19a923a000d8a21afa37cf0fe006f6ce88a6058a89"
+    },
+    {
+      "path": "qtbase/LICENSES/LGPL-2.1-or-later.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LGPL-2.1-or-later.txt",
+      "size": 25906,
+      "sha256": "1ccf09bf2f598308df4bed9cd8e9657dc5cd0973d2800318f2e241486e2edf3f"
+    },
+    {
+      "path": "qtbase/LICENSES/LGPL-3.0-only.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LGPL-3.0-only.txt",
+      "size": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "qtbase/LICENSES/Libpng.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Libpng.txt",
+      "size": 4120,
+      "sha256": "58fe669792f9b4e0740bf75ecfe90b5326128bb2ce7e27e1c342abd9db4d8ea6"
+    },
+    {
+      "path": "qtbase/LICENSES/LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception.txt",
+      "size": 1852,
+      "sha256": "0526625fcc746a42d3f19a0ab357d3dc8479fdbe3bfd168825498f50215c7a63"
+    },
+    {
+      "path": "qtbase/LICENSES/LicenseRef-ICC-License.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LicenseRef-ICC-License.txt",
+      "size": 463,
+      "sha256": "9e34ff47b3a44814e183342e7e198d127a6740e29d20e8381fba7688dafc79dd"
+    },
+    {
+      "path": "qtbase/LICENSES/LicenseRef-Lcs-Telegraphics.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LicenseRef-Lcs-Telegraphics.txt",
+      "size": 139,
+      "sha256": "c10225ebbd5191bfdd761b0d7752c785f2453ab665d6c454473fb12d254668aa"
+    },
+    {
+      "path": "qtbase/LICENSES/LicenseRef-SHA1-Public-Domain.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/LicenseRef-SHA1-Public-Domain.txt",
+      "size": 144,
+      "sha256": "65d86b8ec6b1cd8b8f6e64fd8710274ba00d6a3c520e00dfdcd1c3d2071f3305"
+    },
+    {
+      "path": "qtbase/LICENSES/Linux-syscall-note.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Linux-syscall-note.txt",
+      "size": 624,
+      "sha256": "3f9e477523febab58de8b716ccfbcf02e6ef1c8e7728953905e8558637abe2a9"
+    },
+    {
+      "path": "qtbase/LICENSES/MIT-Khronos-old.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/MIT-Khronos-old.txt",
+      "size": 1306,
+      "sha256": "3c58021633974f9ed3c3d445a374240a5244fd039628f4d7f6f3e674bc8e6694"
+    },
+    {
+      "path": "qtbase/LICENSES/MIT-open-group.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/MIT-open-group.txt",
+      "size": 897,
+      "sha256": "c55d2ab72d8a4f9e9cd8fbd1379268e575e8cfa16874affa5899b75a6d754514"
+    },
+    {
+      "path": "qtbase/LICENSES/MIT.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/MIT.txt",
+      "size": 1111,
+      "sha256": "d040359701c01996a017d5c515678929cd1b0625e64cb86db44025fbb6cdf1fc"
+    },
+    {
+      "path": "qtbase/LICENSES/MPL-2.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/MPL-2.0.txt",
+      "size": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "qtbase/LICENSES/Qt-GPL-exception-1.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Qt-GPL-exception-1.0.txt",
+      "size": 965,
+      "sha256": "40678d338ce53cd93f8b22b281a2ecbcaa3ee65ce60b25ffb0c462b0530846b2"
+    },
+    {
+      "path": "qtbase/LICENSES/SPL-1.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/SPL-1.0.txt",
+      "size": 23547,
+      "sha256": "f58f2f30909982445f97f1a61667261920a7caeab21ef5bea1b740f5b144d141"
+    },
+    {
+      "path": "qtbase/LICENSES/Unicode-3.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Unicode-3.0.txt",
+      "size": 1995,
+      "sha256": "80bb6294022d8764adb36a9d65ebb6bd94efb1865918a71e31e6c247607d7634"
+    },
+    {
+      "path": "qtbase/LICENSES/X11.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/X11.txt",
+      "size": 1338,
+      "sha256": "e2936c6509784b4f0ec27bac74182393866fad9422b29a70e085ff14aba87193"
+    },
+    {
+      "path": "qtbase/LICENSES/Xerox.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Xerox.txt",
+      "size": 965,
+      "sha256": "b6bc52205d01e10cf43dbb7b8aec06dcaa3b21d1486e7c9c0bec329ee8244d8d"
+    },
+    {
+      "path": "qtbase/LICENSES/Zlib.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/Zlib.txt",
+      "size": 1465,
+      "sha256": "d7e3139972874dc8abdbbfce27ec1e6f942b28279dd7d27453630a8b4610e080"
+    },
+    {
+      "path": "qtbase/LICENSES/blessing.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/blessing.txt",
+      "size": 244,
+      "sha256": "592db1199aab67aafe4515db9808b420db122083807c5329b2f061951e79acbe"
+    },
+    {
+      "path": "qtbase/LICENSES/libpng-2.0.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/LICENSES/libpng-2.0.txt",
+      "size": 5345,
+      "sha256": "7317e078e2d3b5d7ba5a6159e650945153262b44b76f6700f8e9edb261c5143e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/D3D12MemoryAllocator/LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/D3D12MemoryAllocator/LICENSE.txt",
+      "size": 1099,
+      "sha256": "1b3941c52b26d42c510afbdf205a8b96a6d64f5a7b8ebff0287979fd91dfd52f"
+    },
+    {
+      "path": "qtbase/src/3rdparty/D3D12MemoryAllocator/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/D3D12MemoryAllocator/qt_attribution.json",
+      "size": 727,
+      "sha256": "182d7e5ed90dc592b01a50635c85f4039ca6f25f88ec4700b08faf6f07fda09e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/VulkanMemoryAllocator/LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/VulkanMemoryAllocator/LICENSE.txt",
+      "size": 1099,
+      "sha256": "846d97c8b74ccaa92b9ad031140a04363b3b3985f318094552f297b8bda1c68e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/VulkanMemoryAllocator/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/VulkanMemoryAllocator/qt_attribution.json",
+      "size": 699,
+      "sha256": "833626a9e955bdae274f076786ca2cc7c8b50f9e382dff566db89ec69f8178cf"
+    },
+    {
+      "path": "qtbase/src/3rdparty/android/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/android/LICENSE",
+      "size": 525,
+      "sha256": "4a51cf7f724f51bedb5fa4f9583a2762f1db8d05e43a577e2487c7aab2fdce18"
+    },
+    {
+      "path": "qtbase/src/3rdparty/android/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/android/qt_attribution.json",
+      "size": 373,
+      "sha256": "120710d661892ceb44a94556c56998795372334674c79710947282e8279ef415"
+    },
+    {
+      "path": "qtbase/src/3rdparty/blake2/COPYING",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/blake2/COPYING",
+      "size": 17914,
+      "sha256": "4103f471877ed0bae500752c5fcd7ecca409d4a4a8dc2ad40437daba60f1a2bc"
+    },
+    {
+      "path": "qtbase/src/3rdparty/blake2/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/blake2/qt_attribution.json",
+      "size": 926,
+      "sha256": "bab552307bdd03ed9a4cf7f8f1397c3d18d4dbee19ee576033284104785245be"
+    },
+    {
+      "path": "qtbase/src/3rdparty/double-conversion/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/double-conversion/LICENSE",
+      "size": 1527,
+      "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca"
+    },
+    {
+      "path": "qtbase/src/3rdparty/double-conversion/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/double-conversion/qt_attribution.json",
+      "size": 771,
+      "sha256": "4d9c7505a7c12e4e6b57bbee63af926c861abb5515cdf802b8f3491e321146fe"
+    },
+    {
+      "path": "qtbase/src/3rdparty/easing/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/easing/LICENSE",
+      "size": 1505,
+      "sha256": "92fac99458f1754b73edf50f9c9983e0efaa06ad96e2afd5e538c79f45b4b191"
+    },
+    {
+      "path": "qtbase/src/3rdparty/easing/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/easing/qt_attribution.json",
+      "size": 471,
+      "sha256": "77d67a1db5882bb0b9a1278b014885bee45a4c059d1da9f835b6da5bc4b9c93d"
+    },
+    {
+      "path": "qtbase/src/3rdparty/emoji-segmenter/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/emoji-segmenter/qt_attribution.json",
+      "size": 682,
+      "sha256": "9a980fc0f9e478d2a7e9a571d4cd234c259aaf8e2ea3fb60a0a7cf02cc3c3700"
+    },
+    {
+      "path": "qtbase/src/3rdparty/forkfd/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/forkfd/LICENSE",
+      "size": 1148,
+      "sha256": "d0d683ae18e78fbef90eb41168fb781920da2d12bf80704490f0882915c18ae0"
+    },
+    {
+      "path": "qtbase/src/3rdparty/forkfd/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/forkfd/qt_attribution.json",
+      "size": 493,
+      "sha256": "525fd890017a3966f542da42a9ff0ca2a0d71bc45f80a4871de3e0bd0f612612"
+    },
+    {
+      "path": "qtbase/src/3rdparty/freetype/BDF-LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/freetype/BDF-LICENSE.txt",
+      "size": 2305,
+      "sha256": "e4e792f29e66750f2e410fd7b50a567652c180f6ee15e1a4dfa0bb5cde524537"
+    },
+    {
+      "path": "qtbase/src/3rdparty/freetype/LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/freetype/LICENSE.txt",
+      "size": 26234,
+      "sha256": "bf543cdda11864477b8d2ca2aa9afc2aaa8f9133461b4d962ed6ec73646256a1"
+    },
+    {
+      "path": "qtbase/src/3rdparty/freetype/PCF-LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/freetype/PCF-LICENSE.txt",
+      "size": 2218,
+      "sha256": "6938597bfdeca0db191a8f9ede52eaf2482c2c71a0094c084747a1235f9958fe"
+    },
+    {
+      "path": "qtbase/src/3rdparty/freetype/ZLIB-LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/freetype/ZLIB-LICENSE.txt",
+      "size": 962,
+      "sha256": "2b1f5d615382a151af3eb71462ad17d89e2efee8fa7664058d35d3d9237ebb19"
+    },
+    {
+      "path": "qtbase/src/3rdparty/freetype/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/freetype/qt_attribution.json",
+      "size": 5328,
+      "sha256": "628b68bf60eb3bc1616342bc3545b63be2392e78bbebbc4c19f49675dd2ac8a7"
+    },
+    {
+      "path": "qtbase/src/3rdparty/harfbuzz-ng/AUTHORS",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/harfbuzz-ng/AUTHORS",
+      "size": 201,
+      "sha256": "19bfe8f5ed100636cd24ab0c90a3f71c21d8b02d9ba00719447a0faab364d49f"
+    },
+    {
+      "path": "qtbase/src/3rdparty/harfbuzz-ng/COPYING",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/harfbuzz-ng/COPYING",
+      "size": 1971,
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+    },
+    {
+      "path": "qtbase/src/3rdparty/harfbuzz-ng/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/harfbuzz-ng/qt_attribution.json",
+      "size": 1646,
+      "sha256": "15fb72e213bc590be310de8b453792a0b0a42cfd302b97387abf49252b9dd63f"
+    },
+    {
+      "path": "qtbase/src/3rdparty/icc/LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/icc/LICENSE.txt",
+      "size": 463,
+      "sha256": "9e34ff47b3a44814e183342e7e198d127a6740e29d20e8381fba7688dafc79dd"
+    },
+    {
+      "path": "qtbase/src/3rdparty/icc/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/icc/qt_attribution.json",
+      "size": 775,
+      "sha256": "509da9bd2b3f769c730aa4627b1080d65f39b0ecd4130111c9e1122e13cd35b5"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libjpeg/COPYRIGHT.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libjpeg/COPYRIGHT.txt",
+      "size": 606,
+      "sha256": "e5b349c6a98d997a8d0f5fcfe5cc900b1f76bbc32743674c52a70981498748c0"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libjpeg/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libjpeg/LICENSE",
+      "size": 6077,
+      "sha256": "ba6bceebcba0fdd35488477c2cca8c4632ce82c74dbfbc87d886ce6fc4433579"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libjpeg/README.ijg",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libjpeg/README.ijg",
+      "size": 12799,
+      "sha256": "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libjpeg/ijg-license.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libjpeg/ijg-license.txt",
+      "size": 1815,
+      "sha256": "1cb448f5e2e6d3aca60943f4eee1a04675628dc0266a074a42bc1560ebc28d61"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libjpeg/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libjpeg/qt_attribution.json",
+      "size": 859,
+      "sha256": "ed7cb7abdd9124f664acd26cf552ba821c8cf236c4cd34a6737f202215bd41bc"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libpng/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libpng/LICENSE",
+      "size": 5345,
+      "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libpng/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libpng/qt_attribution.json",
+      "size": 1763,
+      "sha256": "a43ff8e146c949f7cd14e00bd681f4957e27def06ecafec55ccc7231c451d3fa"
+    },
+    {
+      "path": "qtbase/src/3rdparty/md4/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/md4/qt_attribution.json",
+      "size": 574,
+      "sha256": "34bda63a2fcc23c83f2e5364ccd394553b4baa505b1f79ded9cc2161c56a9b4c"
+    },
+    {
+      "path": "qtbase/src/3rdparty/md4c/LICENSE.md",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/md4c/LICENSE.md",
+      "size": 1096,
+      "sha256": "d30937367d5413e7eaa218b1640b8946ff76fd34d97152f6979fd96169d5d0fc"
+    },
+    {
+      "path": "qtbase/src/3rdparty/md4c/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/md4c/qt_attribution.json",
+      "size": 673,
+      "sha256": "7b2bc7be22e4be2a2984119ce3d0bfc210ddd0d8ef6193d66e8479d4c22af4ba"
+    },
+    {
+      "path": "qtbase/src/3rdparty/md5/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/md5/qt_attribution.json",
+      "size": 446,
+      "sha256": "20b0f1b17ccd1bd5e8d763b1cdca4b095b8f0c037644b5ee18154536b7d8425e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pcre2/AUTHORS.md",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pcre2/AUTHORS.md",
+      "size": 4013,
+      "sha256": "66d9adef4d4bcb7c2dd99a499a89a52033375785edaa8a35ada0f2db7d05a1a4"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pcre2/LICENCE.md",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pcre2/LICENCE.md",
+      "size": 4011,
+      "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pcre2/LICENSE-SLJIT",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pcre2/LICENSE-SLJIT",
+      "size": 1444,
+      "sha256": "5f216505c0f6ea3273caec89e766eef93cdeb7bbb0c429f9360116d7c938feeb"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pcre2/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pcre2/qt_attribution.json",
+      "size": 1829,
+      "sha256": "e009f73100ef4aed400257a095cdb25ee31980c4a290f1aca52d147cb3067abc"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pixman/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pixman/LICENSE",
+      "size": 1092,
+      "sha256": "942c4f2a80394d3f53599b8382e9f27349b95c45d92b69b84f26d404f4dd74a5"
+    },
+    {
+      "path": "qtbase/src/3rdparty/pixman/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/pixman/qt_attribution.json",
+      "size": 597,
+      "sha256": "f1dc159b63bf84a4c9c367e8ff79aa748b63f5fc622d5080c0a7ddd98ddc7ac7"
+    },
+    {
+      "path": "qtbase/src/3rdparty/rfc6234/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/rfc6234/LICENSE",
+      "size": 1568,
+      "sha256": "7ccebd514aaabc86192f957d773cebf06577c12fe9f25ecd419c6cac5da7a14c"
+    },
+    {
+      "path": "qtbase/src/3rdparty/rfc6234/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/rfc6234/qt_attribution.json",
+      "size": 660,
+      "sha256": "fa24413bdc5015fc7fc84297fa17d4c8a598f8f7c76b9495a6e6b26a77b4a324"
+    },
+    {
+      "path": "qtbase/src/3rdparty/sha1/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/sha1/qt_attribution.json",
+      "size": 618,
+      "sha256": "53cab2c771f7f7ffbf6a58ff759e5846b746e91d98dfe467d5145edf8cd7d306"
+    },
+    {
+      "path": "qtbase/src/3rdparty/sha3/BRG_ENDIAN_LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/sha3/BRG_ENDIAN_LICENSE",
+      "size": 645,
+      "sha256": "2fed6f252ca4a7e813811de3cd3cd08183edd4138bdee909410ef6eee394e82c"
+    },
+    {
+      "path": "qtbase/src/3rdparty/sha3/CC0_LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/sha3/CC0_LICENSE",
+      "size": 7013,
+      "sha256": "1f2786e2c5befeb4dcba6638db6528bf96ef5d2cf24bc85ab5a81ef00abef59d"
+    },
+    {
+      "path": "qtbase/src/3rdparty/sha3/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/sha3/qt_attribution.json",
+      "size": 2322,
+      "sha256": "d904a6c21c150d9cac693c0806a469480306cb4e5879cc13c994fbadba71a56e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/siphash/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/siphash/qt_attribution.json",
+      "size": 793,
+      "sha256": "8614947dfc0ca1d21aad2f88b4400598262ab8c08aa87c4f7acc0c2de6e5619e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/tinycbor/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/tinycbor/LICENSE",
+      "size": 1074,
+      "sha256": "3c6ba0b5bfa7830505301ffb336a17b0748e0d61c4d34216e9dc98f10e40395e"
+    },
+    {
+      "path": "qtbase/src/3rdparty/tinycbor/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/tinycbor/qt_attribution.json",
+      "size": 685,
+      "sha256": "788408509fb7967042640f24ba78b263712e816d886303ba1733f49753d33863"
+    },
+    {
+      "path": "qtbase/src/3rdparty/wasm/DEJAVU-LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/wasm/DEJAVU-LICENSE",
+      "size": 8816,
+      "sha256": "7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93"
+    },
+    {
+      "path": "qtbase/src/3rdparty/wasm/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/wasm/qt_attribution.json",
+      "size": 730,
+      "sha256": "2019d37665bfb2ce7d4931d0bdf7427ea178919399cf37c0fef14a229144936b"
+    },
+    {
+      "path": "qtbase/src/3rdparty/wintab/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/wintab/qt_attribution.json",
+      "size": 602,
+      "sha256": "b879ea91b719531d45e1cfe33d2241d060a9260200bd91a09ada074b16063f9c"
+    },
+    {
+      "path": "qtbase/src/3rdparty/xcb/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/xcb/LICENSE",
+      "size": 1246,
+      "sha256": "82775191bc05f85b40404d77bb69b1edeaeb4033f48387e9e5eab4dd67f5d6f1"
+    },
+    {
+      "path": "qtbase/src/3rdparty/xcb/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/xcb/qt_attribution.json",
+      "size": 825,
+      "sha256": "8bae8861957bc0168d586d24da6e8e93edceb11796811c5f614d211f4674d437"
+    },
+    {
+      "path": "qtbase/src/3rdparty/zlib/LICENSE",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/zlib/LICENSE",
+      "size": 1465,
+      "sha256": "d7e3139972874dc8abdbbfce27ec1e6f942b28279dd7d27453630a8b4610e080"
+    },
+    {
+      "path": "qtbase/src/3rdparty/zlib/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/zlib/qt_attribution.json",
+      "size": 731,
+      "sha256": "0346805e9c4048316dbc7c58d560a20c12482ea0218de264282212e9619b6d64"
+    },
+    {
+      "path": "qtbase/src/corelib/global/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/corelib/global/qt_attribution.json",
+      "size": 814,
+      "sha256": "64698063a65a1502b986bd61163b5eb9c6bde87f93feb28e4eab43ff07a4f10a"
+    },
+    {
+      "path": "qtbase/src/corelib/kernel/LICENSE.QEVENTDISPATCHER_CF.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/corelib/kernel/LICENSE.QEVENTDISPATCHER_CF.txt",
+      "size": 1501,
+      "sha256": "e9e5b9f66d21c0e88a4179525ab39cd8d7eac9af78a8404f322c32b0874783d5"
+    },
+    {
+      "path": "qtbase/src/corelib/kernel/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/corelib/kernel/qt_attribution.json",
+      "size": 564,
+      "sha256": "27bb1f28d336f1f8f6d44689f28cb650f0844cc82672e36ae168d0716783fad5"
+    },
+    {
+      "path": "qtbase/src/corelib/mimetypes/3rdparty/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/corelib/mimetypes/3rdparty/qt_attribution.json",
+      "size": 1383,
+      "sha256": "329652c93e6b47663115543cfd746cb56b96a98d774d540d58e64614bd9739eb"
+    },
+    {
+      "path": "qtbase/src/corelib/text/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/corelib/text/qt_attribution.json",
+      "size": 2170,
+      "sha256": "4e23736600be956e4214849ad8baaa955441656db7324713fab6353c1163b4f5"
+    },
+    {
+      "path": "qtbase/src/gui/opengl/LICENSE.KHRONOS.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/opengl/LICENSE.KHRONOS.txt",
+      "size": 1084,
+      "sha256": "2e484f3c26ff5008c704a3ca9dd809d43f24a004a1abb6c202660fbff0d19715"
+    },
+    {
+      "path": "qtbase/src/gui/opengl/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/opengl/qt_attribution.json",
+      "size": 1526,
+      "sha256": "d05626e02386f22186b385b3ce2cd5a6431b84e2fc552c68f7133e38da552fc1"
+    },
+    {
+      "path": "qtbase/src/gui/painting/LICENSE.QIMAGETRANSFORM.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/painting/LICENSE.QIMAGETRANSFORM.txt",
+      "size": 3004,
+      "sha256": "46b3cbfa2f2946b93291506351e9be1dd0a28d2a53260f5aa488abd36fbeca9d"
+    },
+    {
+      "path": "qtbase/src/gui/painting/LICENSE.XCONSORTIUM.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/painting/LICENSE.XCONSORTIUM.txt",
+      "size": 2294,
+      "sha256": "a216b01291eb38fc1af93cfccf1fc67b48d9923612e517c2a695e95b3f03c22c"
+    },
+    {
+      "path": "qtbase/src/gui/painting/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/painting/qt_attribution.json",
+      "size": 2256,
+      "sha256": "8cddd6c73a885f697261c4d6d60e5cd814a2544fcd407504b52a5eb9b7cc3600"
+    },
+    {
+      "path": "qtbase/src/gui/rhi/LICENSE.MiniEngine.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/rhi/LICENSE.MiniEngine.txt",
+      "size": 1077,
+      "sha256": "cf248820bf1178370bb4f1670a59f8748d46bc96d0f64080cd631511c6046409"
+    },
+    {
+      "path": "qtbase/src/gui/rhi/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/rhi/qt_attribution.json",
+      "size": 782,
+      "sha256": "59df3efb041ed346aa797602a76ef8d284e84c3cc6ace30967d6704fc65dbb47"
+    },
+    {
+      "path": "qtbase/src/gui/text/LICENSE.AGLFN.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/text/LICENSE.AGLFN.txt",
+      "size": 1425,
+      "sha256": "40818155548ff41c67d3a40edf355e9658992b292c227f4c1147425cedc746c6"
+    },
+    {
+      "path": "qtbase/src/gui/text/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/text/qt_attribution.json",
+      "size": 807,
+      "sha256": "73066a55ff52c6546753e1dc0802d8890d58e93e7efa394565cd8bdd0df0995b"
+    },
+    {
+      "path": "qtbase/src/gui/vulkan/LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/vulkan/LICENSE.txt",
+      "size": 11473,
+      "sha256": "5f618873b0cdd1e84c611c5529212c2524bfc887bdfd7d1f3b568bad3c649612"
+    },
+    {
+      "path": "qtbase/src/gui/vulkan/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/gui/vulkan/qt_attribution.json",
+      "size": 801,
+      "sha256": "b4beb6ac27b066a6a71408da116fea60131c06ac9799c9763fe9cef28a76e7b9"
+    },
+    {
+      "path": "qtbase/src/plugins/platforms/cocoa/LICENSE.COCOA.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/plugins/platforms/cocoa/LICENSE.COCOA.txt",
+      "size": 1501,
+      "sha256": "e9e5b9f66d21c0e88a4179525ab39cd8d7eac9af78a8404f322c32b0874783d5"
+    },
+    {
+      "path": "qtbase/src/plugins/platforms/cocoa/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/plugins/platforms/cocoa/qt_attribution.json",
+      "size": 720,
+      "sha256": "27a435bfea96ca950f4a5ad6a82be7fe2a62bb4db0d8851e7a84fc5dce0c3ff3"
+    },
+    {
+      "path": "qtbase/util/gradientgen/LICENSE.WEBGRADIENTS.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/util/gradientgen/LICENSE.WEBGRADIENTS.txt",
+      "size": 1062,
+      "sha256": "9be732e45b638c74f9c0e5248541dd54dc7e8e9a5545df96b5c4b7c9ac0c68ba"
+    },
+    {
+      "path": "qtbase/util/gradientgen/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/util/gradientgen/qt_attribution.json",
+      "size": 596,
+      "sha256": "6e87ac5d79ab92110e6e517b2c74e4f4fd15878540e93eea0300e529d3318572"
+    },
+    {
+      "path": "qtsvg/LICENSES/BSD-3-Clause.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/BSD-3-Clause.txt",
+      "size": 1469,
+      "sha256": "9f0490f18656c6f2435bd14f603ef0c96434d1825615363dce43abb42ed1dcce"
+    },
+    {
+      "path": "qtsvg/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "size": 22955,
+      "sha256": "110535522396708cea37c72a802c5e7e81391139f5f7985631c93ef242b206a4"
+    },
+    {
+      "path": "qtsvg/LICENSES/GPL-2.0-only.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/GPL-2.0-only.txt",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "qtsvg/LICENSES/GPL-3.0-only.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/GPL-3.0-only.txt",
+      "size": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "qtsvg/LICENSES/HPND-sell-variant.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/HPND-sell-variant.txt",
+      "size": 1185,
+      "sha256": "3a946598a9f674d44df764279ca0b85b5d6faba08f3bc75d8e0fcf6cd729a9bd"
+    },
+    {
+      "path": "qtsvg/LICENSES/LGPL-3.0-only.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/LICENSES/LGPL-3.0-only.txt",
+      "size": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "qtsvg/src/svg/LICENSE.XSVG.txt",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/src/svg/LICENSE.XSVG.txt",
+      "size": 1185,
+      "sha256": "3a946598a9f674d44df764279ca0b85b5d6faba08f3bc75d8e0fcf6cd729a9bd"
+    },
+    {
+      "path": "qtsvg/src/svg/qt_attribution.json",
+      "upstream_archive": "qtsvg-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtsvg-everywhere-src-6.11.2/src/svg/qt_attribution.json",
+      "size": 551,
+      "sha256": "c1b0472511c791561b89ee0d11c11d78a85fbdf5df5ad94c1a4653e192367759"
+    },
+    {
+      "path": "qtimageformats/LICENSES/BSD-3-Clause.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/BSD-3-Clause.txt",
+      "size": 1469,
+      "sha256": "9f0490f18656c6f2435bd14f603ef0c96434d1825615363dce43abb42ed1dcce"
+    },
+    {
+      "path": "qtimageformats/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/GFDL-1.3-no-invariants-only.txt",
+      "size": 22955,
+      "sha256": "110535522396708cea37c72a802c5e7e81391139f5f7985631c93ef242b206a4"
+    },
+    {
+      "path": "qtimageformats/LICENSES/GPL-2.0-only.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/GPL-2.0-only.txt",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "qtimageformats/LICENSES/GPL-3.0-only.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/GPL-3.0-only.txt",
+      "size": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "qtimageformats/LICENSES/LGPL-3.0-only.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/LGPL-3.0-only.txt",
+      "size": 7651,
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "path": "qtimageformats/LICENSES/libtiff.txt",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/LICENSES/libtiff.txt",
+      "size": 1146,
+      "sha256": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libtiff/COPYRIGHT",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libtiff/COPYRIGHT",
+      "size": 1146,
+      "sha256": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libtiff/qt_attribution.json",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libtiff/qt_attribution.json",
+      "size": 758,
+      "sha256": "db4ba26120260df0e74e41e8293af5ceb7c9caedeedaa397fff76c51a2140498"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libwebp/AUTHORS",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libwebp/AUTHORS",
+      "size": 3279,
+      "sha256": "f251be89fd442bd9d701360730aea163cc8e2076ff03528f59267dc2c4f8b60a"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libwebp/COPYING",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libwebp/COPYING",
+      "size": 1496,
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libwebp/PATENTS",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libwebp/PATENTS",
+      "size": 1436,
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    },
+    {
+      "path": "qtimageformats/src/3rdparty/libwebp/qt_attribution.json",
+      "upstream_archive": "qtimageformats-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libwebp/qt_attribution.json",
+      "size": 880,
+      "sha256": "0a9f45a5ea57dea6b6987ec2974c4a785cd0cb6850df96af49a544068577363b"
+    }
+  ]
+}

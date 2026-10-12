@@ -1,0 +1,27 @@
+COLLECT_LICENSES INTEGRATION — Qt/PySide/Shiboken 6.11.2
+
+Copy this entire directory recursively into build/licenses/qt-licenses before
+running PyInstaller. Do not flatten paths: attribution records refer to the
+preserved source-relative subdirectories. Include the same tree in the binary's
+external license bundle so recipients can read it without running the EXE.
+
+Required entry points:
+- NOTICE.txt: readable acknowledgments and all 52 component attributions
+- SOURCE_AND_RELINKING.txt: source provenance, obligations and release checklist
+- PROVENANCE.json: official archives, verified SHA-256 and all 146 copied files
+- ATTRIBUTIONS.json: combined normalized upstream attribution metadata
+- pyside-setup/LICENSES/LGPL-3.0-only.txt
+- pyside-setup/LICENSES/GPL-3.0-only.txt
+- pyside-setup/LICENSES/GPL-2.0-only.txt
+- qtbase/, qtsvg/, qtimageformats/: unmodified full texts/notices by upstream path
+
+Verify every PROVENANCE.json files[] entry's SHA-256 when collecting. Fail if the
+installed PySide6-Essentials or shiboken6 version is not 6.11.2; an upgrade requires
+new exact-version source/notices. Do not silently let absent wheel LICENSE files
+produce an empty Qt license directory. Public GPL alternative texts and upstream
+root license catalogs are retained conservatively; they do not change app MIT.
+
+Downloaded original source archives are not included in this small notice tree.
+Arrange corresponding-source delivery and document/test the modified-library
+rebuild route before public binary release. Archive inventory must be reviewed
+for QtPdf/WebEngine, Mesa, Microsoft, or other additional runtime dependencies.
