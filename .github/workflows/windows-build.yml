@@ -21,7 +21,7 @@ jobs:
     # Standard GitHub-hosted runner only; this workflow targets the public repo.
     if: ${{ github.event.repository.private == false }}
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       PYTHONUTF8: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -57,6 +57,8 @@ jobs:
           node tests/test_ui_logic.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/test_choices_ui.js
+      - name: Install and use approved free Community C++ runtime tooling
+        run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Install optional official browser test dependencies
