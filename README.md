@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.0-0891b2" alt="源码版本 v0.4.0"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.1-0891b2" alt="源码版本 v0.4.1"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.0 预览版"></a>
 </p>
 <p align="center">
@@ -21,6 +21,8 @@
 <!-- project-header:end -->
 
 Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄专属评级、机制说明与条件提醒。v0.4.0 默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
+
+当前源码增加 v0.4.1 选人衔接：从客户端本人高亮行与中央英雄名的一致画面确认当前分配，再接续本局新游戏窗口；局内尚未复核时会明确标注“来自本局选人 · HUD未复核”。v0.4.1 的 Windows 测试和发布尚在进行，下面下载仍为已测试的 v0.4.0。
 
 ## 功能
 
@@ -61,11 +63,17 @@ python launcher.py
 - 不确定时可关闭自动英雄、人工纠正英雄及候选。更换/未知英雄、候选变化、过期或切出窗口会隐藏旧资料，自动模式重新等待稳定画面。
 - `Ctrl+Alt+O` 切换鼠标穿透；停止监测或关闭主窗口即可结束捕获。
 
+### v0.4.1 源码：从选人开始
+
+选择客户端窗口，保持“接续同一安装目录新启动的游戏窗口”开启，点击“开始本局监测”。本人高亮行、中央名称及选人后的皮肤缩略图区域一致，并连续两帧确认后，记录本局当前英雄。初始候选卡、悬停预览和替补席不会直接作为本人选择。换人后重新确认；不是不可撤回的“锁定”。
+
+新游戏窗口出现时只接续同一安装目录的唯一新进程。切换接续选项或点击停止会撤销本局捕获。选人记录与局内头像冲突、画面不明或超时会清空；不确定时仍可人工纠正。尚未识别本人头像时，评级会注明选人来源。详见 [选人衔接范围](CHAMPION_SELECTION.md)。
+
 ## 数据与隐私
 
 资料来自[虎牙官方公开 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。评级使用对应英雄的原始记录；资料卡标注来源日期、数据包与游戏资料版本。来源日期和获取时间分别记录，便于判断资料时效。格式与字段说明见 [DATA.md](DATA.md)。
 
-采集范围为所选前台窗口的可见客户区，仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网仅用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
+采集范围为所选前台窗口的可见客户区；启用选人接续时，还包括经安装路径和进程创建时间核验的本局新游戏窗口。仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网仅用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
 
 ## 预览版与兼容性
 

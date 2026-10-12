@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.0-0891b2" alt="Source version v0.4.0"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.1-0891b2" alt="Source version v0.4.1"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.0 preview"></a>
 </p>
 <p align="center">
@@ -21,6 +21,8 @@
 <!-- project-header:end -->
 
 A native Windows control panel and game overlay for champion-specific augment tiers, effects, and condition notes. In v0.4.0, the own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
+
+Current source adds the v0.4.1 champion-select handoff: the highlighted own row must agree with the central champion name before carrying this session’s current assignment into its new game window. Unverified HUD identity is explicitly labeled as coming from champion select. v0.4.1 Windows validation and publication are pending; the download below remains the tested v0.4.0 build.
 
 ## Features
 
@@ -61,11 +63,17 @@ python launcher.py
 - Disable automatic champion detection to correct an uncertain result manually. Unknown/changed champions, changed candidates, expired observations and focus loss hide stale cards; automatic mode waits for fresh stable evidence.
 - Toggle mouse click-through with `Ctrl+Alt+O`. Stop monitoring or close the main window to end capture.
 
+### v0.4.1 source: start in champion select
+
+Select the client window, leave same-installation new-game handoff enabled, and click Start. The highlighted own champion row, central exact name and post-choice skin thumbnails must agree in two observations. Initial cards, hovered previews and bench choices are not treated as your assignment. Changed assignments require new evidence; this is not an irrevocable lock.
+
+Only a unique newly started game process from the same installation may be adopted. Changing the handoff option or stopping revokes the session. Conflicting HUD identity, uncertain scenes and observation timeouts clear carried evidence; manual correction remains available. Cards explicitly identify selection-derived identity until own-HUD verification. See [champion-select scope](CHAMPION_SELECTION.md).
+
 ## Data and privacy
 
 Reference data comes from [Huya's official public wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1). Tiers use the selected champion's original records. Cards identify the source date, data-package version, and game-data version. The source date and retrieval time are recorded separately to help assess freshness. See [DATA.md](DATA.md) for formats and fields.
 
-Capture is limited to visible client-area pixels of the selected foreground window; game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Network requests only fetch public reference data, Riot Data Dragon portrait templates and software updates. Screenshots are never sent to those services. Riot-owned portraits stay in the local cache and are not bundled in the source or EXE.
+Capture is limited to visible client-area pixels of the selected foreground window and, when selection handoff is enabled, its unique new game window verified by installation path and process creation time. Game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Network requests only fetch public reference data, Riot Data Dragon portrait templates and software updates. Screenshots are never sent to those services. Riot-owned portraits stay in the local cache and are not bundled in the source or EXE.
 
 ## Preview and compatibility
 

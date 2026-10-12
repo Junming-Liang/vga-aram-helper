@@ -38,6 +38,7 @@ class NativePackagingTests(unittest.TestCase):
         self.assertTrue(callable(calls[0][0]))
         self.assertEqual(calls[0][1]['current_version'], launcher.__version__)
         self.assertIsNone(calls[0][1]['smoke_report'])
+        self.assertIsNone(calls[0][1]['selection_smoke_input'])
         self.assertIsNone(calls[0][1]['on_ready'])
         self.assertTrue(calls[0][1]['enable_updates'])
         self.assertNotIn('webbrowser', Path(launcher.__file__).read_text(encoding='utf-8'))
@@ -62,6 +63,23 @@ class NativePackagingTests(unittest.TestCase):
             self.assertEqual(launcher.main(['--native-smoke-report', 'result.json']), 0)
             self.assertTrue(load.call_args.kwargs['demo'])
 
+    def test_selection_diagnostic_is_explicit_paired_and_offline_demo(self):
+        native = types.ModuleType('native_ui')
+        def run(loader, **kw):
+            loader()
+            self.assertEqual(kw['selection_smoke_input'], Path('owned.json'))
+            self.assertEqual(kw['smoke_report'], Path('selection.json'))
+            self.assertIsNone(kw['smoke_screenshot'])
+            self.assertFalse(kw['enable_updates'])
+            return 0
+        native.run_native = run
+        with patch.dict(sys.modules, {'native_ui': native}), patch('server.load_startup_data', return_value={}) as load:
+            self.assertEqual(launcher.main(['--selection-smoke-input', 'owned.json', '--selection-smoke-report', 'selection.json']), 0)
+            self.assertTrue(load.call_args.kwargs['demo'])
+        for args in (['--selection-smoke-input', 'owned.json'], ['--selection-smoke-report', 'selection.json'],
+                     ['--selection-smoke-input', 'owned.json', '--selection-smoke-report', 'selection.json', '--headless']):
+            with self.subTest(args=args), self.assertRaises(SystemExit): launcher.main(args)
+
     def test_native_ota_marker_requires_actual_ocr(self):
         native = types.ModuleType('native_ui')
         native.run_native = lambda loader, **kw: kw['on_ready']()
@@ -82,18 +100,18 @@ class NativePackagingTests(unittest.TestCase):
             self.assertIn('Apache', (root / 'licenses.txt').read_text())
 
     def test_native_acceptance_rejects_browser_offscreen_and_incomplete_proof(self):
-        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.0',
+        valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.1',
                  'native_window':True, 'window_closed':True, 'capture_passed':True, 'ocr_passed':True,
                  'click_through_passed':True, 'qt_platform':'windows', 'screenshot_method':'win32 desktop capture',
                  'source_tier_display_passed':True, 'source_tier_hero_specific':True, 'source_tier_missing_passed':True,
                  'source_tier_screen_order_preserved':True, 'source_tier_no_winrate_display':True,
                  'source_tier_rendered':['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']}
         valid.update(dict.fromkeys(native_smoke.NATIVE_AUTOMATION_FIELDS, True))
-        native_smoke.validate_report(valid, '0.4.0')
+        native_smoke.validate_report(valid, '0.4.1')
         for field in native_smoke.NATIVE_AUTOMATION_FIELDS:
             for bad in (False, None, 1, 'true'):
                 with self.subTest(field=field, value=bad), self.assertRaises(RuntimeError):
-                    native_smoke.validate_report(dict(valid, **{field: bad}), '0.4.0')
+                    native_smoke.validate_report(dict(valid, **{field: bad}), '0.4.1')
         for key, value in [('qt_platform','offscreen'),('backend','browser'),('frozen',False),('ocr_passed',False),
                            ('capture_passed',False),('click_through_passed',False),('window_closed',False),('error','failure'),
                            ('source_tier_display_passed',False),('source_tier_hero_specific',False),
@@ -101,7 +119,7 @@ class NativePackagingTests(unittest.TestCase):
                            ('source_tier_no_winrate_display',False),('source_tier_rendered',[])]:
             result = dict(valid, **{key:value})
             with self.subTest(key=key), self.assertRaises(RuntimeError):
-                native_smoke.validate_report(result, '0.4.0')
+                native_smoke.validate_report(result, '0.4.1')
 
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')
@@ -126,9 +144,10 @@ class NativePackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); (root/'reports').mkdir()
             (root/'reports/hero-recognition-genuine.json').write_bytes(b'X' * 20_000)
+            (root/'reports/champion-select-genuine.json').write_bytes(b'Y' * 10_000)
             fetch = lambda url: {'total_count': 0, 'artifacts': []}
             result = budget.check_budget(root, fetcher=fetch, evidence_only=True)
-            self.assertEqual(result['proposed_upper_estimate_bytes'], 1_020_600)
+            self.assertEqual(result['proposed_upper_estimate_bytes'], 1_030_900)
 
     def test_artifact_budget_fails_on_unknown_repository_or_incomplete_listing(self):
         with self.assertRaises(RuntimeError):budget.check_budget(Path('.'),repository='other/repo')

@@ -1,3 +1,14 @@
+# Current source verification: v0.4.1 (2026-10-12 UTC)
+
+The older sections below are historical, including their test counts and pending-feature statements. They do not describe the current release status. Tested v0.4.0 download and Windows run links are in the bilingual README.
+
+- New selection flow: actual local Qt widgets and CPU OCR on original client/card fixtures pass nine checks (`native-selection-qt.json`). OS metadata is faked in that local test; it is not Windows handoff proof.
+- Literal source-tier rendering, portrait automation and existing widget regression checks remain covered in `native-qt-offscreen.json` and `native-auto-qt.json`.
+- Real screenshot evidence is version/source-hash bound: `hero-recognition-genuine.json` retains two recognized positives, one abstention, three negative abstentions; `champion-select-genuine.json` has one plugin-modified client positive and three initial-card negatives representing two distinct scenes. These small samples do not establish general game accuracy.
+- The new actual Windows EXE client-to-game handoff gate uses original owned fixture executables, real process metadata/capture and production handlers. Its result is pending at this source snapshot. No live LoL/Vanguard compatibility claim.
+
+---
+
 # VGA乱斗助手 v0.3.0：验证状态（2026-10-12 UTC）
 
 ## 原生叠加版本的当前状态

@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "scope": "Real Qt offscreen and CPU OCR original fixtures, synthetic OS metadata only. Actual Windows handoff is a separate EXE gate.",
+  "checks": [
+    "Visible handoff opt-out immediately stops capture and revokes bound windows",
+    "Explicit Chinese-titled client uses verified process metadata without requiring an English title",
+    "Restart metadata failure cannot leave old unscoped monitor running",
+    "Real CPU OCR own gold row + central exact name enter production handler; two frames establish current assignment without hero selection",
+    "Unknown client scene clears the old assigned hero",
+    "Production handoff uses unique same-install new process policy and visibly changes selected window (fake metadata resolver in this offscreen check)",
+    "Unknown portrait with real OCR three-card scene uses explicit this-session selection provenance and auto-confirms after stability",
+    "Blank/lost game scene clears carried identity rather than treating previous state as fresh evidence",
+    "Process creation identity is rechecked at OCR result acceptance; PID reuse cannot apply stale client evidence"
+  ]
+}

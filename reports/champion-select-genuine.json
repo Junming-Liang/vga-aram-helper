@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "applicationVersion": "0.4.1",
+  "status": "passed",
+  "scope": "Small local Linux still-image evaluation only: one July2025 Traditional Chinese post-choice client modified by a third-party plugin, plus three June2025 prerelease initial-card images representing two distinct scenes (one scene has resized/original variants). Not current stock-client, live trade/cancel sequence, native Windows, or Riot/Vanguard compatibility proof. Images are not redistributed.",
+  "platform": "Linux",
+  "implementation_sha256": {
+    "champion_select.py": "d493cdd547475989e3877f828bd85e31f80d3c2a6fecbac69a1bc5fb6d1d0a74"
+  },
+  "summary": {
+    "positive_cases": 1,
+    "positive_recognized": 1,
+    "negative_cases": 3,
+    "negative_abstained": 3,
+    "wrong_hero_predictions": 0,
+    "distinct_negative_scenes": 2
+  },
+  "cases": [
+    {
+      "source_url": "https://cdn-mainsite-aka.vnggames.com/upload/community/source/News/LOL/T6/aram/2.png",
+      "source_page": "https://community.vnggames.com/news/lol/lmht-cap-nhat-thay-doi-che-do-aram.html",
+      "image_sha256": "86a4c9472839945bf610230b3d131d939cee15982bcea0405ce7027ee4a9ee8d",
+      "image_dimensions": [
+        1600,
+        900
+      ],
+      "gold_hero_id": null,
+      "expected_outcome": "abstain",
+      "observed": {
+        "scene": "unknown",
+        "championId": null,
+        "assigned": false,
+        "reason": "Own highlighted champion-name row absent or ambiguous",
+        "ownRowCandidates": 0
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "condition": "Riot/VNG June2025 prerelease Champion Cards UI: two unrevealed cards, self fourth team row gold-highlighted, no champion assigned visibly",
+      "limitations": "Not cleared for redistribution; internal read-only fixture",
+      "transformation": null,
+      "image_redistributed": false,
+      "elapsed_seconds": 1.007
+    },
+    {
+      "source_url": "https://fistbump-news.jp/imgs/p/6ctlLP6jpu3fsvWRdHSre9LTZN5buNzb2tnY/7592.png",
+      "source_page": "https://fistbump-news.jp/article/2025/06/10/1143.html",
+      "image_sha256": "45fca2f1c5acf6298a8cb63a25cd7143f88046514f9e6165ef79efc04324d045",
+      "image_dimensions": [
+        691,
+        389
+      ],
+      "gold_hero_id": null,
+      "expected_outcome": "abstain",
+      "observed": {
+        "scene": "unknown",
+        "championId": null,
+        "assigned": false,
+        "reason": "Own highlighted champion-name row absent or ambiguous",
+        "ownRowCandidates": 0
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "condition": "June2025 RiotHQ prerelease playtest: three available champion cards GNAR APHELIOS AURELION SOL, self fifth row still Picking",
+      "limitations": "Published resized691x389 prerelease screenshot, not current2026live client evidence",
+      "transformation": null,
+      "image_redistributed": false,
+      "elapsed_seconds": 0.183
+    },
+    {
+      "source_url": "https://truth.bahamut.com.tw/s01/202507/3d5a666acf0ca57c63d625bb2681679e.WEBP",
+      "source_page": "https://home.gamer.com.tw/artwork.php?sn=6184070",
+      "image_sha256": "2cb763ecda8228b9da1ba1b75aaa60ccbd961b52a60b0f82cb04121ec69f2e1a",
+      "image_dimensions": [
+        1280,
+        720
+      ],
+      "gold_hero_id": "31",
+      "expected_outcome": "recognize_current_assignment",
+      "observed": {
+        "scene": "assigned-selection",
+        "championId": "31",
+        "assigned": true,
+        "reason": "Own highlighted row and central champion name agree in post-choice scene; current assignment, not an irrevocable lock",
+        "ownRow": {
+          "championId": "31",
+          "row": 5,
+          "confidence": 0.99998,
+          "goldFraction": 0.359,
+          "box": [
+            123,
+            435,
+            175,
+            456
+          ]
+        },
+        "center": {
+          "championId": "31",
+          "confidence": 0.99998,
+          "box": [
+            608,
+            457,
+            675,
+            485
+          ]
+        },
+        "skinSelectorBoxes": [
+          [
+            409,
+            520,
+            71,
+            48
+          ],
+          [
+            496,
+            519,
+            73,
+            58
+          ],
+          [
+            581,
+            513,
+            119,
+            68
+          ],
+          [
+            716,
+            520,
+            71,
+            48
+          ],
+          [
+            809,
+            522,
+            48,
+            43
+          ]
+        ],
+        "method": "client-own-row-and-center-ocr",
+        "requiresTemporalStability": true
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "condition": "July2025 Traditional Chinese ARAM champion select after assignment,4secondstimer, thirdparty plugin balance tooltip/modifications",
+      "limitations": "Plugin-modified client screenshot; firstparty stock UI and current2026Mayhem coverage not proven; never execute/install referenced plugin",
+      "transformation": null,
+      "image_redistributed": false,
+      "elapsed_seconds": 0.516
+    },
+    {
+      "source_url": "https://fistbump-news.jp/imgs/zoom1/7592.png",
+      "source_page": "https://fistbump-news.jp/article/2025/06/10/1143.html",
+      "image_sha256": "d9001cb77f1b493b107ec62fde1d4ab1778686d17450585ac26581258a5fc9d4",
+      "image_dimensions": [
+        968,
+        544
+      ],
+      "gold_hero_id": null,
+      "expected_outcome": "abstain",
+      "observed": {
+        "scene": "unknown",
+        "championId": null,
+        "assigned": false,
+        "reason": "Own highlighted champion-name row absent or ambiguous",
+        "ownRowCandidates": 0
+      },
+      "case_pass": true,
+      "safety_pass": true,
+      "kind": "genuine_public_screenshot",
+      "condition": "June2025 RiotHQ prerelease playtest: three available champion cards GNAR APHELIOS AURELION SOL, self fifth row still Picking",
+      "limitations": "June2025 prerelease screenshot, not current2026live client evidence; same scene as initial-threecards resized image, not independent fixture",
+      "transformation": null,
+      "image_redistributed": false,
+      "elapsed_seconds": 0.285
+    }
+  ]
+}

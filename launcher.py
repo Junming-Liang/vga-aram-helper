@@ -78,6 +78,8 @@ def main(argv=None) -> int:
     parser.add_argument("--version-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--licenses-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--native-smoke-report", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--selection-smoke-input", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--selection-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=8765, help="仅监听 127.0.0.1；0 为自动空闲端口")
     parser.add_argument("--headless", "--no-browser", dest="headless", action="store_true", help="仅开发诊断：启动本机 HTTP 服务，不显示原生窗口")
     parser.add_argument("--no-updates", action="store_true", help="本次禁用软件更新检查（测试用）")
@@ -89,6 +91,10 @@ def main(argv=None) -> int:
     parser.add_argument("--apply-update", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--update-health", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if bool(args.selection_smoke_input) != bool(args.selection_smoke_report):
+        parser.error("Selection diagnostic input and report must be provided together")
+    if args.selection_smoke_input and (args.headless or args.native_smoke_report or args.apply_update or args.update_health or args.ready_file):
+        parser.error("Selection diagnostic cannot be combined with other launch modes")
     if args.apply_update:
         from updates import apply_update
         return apply_update(args.apply_update)
@@ -127,13 +133,14 @@ def main(argv=None) -> int:
             if args.ready_file:
                 write_json(args.ready_file, {"pid": os.getpid(), "applicationVersion": __version__,
                            "frozen": bool(getattr(sys, "frozen", False)), "mode": "native-overlay"})
-        return run_native(lambda: load_startup_data(state_dir / "data", demo=args.demo or bool(args.native_smoke_report)),
+        return run_native(lambda: load_startup_data(state_dir / "data", demo=args.demo or bool(args.native_smoke_report or args.selection_smoke_report)),
                           state_dir=state_dir, current_executable=Path(sys.executable).resolve(),
                           current_version=__version__, frozen=bool(getattr(sys, "frozen", False)),
-                          enable_updates=not args.no_updates,
+                          enable_updates=not (args.no_updates or args.selection_smoke_report),
                           on_ready=ready if (args.update_health or args.ready_file) else None,
-                          smoke_report=args.native_smoke_report,
-                          smoke_screenshot=args.native_smoke_report.with_suffix(".png") if args.native_smoke_report else None)
+                          smoke_report=args.native_smoke_report or args.selection_smoke_report,
+                          smoke_screenshot=args.native_smoke_report.with_suffix(".png") if args.native_smoke_report else None,
+                          selection_smoke_input=args.selection_smoke_input)
     if args.demo:
         print("正在加载明确标注的虚构演示数据…", flush=True)
     else:

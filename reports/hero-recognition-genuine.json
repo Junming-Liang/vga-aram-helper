@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.0",
+  "applicationVersion": "0.4.1",
   "status": "partial_with_abstentions",
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
@@ -57,7 +57,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.704,
+      "elapsed_seconds": 0.727,
       "image_redistributed": false
     },
     {
@@ -121,7 +121,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.668,
+      "elapsed_seconds": 0.664,
       "image_redistributed": false
     },
     {
@@ -157,7 +157,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.651,
+      "elapsed_seconds": 0.635,
       "image_redistributed": false
     },
     {
@@ -193,7 +193,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.723,
+      "elapsed_seconds": 0.737,
       "image_redistributed": false
     },
     {
@@ -230,7 +230,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.691,
+      "elapsed_seconds": 0.72,
       "image_redistributed": false
     }
   ],
