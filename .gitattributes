@@ -1,2 +1,3 @@
 # These upstream files are hash-pinned verbatim. Never rewrite LF/CRLF on checkout.
 packaging/qt-licenses/** -text
+packaging/microsoft-runtime/** -text
