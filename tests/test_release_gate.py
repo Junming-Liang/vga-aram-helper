@@ -73,7 +73,8 @@ class ReleaseFixture(unittest.TestCase):
                        'proposed_upper_estimate_bytes': 1_000_000, 'projected_bytes': 101_000_000,
                        'project_budget_bytes': 500_000_000, 'reserve_bytes': 10_000_000}
         self.license_entries = {name: b'Unit-test full license fixture' for name in gate.QT_NOTICE_FILES}
-        self.license_entries['qt-licenses/SOURCE_AND_RELINKING.txt'] = b'SOURCE AND RELINKING: https://download.qt.io/official_releases/ source access fixture.'
+        self.license_entries['qt-licenses/SOURCE_AND_RELINKING.txt'] = ('SOURCE AND RELINKING: https://download.qt.io/official_releases/ source access fixture. '
+            + gate.PSL_SOURCE_URL + ' SHA256 ' + gate.PSL_SOURCE_SHA256).encode('utf-8')
         self.provenance = {'schema_version': 1, 'upstream_version': gate.QT_VERSION, 'files': []}
         for name in ('qt-licenses/pyside-setup/LICENSES/LGPL-3.0-only.txt', 'qt-licenses/pyside-setup/LICENSES/GPL-3.0-only.txt'):
             data = self.license_entries[name]
@@ -383,7 +384,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_qt_runtime_rejects_unreviewed_modules_binding_dlls_and_plugin_trees(self):
         runtime = self.build['archive_inventory']['qt_binaries']
-        for unexpected in ('PySide6/Qt6Network.dll', 'PySide6/Qt6Pdf.dll', 'PySide6/pyside6qml.abi3.dll',
+        for unexpected in ('PySide6/Qt6Pdf.dll', 'PySide6/pyside6qml.abi3.dll',
                            'PySide6/plugins/imageformats/qpdf.dll', 'PySide6/plugins/tls/qopensslbackend.dll',
                            'PySide6/plugins/platforminputcontexts/qtvirtualkeyboardplugin.dll',
                            'PySide6/plugins/styles/unknown.dll'):
@@ -392,6 +393,29 @@ class ReleaseFixture(unittest.TestCase):
         self.assertTrue(gate.verify_qt_runtime(runtime + ['PySide6/Qt6Svg.dll', 'PySide6/plugins/imageformats/qsvg.dll',
                                                      'PySide6/plugins/iconengines/qsvgicon.dll',
                                                      'PySide6/plugins/platforms/qdirect2d.dll']))
+
+    def test_qt_network_allows_only_reviewed_windows_backends_and_requires_psl_notices(self):
+        runtime = self.build['archive_inventory']['qt_binaries']
+        network = ['PySide6/Qt6Network.dll', 'PySide6/QtNetwork.pyd',
+                   'PySide6/plugins/tls/qcertonlybackend.dll', 'PySide6/plugins/tls/qschannelbackend.dll',
+                   'PySide6/plugins/networkinformation/qnetworklistmanager.dll']
+        self.assertTrue(gate.verify_qt_runtime(runtime + network))
+        for unexpected in ('PySide6/plugins/tls/qopensslbackend.dll', 'PySide6/plugins/tls/unknownbackend.dll',
+                           'PySide6/plugins/networkinformation/unknown.dll'):
+            with self.subTest(unexpected=unexpected), self.assertRaises(gate.VerificationError):
+                gate.verify_qt_runtime(runtime + network + [unexpected])
+        for name in ('qt-licenses/qtbase/src/3rdparty/libpsl/PSL-LICENSE.txt',
+                     'qt-licenses/qtbase/src/3rdparty/libpsl/src/LICENSE.chromium'):
+            original = self.license_entries.pop(name)
+            self.write_license_archive()
+            with self.subTest(name=name), self.assertRaises(gate.VerificationError):
+                self.verify()
+            self.license_entries[name] = original
+        source_notice = 'qt-licenses/SOURCE_AND_RELINKING.txt'
+        self.license_entries[source_notice] = self.license_entries[source_notice].replace(gate.PSL_SOURCE_URL.encode(), b'https://publicsuffix.org/list/public_suffix_list.dat')
+        self.write_license_archive()
+        with self.assertRaises(gate.VerificationError):
+            self.verify()
 
     def test_existing_native_png_is_a_standalone_asset_without_regeneration(self):
         original = (self.evidence / 'windows-native-overlay.png').read_bytes()

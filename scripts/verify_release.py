@@ -33,10 +33,14 @@ EVIDENCE_NAMES = ('windows-build.json', 'windows-exe-smoke.json', 'windows-exe-s
                   'windows-native-overlay.json', 'windows-native-overlay.png',
                   'windows-native-process.log', 'windows-artifact-budget.json')
 QT_VERSION = '6.11.2'
+PSL_SOURCE_URL = 'https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat'
+PSL_SOURCE_SHA256 = '5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184'
 QT_RUNTIME_DLLS = {'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qwindows.dll'}
 RUNTIME_DLLS = {'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll'} | QT_RUNTIME_DLLS
 QT_NOTICE_FILES = ('qt-licenses/NOTICE.txt', 'qt-licenses/SOURCE_AND_RELINKING.txt',
                    'qt-licenses/PROVENANCE.json',
+                   'qt-licenses/qtbase/src/3rdparty/libpsl/PSL-LICENSE.txt',
+                   'qt-licenses/qtbase/src/3rdparty/libpsl/src/LICENSE.chromium',
                    'qt-licenses/pyside-setup/LICENSES/LGPL-3.0-only.txt',
                    'qt-licenses/pyside-setup/LICENSES/GPL-3.0-only.txt')
 
@@ -210,6 +214,8 @@ def verify_qt_licenses(archive, build):
     require('SOURCE' in sources.upper() and 'RELINK' in sources.upper() and
             'https://download.qt.io/official_releases/' in sources,
             'Qt corresponding-source/relinking access notice missing')
+    require(PSL_SOURCE_URL in sources and PSL_SOURCE_SHA256 in sources,
+            'Exact preferred-form MPL Public Suffix List source access is missing')
 
 
 def verify_source_access(release_dir, build, source_sha, version):
@@ -246,12 +252,14 @@ def verify_qt_runtime(binaries):
     """Reject any DLL/plugin whose upstream module is outside reviewed sources."""
     paths = {name.replace('\\', '/').casefold() for name in binaries}
     require(len(paths) == len(binaries), 'Duplicate Qt runtime paths')
-    allowed_dlls = {'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qt6svg.dll', 'pyside6.abi3.dll'}
-    allowed_bindings = {'qtcore.pyd', 'qtgui.pyd', 'qtwidgets.pyd', 'qtsvg.pyd'}
+    allowed_dlls = {'qt6core.dll', 'qt6gui.dll', 'qt6widgets.dll', 'qt6svg.dll', 'qt6network.dll', 'pyside6.abi3.dll'}
+    allowed_bindings = {'qtcore.pyd', 'qtgui.pyd', 'qtwidgets.pyd', 'qtsvg.pyd', 'qtnetwork.pyd'}
     plugins = {
         'platforms': {'qwindows.dll', 'qminimal.dll', 'qoffscreen.dll', 'qdirect2d.dll'},
         'iconengines': {'qsvgicon.dll'},
         'styles': {'qmodernwindowsstyle.dll', 'qwindowsvistastyle.dll'},
+        'tls': {'qcertonlybackend.dll', 'qschannelbackend.dll'},
+        'networkinformation': {'qnetworklistmanager.dll'},
         'imageformats': {'qgif.dll', 'qico.dll', 'qjpeg.dll', 'qsvg.dll', 'qicns.dll',
                          'qtga.dll', 'qtiff.dll', 'qwbmp.dll', 'qwebp.dll', 'qdds.dll'},
     }
@@ -357,6 +365,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     qt_binaries = inventory.get('qt_binaries', [])
     require(isinstance(qt_binaries, list) and qt_binaries and all(isinstance(name, str) for name in qt_binaries),
             'Missing Qt binary archive inventory')
+    require(len(qt_binaries) <= 100 and all(len(name) <= 240 for name in qt_binaries), 'Unexpectedly large Qt inventory')
+    print(json.dumps({'qt_binaries_under_review': sorted(qt_binaries)}, indent=2), flush=True)
     qt_paths = verify_qt_runtime(qt_binaries)
     require(smoke.get('status') == 'passed' and 'error' not in smoke and smoke.get('executable_sha256') == checksum, 'EXE smoke failed or tested different bytes')
     require(BASELINE_CHECKS.issubset(set(smoke.get('checks', []))), 'Required browser/comparison/OCR smoke evidence is missing')

@@ -29,12 +29,16 @@ binaries += collect_dynamic_libs('onnxruntime')
 
 a = Analysis([str(ROOT / 'launcher.py')], pathex=[str(ROOT)], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={}, runtime_hooks=[],
-             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick'], noarchive=False)
+             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets'], noarchive=False)
 # Our ordinary QWidget painters use the raster backend. Do not distribute Qt's
 # optional software-OpenGL fallback or Microsoft shader compiler; neither is
 # needed by this UI. Native Windows acceptance tests exercise this exact bundle.
+# Keep Qt's required Network dependency with its native Windows/certificate
+# backends, but omit the unused OpenSSL and PDF plugins. Application HTTPS uses
+# Python's separately bundled SSL runtime, not Qt's optional OpenSSL backend.
 a.binaries = [entry for entry in a.binaries
-              if Path(entry[0]).name.lower() not in {'opengl32sw.dll', 'd3dcompiler_47.dll'}]
+              if Path(entry[0]).name.lower() not in {'opengl32sw.dll', 'd3dcompiler_47.dll',
+                  'qopensslbackend.dll', 'qpdf.dll', 'qt6pdf.dll', 'qt6pdfwidgets.dll'}]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='VGA-Aram-Helper',
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,

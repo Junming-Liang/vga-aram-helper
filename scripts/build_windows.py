@@ -109,6 +109,8 @@ def assert_archive_inventory(names):
         raise RuntimeError('Unexpected WebEngine/browser runtime in native QtWidgets package')
     if {'opengl32sw.dll', 'd3dcompiler_47.dll'} & basenames:
         raise RuntimeError('Unexpected optional OpenGL/shader runtime in raster QtWidgets package')
+    if {'qopensslbackend.dll', 'qpdf.dll', 'qt6pdf.dll', 'qt6pdfwidgets.dll'} & basenames:
+        raise RuntimeError('Unexpected optional Qt OpenSSL/PDF plugin in native package')
     for name in ('PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx'):
         if 'rapidocr/models/' + name.lower() not in normalized:
             missing.append('rapidocr/models/' + name)
@@ -164,6 +166,7 @@ def main():
         raise RuntimeError('Expected bundled executable missing or implausibly small')
     from PyInstaller.archive.readers import CArchiveReader
     bundled = assert_archive_inventory(CArchiveReader(str(executable)).toc)
+    print(json.dumps({'qt_binaries': bundled['qt_binaries']}, indent=2), flush=True)
     release = ROOT / 'dist' / 'release'
     release.mkdir(exist_ok=True)
     named = release / f'vga-aram-helper-{__version__}-windows-x64.exe'

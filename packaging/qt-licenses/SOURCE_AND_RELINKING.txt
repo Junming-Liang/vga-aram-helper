@@ -6,7 +6,8 @@ licenses of embedded third-party code remain in force. Including GPL texts here
 does not relicense this application's original MIT code under the GPL.
 
 The application imports QtCore, QtGui and QtWidgets. QtGui packaging may also
-collect QtSvg and Qt Image Formats plugins. NOTICE.txt, ATTRIBUTIONS.json and the
+collect QtSvg and Qt Image Formats plugins. The Windows bundle also includes
+QtNetwork and QtBase network/TLS plugins. NOTICE.txt, ATTRIBUTIONS.json and the
 source-relative files in this directory cover those upstream modules. Some
 notices concern optional features or other platforms and are preserved as a
 conservative superset. Qt Widgets has no separate third-party attribution entry
@@ -25,7 +26,7 @@ The verified official release archives from which these notices were copied are:
 https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz
 SHA-256: cba47efbaad1bedd529725cbc14e21f156c7a19366f07b3edfbb076ffd7afdf8
 
-2. Qt Base 6.11.2 (QtCore, QtGui, QtWidgets and Qt Base plugins):
+2. Qt Base 6.11.2 (QtCore, QtGui, QtWidgets, QtNetwork and Qt Base plugins):
 https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-6.11.2.tar.xz
 SHA-256: 5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22
 
@@ -44,6 +45,27 @@ that the corresponding source, patches, generated/source inputs and build
 configuration supplied to recipients correspond to the actual bundled wheels
 and every included LGPL library. No Qt/PySide/Shiboken source changes are made by
 this application's packaging; record any later changes in the release sources.
+
+QTNETWORK PUBLIC SUFFIX LIST SOURCE
+
+QtNetwork embeds Public Suffix List data (version 2026-05-14_08-35-31_UTC)
+under MPL-2.0 and Chromium/libpsl lookup code under BSD-3-Clause. The exact
+QtBase archive listed above contains src/3rdparty/libpsl/, including generated
+psl_data.cpp, lookup code, Qt patches and the generator. The raw input
+public_suffix_list.dat, which is the preferred modification form of the list,
+is not included in that QtBase archive. The Qt attribution pins this exact
+upstream commit, whose raw source is available here:
+
+https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat
+SHA-256: 5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184
+
+Provide the list in this preferred source form, or retain these exact source
+access directions with the binary under MPL-2.0 section 3.2; keep source access
+reasonable and timely. Do not substitute the continuously updated current
+publicsuffix.org list for this pinned version. The directions above identify
+the missing input without implying the generated C++ file is sufficient.
+The Windows SChannel backend is QtBase code using a Windows system service;
+this notice does not extend to separately bundled OpenSSL binaries.
 
 RELEASE DISTRIBUTOR CHECKLIST
 

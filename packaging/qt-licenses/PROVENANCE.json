@@ -2,7 +2,7 @@
   "schema_version": 1,
   "upstream_version": "6.11.2",
   "retrieved_utc": "2026-10-12",
-  "scope": "PySide6-Essentials/shiboken6; QtCore, QtGui, QtWidgets, QtSvg and Qt Image Formats. Conservative source notice superset, not final binary SBOM.",
+  "scope": "PySide6-Essentials/shiboken6; QtCore, QtGui, QtWidgets, QtNetwork, QtSvg and Qt Image Formats. Conservative source notice superset, not final binary SBOM.",
   "archives": [
     {
       "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz",
@@ -1063,6 +1063,27 @@
       "upstream_path": "qtimageformats-everywhere-src-6.11.2/src/3rdparty/libwebp/qt_attribution.json",
       "size": 880,
       "sha256": "0a9f45a5ea57dea6b6987ec2974c4a785cd0cb6850df96af49a544068577363b"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libpsl/PSL-LICENSE.txt",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libpsl/PSL-LICENSE.txt",
+      "size": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libpsl/qt_attribution.json",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libpsl/qt_attribution.json",
+      "size": 2458,
+      "sha256": "ae227b5f2cf40511fe1a84d4c752f4005917b7eeb44e7c4495b1403c27cc3647"
+    },
+    {
+      "path": "qtbase/src/3rdparty/libpsl/src/LICENSE.chromium",
+      "upstream_archive": "qtbase-everywhere-src-6.11.2.tar.xz",
+      "upstream_path": "qtbase-everywhere-src-6.11.2/src/3rdparty/libpsl/src/LICENSE.chromium",
+      "size": 1664,
+      "sha256": "1d7f52747a9169751cdf2641a8299c0098e9ecdf9429296ffd55bdb14c9ed5b3"
     }
   ]
 }

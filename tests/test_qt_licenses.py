@@ -61,7 +61,7 @@ class QtLicensesTests(unittest.TestCase):
 
     def test_checked_in_verbatim_notices_are_complete(self):
         data = qt_licenses.verify_bundle(ROOT / 'packaging/qt-licenses')
-        self.assertEqual(len(data['files']), 146)
+        self.assertEqual(len(data['files']), 149)
         self.assertEqual(sum(entry['size'] for entry in data['archives']), 73_028_200)
 
     def test_license_copy_preserves_paths_and_rejects_tampering(self):
@@ -99,7 +99,8 @@ class QtLicensesTests(unittest.TestCase):
         names += ['rapidocr/models/'+name for name in ('PP-OCRv6_det_small.onnx','PP-OCRv6_rec_small.onnx','ch_ppocr_mobile_v2.0_cls_mobile.onnx')]
         result = assert_archive_inventory(names)
         self.assertIn('pyside6/qt6widgets.dll',result['qt_binaries'])
-        for forbidden in ('PySide6/Qt6WebEngineCore.dll','PySide6/opengl32sw.dll','PySide6/d3dcompiler_47.dll'):
+        for forbidden in ('PySide6/Qt6WebEngineCore.dll','PySide6/opengl32sw.dll','PySide6/d3dcompiler_47.dll',
+                          'PySide6/plugins/tls/qopensslbackend.dll','PySide6/plugins/imageformats/qpdf.dll','PySide6/Qt6Pdf.dll'):
             with self.subTest(forbidden=forbidden), self.assertRaises(RuntimeError):
                 assert_archive_inventory(names+[forbidden])
 

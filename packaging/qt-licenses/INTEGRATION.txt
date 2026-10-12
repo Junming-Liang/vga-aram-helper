@@ -6,9 +6,9 @@ preserved source-relative subdirectories. Include the same tree in the binary's
 external license bundle so recipients can read it without running the EXE.
 
 Required entry points:
-- NOTICE.txt: readable acknowledgments and all 52 component attributions
+- NOTICE.txt: readable acknowledgments and all 54 component attributions
 - SOURCE_AND_RELINKING.txt: source provenance, obligations and release checklist
-- PROVENANCE.json: official archives, verified SHA-256 and all 146 copied files
+- PROVENANCE.json: official archives, verified SHA-256 and all 149 copied files
 - ATTRIBUTIONS.json: combined normalized upstream attribution metadata
 - pyside-setup/LICENSES/LGPL-3.0-only.txt
 - pyside-setup/LICENSES/GPL-3.0-only.txt
@@ -25,3 +25,12 @@ Downloaded original source archives are not included in this small notice tree.
 Arrange corresponding-source delivery and document/test the modified-library
 rebuild route before public binary release. Archive inventory must be reviewed
 for QtPdf/WebEngine, Mesa, Microsoft, or other additional runtime dependencies.
+
+QtNetwork scope: the inspected QtBase 6.11.2 source contains exactly two
+QDocModule=qtnetwork attribution entries: MPL-2.0 Public Suffix List data and
+BSD-3-Clause Chromium/libpsl lookup code. Both are included verbatim under
+qtbase/src/3rdparty/libpsl/. QtBase supplies generated list data, lookup source
+and generator; SOURCE_AND_RELINKING.txt and NOTICE.txt additionally give the
+verified immutable source URL/hash for the raw preferred-form public suffix
+list omitted from that archive. Retain those source-access directions. Separate
+OpenSSL binaries would require their own exact notices/source review.

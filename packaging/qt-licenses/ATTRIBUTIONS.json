@@ -1349,5 +1349,57 @@
       "qtimageformats/src/3rdparty/libwebp/COPYING"
     ],
     "license_text_fallbacks": []
+  },
+  {
+    "project": "qtbase",
+    "upstream_attribution": "src/3rdparty/libpsl/qt_attribution.json",
+    "notice": {
+      "Id": "psl-data",
+      "Name": "The Public Suffix List",
+      "QDocModule": "qtnetwork",
+      "Description": "The Public Suffix List is an initiative of Mozilla,\nbut is maintained as a community resource. It is available for use in any software,\nbut was originally created to meet the needs of browser manufacturers.\nIt allows browsers to, for example:\n\n- Avoid privacy-damaging \"supercookies\" being set for high-level domain name suffixes\n\n- Highlight the most important part of a domain name in the user interface\n\n- Accurately sort history entries by site",
+      "Files": "psl_data.cpp",
+      "QtUsage": "Used in Qt Network to avoid setting \"supercookies\" in the cookie jar\nsupported by Qt (by the QNetworkCookieJar class).",
+      "Comment": "Updated by util/update_public_suffix_list.sh; if you add fields here, update the script, too!",
+      "Homepage": "http://publicsuffix.org/",
+      "Version": "2026-05-14_08-35-31_UTC",
+      "DownloadLocation": "https://publicsuffix.org/list/public_suffix_list.dat",
+      "PURL": "pkg:generic/psl-data@e452c7058d6946bd76952b128c12f5ce87a5acb8?download_url=https://publicsuffix.org/list/public_suffix_list.dat",
+      "License": "Mozilla Public License 2.0",
+      "LicenseFile": "PSL-LICENSE.txt",
+      "LicenseId": "MPL-2.0",
+      "Copyright": "The list was originally provided by Jo Hermans <jo.hermans@gmail.com>.\nIt is now maintained on github (https://github.com/publicsuffix/list)."
+    },
+    "license_and_copyright_files": [
+      "qtbase/src/3rdparty/libpsl/PSL-LICENSE.txt"
+    ],
+    "license_text_fallbacks": []
+  },
+  {
+    "project": "qtbase",
+    "upstream_attribution": "src/3rdparty/libpsl/qt_attribution.json",
+    "notice": {
+      "Id": "libpsl",
+      "Name": "libpsl - C library to handle the Public Suffix List",
+      "QDocModule": "qtnetwork",
+      "Description": "Libpsl allows checking domains against the Public Suffix List.",
+      "Files": [
+        "src/lookup_string_in_fixed_set.c",
+        "src/psl-make-dafsa"
+      ],
+      "QtUsage": "Used to compress the embedded copy of publicsuffix list and\nto lookup entries in it.",
+      "Homepage": "https://github.com/rockdaboot/libpsl",
+      "Version": "664f3dc85259ec65e30248a61fa1c45b7b0e4c3f",
+      "PURL": "pkg:github/rockdaboot/libpsl@$<VERSION>",
+      "License": "BSD 3-clause \"New\" or \"Revised\" License",
+      "LicenseFile": "src/LICENSE.chromium",
+      "LicenseId": "BSD-3-Clause",
+      "Copyright": "Copyright 2014-2016 The Chromium Authors. All rights reserved.",
+      "Comment": "no relevant CPE found"
+    },
+    "license_and_copyright_files": [
+      "qtbase/src/3rdparty/libpsl/src/LICENSE.chromium"
+    ],
+    "license_text_fallbacks": []
   }
 ]

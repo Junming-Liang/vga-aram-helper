@@ -7,7 +7,11 @@ This distribution selects the LGPL version 3 option for applicable Qt/PySide/
 Shiboken libraries. Full LGPLv3 and GPLv3 texts accompany this notice; GPLv3 is
 incorporated by LGPLv3. GPLv2 texts preserve upstream alternative-license terms.
 
-Scope: QtCore, QtGui, QtWidgets, QtSvg and Qt Image Formats from Qt 6.11.2.
+Scope: QtCore, QtGui, QtWidgets, QtNetwork, QtSvg and Qt Image Formats
+from Qt 6.11.2. QtNetwork includes the Public Suffix List and lookup code.
+The QtBase qcertonlybackend and qschannelbackend TLS plugins use the
+applicable Qt LGPLv3 option; Windows SChannel is supplied by Windows.
+These notices do not cover a separately supplied OpenSSL library.
 The notices below are a conservative source-level superset, including some
 platforms/features not built on Windows. Their presence does not imply those
 components are in this executable. Review the release binary/plugin inventory
@@ -625,4 +629,32 @@ Upstream attribution: qtimageformats/src/3rdparty/libwebp/qt_attribution.json
 Copyright (c) 2010, Google Inc. All rights reserved.
 License/copyright text: qtimageformats/src/3rdparty/libwebp/COPYING
 Upstream homepage: https://developers.google.com/speed/webp/
+
+
+========================================================================
+The Public Suffix List — 2026-05-14_08-35-31_UTC
+Component: qtbase / qtnetwork
+License: Mozilla Public License 2.0
+Use in Qt: Used in Qt Network to avoid setting "supercookies" in the cookie jar
+supported by Qt (by the QNetworkCookieJar class).
+Upstream attribution: qtbase/src/3rdparty/libpsl/qt_attribution.json
+The list was originally provided by Jo Hermans <jo.hermans@gmail.com>.
+It is now maintained on github (https://github.com/publicsuffix/list).
+License/copyright text: qtbase/src/3rdparty/libpsl/PSL-LICENSE.txt
+Upstream homepage: http://publicsuffix.org/
+Preferred modification source (exact upstream commit):
+https://raw.githubusercontent.com/publicsuffix/list/e452c7058d6946bd76952b128c12f5ce87a5acb8/public_suffix_list.dat
+Source SHA-256: 5c75b7ea88e26f7940a888a34872345cb85c9484a4d0056c4063525d8c8aa184
+The generated Qt psl_data.cpp is not the preferred raw list source.
+
+========================================================================
+libpsl - C library to handle the Public Suffix List — 664f3dc85259ec65e30248a61fa1c45b7b0e4c3f
+Component: qtbase / qtnetwork
+License: BSD 3-clause "New" or "Revised" License
+Use in Qt: Used to compress the embedded copy of publicsuffix list and
+to lookup entries in it.
+Upstream attribution: qtbase/src/3rdparty/libpsl/qt_attribution.json
+Copyright 2014-2016 The Chromium Authors. All rights reserved.
+License/copyright text: qtbase/src/3rdparty/libpsl/src/LICENSE.chromium
+Upstream homepage: https://github.com/rockdaboot/libpsl
 
