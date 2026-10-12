@@ -1,13 +1,29 @@
-# VGA乱斗助手：发布检查
+# 发布检查表
 
-目标公共仓库：`Junming-Liang/vga-aram-helper`。本目录为 v0.3 集成源码；完整源码发布不代表 Windows EXE、真实浏览器或 OTA 回滚已经验收。执行状态以具体提交的 CI 结果为准。
+适用于 [Junming-Liang/vga-aram-helper](https://github.com/Junming-Liang/vga-aram-helper) 的源码和 Windows 便携版发布。
 
-- 原创代码、原创图标与合成样例适用 MIT；第三方数据、目标程序和模型不因根许可改变授权。
-- 只上传审定源码/文档/原创 fixtures/许可/测试。不上传虚拟环境、官方完整数据快照、下载的真实游戏截图、目标源码或安装包、凭据、工作区任意文件。
-- EXE 构建从官方 PyPI 固定依赖，捆绑许可证和模型哈希清单。源码仓库不提交二进制依赖。
-- Windows 工作流仅 `workflow_dispatch`，使用公共仓库标准 runner，`contents:read`，不能擅改成付费大 runner。
-- CI artifact 不等于 GitHub Release；OTA 仅检查正式 Release。没有发布版本时更新不可用是正确结果。
-- 正式 Release 前必须实际构建并运行 Windows EXE/OCR/三选一/浏览器冒烟测试；原生 OTA 替换、重启、回滚另做验证。
-- 公开说明 Linux 浏览器渲染限制、样例 OCR 仅1张静态图、人工确认、源数据日期、空统计和无实时采集/游戏悬浮层等边界。
+## 源码
 
-现有 source-update、HTTP、OCR、单元测试证明对应路径可运行，不能替代 Windows 验收。
+- [ ] 只包含项目源码、文档、原创图标、合成样例和许可文件。
+- [ ] 未提交虚拟环境、完整第三方数据集、真实游戏截图、目标客户端、安装包或凭据。
+- [ ] 本地链接有效，README 的使用方法和发布状态与当前版本一致。
+- [ ] 新增依赖已列入 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 构建与测试
+
+- [ ] `app_version.py` 版本号、目标 tag 和清单版本一致。
+- [ ] 使用公开仓库的标准 Windows runner；运行前检查账户存储配额，不启用付费 larger runner。
+- [ ] 记录构建的源码提交 SHA 和 Actions 链接。
+- [ ] Python、JavaScript、实际 EXE OCR/HTTP/三选一及浏览器冒烟测试通过。
+- [ ] Windows 10/11 用户环境测试结果和原生 OTA 验收状态已记录。
+- [ ] EXE、清单、校验文件和许可包来自同一次成功构建。
+
+## Release
+
+- [ ] 按 [Windows 指南](WINDOWS_EXECUTABLE.md#release-文件) 上传完整发布文件。
+- [ ] 从下载地址重新核对 EXE 的大小与 SHA-256，确认与 Manifest 一致。
+- [ ] Release 说明列出测试环境、已知问题和未验证项目；仅在原生测试通过后标注 OTA 替换、重启、回滚已验证。
+- [ ] 保留第三方代码及模型许可，说明 EXE 未做 Authenticode 签名。
+- [ ] 更新 README 的下载入口和 [验证记录](reports/VALIDATION.md)。
+
+CI artifact 用于构建交接，上传 artifact 不会创建 tag 或 Release。应用更新器只识别正式 GitHub Release。

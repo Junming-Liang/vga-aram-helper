@@ -1,29 +1,40 @@
-# 数据来源与版本边界
+# 数据来源
 
-## v0.3 主路径：官方公开英雄统计 wiki
+## 英雄统计 wiki
 
-- 页面：https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1
-- 版本由该页面配置及匿名 `getGameToolVersion` 接口发现；不是写死“永远最新”的 CDN 路径。
-- 2026-10-12 实际验证到的数据根路径：https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/
-- 文件：`champion-list.json`、`champion-detail.json`、`augment-list.json`、`augment-detail.json`、`item-detail.json`。
-- 当次数据版本395，源游戏资料版本16.17，源数据日期2026-09-07。获取时间不代表统计更新时间。
+主要数据来自[虎牙公开英雄统计 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。程序读取页面配置，通过匿名 `getGameToolVersion` 接口发现当前版本及数据目录，再获取以下文件：
 
-`champion-detail` 172位英雄具有21,288条英雄专属海克斯记录。每条保留源 `tier/winRate/pickRate/numGames` 与数组顺位；缺失胜率/样本不补零、不从全局值推算。来源未给明的统计区间、地区和置信度不推测。21,288条中1,582条胜率为空、样本为0。
+- `champion-list.json`、`champion-detail.json`
+- `augment-list.json`、`augment-detail.json`
+- `item-detail.json`
 
-旧调查只看到了另一套静态参考资料，**据此认为配对胜率没有公开提供的结论不完整，已在 v0.3 纠正**。新的实际数据和代码路径以本文件、README 和新验证报告为准。
+英雄专属推荐来自 `champion-detail` 的 `augmentRecommendations`。程序保留数组顺序，以及各项的 `tier`、`winRate`、`pickRate`、`numGames`。字段解释见 [DATA.md](DATA.md)，发现、验证和缓存流程见 [UPDATES.md](UPDATES.md)。
 
-网络更新实现只读取数据和配置，不执行来自网页/CDN 的脚本。程序不请求图标、字体或游戏图片；远端可执行文件只来自项目批准的 GitHub Release 更新流程，须经确认与校验。
+### 已检查快照
 
-## 可选旧参考资料
+2026-10-12 检查的快照如下，不代表之后启动时获取的版本：
 
-页面：https://gametool.huya.com/lolhex
+- 数据包：395
+- 游戏资料版本：16.17
+- 来源数据日期：2026-09-07
+- 数据目录：<https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/>
+- 内容：172 位英雄、209 个海克斯、180 件装备、21,288 条英雄与海克斯配对
+- 缺失统计：1,582 条配对的胜率为空、样本量为 0
 
-旧参考数据使用 `heroIndex-*.json`、`augments-*.json`、`items-*.json`、`relations-*.json`、`combinations-*.json`。其中特殊联动/陷阱以文字理由表达；有条件或自相矛盾的记录，不能当作无条件评级。公开参考快照的日志曾止于2026-07-17，不能冒充新 wiki 的数据日期。
+这些空值按原样保留。来源未公布的统计区间、地区及置信区间保持未知。快照检查记录见 [official-snapshot-v03.json](reports/official-snapshot-v03.json)。
 
-旧装备关联分数是原型的透明关联展示，不是胜率和英雄三选一推荐分。仍支持用户显式导入，当前正式自动更新不依赖旧静态文件名。
+## 旧版参考资料
 
-## 未授予的权限与未完成能力
+[旧版海克斯图鉴](https://gametool.huya.com/lolhex) 使用 `heroIndex-*.json`、`augments-*.json`、`items-*.json`、`relations-*.json` 和 `combinations-*.json`。其中的联动、陷阱与装备关联以文字理由或关联分数表达。
 
-公开可访问不等于获得再分发许可。源码仓库不包含捕获的完整数据集、真实截图、目标客户端/网页源码、厂商品牌资源或凭据；请自行确认服务条款和数据使用权限。
+这套资料可通过本地文件导入，当前自动更新不依赖它。已检查的旧快照日志止于 2026-07-17；其日期和分数不用于解释新版 wiki 的统计。
 
-静态研究证明了真实桌面产品依赖原生采集与上游服务，未证明本项目已具备自动游戏识别、实时游戏悬浮层、完整远端 AI 等价模型或自动选牌。开发测试没有证明在所有游戏版本、分辨率或 Windows 机器上都正确。
+## 网络与再分发
+
+程序将页面及前端脚本作为配置文本解析，不执行远端 JavaScript，不请求游戏图片、图标或字体。数据接口不需要用户账号、Cookie、令牌或目标助手凭据。
+
+公开可访问不等于获得再分发许可。仓库不包含完整第三方数据集、真实游戏截图、目标客户端或网页源码、厂商品牌素材与凭据。使用及再分发数据前，请确认相关服务条款和权利人的许可。
+
+## 实现来源
+
+本项目依据公开数据协议和行为证据独立实现。`analysis/` 保存经过清理的协议摘要与虚构回放输入；它们用于研究和测试，不包含上游远程 AI 模型。项目不调用私有识别服务，也不使用目标客户端的嵌入凭据。
