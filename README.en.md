@@ -6,10 +6,10 @@
 <h1 align="center">VGA乱斗助手</h1>
 <p align="center"><strong>Champion-specific augment choices · Local screenshot OCR · Public data reference</strong></p>
 <p align="center">
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.3.0-0891b2" alt="Source version v0.3.0"></a>
-  <a href="WINDOWS_EXECUTABLE.md"><img src="https://img.shields.io/badge/status-in%20development-d97706" alt="In development; no official release yet"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.3.0 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -20,7 +20,7 @@
 </p>
 <!-- project-header:end -->
 
-Double-click the Windows EXE to open the native control window and display a transparent reference overlay over a window you explicitly select. Screenshot recognition runs locally, without a separate Python installation, AI subscription, or API key. There is no official Release yet; the latest native version still awaits actual Windows EXE validation.
+Double-click the Windows EXE to open the native control window and display a transparent reference overlay over a window you explicitly select. Screenshot recognition runs locally, without a separate Python installation, AI subscription, or API key. The [v0.3.0 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0) is now available and has passed actual-EXE tests against original synthetic mock windows on Windows. Real-game compatibility remains unverified.
 
 The CI badge reflects the latest manual build and tests, not completed in-game validation.
 
@@ -40,9 +40,11 @@ These are public-snapshot tiers, not a reproduction of Huya’s private live clo
 
 ### Windows
 
-The portable edition has not been officially released. Check [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) for availability or follow the [Windows build workflow](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml). The target platform is Windows 10/11 x64. The single-file EXE bundles Python, QtWidgets, the OCR runtime, and models.
+Download the [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe), or visit the [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0) for checksums, test evidence, and corresponding source. The target platform is Windows 10/11 x64. The single-file EXE bundles Python, QtWidgets, the OCR runtime, and models.
 
-After obtaining a verified build, place it in a folder you can write to and double-click it. Normal use requires no browser or local URL. Close the main control window to exit. See the [Windows guide](WINDOWS_EXECUTABLE.md).
+Check the [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt), then place the EXE in a folder you can write to and double-click it. Normal use requires no browser or local URL. Close the main control window to exit. See the [Windows guide](WINDOWS_EXECUTABLE.md).
+
+This preview corresponds to commit `1ce516e` and the [successful Windows test run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410). Its validation covers original synthetic mock windows, not real LoL/Vanguard, exclusive fullscreen, or native OTA replacement and rollback. It is excluded from the stable automatic-update channel; download it manually.
 
 Before use, read and agree to the Microsoft runtime terms in the same Release's license ZIP. They apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. See [third-party notices](THIRD_PARTY_NOTICES.md) for the complete scope.
 

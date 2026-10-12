@@ -6,10 +6,10 @@
 <h1 align="center">VGA乱斗助手</h1>
 <p align="center"><strong>英雄专属三选一 · 本地截图识别 · 公开数据参考</strong></p>
 <p align="center">
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.3.0-0891b2" alt="源码版本 v0.3.0"></a>
-  <a href="WINDOWS_EXECUTABLE.md"><img src="https://img.shields.io/badge/status-in%20development-d97706" alt="开发中，尚未正式发布"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.3.0 预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -20,7 +20,7 @@
 </p>
 <!-- project-header:end -->
 
-双击 Windows EXE 打开原生控制窗口，在你明确选择的窗口上显示透明资料叠加。截图识别在本机运行，无需 Python 安装、AI 订阅或 API key。当前没有正式 Release，最新原生版本仍待 Windows 实际 EXE 验收。
+双击 Windows EXE 打开原生控制窗口，在你明确选择的窗口上显示透明资料叠加。截图识别在本机运行，无需 Python 安装、AI 订阅或 API key。[v0.3.0 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)现已提供下载，并已通过 Windows 原创模拟窗口的实际 EXE 测试。真实游戏兼容性仍待验证。
 
 CI 徽章对应最近一次手动构建与测试，不代表游戏内适配已经验收。
 
@@ -40,9 +40,11 @@ CI 徽章对应最近一次手动构建与测试，不代表游戏内适配已�
 
 ### Windows
 
-便携版尚未正式发布，可在 [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) 查看状态，或关注 [Windows 构建](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml)。目标平台为 Windows 10/11 x64，单文件 EXE 包含 Python、QtWidgets、OCR 运行时和模型。
+下载 [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe)，或在 [Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)查看校验文件、测试证据与对应源码。目标平台为 Windows 10/11 x64，单文件 EXE 包含 Python、QtWidgets、OCR 运行时和模型。
 
-取得经验证的构建产物后，放入自己有写入权限的文件夹并双击。正常使用无需浏览器或本地网址；关闭主控制窗口即可退出。详见 [Windows 指南](WINDOWS_EXECUTABLE.md)。
+先核对 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt)，再放入自己有写入权限的文件夹并双击。正常使用无需浏览器或本地网址；关闭主控制窗口即可退出。详见 [Windows 指南](WINDOWS_EXECUTABLE.md)。
+
+此预览版对应提交 `1ce516e` 和[成功的 Windows 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)，验证范围为原创模拟窗口，不包括真实 LoL/Vanguard、独占全屏或原生 OTA 换包回滚。它不会通过稳定版自动更新通道推送，请手动下载。
 
 使用前请阅读并同意同一 Release 许可 ZIP 中的微软运行库条款；仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。完整范围见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
