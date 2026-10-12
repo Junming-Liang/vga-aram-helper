@@ -1,0 +1,258 @@
+{
+  "document": "Huya LoL Hex helper: static protocol evidence and independent reconstruction boundary",
+  "schema_version": 1,
+  "analyzed_at_utc": "2026-10-12T04:05:00Z",
+  "purpose": "A functional behavior specification for an original implementation. This file contains no extracted vendor source, assets, credentials or authentication material.",
+  "provenance": {
+    "official_landing": "https://gametool.huya.com/lolhex",
+    "official_archive": "https://download.huya.com/lolhexguide/00.00.45.05/lolhexguide_00.00.00.45.7z",
+    "reported_update_version": "00.00.45.05",
+    "archive_md5": "0bc663810e18362568a2624acaa15642",
+    "archive_sha256": "fab88232f04a4d0e86c01dcd371065d38400780a5d01ab5991d02de5e84a1777",
+    "asar_sha256": "b5423439ec1ea2a53383338f1532f6818ff6d4ff1bf0a259d61d4351eab9ee71",
+    "lua_ui_zip_sha256": "036b206a5c58e0cc25a542e436180adbcd7de191426025a3045ade3f5ff8df75",
+    "rea_repository": "https://github.com/morluto/rea",
+    "rea_commit": "bd74c7af2bec952c2eea7a17feedd05e6675b719",
+    "rea_evidence_id": "ev_2deeee769f364145632c0c37da86efa4fae738ba4490e796db2174d978bed75f",
+    "evidence_files_relative_to_rea_evidence": [
+      "helper/selected-asar-summary.json",
+      "helper/source-extraction-manifest.json",
+      "helper-lua/lua-overlay-analysis.json",
+      "helper-lua/source-manifest.json",
+      "managed/activation-chain-summary.json"
+    ],
+    "line_number_convention": "ASAR line references refer to the formatted local analysis copy whose original and formatted SHA256 values are recorded in source-extraction-manifest.json. Lua line references refer to ZIP entries."
+  },
+  "evidence_status": {
+    "verified_operations": [
+      "REA CLI dependency installation with lifecycle scripts disabled, local build and static parser execution",
+      "Official archive downloaded; MD5 matches anonymous public updater metadata; SHA256 recorded",
+      "Inert ASAR/JavaScript, PE metadata, managed CIL and Lua text inspection"
+    ],
+    "not_performed": [
+      "Execution of any Huya executable, native addon, JavaScript bundle or Lua target",
+      "Live League of Legends or Windows integration test",
+      "Remote AI authentication, AI requests, screenshot/video transmission or embedded-key use",
+      "Live evaluation of recognition accuracy, latency or recommendation quality"
+    ],
+    "static_analysis_coverage": "Selected ASAR sources only: 8 JavaScript files parsed, 3153 inventoried files outside selected scope. Application and semantic coverage are partial; semantic graph limits were reached. Native-addon static discovery did not resolve dynamic loading, so zero discovered bindings does not mean none exist.",
+    "remote_ai": "The original client references a Huya remote inference service. Its model and recommendation computation were not recovered from the inspected UI/client sources. The independent prototype has no connection to that service; service availability was not tested.",
+    "runtime_equivalence": "Not established. File download and REA execution are verified operations, not runtime evidence for the original helper."
+  },
+  "architecture": [
+    {
+      "stage": "Read game context",
+      "observed": "Windows process/command-line bridge obtains local League client connection information. LCU gameflow and champion-selection responses supply phase, queue and hero context. Hex queue IDs present in this build: 2400, 2410, 3270.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:18329-18344,31931,32107,32223,32370"
+      ],
+      "confidence": "static"
+    },
+    {
+      "stage": "Capture and stream",
+      "observed": "LoL service invokes native StartVideoCapture with Hex mode 0. A successful OnVideoPushResult callback supplies a stream name; stale starts are guarded by a sequence identity.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:42944,43038,43400-43417"
+      ],
+      "confidence": "static"
+    },
+    {
+      "stage": "Remote inference",
+      "observed": "AI task start receives stream name, current hero, mode key hex_aram, mode name, sequence and signaling context. The client listens for category-filtered remote inference notices containing a JSON data string.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:30570,30891,31134-31182,43075-43125"
+      ],
+      "confidence": "static"
+    },
+    {
+      "stage": "Distribute results",
+      "observed": "The same remote JSON string is sent to an Electron overlay, the three Hex windows, equipment-config processing and native AIServerNotifyMsg.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:41954-41966,43543-43607"
+      ],
+      "confidence": "static"
+    },
+    {
+      "stage": "Render",
+      "observed": "Electron/React and native-hosted Lua provide separate presentation paths. Both consume supplied ratings rather than recomputing them. Which path is visible in a particular running configuration requires Windows testing.",
+      "evidence": [
+        "app.asar:dist/renderer/assets/hex-9uM0ppIo.js:35-78",
+        "lolbox_ui_render.zip:core/LolHexMgr.lua:31-98",
+        "lolbox_ui_render.zip:decoration/LolHexUI.lua:331-484"
+      ],
+      "confidence": "static"
+    }
+  ],
+  "observed_protocol": {
+    "remote_result_notice": {
+      "fields": {
+        "lUid": "numeric identity supplied by upstream; not needed in independent local replay",
+        "cCategoryId": "0 for Hex; 2 is separate TFT category",
+        "sAIData": "JSON-encoded string"
+      },
+      "behavior": "Notices from a different category are ignored. The client forwards sAIData downstream; it does not derive ratings in these handlers.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:31134-31182"
+      ]
+    },
+    "decoded_hex_data": {
+      "fields": {
+        "isOversea": "optional boolean or numeric 1; Lua switches English when true or 1, otherwise Chinese",
+        "vHexs": "ordered array of choice display entries",
+        "vHexs[].sTier": "optional rating string; supplied by upstream",
+        "vHexs[].fPickRate": "numeric fraction used as pick rate; not a win rate or confidence score",
+        "vHexs[].sSimpleDesc": "optional explanation used by Lua",
+        "vHexs[].mExtra_info.position": "string [x, y, width, height]; recognition box in video pixels, top-left origin",
+        "vHexs[].mExtra_info.video_hw": "string [height, width]; note dimension order"
+      },
+      "not_used_for_lua_rating_decision": [
+        "sHexName",
+        "iScene",
+        "iResCode",
+        "sTraceId",
+        "vMainHeros",
+        "vCandHeros"
+      ],
+      "limits": "These are observed consumed fields, not an exhaustive server schema. Other flows consume hero/equipment fields. No evidence here establishes the server ranking algorithm.",
+      "evidence": [
+        "lolbox_ui_render.zip:core/LolHexMgr.lua:31-98",
+        "lolbox_ui_render.zip:decoration/LolHexUI.lua:379-481",
+        "app.asar:dist/main/index.cjs:43543-43607"
+      ]
+    },
+    "electron_hex_windows": {
+      "channel": "hex:hex-data",
+      "payload": {
+        "index": "0, 1 or 2",
+        "hexs": "array containing corresponding vHexs entry, or empty"
+      },
+      "selection": "Main process routes only the first three entries. Renderer accepts matching window index; chooses first entry with nonempty tier, otherwise first entry. It does not compare tier strengths.",
+      "display": "S/A/B/C map to rating images; unknown or missing tier uses empty image. Missing tier text indicates unavailable data. With nonempty tier, pickRate *100 is formatted to exactly two decimal places.",
+      "geometry": "Scale recognition X/width by gameW/videoW and Y/height by gameH/videoH. Horizontally center window on recognition box; put window below its lower edge with height-scaled offset. Missing valid position/video size yields empty bounds.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:43543-43607,50894-50927,51160-51208",
+        "app.asar:dist/preload/chunks/ipc-CyarYPJO.cjs:70-71",
+        "app.asar:dist/renderer/assets/hex-9uM0ppIo.js:35-78"
+      ]
+    },
+    "native_lua_bridge": {
+      "envelope": {
+        "cmd": "command string",
+        "params": "command-specific object"
+      },
+      "transport": "JSON envelope via host notifyEvent; actual implementation reads cmd, despite stale documentation examples using protocol.",
+      "input": {
+        "cmd": "native2lua_setAIData",
+        "params": {
+          "sAIData": "JSON-encoded data string"
+        }
+      },
+      "clear": {
+        "cmd": "native2lua_clearHexRecommend",
+        "behavior": "Clears Hex, equipment and gold views/caches immediately"
+      },
+      "excluded_payloads": "If decoded data has page_type, game_state or lineup_recommend, Hex handler skips it as TFT-shaped data.",
+      "display": "Preserves input order; iterates all sequential entries with no explicit three-item cap. Does not rank, pick the best tier, automate selection or reroll. Existing rating resources: S/A/B/C/empty. Unknown nonempty tier has no resource-existence fallback.",
+      "pick_rate": "Fraction *100, up to four decimal places with trailing zeros removed; no clamping. Missing value defaults to zero. Missing tier instead displays unavailable-data text.",
+      "geometry": "Independent horizontal/vertical video-to-canvas scales; horizontal box center; top-left video origin converted to renderer bottom-left origin; height-adaptive below-card layout. Absent video_hw defaults to [1080, 1920].",
+      "lifetime": "Three consecutive absent/invalid data updates or absent vHexs clear retained views. Explicit vHexs=[] clears on the next changed payload. Equal serialized decoded data does not redraw unless forced. Resize redraws cache. No Lua wall-time expiry or mode polling.",
+      "evidence": [
+        "lolbox_ui_render.zip:scaffold.lua:81-88",
+        "lolbox_ui_render.zip:support/utils/CmdEventDispatch.lua:55-79",
+        "lolbox_ui_render.zip:core/LolHexMgr.lua:31-120,206-216",
+        "lolbox_ui_render.zip:decoration/LolHexUI.lua:331-484"
+      ]
+    },
+    "gold_difference": {
+      "set_command": "native2lua_setGoldDiff",
+      "fields": {
+        "blue": "display string",
+        "red": "display string",
+        "diff": "display string",
+        "diffValue": "number",
+        "selfTeam": "ORDER or CHAOS"
+      },
+      "visibility_command": "native2lua_setGoldDiffVisible with visible strictly true to show",
+      "clear_command": "native2lua_clearGoldDiff",
+      "behavior": "Data and visibility are separate. Lua does not listen for Tab itself. Difference appears on self-team panel; color is team-based, not sign-based. abs(diffValue)<1 or empty/0 diff hides it. Lua does not recompute values; protocol comments describe purchased equipment value.",
+      "evidence": [
+        "lolbox_ui_render.zip:core/protocol.lua:42-65",
+        "lolbox_ui_render.zip:decoration/LolGoldDiffUI.lua:55-123,174-217,220-303"
+      ]
+    },
+    "generic_lua_electron_request": {
+      "command": "lua2native_electronRequest",
+      "fields": [
+        "requestId",
+        "action",
+        "payload",
+        "source",
+        "sentAt"
+      ],
+      "response_command": "native2lua_electronResponse",
+      "behavior": "One-shot matching callback by requestId. No timeout/retry found.",
+      "scope_warning": "Only production actions found were tft.copyLineupCode and tft.showAssistPanel. These do not establish a Hex selection/control API.",
+      "evidence": [
+        "lolbox_ui_render.zip:core/LuaElectronRequest.lua:22-93"
+      ]
+    }
+  },
+  "lifecycle_observations": {
+    "capture_start_spacing_ms": 5000,
+    "capture_start_timeout_ms": 60000,
+    "warning": "5000ms is a minimum start-attempt spacing constant, not evidence of one screenshot every five seconds or AI inference frequency.",
+    "stale_callbacks": "Stream start identity and deduplication guards prevent stale/duplicate start callbacks from establishing a current session.",
+    "stop": "Native capture stop, remote task stop and view clear paths exist; phase transitions, reconnect and delayed termination logic are more complex than a single immediate end-of-game stop.",
+    "evidence": [
+      "app.asar:dist/main/index.cjs:41750-41800,41930,42944-43155,43400-43417"
+    ]
+  },
+  "other_observed_side_effects": [
+    {
+      "feature": "Equipment recommendation files",
+      "observation": "Main process converts upstream hero/equipment names to IDs and writes owned-prefix item-set JSON files into LoL Config/Global/Recommended. It deduplicates by equipment-name digest, removes previous owned-prefix files and cleans up after game exit. The Lua equipment panel normal data call is commented out; file writing and Lua panel are separate features.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:40469-40695,41954-41966",
+        "lolbox_ui_render.zip:core/LolHexMgr.lua:49-50"
+      ]
+    },
+    {
+      "feature": "Optional ready-check acceptance",
+      "observation": "LCU acceptance methods are packaged. Their presence is not proof they ran during this analysis or are enabled by default. The independent prototype does not implement game actions.",
+      "evidence": [
+        "app.asar:dist/main/index.cjs:32120-32160"
+      ]
+    }
+  ],
+  "independent_implementation": {
+    "current_deliverable": "Original local manual-reference prototype; synthetic default data/private local imports; no automatic recognition claim.",
+    "recommended_module_boundary": [
+      "Read-only context provider",
+      "User-controlled capture source",
+      "Independent recognizer returning card identity and box",
+      "Independent data/ranking provider returning tier, pick-rate source and explanation",
+      "Validated renderer/state store"
+    ],
+    "normalization_rules": [
+      "Keep pick rate separate from win rate and recognition confidence",
+      "Use numeric bounding-box and video-size objects internally, not vendor-shaped coordinate strings",
+      "Reject NaN/Infinity and zero/negative video dimensions; bound input text/array lengths",
+      "Preserve display order independently of recommendation ranking",
+      "Track source version, timestamp and confidence; expose unknown/stale data clearly",
+      "Add response timeouts and session IDs; clear on explicit empty result, stop, mode switch or expiry"
+    ],
+    "future_validation_gates": [
+      "Synthetic replay tests for 0/1/3/many cards, missing tier, malformed JSON, empty arrays, repeated payloads, stale callbacks, mismatched mode and resize",
+      "Windows read-only integration with actual game phase/window/DPI/resolution/fullscreen variations, only after permission for applicable software and capture",
+      "Own recognition evaluation on user-approved screenshots/video; measure accuracy and latency separately",
+      "Any network image transmission needs a separately selected service and explicit privacy/data authorization; no vendor embedded keys or undocumented credential reuse"
+    ],
+    "not_recovered": [
+      "Remote model weights or inference implementation",
+      "Server recommendation ranking formula or proprietary dataset",
+      "Live service access or guarantee",
+      "Windows overlay compatibility, anti-cheat compatibility or verified game-safety guarantee"
+    ],
+    "license_boundary": "REA repository MIT license applies to REA. Package metadata license fields do not establish redistribution rights to every Huya source, asset, dataset or dependency. Ship original implementation and authorized/synthetic data only."
+  }
+}

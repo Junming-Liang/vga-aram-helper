@@ -1,0 +1,124 @@
+{
+  "result": "passed",
+  "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png",
+  "sample_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+  "sample_count": 1,
+  "sample_image_included_in_package": false,
+  "vocabulary_count": 209,
+  "vocabulary_sha256": "9710009c4644594ebb94abbf0531157195c6d920b4c4bd3c9c01a156fa20a13b",
+  "vocabulary_source_url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/augment-detail.json",
+  "vocabulary_freshness": "Separately supplied public snapshot; retrieval time does not establish current live-game coverage",
+  "source_context": "Public repository screenshot with third-party helper overlays; not a user session and not a clean accuracy benchmark",
+  "gold_labels": "Manually read from actual card title row before evaluating OCR",
+  "expected_names": [
+    "心灵净化",
+    "暴击律动",
+    "虚幻武器"
+  ],
+  "full_image_candidates": [
+    "心灵净化",
+    "暴击律动",
+    "虚幻武器"
+  ],
+  "full_image_actual_title_row_matches": [
+    "心灵净化",
+    "暴击律动",
+    "虚幻武器"
+  ],
+  "title_only_crop_candidates": [
+    "心灵净化",
+    "暴击律动",
+    "虚幻武器"
+  ],
+  "crop_xyxy": [
+    620,
+    520,
+    1935,
+    635
+  ],
+  "crop_excludes_helper_overlays": true,
+  "full_image_seconds": 1.984,
+  "title_crop_warm_seconds": 0.188,
+  "caution": "Full-image duplicate names may be sourced from helper overlay labels because deduplication favors OCR confidence. This is not a validated card-localization method.",
+  "limits": [
+    "One static public sample only",
+    "Vocabulary is 209 entries from the supplied reference; dataset coverage/currentness not guaranteed",
+    "No aggregate accuracy estimate",
+    "No live capture, hero recognition, overlay or Windows validation",
+    "No current-version guarantee"
+  ],
+  "full_image_match_details": [
+    {
+      "name": "心灵净化",
+      "raw_text": "【心灵净化】",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9964
+    },
+    {
+      "name": "暴击律动",
+      "raw_text": "暴击律动",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9999
+    },
+    {
+      "name": "虚幻武器",
+      "raw_text": "【虚幻武器】",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9959
+    }
+  ],
+  "actual_title_row_match_details": [
+    {
+      "name": "心灵净化",
+      "raw_text": "心灵净化",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.996
+    },
+    {
+      "name": "暴击律动",
+      "raw_text": "暴击律动",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9999
+    },
+    {
+      "name": "虚幻武器",
+      "raw_text": "虚幻武器",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9829
+    }
+  ],
+  "title_crop_match_details": [
+    {
+      "name": "心灵净化",
+      "raw_text": "心灵净化",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9908
+    },
+    {
+      "name": "暴击律动",
+      "raw_text": "暴击律动",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9997
+    },
+    {
+      "name": "虚幻武器",
+      "raw_text": "虚幻武器",
+      "method": "exact",
+      "similarity": 1.0,
+      "ocr_confidence": 0.9764
+    }
+  ],
+  "title_crop_confidences": {
+    "心灵净化": 0.9908,
+    "暴击律动": 0.9997,
+    "虚幻武器": 0.9764
+  }
+}

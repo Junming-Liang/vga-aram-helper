@@ -1,0 +1,36 @@
+{
+  "result": "passed",
+  "scope": "Actual loopback HTTP from a separately live-refreshed and schema-validated official cache",
+  "hero": "战争之影",
+  "offered": [
+    "扳机炼狱",
+    "终极唤醒",
+    "掷骰狂人"
+  ],
+  "recommendedName": "掷骰狂人",
+  "sourceVersion": "395",
+  "sourceDataDate": "2026-09-07",
+  "cards": [
+    {
+      "name": "掷骰狂人",
+      "sourceRank": 1,
+      "pairWinRate": 65.02,
+      "pickRate": 3.15,
+      "numGames": 9014
+    },
+    {
+      "name": "终极唤醒",
+      "sourceRank": 4,
+      "pairWinRate": 63.48,
+      "pickRate": 10.27,
+      "numGames": 31941
+    },
+    {
+      "name": "扳机炼狱",
+      "sourceRank": 17,
+      "pairWinRate": 57.89,
+      "pickRate": 4.12,
+      "numGames": 12638
+    }
+  ]
+}

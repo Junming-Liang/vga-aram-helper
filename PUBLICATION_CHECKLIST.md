@@ -1,16 +1,13 @@
-# VGA乱斗助手 · Public repository preparation
+# VGA乱斗助手：发布检查
 
-Public repository: https://github.com/Junming-Liang/vga-aram-helper
+目标公共仓库：`Junming-Liang/vga-aram-helper`。本目录为 v0.3 集成源码；完整源码发布不代表 Windows EXE、真实浏览器或 OTA 回滚已经验收。执行状态以具体提交的 CI 结果为准。
 
-The original source package is published under MIT. GitHub CI has not yet run; Windows/browser validation is not established.
+- 原创代码、原创图标与合成样例适用 MIT；第三方数据、目标程序和模型不因根许可改变授权。
+- 只上传审定源码/文档/原创 fixtures/许可/测试。不上传虚拟环境、官方完整数据快照、下载的真实游戏截图、目标源码或安装包、凭据、工作区任意文件。
+- EXE 构建从官方 PyPI 固定依赖，捆绑许可证和模型哈希清单。源码仓库不提交二进制依赖。
+- Windows 工作流仅 `workflow_dispatch`，使用公共仓库标准 runner，`contents:read`，不能擅改成付费大 runner。
+- CI artifact 不等于 GitHub Release；OTA 仅检查正式 Release。没有发布版本时更新不可用是正确结果。
+- 正式 Release 前必须实际构建并运行 Windows EXE/OCR/三选一/浏览器冒烟测试；原生 OTA 替换、重启、回滚另做验证。
+- 公开说明 Linux 浏览器渲染限制、样例 OCR 仅1张静态图、人工确认、源数据日期、空统计和无实时采集/游戏悬浮层等边界。
 
-Before publishing:
-
-- Approved: create a new public repository named `vga-aram-helper` in the verified authenticated user's personal GitHub account. Do not overwrite an existing repository.
-- Approved: apply the MIT license in `LICENSE` to this original application and original synthetic fixtures. This does not grant rights to third-party data/assets/models or the original helper.
-- Upload only this package's source files. Do not upload virtual environments, downloaded private reference JSON, downloaded public game screenshots, target executable/source/assets, credentials, or unreviewed workspace files.
-- Keep dependency attribution in `THIRD_PARTY_NOTICES.md`. Dependencies/models are installed separately from official PyPI; none are embedded in this package.
-- Keep the Windows workflow manual-dispatch-only. Public standard-runner eligibility can differ from private repository quotas; use GitHub's current billing documentation before triggering it. Do not change to a larger/paid runner.
-- Retain the validation limits: actual local OCR was tested on original synthetic images and one public static screenshot with the full 221-name historical reference dictionary. Real browser/Windows/live-game validation is not established.
-
-Source-level scans and package allowlists excluded model binaries, private datasets, target source and secrets. The public screenshot itself is not included. The full historical 221-name vocabulary was retrieved on one authorized retry and checked against the same screenshot. The source JSON remains private/local and is not bundled; report records its URL and hash. This does not establish current game-version coverage.
+现有 source-update、HTTP、OCR、单元测试证明对应路径可运行，不能替代 Windows 验收。

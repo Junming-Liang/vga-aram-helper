@@ -1,33 +1,29 @@
-# 来源与独立实现说明
+# 数据来源与版本边界
 
-## 证据范围
+## v0.3 主路径：官方公开英雄统计 wiki
 
-参考入口：https://gametool.huya.com/lolhex
+- 页面：https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1
+- 版本由该页面配置及匿名 `getGameToolVersion` 接口发现；不是写死“永远最新”的 CDN 路径。
+- 2026-10-12 实际验证到的数据根路径：https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/
+- 文件：`champion-list.json`、`champion-detail.json`、`augment-list.json`、`augment-detail.json`、`item-detail.json`。
+- 当次数据版本395，源游戏资料版本16.17，源数据日期2026-09-07。获取时间不代表统计更新时间。
 
-本原型已实现的参考行为来自对公开网站的静态分析。另行对真实桌面客户端的静态分析显示 Electron/React、Windows 原生截图/悬浮层与远程 AI 服务组件；这些组件与后端能力未在本原型中重建。分析中没有执行目标应用。公开网页行为不能证明 Windows 桌面产品的内部实现、游戏识别方式或运行时数据来源。
+`champion-detail` 172位英雄具有21,288条英雄专属海克斯记录。每条保留源 `tier/winRate/pickRate/numGames` 与数组顺位；缺失胜率/样本不补零、不从全局值推算。来源未给明的统计区间、地区和置信度不推测。21,288条中1,582条胜率为空、样本为0。
 
-本项目的 Python、HTML、CSS、JavaScript 和演示数据均为新写实现。没有复用目标 UI、品牌图标、图片、提取代码或运行时脚本。此包只实现手动参考资料工作流。
+旧调查只看到了另一套静态参考资料，**据此认为配对胜率没有公开提供的结论不完整，已在 v0.3 纠正**。新的实际数据和代码路径以本文件、README 和新验证报告为准。
 
-已从行为证据独立重述并实现的部分包括：名称/别名搜索、定位/稀有度筛选、特殊联动/陷阱读取、max 去重的装备规则分、中文同分排序和浏览器本地收藏。
+网络更新实现只读取数据和配置，不执行来自网页/CDN 的脚本。程序不请求图标、字体或游戏图片；远端可执行文件只来自项目批准的 GitHub Release 更新流程，须经确认与校验。
 
-## 曾验证的公开数据快照 URL
+## 可选旧参考资料
 
-这些 URL 在 2026-10-12 UTC 的研究中被验证。内容最新性、使用授权与长期可用性不能由此推定。本包不自动请求它们，也不附带内容。
+页面：https://gametool.huya.com/lolhex
 
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/heroIndex-CuWQeg2k.json
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/augments-CcCw5SNQ.json
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/items-DcZ4G5oX.json
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/relations-CFaVM0ij.json
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/combinations-z-aDMf_y.json
-- https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/changelogs-C1-QQJxS.json
+旧参考数据使用 `heroIndex-*.json`、`augments-*.json`、`items-*.json`、`relations-*.json`、`combinations-*.json`。其中特殊联动/陷阱以文字理由表达；有条件或自相矛盾的记录，不能当作无条件评级。公开参考快照的日志曾止于2026-07-17，不能冒充新 wiki 的数据日期。
 
-最新可见日志条目日期：2026-07-17。顶层日志对象另有 2026-02-04 的 `last_update`，两者口径不同，不可混用。没有证据表明这些胜率是 2026-10-12 的实时统计。
+旧装备关联分数是原型的透明关联展示，不是胜率和英雄三选一推荐分。仍支持用户显式导入，当前正式自动更新不依赖旧静态文件名。
 
-## 有意省略
+## 未授予的权限与未完成能力
 
-- 原站广告、账号、兑换、订阅、排名积分、追踪和外部资源
-- 百分位强度等级，因为它们只是展示层排序标签，不能当作独立性能结论
-- 自动游戏识别、客户端连接、键鼠自动操作、屏幕读取、Windows 打包
-- 没有提供的配对胜率、样本量、当前版本校验和置信度
+公开可访问不等于获得再分发许可。源码仓库不包含捕获的完整数据集、真实截图、目标客户端/网页源码、厂商品牌资源或凭据；请自行确认服务条款和数据使用权限。
 
-原项目的数据及其游戏名称可能属于对应权利人。本包没有为其数据再分发作授权判断。
+静态研究证明了真实桌面产品依赖原生采集与上游服务，未证明本项目已具备自动游戏识别、实时游戏悬浮层、完整远端 AI 等价模型或自动选牌。开发测试没有证明在所有游戏版本、分辨率或 Windows 机器上都正确。

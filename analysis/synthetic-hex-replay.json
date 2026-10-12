@@ -1,0 +1,53 @@
+{
+  "fixture_type": "synthetic_only",
+  "description": "Invented display input for offline protocol/replay tests; no actual game recommendation or vendor asset.",
+  "decoded_data": {
+    "isOversea": false,
+    "vHexs": [
+      {
+        "sHexName": "Synthetic Alpha",
+        "sTier": "A",
+        "fPickRate": 0.42,
+        "sSimpleDesc": "虚构演示说明A",
+        "mExtra_info": {
+          "position": "[200, 250, 280, 360]",
+          "video_hw": "[1080, 1920]"
+        }
+      },
+      {
+        "sHexName": "Synthetic Beta",
+        "sTier": "S",
+        "fPickRate": 0.37,
+        "sSimpleDesc": "虚构演示说明B",
+        "mExtra_info": {
+          "position": "[700, 250, 280, 360]",
+          "video_hw": "[1080, 1920]"
+        }
+      },
+      {
+        "sHexName": "Synthetic Gamma",
+        "sTier": "",
+        "fPickRate": 0,
+        "sSimpleDesc": "虚构缺数据示例",
+        "mExtra_info": {
+          "position": "[1200, 250, 280, 360]",
+          "video_hw": "[1080, 1920]"
+        }
+      }
+    ]
+  },
+  "expected_behavior": [
+    "Preserve A/S/empty input order; do not sort by tier",
+    "Display pick rates as 42.00% and 37.00% on Electron-style replay",
+    "Missing tier displays no-data indicator",
+    "Scale coordinates using video width 1920 and height 1080"
+  ],
+  "missing_data_sequence": [
+    null,
+    null,
+    null
+  ],
+  "explicit_clear": {
+    "vHexs": []
+  }
+}

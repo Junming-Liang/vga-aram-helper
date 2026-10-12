@@ -5,14 +5,12 @@ OCR confidence, name similarity and game win rate are distinct quantities.
 """
 from __future__ import annotations
 import argparse
-from contextlib import contextmanager
 from difflib import SequenceMatcher
 import io
 import json
 import math
 from pathlib import Path
 import re
-import socket
 import threading
 import unicodedata
 
@@ -66,27 +64,6 @@ def candidate_matches(lines, augment_names, min_ocr_confidence=0.55):
     return sorted(output.values(),key=left_to_right)
 
 
-@contextmanager
-def deny_network_connections():
-    """OCR init/inference must use installed local models, never fetch a model.
-
-    Socket.connect is restored immediately. Calls run under the OCR engine lock;
-    the app has no other outbound network behavior.
-    """
-    original_connect=socket.socket.connect
-    original_connect_ex=socket.socket.connect_ex
-    original_create=socket.create_connection
-    def blocked(*args,**kwargs):
-        raise RuntimeError('离线 OCR 禁止联网；请先按说明安装带本地模型的官方依赖。')
-    socket.socket.connect=blocked
-    socket.socket.connect_ex=blocked
-    socket.create_connection=blocked
-    try:
-        yield
-    finally:
-        socket.socket.connect=original_connect
-        socket.socket.connect_ex=original_connect_ex
-        socket.create_connection=original_create
 
 
 class LocalOCR:
@@ -116,11 +93,15 @@ class LocalOCR:
                 image=np.asarray(original.convert('RGB'))
         except (UnidentifiedImageError,OSError) as exc:
             raise ValueError('无法解码图片，请选择完整的普通截图文件。') from exc
-        with self._lock, deny_network_connections():
+        with self._lock:
             if self._engine is None:
-                self._engine=RapidOCR(params={'Global.use_cls':False,'Det.limit_type':'max','Det.limit_side_len':960,
+                from model_inventory import verify_models
+                import rapidocr
+                model_dir=Path(rapidocr.__file__).resolve().parent/'models'
+                verify_models(model_dir)
+                self._engine=RapidOCR(params={**{'Det.model_path':str(model_dir/'PP-OCRv6_det_small.onnx'),'Rec.model_path':str(model_dir/'PP-OCRv6_rec_small.onnx'),'Cls.model_path':str(model_dir/'ch_ppocr_mobile_v2.0_cls_mobile.onnx')},**{'Global.use_cls':False,'Det.limit_type':'max','Det.limit_side_len':960,
                     'EngineConfig.onnxruntime.intra_op_num_threads':2,
-                    'EngineConfig.onnxruntime.inter_op_num_threads':1})
+                    'EngineConfig.onnxruntime.inter_op_num_threads':1}})
             # RapidOCR accepts ndarray. RGB input is converted to BGR expected by OpenCV pipeline.
             result=self._engine(image[:,:,::-1].copy())
         texts=getattr(result,'txts',None)

@@ -1,0 +1,11 @@
+{
+  "result": "failed_or_blocked",
+  "checks": [],
+  "count": 0,
+  "environment": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "errorType": "TargetClosedError",
+  "error": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted. No browser page/assertions ran.",
+  "browser_rendering_passed": false,
+  "attempted_at_utc": "2026-10-12T06:02:00Z",
+  "workflow_prepared_but_not_run": true
+}

@@ -1,6 +1,6 @@
 # Optional dependency notices
 
-The delivered application source is independently written. Third-party packages/model binaries are not included in this ZIP. Installing optional requirements fetches packages from official PyPI; their respective licenses apply.
+The delivered application source is independently written. The source archive does not contain third-party packages/model binaries. The Windows EXE build includes RapidOCR, ONNX Runtime, their local models and required runtime libraries. Maintainer build requirements come from official PyPI; their respective licenses apply. Complete license and notice texts from the build wheels are retained inside the EXE (`--licenses`) and the accompanying third-party-licenses.zip, including Python runtime terms and RapidOCR MODEL_LICENSES.md.
 
 - RapidOCR 3.10.0: Apache-2.0. https://pypi.org/project/rapidocr/3.10.0/
 - RapidOCR model attribution/licensing: https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/
@@ -14,6 +14,12 @@ Bundled RapidOCR default weights were verified locally against these reported ha
 - PP-OCRv6_det_small.onnx: 090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f
 - PP-OCRv6_rec_small.onnx: 6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884
 
-The application disables ONNX Runtime telemetry before creating OCR sessions and blocks Python socket connection functions during OCR initialization/inference. These controls are not a complete independent OS-level egress audit. No cloud vision API, paid inference subscription, API key or vendor helper credential is used.
+The application disables ONNX Runtime telemetry before creating OCR sessions, verifies bundled model SHA256 and provides explicit local model paths. These controls are not a complete independent OS-level egress audit. No cloud vision API, paid inference subscription, API key or vendor helper credential is used.
 
 Game/augment names in the synthetic OCR fixture are labels for a recognition test. The image is original and contains no gameplay screenshot, vendor art, gameplay description or performance data.
+
+## Windows bundling tools
+
+- PyInstaller 6.22.3: GPL-2.0-or-later with a bootloader exception permitting bundled applications under their own terms; the build preserves its supplied license/notice texts. https://pyinstaller.org/en/stable/license.html
+- Windows executable contains the original VGA branding files described in assets/branding/README.md. No Riot logo or champion artwork is included by this packaging process.
+- A build records every installed distribution version and available license file in dependency-inventory.json. Build-only dependencies may appear in the notice archive without being part of the runtime.

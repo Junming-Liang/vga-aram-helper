@@ -1,0 +1,66 @@
+{
+  "elapsedSeconds": 32.86,
+  "status": {
+    "state": "fresh",
+    "checkedAt": "2026-10-12T06:51:45+00:00",
+    "fetchedAt": "2026-10-12T06:52:18+00:00",
+    "latestChangelogDate": null,
+    "sourceUpdatedAt": null,
+    "sourceDataDate": "2026-09-07",
+    "version": "395",
+    "gamePatch": "16.17",
+    "sha256": "c5b1ea7be0ff8fb1513bfda18121dcfb7d833c5e0a11d4e706ab18f120e02614",
+    "usingCached": false,
+    "sourceMode": "official-wiki",
+    "wikiBaseUrl": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/",
+    "discoveryMethod": "fresh-page-config",
+    "sourceUrls": [
+      "https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1",
+      "https://huyafedltc.msstatic.com/gametool/league-of-legends/wiki/assets/index-BqqbB3Sz.js",
+      "https://cdnws.api.huya.com/",
+      "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/champion-list.json",
+      "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/augment-list.json",
+      "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/champion-detail.json",
+      "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/augment-detail.json",
+      "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/item-detail.json"
+    ],
+    "pageSha256": "831339872eae33d4b50a27cd99c97f40572fc33ead383471bc95e2d82f8ba56a",
+    "bundleSha256": "78b757fd392e0e7dfcc49e8069dc65fe16ec870c30c3fc09d67e25354fa761cd",
+    "artifacts": {
+      "champion-list": {
+        "url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/champion-list.json",
+        "sha256": "8a231974f3596988792d6e176a3add8df3db4aff3aa852de66efc365bf883893",
+        "bytes": 157964
+      },
+      "augment-list": {
+        "url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/augment-list.json",
+        "sha256": "24885cad62b8d5bcc09534c249bb8c74a088847c547bca31ff434505c3c89411",
+        "bytes": 53886
+      },
+      "champion-detail": {
+        "url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/champion-detail.json",
+        "sha256": "e6418e97a147d1ce94c88e76ae78fe0247532b8079f7ee5852936907ede364a7",
+        "bytes": 8089964
+      },
+      "augment-detail": {
+        "url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/augment-detail.json",
+        "sha256": "2d5efa0728f9908c30702b907f7f7fc519dd774ffb1159a77dabb47c4c6fabe6",
+        "bytes": 324482
+      },
+      "item-detail": {
+        "url": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/item-detail.json",
+        "sha256": "4a195f62ab75c4bdfadf8c8a7fd6bf1ac32f872d31809ef430f4c12f61af03a9",
+        "bytes": 38919
+      }
+    },
+    "versionResponseSha256": "39e9fdf9d9130917edc5c9f36bdc5957265e958eee3a76c5500e9571eb5e0aaa",
+    "message": "本次启动已校验虎牙海斗 wiki 数据。数据版本与游戏补丁分别展示；抓取时间不代表官方更新时间。"
+  },
+  "counts": {
+    "championList": 172,
+    "augmentList": 209,
+    "championDetail": 172,
+    "augmentDetail": 209,
+    "itemDetail": 180
+  }
+}

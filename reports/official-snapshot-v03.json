@@ -1,0 +1,54 @@
+{
+  "result": "passed",
+  "scope": "One separately downloaded official version395 snapshot; no live-game outcome accuracy claimed",
+  "sourceDataDate": "2026-09-07",
+  "gamePatch": "16.17",
+  "counts": {
+    "heroes": 172,
+    "augments": 209,
+    "items": 180,
+    "heroAugmentRows": 21288,
+    "blankWinRateZeroSamples": 1582
+  },
+  "sha256": {
+    "champion-detail": "e6418e97a147d1ce94c88e76ae78fe0247532b8079f7ee5852936907ede364a7",
+    "augment-detail": "2d5efa0728f9908c30702b907f7f7fc519dd774ffb1159a77dabb47c4c6fabe6",
+    "champion-list": "8a231974f3596988792d6e176a3add8df3db4aff3aa852de66efc365bf883893",
+    "augment-list": "24885cad62b8d5bcc09534c249bb8c74a088847c547bca31ff434505c3c89411",
+    "item-detail": "4a195f62ab75c4bdfadf8c8a7fd6bf1ac32f872d31809ef430f4c12f61af03a9"
+  },
+  "hecarimThree": [
+    {
+      "name": "掷骰狂人",
+      "sourceRank": 1,
+      "tier": "T1",
+      "winRate": 65.02,
+      "pickRate": 3.15,
+      "numGames": 9014
+    },
+    {
+      "name": "终极唤醒",
+      "sourceRank": 4,
+      "tier": "T1",
+      "winRate": 63.48,
+      "pickRate": 10.27,
+      "numGames": 31941
+    },
+    {
+      "name": "扳机炼狱",
+      "sourceRank": 17,
+      "tier": "T1",
+      "winRate": 57.89,
+      "pickRate": 4.12,
+      "numGames": 12638
+    }
+  ],
+  "heroSwitch": {
+    "hero": "黑暗之女",
+    "augment": "终极唤醒",
+    "sourceRank": 32,
+    "winRate": 50.36
+  },
+  "missingPairVerified": "战争之影 + 炼狱导管 remains unrecorded; no invented pair stats",
+  "normalizationIdempotent": true
+}

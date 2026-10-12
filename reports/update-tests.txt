@@ -1,0 +1,47 @@
+test_access_denial_does_not_trigger_alternate_discovery (test_data_updates.DataUpdateTests.test_access_denial_does_not_trigger_alternate_discovery) ... ok
+test_cache_hash_tampering_is_not_used (test_data_updates.DataUpdateTests.test_cache_hash_tampering_is_not_used) ... ok
+test_corrupt_current_falls_back_to_verified_previous (test_data_updates.DataUpdateTests.test_corrupt_current_falls_back_to_verified_previous) ... ok
+test_deep_nested_data_rejected (test_data_updates.DataUpdateTests.test_deep_nested_data_rejected) ... ok
+test_duplicate_or_missing_tool_id_fails_closed (test_data_updates.DataUpdateTests.test_duplicate_or_missing_tool_id_fails_closed) ... ok
+test_first_launch_offline_has_no_data_or_demo (test_data_updates.DataUpdateTests.test_first_launch_offline_has_no_data_or_demo) ... ok
+test_fresh_data_and_hash_provenance (test_data_updates.DataUpdateTests.test_fresh_data_and_hash_provenance) ... ok
+test_future_bundle_hash_is_discovered (test_data_updates.DataUpdateTests.test_future_bundle_hash_is_discovered) ... ok
+test_invalid_download_retains_last_good_cache (test_data_updates.DataUpdateTests.test_invalid_download_retains_last_good_cache) ... ok
+test_invalid_version_root_rejected_before_data_fetch (test_data_updates.DataUpdateTests.test_invalid_version_root_rejected_before_data_fetch) ... ok
+test_legacy_asset_discovery_is_not_hardcoded (test_data_updates.DataUpdateTests.test_legacy_asset_discovery_is_not_hardcoded) ... ok
+test_mismatched_file_sets_fail_transaction (test_data_updates.DataUpdateTests.test_mismatched_file_sets_fail_transaction) ... ok
+test_non_finite_and_duplicate_json_rejected (test_data_updates.DataUpdateTests.test_non_finite_and_duplicate_json_rejected) ... ok
+test_oversized_response_rejected (test_data_updates.DataUpdateTests.test_oversized_response_rejected) ... ok
+test_redirect_destination_is_checked_before_request (test_data_updates.DataUpdateTests.test_redirect_destination_is_checked_before_request) ... ok
+test_transient_html_failure_uses_live_public_version_service (test_data_updates.DataUpdateTests.test_transient_html_failure_uses_live_public_version_service) ... ok
+test_transport_rejects_bad_domains_and_credentials (test_data_updates.DataUpdateTests.test_transport_rejects_bad_domains_and_credentials) ... ok
+test_zero_samples_valid_negative_invalid (test_data_updates.DataUpdateTests.test_zero_samples_valid_negative_invalid) ... ok
+test_api_checksum_disagreement_blocks_update (test_updates.UpdatesTests.test_api_checksum_disagreement_blocks_update) ... ok
+test_atomic_install_simulation_health_success (test_updates.UpdatesTests.test_atomic_install_simulation_health_success) ... ok
+test_atomic_install_simulation_rolls_back_crashed_app (test_updates.UpdatesTests.test_atomic_install_simulation_rolls_back_crashed_app) ... ok
+test_backup_exists_before_target_replacement (test_updates.UpdatesTests.test_backup_exists_before_target_replacement) ... ok
+test_bad_download_removed_without_touching_current (test_updates.UpdatesTests.test_bad_download_removed_without_touching_current) ... ok
+test_busy_target_fails_without_replacing_files (test_updates.UpdatesTests.test_busy_target_fails_without_replacing_files) ... ok
+test_check_only_fetches_metadata_and_reports_unsigned (test_updates.UpdatesTests.test_check_only_fetches_metadata_and_reports_unsigned) ... ok
+test_current_does_not_fetch_manifest (test_updates.UpdatesTests.test_current_does_not_fetch_manifest) ... ok
+test_environment_can_isolate_state (test_updates.UpdatesTests.test_environment_can_isolate_state) ... ok
+test_health_marker_requires_matching_executable (test_updates.UpdatesTests.test_health_marker_requires_matching_executable) ... ok
+test_manifest_tag_and_size_validation (test_updates.UpdatesTests.test_manifest_tag_and_size_validation) ... ok
+test_mislabeled_release_does_not_pass_health (test_updates.UpdatesTests.test_mislabeled_release_does_not_pass_health) ... ok
+test_no_downgrade_or_prerelease (test_updates.UpdatesTests.test_no_downgrade_or_prerelease) ... ok
+test_offline_is_honest_and_nonfatal (test_updates.UpdatesTests.test_offline_is_honest_and_nonfatal) ... ok
+test_other_repo_and_insecure_assets_rejected (test_updates.UpdatesTests.test_other_repo_and_insecure_assets_rejected) ... ok
+test_parent_still_running_prevents_mutation (test_updates.UpdatesTests.test_parent_still_running_prevents_mutation) ... ok
+test_plan_tampering_and_expiry (test_updates.UpdatesTests.test_plan_tampering_and_expiry) ... ok
+test_preparation_preserves_executable_and_copies_trusted_updater (test_updates.UpdatesTests.test_preparation_preserves_executable_and_copies_trusted_updater) ... ok
+test_process_shutdown_errors_do_not_skip_rollback (test_updates.UpdatesTests.test_process_shutdown_errors_do_not_skip_rollback) ... ok
+test_relocated_or_wrong_release_page_rejected (test_updates.UpdatesTests.test_relocated_or_wrong_release_page_rejected) ... ok
+test_requires_confirmation_before_download (test_updates.UpdatesTests.test_requires_confirmation_before_download) ... ok
+test_source_mode_does_not_install_or_execute (test_updates.UpdatesTests.test_source_mode_does_not_install_or_execute) ... ok
+test_target_lock_prevents_concurrent_installers (test_updates.UpdatesTests.test_target_lock_prevents_concurrent_installers) ... ok
+test_wrong_architecture_not_allowed (test_updates.UpdatesTests.test_wrong_architecture_not_allowed) ... ok
+
+----------------------------------------------------------------------
+Ran 42 tests in 0.030s
+
+OK

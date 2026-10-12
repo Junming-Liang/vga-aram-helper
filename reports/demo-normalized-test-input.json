@@ -1,0 +1,532 @@
+{
+  "metadata": {
+    "title": "VGA乱斗助手 · 虚构演示数据",
+    "isDemo": true,
+    "source": "本项目原创合成测试样例",
+    "sourceUrl": "",
+    "latestChangelogDate": null,
+    "dataFreshness": "synthetic",
+    "winRateScope": "所有名称、数值和玩法均为虚构，用于检查功能，不可用于真实对局",
+    "licenseNote": "原创演示数据随代码提供。",
+    "applicationName": "VGA乱斗助手",
+    "applicationVersion": "0.3.0"
+  },
+  "heroes": {
+    "星火术士（演示）": {
+      "name": "星火术士（演示）",
+      "description": "",
+      "alias": [
+        "小星",
+        "演示法师"
+      ],
+      "position": [
+        "法师",
+        "远程",
+        "技能型"
+      ],
+      "winRate": 52.4,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": []
+    },
+    "磐石守卫（演示）": {
+      "name": "磐石守卫（演示）",
+      "description": "",
+      "alias": [
+        "小石",
+        "演示坦克"
+      ],
+      "position": [
+        "坦克",
+        "近战",
+        "硬辅"
+      ],
+      "winRate": 49.8,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": []
+    },
+    "晴空游侠（演示）": {
+      "name": "晴空游侠（演示）",
+      "description": "",
+      "alias": [
+        "小晴",
+        "演示射手"
+      ],
+      "position": [
+        "射手",
+        "远程",
+        "普攻型"
+      ],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": []
+    },
+    "萤光使者（演示）": {
+      "name": "萤光使者（演示）",
+      "description": "",
+      "alias": [
+        "小萤"
+      ],
+      "position": [
+        "软辅",
+        "远程"
+      ],
+      "winRate": 50.1,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": []
+    }
+  },
+  "augments": {
+    "星火共鸣（演示）": {
+      "name": "星火共鸣（演示）",
+      "description": "虚构效果：连续施放技能后产生一次星火。仅用于演示文字检索与联动提示。",
+      "alias": [],
+      "position": [
+        "技能型",
+        "增伤"
+      ],
+      "winRate": 56.2,
+      "tips": "虚构示例，不能据此进行真实对局。",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "rarity": "prismatic",
+      "isDeleted": false,
+      "limit": [
+        "法师"
+      ],
+      "items": [
+        {
+          "name": "星尘法杖（演示）",
+          "reason": "",
+          "core": false
+        },
+        {
+          "name": "不存在的装备（演示）",
+          "reason": "",
+          "core": false
+        }
+      ],
+      "specialItems": [
+        {
+          "name": "星尘法杖（演示）",
+          "reason": "重复关联只取最高规则分，不叠加。",
+          "core": true
+        },
+        {
+          "name": "回响护符（演示）",
+          "reason": "虚构联动：增加星火次数。",
+          "core": false
+        }
+      ],
+      "trapItems": [
+        {
+          "name": "静默披风（演示）",
+          "reason": "虚构陷阱：其静默效果不能触发星火。",
+          "core": false
+        },
+        {
+          "name": "回响护符（演示）",
+          "reason": "演示冲突：另一条资料提示此装备有条件限制，请核对。",
+          "core": false
+        }
+      ]
+    },
+    "晶盾回路（演示）": {
+      "name": "晶盾回路（演示）",
+      "description": "虚构效果：提供护盾后获得少量移动速度。",
+      "alias": [],
+      "position": [
+        "护盾",
+        "移速"
+      ],
+      "winRate": 51.3,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "rarity": "gold",
+      "isDeleted": false,
+      "limit": [],
+      "items": [],
+      "specialItems": [
+        {
+          "name": "山峦之心（演示）",
+          "reason": "虚构联动：护盾持续时间更长。",
+          "core": false
+        }
+      ],
+      "trapItems": []
+    },
+    "风步微光（演示）": {
+      "name": "风步微光（演示）",
+      "description": "虚构效果：移动时积累微光。此条目故意不提供胜率。",
+      "alias": [],
+      "position": [
+        "移速"
+      ],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "rarity": "silver",
+      "isDeleted": false,
+      "limit": [],
+      "items": [],
+      "specialItems": [],
+      "trapItems": []
+    },
+    "旧日回声（演示）": {
+      "name": "旧日回声（演示）",
+      "description": "已移除的虚构条目，用于验证历史数据警告。",
+      "alias": [],
+      "position": [],
+      "winRate": 60.0,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "rarity": "gold",
+      "isDeleted": true,
+      "limit": [],
+      "items": [],
+      "specialItems": [],
+      "trapItems": []
+    }
+  },
+  "items": {
+    "星尘法杖（演示）": {
+      "name": "星尘法杖（演示）",
+      "description": "虚构装备：增加技能强度。",
+      "alias": [
+        "星杖"
+      ],
+      "position": [],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "types": [
+        "SpellDamage"
+      ],
+      "total": "2800"
+    },
+    "回响护符（演示）": {
+      "name": "回响护符（演示）",
+      "description": "虚构装备：重复触发一次回响。",
+      "alias": [],
+      "position": [],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "types": [
+        "AbilityHaste"
+      ],
+      "total": "2400"
+    },
+    "静默披风（演示）": {
+      "name": "静默披风（演示）",
+      "description": "虚构装备：带有静默效果。",
+      "alias": [],
+      "position": [],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "types": [
+        "MagicResist"
+      ],
+      "total": "2200"
+    },
+    "山峦之心（演示）": {
+      "name": "山峦之心（演示）",
+      "description": "虚构装备：提供护盾与生命值。",
+      "alias": [],
+      "position": [],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "types": [
+        "Health"
+      ],
+      "total": "3000"
+    },
+    "晨风长靴（演示）": {
+      "name": "晨风长靴（演示）",
+      "description": "虚构装备：提供移动速度。",
+      "alias": [],
+      "position": [],
+      "winRate": null,
+      "tips": "",
+      "championId": "",
+      "augmentId": "",
+      "sourceVersion": "",
+      "overallTier": "",
+      "overallPickRate": null,
+      "version": [],
+      "isSkillEnhancement": false,
+      "changes": [],
+      "bugFixes": [],
+      "types": [
+        "NonbootsMovement"
+      ],
+      "total": ""
+    }
+  },
+  "relations": {
+    "星火术士（演示）": {
+      "specialAugments": [
+        {
+          "name": "星火共鸣（演示）",
+          "reason": "虚构技能联动：连续施法会更容易触发星火。",
+          "core": true
+        }
+      ],
+      "trapAugments": [
+        {
+          "name": "晶盾回路（演示）",
+          "reason": "虚构限制：该英雄没有触发所需的护盾技能。",
+          "core": false
+        }
+      ]
+    },
+    "磐石守卫（演示）": {
+      "specialAugments": [
+        {
+          "name": "晶盾回路（演示）",
+          "reason": "虚构技能联动：护盾技能可触发加速。",
+          "core": false
+        }
+      ],
+      "trapAugments": []
+    }
+  },
+  "combinations": [
+    {
+      "name": "星火演示组合",
+      "description": "原创虚构组合，展示透明的装备来源。",
+      "tips": "",
+      "last_update": "",
+      "heros": [],
+      "augments": [
+        {
+          "name": "星火共鸣（演示）",
+          "reason": "",
+          "core": true
+        }
+      ],
+      "items": [],
+      "combinations": [
+        {
+          "name": "持续施法",
+          "description": "虚构分支。选择了星火共鸣时，核心装备计 34 + 10 + 5 = 49 分。",
+          "tips": "",
+          "last_update": "",
+          "heros": [
+            "星火术士（演示）"
+          ],
+          "augments": [
+            {
+              "name": "星火共鸣（演示）",
+              "reason": "",
+              "core": false
+            }
+          ],
+          "items": [
+            {
+              "name": "回响护符（演示）",
+              "reason": "分支中的核心装备。",
+              "core": true
+            },
+            {
+              "name": "晨风长靴（演示）",
+              "reason": "分支中的普通装备。",
+              "core": false
+            }
+          ]
+        },
+        {
+          "name": "护盾变体",
+          "description": "仅父组合匹配时，核心装备计 34 + 5 = 39 分。",
+          "tips": "",
+          "last_update": "",
+          "heros": [
+            "萤光使者（演示）"
+          ],
+          "augments": [
+            {
+              "name": "晶盾回路（演示）",
+              "reason": "",
+              "core": false
+            }
+          ],
+          "items": [
+            {
+              "name": "山峦之心（演示）",
+              "reason": "",
+              "core": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "heroAugmentStats": {
+    "星火术士（演示）": [
+      {
+        "augmentName": "星火共鸣（演示）",
+        "augmentId": "1",
+        "rarity": "",
+        "tier": "T1",
+        "winRate": 60.0,
+        "pickRate": 10.0,
+        "numGames": 100,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      },
+      {
+        "augmentName": "晶盾回路（演示）",
+        "augmentId": "2",
+        "rarity": "",
+        "tier": "T2",
+        "winRate": 55.0,
+        "pickRate": 11.0,
+        "numGames": 150,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      },
+      {
+        "augmentName": "风步微光（演示）",
+        "augmentId": "3",
+        "rarity": "",
+        "tier": "T3",
+        "winRate": 50.0,
+        "pickRate": 12.0,
+        "numGames": 200,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      }
+    ],
+    "磐石守卫（演示）": [
+      {
+        "augmentName": "晶盾回路（演示）",
+        "augmentId": "1",
+        "rarity": "",
+        "tier": "T1",
+        "winRate": 60.0,
+        "pickRate": 10.0,
+        "numGames": 100,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      },
+      {
+        "augmentName": "风步微光（演示）",
+        "augmentId": "2",
+        "rarity": "",
+        "tier": "T2",
+        "winRate": 55.0,
+        "pickRate": 11.0,
+        "numGames": 150,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      },
+      {
+        "augmentName": "星火共鸣（演示）",
+        "augmentId": "3",
+        "rarity": "",
+        "tier": "T3",
+        "winRate": 50.0,
+        "pickRate": 12.0,
+        "numGames": 200,
+        "rateUnit": "percent",
+        "sourceUrl": ""
+      }
+    ]
+  }
+}

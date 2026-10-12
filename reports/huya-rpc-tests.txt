@@ -1,0 +1,14 @@
+test_corrupt_or_truncated_packet (test_huya_rpc.HuyaRpcTests.test_corrupt_or_truncated_packet) ... ok
+test_duplicate_truncated_and_deep_fields (test_huya_rpc.HuyaRpcTests.test_duplicate_truncated_and_deep_fields) ... ok
+test_endpoint_and_redirect_allowlist (test_huya_rpc.HuyaRpcTests.test_endpoint_and_redirect_allowlist) ... ok
+test_invalid_arguments_and_expired_deadline (test_huya_rpc.HuyaRpcTests.test_invalid_arguments_and_expired_deadline) ... ok
+test_oversized_content_length (test_huya_rpc.HuyaRpcTests.test_oversized_content_length) ... ok
+test_plain_and_gzip_response (test_huya_rpc.HuyaRpcTests.test_plain_and_gzip_response) ... ok
+test_remote_error_identity_and_urls (test_huya_rpc.HuyaRpcTests.test_remote_error_identity_and_urls) ... ok
+test_request_is_anonymous_and_read_only (test_huya_rpc.HuyaRpcTests.test_request_is_anonymous_and_read_only) ... ok
+test_response_size_and_gzip_bomb (test_huya_rpc.HuyaRpcTests.test_response_size_and_gzip_bomb) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.010s
+
+OK

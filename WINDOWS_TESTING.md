@@ -1,3 +1,5 @@
+> 正式 Windows 单文件 EXE 的构建、下载和实际可执行文件测试见 [WINDOWS_EXECUTABLE.md](WINDOWS_EXECUTABLE.md)。以下内容为早期源码验证记录/开发流程，不替代 EXE 验收。
+
 # 准备好的免费 Windows 测试方案
 
 `.github/workflows/windows-validation.yml` 是一个**尚未发布、尚未执行**的 GitHub Actions 工作流。它只手动触发，没有 push、pull request 或定时触发；不部署、不传截图、不上传构建产物。

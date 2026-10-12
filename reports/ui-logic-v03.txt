@@ -1,0 +1,20 @@
+PASS Malformed favorites fall back safely
+PASS Text escaping prevents raw HTML markup
+PASS Missing rate is not replaced with zero
+PASS Search normalizes whitespace and case
+PASS Hero aliases filter
+PASS Support includes both soft and hard support
+PASS Deleted augments hidden by default
+PASS Deleted augment opt-in
+PASS Rarity filter
+PASS Augment description search
+PASS Favorites round-trip and repeat toggle
+PASS IME input waits for composition end
+PASS Hero relation badges include trap
+PASS Item aliases search
+PASS Chinese name tie-break uses Intl.Collator
+PASS Hero detail distinguishes hero pairs from global rates
+PASS Stale recommendation response cannot replace newer detail
+PASS Dialog closure increments generation and closes
+
+18 JavaScript logic checks passed. DOM stub only; not browser/layout validation.

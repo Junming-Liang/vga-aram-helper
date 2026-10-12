@@ -9,3 +9,7 @@ reports/*private*
 .venv-ocr/
 reports/synthetic-*.png
 reports/ocr-smoke-output.txt
+.venv-build/
+build/
+dist/
+reports/windows-exe-ui.png

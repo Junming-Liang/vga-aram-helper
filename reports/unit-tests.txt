@@ -1,0 +1,52 @@
+test_bad_schema_fails_clearly (test_helper.EngineTests.test_bad_schema_fails_clearly) ... ok
+test_branch_core_and_both_bonuses (test_helper.EngineTests.test_branch_core_and_both_bonuses) ... ok
+test_branch_only_match (test_helper.EngineTests.test_branch_only_match) ... ok
+test_direct_score_100_and_special_94 (test_helper.EngineTests.test_direct_score_100_and_special_94) ... ok
+test_duplicate_max_not_sum_and_preserves_evidence_core (test_helper.EngineTests.test_duplicate_max_not_sum_and_preserves_evidence_core) ... ok
+test_html_and_assets_are_removed (test_helper.EngineTests.test_html_and_assets_are_removed) ... ok
+test_missing_items_excluded_and_reported (test_helper.EngineTests.test_missing_items_excluded_and_reported) ... ok
+test_missing_win_rate_stays_none (test_helper.EngineTests.test_missing_win_rate_stays_none) ... ok
+test_non_finite_values_treated_as_missing (test_helper.EngineTests.test_non_finite_values_treated_as_missing) ... ok
+test_normalize_idempotent (test_helper.EngineTests.test_normalize_idempotent) ... ok
+test_parent_items_not_scored_without_branches (test_helper.EngineTests.test_parent_items_not_scored_without_branches) ... ok
+test_parent_match_includes_unmatched_branch (test_helper.EngineTests.test_parent_match_includes_unmatched_branch) ... ok
+test_repeated_evidence_is_deduplicated (test_helper.EngineTests.test_repeated_evidence_is_deduplicated) ... ok
+test_traps_separate_and_conflicts_marked (test_helper.EngineTests.test_traps_separate_and_conflicts_marked) ... ok
+test_unknown_augment_raises_keyerror (test_helper.EngineTests.test_unknown_augment_raises_keyerror) ... ok
+test_application_name_and_metadata (test_helper.HTTPTests.test_application_name_and_metadata) ... ok
+test_data_api (test_helper.HTTPTests.test_data_api) ... ok
+test_host_rebinding_guard (test_helper.HTTPTests.test_host_rebinding_guard) ... ok
+test_localhost_binding (test_helper.HTTPTests.test_localhost_binding) ... ok
+test_recommend_api (test_helper.HTTPTests.test_recommend_api) ... ok
+test_ui_and_assets (test_helper.HTTPTests.test_ui_and_assets) ... ok
+test_unknown_augment_and_traversal (test_helper.HTTPTests.test_unknown_augment_and_traversal) ... ok
+test_ambiguous_source_fails (test_helper.ImportTests.test_ambiguous_source_fails) ... ok
+test_import_uses_whitelist_and_refuses_overwrite (test_helper.ImportTests.test_import_uses_whitelist_and_refuses_overwrite) ... ok
+test_blank_returns_empty (test_ocr.MatchingTests.test_blank_returns_empty) ... ok
+test_deduplicates_best_confidence (test_ocr.MatchingTests.test_deduplicates_best_confidence) ... ok
+test_exact_never_automatically_selects (test_ocr.MatchingTests.test_exact_never_automatically_selects) ... ok
+test_fuzzy_requires_clear_margin (test_ocr.MatchingTests.test_fuzzy_requires_clear_margin) ... ok
+test_infinite_confidence_returns_empty (test_ocr.MatchingTests.test_infinite_confidence_returns_empty) ... ok
+test_keeps_left_to_right_order (test_ocr.MatchingTests.test_keeps_left_to_right_order) ... ok
+test_long_paragraph_not_a_title (test_ocr.MatchingTests.test_long_paragraph_not_a_title) ... ok
+test_low_confidence_returns_empty (test_ocr.MatchingTests.test_low_confidence_returns_empty) ... ok
+test_nan_confidence_returns_empty (test_ocr.MatchingTests.test_nan_confidence_returns_empty) ... ok
+test_normalization (test_ocr.MatchingTests.test_normalization) ... ok
+test_python_network_guard_restores (test_ocr.MatchingTests.test_python_network_guard_restores) ... ok
+test_single_fuzzy_suggestion (test_ocr.MatchingTests.test_single_fuzzy_suggestion) ... ok
+test_unrelated_returns_empty (test_ocr.MatchingTests.test_unrelated_returns_empty) ... ok
+test_foreign_host_denied (test_ocr.OCRHTTPTests.test_foreign_host_denied) ... ok
+test_foreign_origin_denied (test_ocr.OCRHTTPTests.test_foreign_origin_denied) ... ok
+test_invalid_base64_denied (test_ocr.OCRHTTPTests.test_invalid_base64_denied) ... ok
+test_invalid_image_denied (test_ocr.OCRHTTPTests.test_invalid_image_denied) ... ok
+test_local_origin_allowed (test_ocr.OCRHTTPTests.test_local_origin_allowed) ... ok
+test_missing_image_denied (test_ocr.OCRHTTPTests.test_missing_image_denied) ... ok
+test_non_json_denied (test_ocr.OCRHTTPTests.test_non_json_denied) ... ok
+test_oversized_declared_length (test_ocr.OCRHTTPTests.test_oversized_declared_length) ... ok
+test_unknown_route (test_ocr.OCRHTTPTests.test_unknown_route) ... ok
+test_valid_local_request (test_ocr.OCRHTTPTests.test_valid_local_request) ... ok
+
+----------------------------------------------------------------------
+Ran 47 tests in 1.030s
+
+OK

@@ -1,0 +1,18 @@
+PASS No hero cannot compare
+PASS Three valid reviewed names enable explicit confirm
+PASS OCR fill never sends comparison automatically
+PASS Duplicate slots are blocked
+PASS Unrecognized names are blocked
+PASS Incomplete slots are blocked
+PASS Post preserves hero and all three confirmed slots
+PASS Edit aborts and invalidates pending comparison
+PASS Old response cannot appear after manual edit
+PASS Hero switch invalidates stale recommendation
+PASS Source candidate text is escaped in results
+PASS Pair rate and source samples have separate labels
+PASS Reroll clears all slots and results
+PASS Partial OCR selection fills only an empty slot
+PASS Repeated OCR candidate is not duplicated
+PASS OCR cannot auto-fill ambiguous list lengths
+
+16 three-choice UI logic checks passed. DOM stub only.

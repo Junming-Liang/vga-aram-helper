@@ -2,11 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark"><title>VGA乱斗助手 · 本地参考原型</title>
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script><script src="/ocr-ui.js" defer></script>
+  <meta name="color-scheme" content="dark"><title>VGA乱斗助手 · 英雄海克斯三选一</title><link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script><script src="/choices.js" defer></script><script src="/ocr-ui.js" defer></script>
 </head>
 <body>
-  <header class="topbar"><a href="/" class="brand"><span class="mark" aria-hidden="true">V</span><span>VGA乱斗助手<small>独立本地参考原型 · 0.2</small></span></a><div class="online"><span></span>仅本机 · 无需登录</div></header>
+  <header class="topbar"><a href="/" class="brand"><img class="brand-icon" src="/brand.png" alt="VGA乱斗助手图标"><span>VGA乱斗助手<small>英雄 + 三个海克斯 · 官方数据</small></span></a><div class="online"><span></span>仅本机 · 无需登录</div></header>
   <div id="source-banner" class="banner" role="status">正在读取本地数据…</div>
   <main class="layout">
     <aside class="hero-panel">
@@ -14,20 +14,36 @@
       <label class="search"><span aria-hidden="true">⌕</span><input id="hero-search" placeholder="英雄名 / 别名" autocomplete="off" aria-label="搜索英雄"></label>
       <div class="inline-controls"><select id="hero-role" aria-label="英雄定位"><option value="">全部定位</option><option>战士</option><option>法师</option><option>坦克</option><option>刺客</option><option>射手</option><option>辅助</option></select><select id="hero-sort" aria-label="英雄排序"><option value="rate">参考值排序</option><option value="name">名称排序</option></select></div>
       <div id="hero-count" class="muted result-count"></div><div id="heroes" class="hero-list"></div><button id="more-heroes" class="load-more" hidden>再显示 28 位英雄</button>
-      <div class="aside-note">手动选择，边玩边查。<br>不连接游戏，不读取屏幕或进程。</div>
+      <div class="aside-note">手动选择，边玩边查。<br>不连接游戏；只处理你选取的截图。</div>
     </aside>
     <section class="workspace">
-      <div class="workspace-intro"><span class="eyebrow">02 / 查联动，避陷阱</span><h2>把选择的理由看清楚。</h2><p>原始资料的联动说明 + 可解释的装备规则分。所有缺失数据都会如实标注。</p></div>
+      <div class="workspace-intro"><span class="eyebrow">02 / 当前回合，三选一</span><h2>选好英雄，比对这三张牌。</h2><p>按官方英雄专属海克斯表比较当前三个选项，显示评级、配对胜率、选取率与样本量；未收录的资料不猜。</p></div>
+      <section id="hero-context" class="hero-context" hidden></section>
+      <section class="choice-panel" aria-labelledby="choice-title">
+        <div class="choice-heading"><div><span class="eyebrow">03 / 确认游戏中出现的三个选项</span><h3 id="choice-title">当前可选海克斯</h3></div><button id="clear-choices" class="subtle">换一轮 / 清空</button></div>
+        <p class="muted">手动输入或在下方识别截图。OCR 只填候选，核对三个名称后再比较。</p>
+        <datalist id="augment-options"></datalist>
+        <div class="choice-inputs">
+          <label><span>左侧选项 ①</span><input id="choice-0" list="augment-options" autocomplete="off" placeholder="输入海克斯名称" aria-label="第一个候选海克斯"></label>
+          <label><span>中间选项 ②</span><input id="choice-1" list="augment-options" autocomplete="off" placeholder="输入海克斯名称" aria-label="第二个候选海克斯"></label>
+          <label><span>右侧选项 ③</span><input id="choice-2" list="augment-options" autocomplete="off" placeholder="输入海克斯名称" aria-label="第三个候选海克斯"></label>
+        </div>
+        <div class="compare-actions"><button id="compare-choices" class="primary-button" disabled>确认三项，比较推荐</button><span id="choice-status" class="muted" role="status">先从左侧选择英雄。</span></div>
+        <div id="choice-result" aria-live="polite"></div>
+      </section>
       <section class="ocr-panel" aria-labelledby="ocr-title">
         <div><h3 id="ocr-title">本地截图识别 <span class="badge">可选 · 免费 CPU</span></h3><p class="muted">选择已有截图，在本机识别海克斯名称。图片不会上传云端；候选需要手动确认。</p></div>
         <p id="ocr-status" class="muted" role="status">正在检查本地 OCR 状态…</p>
         <div class="ocr-controls"><input id="ocr-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" aria-label="选择本地截图" disabled><button id="ocr-run" disabled>识别这张截图</button></div>
         <div id="ocr-results" aria-live="polite"></div>
       </section>
-      <section id="hero-context" class="hero-context" hidden></section>
+
+      <details class="reference-details"><summary>资料库与装备联动（辅助查阅）</summary>
       <div class="toolbar"><nav class="tabs" aria-label="参考分类"><button class="active" data-tab="augments" aria-pressed="true">海克斯</button><button data-tab="items" aria-pressed="false">装备</button><button data-tab="combinations" aria-pressed="false">组合方案</button></nav><button id="favorite-only" class="favorite-filter" aria-pressed="false">☆ 只看收藏</button></div>
       <div class="filterbar"><label class="search wide"><span aria-hidden="true">⌕</span><input id="main-search" placeholder="搜索海克斯名称或效果" autocomplete="off" aria-label="搜索参考资料"></label><select id="rarity" aria-label="海克斯稀有度"><option value="">全部稀有度</option><option value="prismatic">棱彩</option><option value="gold">黄金</option><option value="silver">白银</option></select><label id="deleted-control" class="check"><input id="show-deleted" type="checkbox">显示已移除</label></div>
       <div id="result-count" class="muted result-count" aria-live="polite"></div><div id="cards" class="cards"></div><button id="more-cards" class="load-more" hidden>再显示 28 条</button>
+      </details>
+      <section id="update-panel" class="update-panel"><p id="update-status" class="muted" role="status">正在读取启动更新状态…</p><button id="install-update" hidden>查看并安装更新</button></section>
       <footer><button id="about" class="subtle">数据来源与规则说明 ↗</button><span id="storage-status">收藏仅保存在当前浏览器</span></footer>
     </section>
   </main>

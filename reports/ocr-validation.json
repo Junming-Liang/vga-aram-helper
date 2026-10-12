@@ -1,0 +1,121 @@
+{
+  "result": "passed",
+  "localhost_ocr_api": "passed with default synthetic app dictionary and original test image",
+  "app_names_recognized": [
+    "星火共鸣（演示）",
+    "晶盾回路（演示）",
+    "风步微光（演示）"
+  ],
+  "environment": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "fixture": "Original synthetic image, not real gameplay",
+  "names_expected": [
+    "珠光护手",
+    "炼狱导管",
+    "双刀流"
+  ],
+  "names_recognized": [
+    "珠光护手",
+    "炼狱导管",
+    "双刀流"
+  ],
+  "matched_on_fixture": "3/3 (not an accuracy estimate)",
+  "blank_candidates": 0,
+  "first_call_seconds": 0.953,
+  "warm_call_seconds": 0.304,
+  "blank_call_seconds": 0.137,
+  "network_controls": "Bundled local model files are hash-checked and passed explicitly; ONNX telemetry disabled. No process-global socket patch; no cloud vision API. Native OS egress was not independently measured.",
+  "versions": {
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.4",
+    "Pillow": "12.3.0"
+  },
+  "fixture_sha256": "81aea6ff24dff816aaecb257618413ab6eeea43915f8c7609014b03ce801258f",
+  "candidates": [
+    {
+      "name": "珠光护手",
+      "recognized_text": "珠光护手",
+      "ocr_confidence": 0.9999,
+      "name_similarity": 1.0,
+      "match_method": "exact",
+      "box": [
+        [
+          76.0,
+          234.0
+        ],
+        [
+          260.0,
+          234.0
+        ],
+        [
+          260.0,
+          292.0
+        ],
+        [
+          76.0,
+          292.0
+        ]
+      ],
+      "requires_confirmation": true
+    },
+    {
+      "name": "炼狱导管",
+      "recognized_text": "炼狱导管",
+      "ocr_confidence": 0.9995,
+      "name_similarity": 1.0,
+      "match_method": "exact",
+      "box": [
+        [
+          542.0,
+          234.0
+        ],
+        [
+          724.0,
+          234.0
+        ],
+        [
+          724.0,
+          292.0
+        ],
+        [
+          542.0,
+          292.0
+        ]
+      ],
+      "requires_confirmation": true
+    },
+    {
+      "name": "双刀流",
+      "recognized_text": "双刀流",
+      "ocr_confidence": 0.9998,
+      "name_similarity": 1.0,
+      "match_method": "exact",
+      "box": [
+        [
+          1006.0,
+          234.0
+        ],
+        [
+          1150.0,
+          234.0
+        ],
+        [
+          1150.0,
+          292.0
+        ],
+        [
+          1006.0,
+          292.0
+        ]
+      ],
+      "requires_confirmation": true
+    }
+  ],
+  "not_tested": [
+    "real user game screenshot accuracy",
+    "hero recognition",
+    "live capture",
+    "overlay",
+    "Windows execution"
+  ]
+}

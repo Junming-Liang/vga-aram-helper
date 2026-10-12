@@ -10,6 +10,7 @@ from html import unescape
 from html.parser import HTMLParser
 import json
 import math
+import re
 from pathlib import Path
 
 
@@ -62,9 +63,66 @@ def links(value):
     return result
 
 
+
+def percentage(value):
+    if isinstance(value,str) and re.fullmatch(r"\s*\d+(?:\.\d+)?%\s*",value):
+        result=float(value.strip().rstrip('%'))
+        return result if 0<=result<=100 else None
+    return number(value) if isinstance(value,(int,float)) and 0<=value<=100 else None
+
+
+def adapt_official_wiki(raw):
+    """New official hero-specific statistics; use text/numbers, never vendor assets."""
+    wiki=raw.get('wiki')
+    if not isinstance(wiki,dict) or not isinstance(wiki.get('championDetail'),list):return raw
+    output=deepcopy(raw)
+    old_heroes=output.get('heroes',{})
+    old_augments=output.get('augments',{})
+    output['heroes']={};output['augments']={};output['items']={};output['heroAugmentStats']={}
+    metadata=output.setdefault('metadata',{})
+    metadata.update(isDemo=False,officialHeroStatistics=True,wikiDataVersion=str(wiki.get('version','')))
+    metadata.setdefault('sourceUrl','https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1')
+    base=metadata.get('wikiBaseUrl','')
+    rarity_map={'棱彩':'prismatic','黄金':'gold','白银':'silver','prismatic':'prismatic','gold':'gold','silver':'silver'}
+    for row in wiki.get('augmentDetail',[]):
+        if not isinstance(row,dict) or not isinstance(row.get('augmentName'),str):continue
+        name=row['augmentName'];legacy=old_augments.get(name,{})
+        output['augments'][name]={**legacy,'name':name,'augmentId':str(row.get('augmentId','')),
+            'description':row.get('description',''),'rarity':rarity_map.get(row.get('rarity'),'unknown'),
+            'winRate':percentage(row.get('winRate')),'version':[str(row['version'])] if row.get('version') else [],
+            'isDeleted':False,'officialTier':row.get('tier',''),'officialPickRate':percentage(row.get('pickRate'))}
+    for row in wiki['championDetail']:
+        if not isinstance(row,dict) or not isinstance(row.get('championName'),str):continue
+        full=row['championName'];name,_,alias=full.partition(' ')
+        if name in output['heroes']:name=full
+        legacy=old_heroes.get(name,{})
+        aliases=list(dict.fromkeys([x for x in [alias,full,*legacy.get('alias',[]),*(['人马'] if str(row.get('championId'))=='120' else [])] if isinstance(x,str) and x]))
+        output['heroes'][name]={**legacy,'name':name,'alias':aliases,'championId':str(row.get('championId','')),
+            'winRate':percentage(row.get('winRate')),'overallPickRate':percentage(row.get('pickRate')),
+            'overallTier':row.get('tier',''),'sourceVersion':str(row.get('version',''))}
+        if row.get('version'):metadata.setdefault('gamePatch',str(row['version']))
+        stats=[]
+        for item in row.get('augmentRecommendations',[]):
+            if not isinstance(item,dict) or not isinstance(item.get('augmentName'),str):continue
+            augment_name=item['augmentName']
+            # Keep offered names present in actual hero stats even if detail catalog has a gap.
+            if augment_name not in output['augments']:
+                output['augments'][augment_name]={'name':augment_name,'augmentId':str(item.get('augmentId','')),
+                    'rarity':rarity_map.get(item.get('rarity'),'unknown'),'description':'官方英雄表存在此海克斯，完整描述暂缺。'}
+            stats.append({'augmentName':augment_name,'augmentId':str(item.get('augmentId','')),
+                'rarity':rarity_map.get(item.get('rarity'),'unknown'),'tier':str(item.get('tier','')),
+                'winRate':percentage(item.get('winRate')),'pickRate':percentage(item.get('pickRate')),
+                'numGames':number(item.get('numGames')),'rateUnit':'percent',
+                'sourceUrl':base+'champion-detail.json' if base else metadata['sourceUrl']})
+        output['heroAugmentStats'][name]=stats
+    for name,row in wiki.get('itemDetail',{}).items():
+        if isinstance(row,dict):output['items'][name]={'name':name,'description':row.get('description',''),'itemId':str(row.get('itemId',''))}
+    return output
+
 def normalize(raw):
     """Whitelist text fields; discard remote images, executable markup and extras."""
-    data = {"metadata": deepcopy(raw.get("metadata", {})), "heroes": {}, "augments": {}, "items": {}, "relations": {}, "combinations": []}
+    raw = adapt_official_wiki(raw)
+    data = {"metadata": deepcopy(raw.get("metadata", {})), "heroes": {}, "augments": {}, "items": {}, "relations": {}, "combinations": [], "heroAugmentStats": {}}
     for kind in ["heroes", "augments", "items"]:
         source = raw.get(kind, {})
         if not isinstance(source, dict):
@@ -74,7 +132,10 @@ def normalize(raw):
                 raise ValueError(f"Invalid {kind} record")
             item = {"name": name, "description": plain(record.get("description")), "alias": names(record.get("alias")),
                     "position": names(record.get("position")), "winRate": number(record.get("winRate")),
-                    "tips": plain(record.get("tips"))}
+                    "tips": plain(record.get("tips")), "championId": str(record.get("championId","")), "augmentId": str(record.get("augmentId","")), "sourceVersion":str(record.get("sourceVersion","")), "overallTier":str(record.get("overallTier","")), "overallPickRate":number(record.get("overallPickRate")), "version": names(record.get("version")),
+                    "isSkillEnhancement": record.get("isSkillEnhancement") is True,
+                    "changes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("changes",[]) if isinstance(x,dict)],
+                    "bugFixes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("bugFixes",[]) if isinstance(x,dict)]}
             if kind == "augments":
                 item.update(rarity=record.get("rarity") if record.get("rarity") in ["gold", "silver", "prismatic"] else "unknown",
                             isDeleted=record.get("isDeleted") is True, limit=names(record.get("limit")))
@@ -101,6 +162,24 @@ def normalize(raw):
             adapted = combination(group)
             adapted["combinations"] = [combination(branch) for branch in group.get("combinations", []) if isinstance(branch, dict)]
             data["combinations"].append(adapted)
+    # Official champion-specific statistics are adapted by the verified source updater.
+    # Do not derive pair rates from the global augment catalog.
+    official=raw.get('heroAugmentStats',{})
+    if isinstance(official,dict):
+        for hero,rows in official.items():
+            if not isinstance(hero,str) or not isinstance(rows,list):continue
+            data['heroAugmentStats'][hero]=[]
+            for row in rows:
+                if not isinstance(row,dict):continue
+                name=row.get('augmentName') or row.get('name')
+                if not isinstance(name,str):continue
+                data['heroAugmentStats'][hero].append({
+                    'augmentName':name,'augmentId':str(row.get('augmentId','')),
+                    'rarity':str(row.get('rarity','')),'tier':str(row.get('tier','')),
+                    'winRate':number(row.get('winRate')),'pickRate':number(row.get('pickRate')),
+                    'numGames':number(row.get('numGames')),
+                    'rateUnit':str(row.get('rateUnit','unknown')),
+                    'sourceUrl':str(row.get('sourceUrl',''))})
     return data
 
 
