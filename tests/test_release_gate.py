@@ -690,6 +690,33 @@ class ReleaseFixture(unittest.TestCase):
 
 
 class WorkflowSafetyTests(unittest.TestCase):
+    def test_windows_git_archive_preserves_evaluated_portrait_module_bytes(self):
+        report = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            def git(*args):
+                return subprocess.run(['git', '-c', 'core.autocrlf=true', *args], cwd=root,
+                                      check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            git('init')
+            (root / '.gitattributes').write_bytes((ROOT / '.gitattributes').read_bytes())
+            for name, expected in report['implementation_sha256'].items():
+                data = (ROOT / name).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
+                (root / name).write_bytes(data)
+            git('add', '.gitattributes', *report['implementation_sha256'])
+            git('-c', 'user.name=Packaging test', '-c', 'user.email=packaging-test@example.invalid',
+                'commit', '--no-gpg-sign', '-m', 'Source archive fixture')
+            for name in report['implementation_sha256']:
+                (root / name).unlink()
+            git('checkout-index', '--force', '--all')
+            source = root / 'source.zip'
+            git('archive', '--format=zip', '--output', str(source), 'HEAD')
+            with zipfile.ZipFile(source) as archive:
+                for name, expected in report['implementation_sha256'].items():
+                    self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), expected)
+                    self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), expected)
+            self.assertEqual(gate.verify_genuine_report(ROOT / 'reports/hero-recognition-genuine.json', source, VERSION), report['summary'])
+
     def test_production_qt_source_inventory_remains_pinned(self):
         self.assertEqual(len(gate.QT_SOURCES), 4)
         self.assertEqual(sum(row['size'] for row in gate.QT_SOURCES), 73_028_200)
