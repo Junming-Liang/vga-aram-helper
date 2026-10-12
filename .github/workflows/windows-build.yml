@@ -78,6 +78,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test actual native overlay against a synthetic mock window
         run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Test owned client-to-game screenshot selection handoff
+        run: python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe
       - name: Check existing and proposed artifact storage before upload
         run: python scripts/check_artifact_budget.py
       - name: Upload tested executable, exact checksum and OTA manifest
