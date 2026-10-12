@@ -20,77 +20,75 @@
 </p>
 <!-- project-header:end -->
 
-双击 Windows EXE 打开原生控制窗口，在你明确选择的窗口上显示透明资料叠加。截图识别在本机运行，无需 Python 安装、AI 订阅或 API key。[v0.3.0 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)现已提供下载，并已通过 Windows 原创模拟窗口的实际 EXE 测试。真实游戏兼容性仍待验证。
-
-CI 徽章对应最近一次手动构建与测试，不代表游戏内适配已经验收。
+Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄专属评级、机制说明与条件提醒。通过本地 OCR 识别候选，核对后即可在目标窗口上查看资料。
 
 ## 功能
 
-- **原生控制窗口与叠加层**：QtWidgets 界面；普通系统置顶窗口，默认鼠标穿透，可用 `Ctrl+Alt+O` 切换。
-- **显式窗口监测**：由你选择目标、开启监测；仅采集所选前台窗口的可见客户区像素，不读取游戏进程内存、不注入、不装输入钩子。
-- **本地候选识别**：RapidOCR 提取海克斯名称，人工核对英雄与三个候选后显示资料；不自动选牌。
-- **公开资料与离线缓存**：启动检查虎牙官方公开 wiki；网络不可用时使用已验证缓存，没有缓存则明确提示不可用。
-- **确认后软件更新**：检查 GitHub Releases，由你确认后才下载、校验和安装。
-
-当前原生叠加保留截图中三个槽位的原始顺序，展示名称、机制描述、条件提醒，以及所选英雄的“虎牙公开源评级”（原始 T1/T2/T3/T4）。评级直接取该英雄的公开记录；缺失、空值或未知格式显示“暂无评级”，不拿全局评级补值，不从胜率自行换算，也不映射为 S/A/B/C。不会按评级重排卡片、显示胜率或输出唯一最佳选项。叠加同时注明来源日期、数据包与游戏资料版本。
-
-这是公开资料快照的评级，不是复刻虎牙私有云端实时模型，不保证与其当前客户端结果相同。评级算法及适用政策仍存在未核实之处；本项目不声称获得 Riot/腾讯批准或已确认合规。英雄需手动选择。初版面向窗口/无边框模式，独占全屏和真实 LoL/Vanguard 兼容性尚未验证。公开数据可访问或不读内存，并不意味着获得游戏厂商批准。
+- **英雄专属评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
+- **本地 OCR**：识别海克斯名称，支持手动修正与三候选确认。
+- **透明叠加层**：置顶显示资料卡，支持鼠标穿透和 `Ctrl+Alt+O` 快捷切换。
+- **数据刷新与缓存**：启动时检查公开资料，离线时使用已验证缓存。
+- **软件更新**：检查稳定版 GitHub Release，确认后下载并校验安装。
 
 ## 快速开始
 
 ### Windows
 
-下载 [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe)，或在 [Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)查看校验文件、测试证据与对应源码。目标平台为 Windows 10/11 x64，单文件 EXE 包含 Python、QtWidgets、OCR 运行时和模型。
+1. 下载 [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe)，核对 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt)。
+2. 将 EXE 放入有写入权限的文件夹，双击启动。
+3. 选择目标窗口和英雄，开始监测；核对三个候选后确认显示。
 
-先核对 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt)，再放入自己有写入权限的文件夹并双击。正常使用无需浏览器或本地网址；关闭主控制窗口即可退出。详见 [Windows 指南](WINDOWS_EXECUTABLE.md)。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0)提供测试证据和对应源码。
 
-此预览版对应提交 `1ce516e` 和[成功的 Windows 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)，该次验证范围为原创模拟窗口，不包括真实 LoL/Vanguard 或独占全屏。它不会通过稳定版自动更新通道推送，请手动下载。
-
-后续[Windows 原生更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)已验证同一 EXE 的替换与重启、Qt/OCR 健康握手、并发锁、版本不匹配时回滚及进程清理。这是本地合成更新计划下的同二进制测试；不同版本升级、在线更新发现/下载及应用内确认交接仍未验证。
-
-使用前请阅读并同意同一 Release 许可 ZIP 中的微软运行库条款；仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。完整范围见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+当前预览版需手动下载；稳定版更新机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
-开发者安装 Python 3.12 x64，在项目目录的虚拟环境中运行：
+使用 Python 3.12 x64，在项目目录的虚拟环境中运行：
 
 ```sh
 python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
 python launcher.py
 ```
 
-`python launcher.py --demo` 使用明确标注的虚构测试数据。真实窗口采集与叠加仅支持 Windows；其他系统可运行纯逻辑与 offscreen 控件测试。
-
-历史 HTTP 界面保留为显式开发诊断：`python launcher.py --headless --demo`，默认仅监听 `127.0.0.1:8765`。它不是正常用户入口，浏览器测试也不能代替原生窗口验收。
+`python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 使用方法
 
-1. 启动后等待公开资料检查，明确选择需要监测的目标窗口。
-2. 手动搜索或选择英雄，点击开始监测，然后切回目标窗口。
-3. 本地 OCR 生成候选后，核对左、中、右三个名称；无法识别时可手动修正。
-4. 确认后显示三张资料卡。换英雄、改候选或窗口状态变化时，旧资料会失效并隐藏，需重新确认。
-5. `Ctrl+Alt+O` 切换鼠标穿透；停止监测或关闭主窗口即可停止捕获。
-
-请使用窗口/无边框模式，避免其他窗口遮挡。切出、最小化或捕获失败会暂停显示；短时误识别、画面变化和不同分辨率仍需要人工核对。数据格式及历史诊断页面的统计字段解释见 [数据说明](DATA.md)。
+- 手动选择英雄并开始监测，然后切回目标窗口。
+- 核对 OCR 提取的左、中、右三个名称，必要时修正后确认。
+- 更换英雄或候选后重新确认。切出、最小化、画面变化或捕获失败时，旧资料会隐藏。
+- `Ctrl+Alt+O` 切换鼠标穿透；停止监测或关闭主窗口即可结束捕获。
 
 ## 数据与隐私
 
-资料来自[虎牙官方公开 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。程序区分来源日期与获取时间；下载成功不代表资料适配最新游戏版本。
+资料来自[虎牙官方公开 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。评级使用对应英雄的原始记录；资料卡标注来源日期、数据包与游戏资料版本。来源日期和获取时间分别记录，便于判断资料时效。格式与字段说明见 [DATA.md](DATA.md)。
 
-正常监测的截图仅在内存中处理，不写盘、不上传云端。联网请求用于公开数据与软件更新；启动监测和软件安装均需要用户明确操作。只有显式合成诊断会保存本程序自建窗口的测试图。更新机制见 [UPDATES.md](UPDATES.md)。
+采集范围为所选前台窗口的可见客户区，仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网用于公开数据刷新与软件更新。
+
+## 预览版与兼容性
+
+v0.3.0 面向 Windows 10/11 x64 的窗口及无边框模式。目前验证基于 Windows Server 2022 上的原创模拟窗口：
+
+- [原生 EXE 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)：窗口捕获、OCR、评级显示、鼠标穿透与进程生命周期。
+- [更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)：同一 EXE 的本地替换、健康检查、并发锁与失败回滚。
+
+真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
+
+EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对文件哈希并保留系统安全防护。
 
 ## 开发与贡献
 
 欢迎通过 [Issues](https://github.com/Junming-Liang/vga-aram-helper/issues) 报告问题，或提交改进。
 
 - [开发环境与测试](CONTRIBUTING.md)
-- [Windows 构建](WINDOWS_EXECUTABLE.md)与[测试范围](WINDOWS_TESTING.md)
+- [Windows 构建](WINDOWS_EXECUTABLE.md)
 - [数据来源](SOURCE_NOTES.md)与[验证记录](reports/VALIDATION.md)
-
-原生 Windows CI 使用原创模拟窗口，检查真实捕获、OCR、焦点、鼠标穿透与生命周期；它不能证明真实游戏效果或反作弊兼容性。请勿据此声称工具经过 Riot/Vanguard 批准或保证账号安全。
 
 ## 许可
 
-原始项目代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项，OCR 依赖和模型遵循各自许可，见[第三方声明](THIRD_PARTY_NOTICES.md)。发布文件附完整许可、对应 Qt 源码和同提交应用源码，供查阅、修改和重建。第三方游戏资料不在本项目 MIT 许可范围内。
+原创代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项；OCR 依赖、模型及其他第三方组件遵循各自许可。Release 附完整许可、对应 Qt 源码和同提交应用源码，详见[第三方声明](THIRD_PARTY_NOTICES.md)。第三方游戏资料不在本项目 MIT 许可范围内。
 
-本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。EXE 尚无 Authenticode 签名；下载后核对 SHA-256，不应关闭安全防护来绕过警告。
+使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。
+
+本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。

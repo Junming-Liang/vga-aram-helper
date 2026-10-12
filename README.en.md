@@ -20,77 +20,75 @@
 </p>
 <!-- project-header:end -->
 
-Double-click the Windows EXE to open the native control window and display a transparent reference overlay over a window you explicitly select. Screenshot recognition runs locally, without a separate Python installation, AI subscription, or API key. The [v0.3.0 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0) is now available and has passed actual-EXE tests against original synthetic mock windows on Windows. Real-game compatibility remains unverified.
-
-The CI badge reflects the latest manual build and tests, not completed in-game validation.
+A native Windows control panel and game overlay for champion-specific augment tiers, effects, and condition notes. Local OCR identifies the three choices; review them to display reference cards over the selected window.
 
 ## Features
 
-- **Native controls and overlay**: a QtWidgets interface with an ordinary always-on-top system window. Mouse click-through is enabled by default and can be toggled with `Ctrl+Alt+O`.
-- **Explicit window monitoring**: you select the target and start monitoring. Only visible client-area pixels of the selected foreground window are captured. The app does not read game process memory, inject into the game, or install input hooks.
-- **Local candidate recognition**: RapidOCR extracts augment names. Reference information appears after you check the champion and three candidates; the app does not select cards automatically.
-- **Public reference data and offline cache**: startup checks Huya's official public wiki. When the network is unavailable, validated cached data is used; if there is no cache, the app clearly reports that data is unavailable.
-- **Confirmed software updates**: GitHub Releases are checked, but downloading, verification, and installation start only after your confirmation.
-
-The native overlay preserves the three cards’ original screen order and shows names, effects, condition notes, and the selected champion’s literal Huya public-source tier (T1/T2/T3/T4). The tier is copied from that champion-specific record. Missing, null, or unrecognized tiers display “暂无评级” (no rating available); there is no global-tier fallback, win-rate conversion, or invented S/A/B/C mapping. Cards are not sorted by tier, no win rates are shown, and no single best choice is dictated. The overlay identifies the source date, data-package version, and game-data version.
-
-These are public-snapshot tiers, not a reproduction of Huya’s private live cloud model, and they may differ from its current client. The rating methodology and applicable policy scope are not fully verified; this project does not claim Riot/Tencent approval or confirmed compliance. The champion must be selected manually. The initial version targets windowed and borderless modes; exclusive fullscreen and compatibility with the real LoL client or Vanguard have not been validated. Publicly accessible data and the absence of memory reading do not imply approval by the game publisher.
+- **Champion-specific tiers**: displays Huya's public-source T1–T4 tiers in the original three-choice order. Missing data is labeled “暂无评级” (no rating available).
+- **Local OCR**: recognizes augment names with manual correction and three-choice confirmation.
+- **Transparent overlay**: always-on-top reference cards with mouse click-through, toggled by `Ctrl+Alt+O`.
+- **Data refresh and cache**: checks public data at startup and uses validated cached data offline.
+- **Software updates**: checks stable GitHub Releases, then downloads, verifies, and installs after confirmation.
 
 ## Quick start
 
 ### Windows
 
-Download the [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe), or visit the [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0) for checksums, test evidence, and corresponding source. The target platform is Windows 10/11 x64. The single-file EXE bundles Python, QtWidgets, the OCR runtime, and models.
+1. Download the [v0.3.0 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/vga-aram-helper-0.3.0-windows-x64.exe) and check its [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt).
+2. Place the EXE in a writable folder and double-click it.
+3. Select the target window and champion, start monitoring, then review and confirm the three choices.
 
-Check the [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/SHA256SUMS.txt), then place the EXE in a folder you can write to and double-click it. Normal use requires no browser or local URL. Close the main control window to exit. See the [Windows guide](WINDOWS_EXECUTABLE.md).
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.3.0) includes test evidence and corresponding source.
 
-This preview corresponds to commit `1ce516e` and the [successful Windows test run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410). That run covers original synthetic mock windows, not real LoL/Vanguard or exclusive fullscreen. It is excluded from the stable automatic-update channel; download it manually.
-
-A subsequent [native Windows updater transaction test](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458) verified replacement and relaunch of the same EXE, the Qt/OCR health handshake, concurrency locking, version-mismatch rollback, and process cleanup. This used a synthetic local update plan and identical binary bytes; upgrades between different versions, online update discovery/download, and the in-app confirmation handoff remain unverified.
-
-Before use, read and agree to the Microsoft runtime terms in the same Release's license ZIP. They apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. See [third-party notices](THIRD_PARTY_NOTICES.md) for the complete scope.
+Download the current preview manually. See [UPDATES.md](UPDATES.md) for the stable-release update mechanism.
 
 ### Run from source
 
-Developers need Python 3.12 x64. Run the following commands in a virtual environment inside the project directory:
+Use Python 3.12 x64 and run these commands in a virtual environment inside the project directory:
 
 ```sh
 python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
 python launcher.py
 ```
 
-`python launcher.py --demo` uses clearly labeled fictional test data. Real window capture and the overlay are Windows-only; other systems can run pure-logic and offscreen widget tests.
-
-The historical HTTP interface remains available as an explicit development diagnostic: `python launcher.py --headless --demo`, listening only on `127.0.0.1:8765` by default. It is not the normal user entry point, and browser tests do not replace native-window validation.
+`python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
 ## Usage
 
-1. After startup, wait for the public-data check and explicitly select the window to monitor.
-2. Search for or select the champion manually, start monitoring, and switch back to the target window.
-3. Review the left, middle, and right names produced by local OCR. Correct them manually if recognition fails.
-4. After confirmation, three reference cards appear. Changing the champion, candidates, or window state invalidates and hides the previous information; confirmation is required again.
-5. Use `Ctrl+Alt+O` to toggle mouse click-through. Stop monitoring or close the main window to stop capture.
-
-Use windowed or borderless mode and avoid other windows obscuring the target. Switching away, minimizing, or a capture failure pauses the display. Brief recognition errors, scene changes, and different resolutions still require manual review. See [Data notes](DATA.md) for data formats and the statistical fields in the historical diagnostic interface.
+- Select the champion manually, start monitoring, and switch back to the target window.
+- Review the left, middle, and right names identified by OCR. Correct them if needed, then confirm.
+- Confirm again after changing the champion or choices. Switching away, minimizing, scene changes, or capture failures hide the previous cards.
+- Toggle mouse click-through with `Ctrl+Alt+O`. Stop monitoring or close the main window to end capture.
 
 ## Data and privacy
 
-Reference data comes from [Huya's official public wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1). The app distinguishes the source date from the retrieval time; a successful download does not mean the information matches the latest game patch.
+Reference data comes from [Huya's official public wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1). Tiers use the selected champion's original records. Cards identify the source date, data-package version, and game-data version. The source date and retrieval time are recorded separately to help assess freshness. See [DATA.md](DATA.md) for formats and fields.
 
-Screenshots from normal monitoring are processed only in memory. They are not saved to disk or uploaded to the cloud. Network requests retrieve public data and software updates; starting monitoring and installing software both require explicit user action. Only explicitly requested synthetic diagnostics save test images of windows created by this program. See [UPDATES.md](UPDATES.md) for the update mechanism.
+Capture is limited to visible client-area pixels of the selected foreground window; game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Network requests support public-data refresh and software updates.
+
+## Preview and compatibility
+
+v0.3.0 targets Windows 10/11 x64 in windowed and borderless modes. Current validation uses original synthetic mock windows on Windows Server 2022:
+
+- [Native EXE tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410): window capture, OCR, tier rendering, mouse click-through, and process lifecycle.
+- [Updater transaction tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458): local replacement of the same EXE, health checks, concurrency locking, and failure rollback.
+
+Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. Cross-version online upgrades and the in-app confirmation handoff also await testing. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
+
+The EXE is not Authenticode-signed, so Windows may show an unknown-publisher warning. Verify the file hash and keep system security protections enabled.
 
 ## Development and contributing
 
 Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helper/issues), or contribute improvements.
 
 - [Development environment and tests](CONTRIBUTING.md)
-- [Windows builds](WINDOWS_EXECUTABLE.md) and [test scope](WINDOWS_TESTING.md)
+- [Windows builds](WINDOWS_EXECUTABLE.md)
 - [Data sources](SOURCE_NOTES.md) and [validation records](reports/VALIDATION.md)
-
-Native Windows CI uses original mock windows to test actual capture, OCR, focus, mouse click-through, and lifecycle behavior. It cannot establish real-game performance or anti-cheat compatibility. Do not present these tests as Riot/Vanguard approval or a guarantee of account safety.
 
 ## License
 
-Original project code, icons, and synthetic test data are licensed under the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies and models retain their own licenses. See [Third-party notices](THIRD_PARTY_NOTICES.md). Release files include complete licenses, corresponding Qt source, and application source from the same commit for inspection, modification, and rebuilding. Third-party game data is outside this project's MIT license.
+Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-This is an independent implementation, with no official affiliation with Riot Games, League of Legends, or Huya. The EXE is not Authenticode-signed. Check its SHA-256 after downloading, and do not disable security protections to bypass warnings.
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.3.0/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights.
+
+This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.
