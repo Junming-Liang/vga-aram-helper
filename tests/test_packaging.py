@@ -1,5 +1,7 @@
 """Platform-neutral checks for packaging contracts; not Windows execution proof."""
 from contextlib import redirect_stdout
+import ast
+import inspect
 import hashlib
 import importlib.util
 import io
@@ -23,6 +25,76 @@ smoke_spec.loader.exec_module(windows_exe_smoke)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_smoke_cleanup_retries_transient_windows_image_lock(self):
+        with patch.object(windows_exe_smoke.shutil, 'rmtree', side_effect=[PermissionError('image locked'), PermissionError('scanner'), None]) as remove, \
+             patch.object(windows_exe_smoke.time, 'sleep') as sleep:
+            windows_exe_smoke.remove_smoke_directory(Path('temporary'))
+        self.assertEqual(remove.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_smoke_cleanup_permanent_failure_is_not_ignored(self):
+        with patch.object(windows_exe_smoke.shutil, 'rmtree', side_effect=PermissionError('still locked')), \
+             patch.object(windows_exe_smoke.time, 'monotonic', side_effect=[0, 31]), \
+             patch.object(windows_exe_smoke.time, 'sleep') as sleep:
+            with self.assertRaises(PermissionError):
+                windows_exe_smoke.remove_smoke_directory(Path('temporary'), timeout=30)
+            sleep.assert_not_called()
+
+    def test_smoke_windows_shutdown_waits_for_process_tree_command(self):
+        process = Mock(pid=123, poll=lambda: None)
+        with patch.object(windows_exe_smoke.os, 'name', 'nt'), \
+             patch.object(windows_exe_smoke.subprocess, 'run', return_value=Mock(returncode=0)) as kill:
+            windows_exe_smoke.terminate_tree(process)
+        self.assertEqual(kill.call_args.args[0], ['taskkill', '/PID', '123', '/T', '/F'])
+        process.wait.assert_called_once_with(timeout=20)
+
+    def test_smoke_shutdown_failure_is_not_silently_accepted(self):
+        process = Mock(pid=123, poll=lambda: None)
+        with patch.object(windows_exe_smoke.os, 'name', 'nt'), \
+             patch.object(windows_exe_smoke.subprocess, 'run', return_value=Mock(returncode=1)):
+            with self.assertRaisesRegex(RuntimeError, 'process-tree shutdown'):
+                windows_exe_smoke.terminate_tree(process)
+        process.kill.assert_called_once()
+
+    def test_smoke_cleanup_failure_keeps_report_failed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            exe = root / 'fixture.exe'
+            exe.write_bytes(b'test fixture, not a runnable EXE')
+            @windows_exe_smoke.contextmanager
+            def failing_workspace():
+                raise PermissionError('cleanup blocked')
+                yield root
+            with patch.object(windows_exe_smoke.os, 'name', 'nt'), \
+                 patch.object(windows_exe_smoke, 'smoke_workspace', failing_workspace), \
+                 patch.object(windows_exe_smoke.argparse.ArgumentParser, 'parse_args', return_value=Mock(exe=exe, report_dir=root, browser=False)), \
+                 redirect_stdout(io.StringIO()):
+                with self.assertRaises(PermissionError):
+                    windows_exe_smoke.main()
+            report = json.loads((root / 'windows-exe-smoke.json').read_text(encoding='utf-8'))
+            self.assertEqual(report['status'], 'failed')
+            self.assertIn('cleanup blocked', report['error'])
+
+    def test_smoke_pass_status_is_outside_cleanup_contexts(self):
+        tree = ast.parse(inspect.getsource(windows_exe_smoke.main))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        assignments = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                       and isinstance(node.value, ast.Constant) and node.value.value == 'passed']
+        self.assertEqual(len(assignments), 1)
+        node = assignments[0]
+        while node in parents:
+            node = parents[node]
+            self.assertNotIsInstance(node, ast.With, 'Passing cannot be recorded before cleanup contexts exit')
+
+    def test_smoke_shutdown_command_timeout_fails_and_reaps_parent(self):
+        process = Mock(pid=123, poll=lambda: None)
+        with patch.object(windows_exe_smoke.os, 'name', 'nt'), \
+             patch.object(windows_exe_smoke.subprocess, 'run', side_effect=windows_exe_smoke.subprocess.TimeoutExpired('taskkill', 20)):
+            with self.assertRaisesRegex(RuntimeError, 'command timed out'):
+                windows_exe_smoke.terminate_tree(process)
+        process.kill.assert_called_once()
+        process.wait.assert_called_once_with(timeout=10)
+
     def test_smoke_environment_handles_uppercase_systemroot(self):
         original = {'SYSTEMROOT': r'C:\Windows', 'PATH': r'C:\Python312', 'TEMP': r'C:\Temp'}
         result = windows_exe_smoke.isolated_windows_environment(original, Path('work'))

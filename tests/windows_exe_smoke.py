@@ -1,7 +1,7 @@
 """Execute the built EXE from an empty folder, without Python in its PATH."""
 from __future__ import annotations
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import base64
 import hashlib
 import json
@@ -38,10 +38,23 @@ def isolated_windows_environment(environ, work):
 
 
 def terminate_tree(process):
+    """Stop the onefile parent and its child; wait before removing their image."""
     if process.poll() is not None:
+        process.wait(timeout=5)
         return
     if os.name == 'nt':
-        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=20)
+        try:
+            result = subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                    capture_output=True, timeout=20)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait(timeout=10)
+            raise RuntimeError('Windows process-tree shutdown command timed out') from exc
+        if result.returncode != 0 and process.poll() is None:
+            # Do not turn a failed tree shutdown into a passing smoke result.
+            process.kill()
+            process.wait(timeout=10)
+            raise RuntimeError(f'Windows process-tree shutdown failed with code {result.returncode}')
     else:
         process.terminate()
     try:
@@ -49,6 +62,34 @@ def terminate_tree(process):
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+        raise RuntimeError('EXE process did not finish within the shutdown deadline')
+
+
+def remove_smoke_directory(path, timeout=30):
+    """Windows image/AV handles can outlive process exit briefly; retry boundedly."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            if not path.exists():
+                return
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Temporary EXE directory could not be removed before cleanup deadline')
+        time.sleep(0.25)
+
+
+@contextmanager
+def smoke_workspace():
+    path = Path(tempfile.mkdtemp(prefix='vga-exe-smoke-'))
+    try:
+        yield path
+    finally:
+        remove_smoke_directory(path)
 
 
 def main():
@@ -68,8 +109,7 @@ def main():
                                                  'PATH isolation does not remove every preinstalled system DLL']}
     process = None
     try:
-        with tempfile.TemporaryDirectory(prefix='vga-exe-smoke-') as temporary, ExitStack() as cleanup:
-            work = Path(temporary)
+        with smoke_workspace() as work, ExitStack() as cleanup:
             executable = work / 'VGA-Aram-Helper.exe'
             shutil.copyfile(original, executable)
             env = isolated_windows_environment(os.environ, work)
@@ -168,13 +208,12 @@ def main():
                 else:
                     report['limitations'].append('Optional Chromium screenshot not requested')
                 report['health'] = health
-                report['status'] = 'passed'
+        # Passing means functional checks AND process/directory cleanup completed.
+        report['status'] = 'passed'
     except Exception as exc:
         report['error'] = repr(exc)
         raise
     finally:
-        if process is not None:
-            terminate_tree(process)
         (reports / 'windows-exe-smoke.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
 
