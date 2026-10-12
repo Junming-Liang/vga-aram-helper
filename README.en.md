@@ -30,6 +30,18 @@ A native Windows control panel and game overlay for champion-specific augment ti
 - **Data refresh and cache**: checks public data at startup and uses validated cached data offline.
 - **Software updates**: checks stable GitHub Releases, then downloads, verifies, and installs after confirmation.
 
+## Interface preview
+
+The actual v0.3.0 Qt interface, rendered with original synthetic data on Linux offscreen. These are interface demonstrations, not live-game screenshots; Windows appearance may differ slightly.
+
+![Native control panel with champion selection, capture region, and three-choice review](docs/images/control-panel.png)
+
+*Control panel: champion and candidate review. Window capture is inactive in this demonstration environment.*
+
+![Transparent overlay showing three fictional choices in their original order with T1, T2, and T3 tiers and descriptions](docs/images/overlay-preview.png)
+
+*Tier overlay: ratings, effects, and condition notes for three choices.*
+
 ## Quick start
 
 ### Windows
