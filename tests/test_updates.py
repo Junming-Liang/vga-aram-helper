@@ -39,7 +39,10 @@ class UpdatesTests(unittest.TestCase):
         self.binary, self.manifest, self.release, self.manifest_url = release_fixture()
         self.requested = []
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        # Windows tempfile may use an 8.3 path (RUNNER~1); production resolves
+        # paths before comparing them. Keep the fixture canonical too so the
+        # exact target assertions and replacement callback test the same path.
+        self.root = Path(self.tmp.name).resolve()
         self.current = self.root / 'VGA-Aram-Helper.exe'
         self.current.write_bytes(executable(b'old'))
 
