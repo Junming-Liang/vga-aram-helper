@@ -61,6 +61,8 @@ jobs:
           node tests/test_ui_logic.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/test_choices_ui.js
+      - name: Install and use approved free Community C++ runtime tooling
+        run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Install mandatory official browser test dependencies
