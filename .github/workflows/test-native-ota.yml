@@ -1,0 +1,61 @@
+name: Test native Windows OTA transactions
+
+# Manual, read-only validation of the exact already-published owned EXE.
+# No release mutation, large artifact, game process, installer or new credential.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vga-native-ota-validation
+  cancel-in-progress: false
+
+jobs:
+  native-ota:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 18
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Run offline OTA harness and fixture tests
+        run: python -m unittest discover -s tests -p 'test_*ota*.py' -v
+      - name: Fetch exact published fixture through existing download checks
+        run: python scripts/fetch_ota_fixture.py
+      - name: Exercise actual native updater success, rollback and lock exclusion
+        run: python tests/windows_ota_smoke.py --exe build/ota-fixture/VGA-Aram-Helper.exe --release-source-sha 1ce516e967bbe153fa1dcf6e8289abf86185f04c
+      - name: Check small evidence storage budget
+        id: evidence_budget
+        if: ${{ always() }}
+        run: python scripts/check_artifact_budget.py --evidence-only
+      - name: Retain only bounded OTA evidence
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ota-evidence-${{ github.sha }}
+          path: reports/windows-ota-*
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Write precise OTA coverage summary
+        if: ${{ always() }}
+        run: |
+          '## Native OTA transaction validation' >> $env:GITHUB_STEP_SUMMARY
+          'Same-version local staging only. Not a two-version upgrade, live GitHub update discovery/download, or UI-confirmation handoff test.' >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path reports/windows-ota-smoke.json) {
+            Get-Content reports/windows-ota-smoke.json >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'The actual EXE transaction harness did not complete.' >> $env:GITHUB_STEP_SUMMARY
+          }
