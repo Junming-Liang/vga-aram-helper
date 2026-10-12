@@ -1,5 +1,6 @@
 """Read-only, fail-closed repository artifact budget gate before uploading."""
 from __future__ import annotations
+import argparse
 import json
 import math
 import os
@@ -21,7 +22,7 @@ def fetch_json(url):
     return json.loads(data)
 
 
-def check_budget(root, repository=REPOSITORY, fetcher=fetch_json):
+def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_only=False):
     if repository != REPOSITORY:
         raise RuntimeError('Unexpected repository for artifact budget')
     existing = 0
@@ -45,15 +46,15 @@ def check_budget(root, repository=REPOSITORY, fetcher=fetch_json):
     else:
         raise RuntimeError('Artifact listing limit reached')
     root = Path(root)
-    release = sum(path.stat().st_size for path in (root / 'dist' / 'release').glob('*') if path.is_file())
+    release = 0 if evidence_only else sum(path.stat().st_size for path in (root / 'dist' / 'release').glob('*') if path.is_file())
     evidence = sum(path.stat().st_size for path in (root / 'reports').glob('windows-*') if path.is_file())
-    if release <= 0:
+    if not evidence_only and release <= 0:
         raise RuntimeError('Release artifact is missing')
     # Conservative archive headers/compression overhead plus room for evidence.
     proposed = math.ceil((release + evidence) * 1.03) + 1_000_000
     report = {'existing_repository_artifact_bytes': existing, 'proposed_upper_estimate_bytes': proposed,
               'projected_bytes': existing + proposed, 'project_budget_bytes': BUDGET_BYTES,
-              'reserve_bytes': RESERVE_BYTES,
+              'reserve_bytes': RESERVE_BYTES, 'upload_scope': 'evidence-only' if evidence_only else 'release-and-evidence',
               'scope': 'This repository only; not a claim about other account/repository storage usage.'}
     report['status'] = 'passed' if report['projected_bytes'] <= BUDGET_BYTES - RESERVE_BYTES else 'blocked'
     (root / 'reports').mkdir(exist_ok=True)
@@ -64,4 +65,8 @@ def check_budget(root, repository=REPOSITORY, fetcher=fetch_json):
 
 
 if __name__ == '__main__':
-    print(json.dumps(check_budget(Path(__file__).resolve().parents[1], os.environ.get('GITHUB_REPOSITORY', REPOSITORY)), indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--evidence-only', action='store_true', help='Use only when no EXE/source Actions artifact will be uploaded')
+    args = parser.parse_args()
+    print(json.dumps(check_budget(Path(__file__).resolve().parents[1], os.environ.get('GITHUB_REPOSITORY', REPOSITORY),
+                                 evidence_only=args.evidence_only), indent=2))

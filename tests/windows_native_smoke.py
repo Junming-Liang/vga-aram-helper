@@ -22,13 +22,17 @@ def validate_report(result, version):
         raise RuntimeError('Report is not a frozen native QtWidgets executable')
     if result.get('applicationVersion') != version:
         raise RuntimeError('Native executable version mismatch')
-    for field in ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed'):
+    for field in ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
+                  'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
+                  'source_tier_screen_order_preserved', 'source_tier_no_winrate_display'):
         if result.get(field) is not True:
             raise RuntimeError('Native evidence missing: ' + field)
     if str(result.get('qt_platform', '')).lower() != 'windows':
         raise RuntimeError('Native proof requires the real Windows Qt platform')
     if not result.get('screenshot_method'):
         raise RuntimeError('Native screenshot method was not recorded')
+    if result.get('source_tier_rendered') != [f'虚构源评级（演示）：T{tier}' for tier in (1, 2, 3)]:
+        raise RuntimeError('Native literal source-tier rendering evidence is incomplete')
 
 
 def main():

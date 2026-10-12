@@ -43,16 +43,16 @@ class Overlay(QtWidgets.QWidget):
         self.heading=label('');inner.addWidget(self.heading);self.row=QtWidgets.QHBoxLayout();inner.addLayout(self.row)
         self.footer=label('仅窗口像素 · Ctrl+Alt+O 切换鼠标穿透 · 不是 Riot 评级/批准',True);inner.addWidget(self.footer)
         self.resize(940,230)
-    def set_cards(self,hero,cards,source_date='未知'):
-        self.cards=cards
+    def set_cards(self,hero,cards,source_date='未知',source_version='未知'):
+        self.cards=cards;self.tier_labels=[]
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
-            if widget:widget.deleteLater()
-        self.heading.setText(f'{APP_NAME}  |  {hero}  |  已人工确认  |  来源日期 {source_date}')
+            if widget:widget.hide();widget.deleteLater()
+        self.heading.setText(f'{APP_NAME}  |  {hero}  |  已人工确认  |  来源日期 {source_date}  |  {source_version}')
         for card in cards:
             frame=QtWidgets.QFrame();frame.setObjectName('overlay-card');frame.setStyleSheet('#overlay-card{background:#1b3036;border:1px solid #49646a;border-radius:7px}');box=QtWidgets.QVBoxLayout(frame)
             box.addWidget(label(f"选项 {card['slot']} · {card['name']}"))
-            if card.get('sourceTier'):box.addWidget(label(f"源评级 {card['sourceTier']} · 源顺位 {card['sourceRank'] if card['sourceRank'] is not None else '未收录'}",True))
+            tier_label=label(f"{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}",True);tier_label.setObjectName('source-tier-label');self.tier_labels.append(tier_label);box.addWidget(tier_label)
             desc=card['description'];box.addWidget(label(desc[:140]+('…' if len(desc)>140 else ''),True))
             if card['notes']:box.addWidget(label('条件/提醒：'+'；'.join(card['notes'])[:160],True))
             self.row.addWidget(frame,1)
@@ -116,7 +116,7 @@ class ControlWindow(QtWidgets.QWidget):
             edit=QtWidgets.QLineEdit();edit.textEdited.connect(self.edit_changed);self.inputs.append(edit);form.addRow(['左侧','中间','右侧'][i],edit)
         self.confirm_button=QtWidgets.QPushButton('确认英雄与三项，显示资料叠加');self.confirm_button.clicked.connect(self.confirm);form.addRow(self.confirm_button)
         self.status=label('准备中…');layout.addWidget(self.status)
-        layout.addWidget(label('叠加只展示名称、效果及已有条件说明。当前不展示胜率、派生等级或源顺位，也不输出实时唯一最佳选项。未收录与识别不确定不会猜测。',True))
+        layout.addWidget(label('叠加按三张牌原位置显示名称、效果及当前英雄的虎牙公开源评级（T1–T4）；缺失显示暂无评级。不展示胜率、不自行换算等级或自动排序，也不输出唯一最佳选项。公开源评级不等于云端实时结果，也不代表 Riot 批准。',True))
         self.update_status=label('软件更新待检查。',True);layout.addWidget(self.update_status);self.update_button=QtWidgets.QPushButton('查看并安装软件更新');self.update_button.hide();layout.addWidget(self.update_button)
         self.refresh.clicked.connect(self.refresh_windows);self.window_list.currentIndexChanged.connect(self.target_changed);self.hero_box.currentTextChanged.connect(self.hero_changed);self.start_button.clicked.connect(self.start_monitor);self.stop_button.clicked.connect(self.stop_monitor);self.toggle_button.clicked.connect(self.toggle_clickthrough);self.update_button.clicked.connect(self.install_update)
         try:self.capture=Win32Capture()
@@ -214,7 +214,9 @@ class ControlWindow(QtWidgets.QWidget):
     def confirm(self):
         try:
             self.state.confirm([edit.text() for edit in self.inputs],self.data['augments']);self.last_observation=time.monotonic()
-            self.overlay.set_cards(self.state.hero,display_cards(self.data,self.state.hero,self.state.offered),self.data.get('metadata',{}).get('sourceDataDate','未知'))
+            metadata=self.data.get('metadata',{})
+            source_version=f"数据包 {metadata.get('wikiDataVersion') or '未知'} / 游戏资料 {metadata.get('gamePatch') or '未知'}"
+            self.overlay.set_cards(self.state.hero,display_cards(self.data,self.state.hero,self.state.offered),metadata.get('sourceDataDate') or '未知',source_version)
             self.status.setText(self.state.reason+'；切回目标窗口后显示。');self.check_target()
         except (ValueError,KeyError) as exc:self.status.setText(str(exc))
     def toggle_clickthrough(self):

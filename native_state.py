@@ -44,18 +44,33 @@ class RecognitionState:
         return self.generation
 
 
-def display_cards(data, hero, offered, *, include_source_ranks=False):
-    """Neutral names/effects by default. Source ranks gated pending policy review.
+# Observed literal vocabulary in the verified public hero-specific table.
+# Unknown/new schemes stay ungraded until their source meaning is verified.
+SOURCE_TIERS=frozenset({'T1','T2','T3','T4'})
 
-    Never exposes win rates or a unique-best recommendation.
+
+def source_tier(value):
+    return value.strip() if isinstance(value,str) and value.strip() in SOURCE_TIERS else None
+
+
+def display_cards(data, hero, offered):
+    """Keep offered screen order; copy only the hero's literal public source tier.
+
+    No win-rate conversion, global-tier fallback, custom S/A mapping, sorting,
+    unique-best directive, or claim of equivalence to the private live model.
     """
-    rows={row['augmentName']:(index+1,row) for index,row in enumerate(data.get('heroAugmentStats',{}).get(hero,[]))}
+    rows={}
+    for row in data.get('heroAugmentStats',{}).get(hero,[]):
+        if isinstance(row,dict) and isinstance(row.get('augmentName'),str):
+            rows.setdefault(row['augmentName'],row)
     relation=data.get('relations',{}).get(hero,{})
     cards=[]
+    is_demo=data.get('metadata',{}).get('isDemo') is True
     for slot,name in enumerate(offered,1):
-        rank,row=rows.get(name,(None,{}));item=data.get('augments',{}).get(name,{})
+        row=rows.get(name,{});item=data.get('augments',{}).get(name,{})
         notes=[record.get('reason','') for key in ('specialAugments','trapAugments') for record in relation.get(key,[]) if record.get('name')==name]
         cards.append({'name':name,'slot':slot,'description':item.get('description','描述未提供'),
-            'sourceTier':(row.get('tier') or '未收录') if include_source_ranks else None,'sourceRank':rank if include_source_ranks else None,'notes':notes,
-            'sourceLabel':'虚构演示' if data.get('metadata',{}).get('isDemo') else '第三方源资料；非 Riot 评级/批准'})
+            'sourceTier':source_tier(row.get('tier')),'notes':notes,
+            'sourceTierLabel':'虚构源评级（演示）' if is_demo else '虎牙公开源评级',
+            'sourceLabel':'虚构演示' if is_demo else '英雄专属公开资料快照；非云端实时评级；非 Riot 批准'})
     return cards

@@ -2,10 +2,11 @@
 
 ## 原生叠加版本的当前状态
 
-- 当前源码本地执行 173 项 Python 测试、34 项 JavaScript 逻辑测试通过。
-- QtWidgets offscreen 实际控件验证通过 13 项，包括人工确认、旧截图超时、关闭竞态及小屏幕控件滚动；见 `native-qt-offscreen.json`。它不验证真实 Windows HWND/GDI/穿透能力。
+- 当前含源评级与预发布门的源码本地执行 224 项 Python 测试、34 项 JavaScript 逻辑测试通过。
+- QtWidgets offscreen 实际控件验证通过 16 项，包括原始源评级、换英雄评级变化、缺失评级、人工确认、旧截图超时、关闭竞态及小屏幕控件滚动；见 `native-qt-offscreen.json`。它不验证真实 Windows HWND/GDI/穿透能力。
 - 原浏览器诊断版曾在 [Windows run 38220016126](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38220016126) 完成实际 EXE 的全部七项功能检查及清理，提交 `7f4d2a64839534e464b640ea7cf6ffc5dec2b1e5`。该记录不能替代后续原生 Qt 版本的验收。
-- 新构建流程强制执行原生模拟窗口捕获、实际 OCR、鼠标穿透/焦点/关闭与截图证据检查，并审核 Qt 许可、对应源码和 artifact 预算。当前仍等待这个版本的 Windows CI 结果，不宣称已通过。
+- 不含源评级的原生基线已通过 [Windows run 38226534574](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38226534574)，源码提交 `7f0ef1b74898eb10783d8d57332fe1ce1c0e2638`，EXE SHA-256 `82ff94a4909a29fa4d2a5c33a8448f9066ea2a61cdbba8114666672648d8bc30`。该次实际原生模拟窗口捕获、OCR、鼠标穿透、焦点与关闭通过；它不是新增源评级功能的验收。
+- 新源评级版本需重新执行上述检查，并额外验证同牌序换英雄的原始评级、暂无评级回退及无胜率转换。专用流程校验通过后直接发布非 latest 的 prerelease，仅上传小型 Actions 证据，不重复保存大型 artifact。当前仍等待这个版本的 Windows CI 结果。
 - 原生 OTA 文件替换/回滚、Windows 10/11 用户电脑与真实 LoL/Vanguard 兼容性仍未验证。
 
 以下为较早的 v0.3.0 源码与浏览器诊断记录；其测试计数和未实现项目不代表当前原生分支的全部状态。

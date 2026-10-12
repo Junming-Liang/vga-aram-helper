@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from native_state import RecognitionState,display_cards
+from native_state import RecognitionState,display_cards,source_tier
 from screen_capture import bounded_roi,CaptureUnavailable,WindowInfo
 
 class NativeStateTests(unittest.TestCase):
@@ -36,11 +36,30 @@ class NativeStateTests(unittest.TestCase):
         self.state.hero='英雄甲'
         for names in [('甲','甲','丙'),('甲','乙'),('甲','乙','未知')]:
             with self.assertRaises(ValueError):self.state.confirm(names,['甲','乙','丙'])
-    def test_neutral_default_has_no_rates_or_ranking(self):
+    def test_literal_hero_tier_has_no_rates_or_ranking(self):
         data={'heroes':{'英雄甲':{}},'augments':{'甲':{'description':'原描述'}},'heroAugmentStats':{'英雄甲':[{'augmentName':'甲','tier':'T1','winRate':88.5,'numGames':500}]},'metadata':{}}
         cards=display_cards(data,'英雄甲',['甲'])
-        self.assertEqual(cards[0]['description'],'原描述');self.assertIsNone(cards[0]['sourceTier']);self.assertIsNone(cards[0]['sourceRank'])
+        self.assertEqual(cards[0]['description'],'原描述');self.assertEqual(cards[0]['sourceTier'],'T1');self.assertNotIn('sourceRank',cards[0])
         self.assertNotIn('winRate',str(cards));self.assertNotIn('recommended',str(cards));self.assertNotIn('88.5',str(cards))
+    def test_source_tier_missing_null_unknown_never_maps_or_guesses(self):
+        for value in [None,'','  ','None','unknown','T0','T5','T99','S','A','B','C',1,True,{},[]]:
+            with self.subTest(value=value):self.assertIsNone(source_tier(value))
+        for value in ['T1','T2','T3','T4']:self.assertEqual(source_tier(value),value)
+        self.assertEqual(source_tier(' T2 '),'T2')
+    def test_literal_hero_tier_changes_without_reordering_offered_cards(self):
+        data={'metadata':{},'augments':{'甲':{'overallTier':'T1'},'乙':{},'丙':{}},'heroAugmentStats':{
+            '英雄甲':[{'augmentName':'丙','tier':'T1'},{'augmentName':'乙','tier':'T2'},{'augmentName':'甲','tier':'T3'}],
+            '英雄乙':[{'augmentName':'乙','tier':'T4'},{'augmentName':'甲','tier':'T1'},{'augmentName':'丙','tier':None}]}}
+        before=display_cards(data,'英雄甲',['甲','乙','丙']);after=display_cards(data,'英雄乙',['甲','乙','丙'])
+        self.assertEqual([x['name'] for x in before],['甲','乙','丙']);self.assertEqual([x['slot'] for x in before],[1,2,3])
+        self.assertEqual([x['sourceTier'] for x in before],['T3','T2','T1']);self.assertEqual([x['sourceTier'] for x in after],['T1','T4',None])
+        self.assertIsNone(display_cards(data,'缺少英雄记录',['甲'])[0]['sourceTier'])
+    def test_global_tier_and_high_winrate_never_fill_missing_hero_tier(self):
+        data={'metadata':{},'augments':{'甲':{'tier':'T1','overallTier':'T1','winRate':99}},'heroAugmentStats':{'英雄甲':[{'augmentName':'甲','tier':None,'winRate':99}]}}
+        card=display_cards(data,'英雄甲',['甲'])[0]
+        self.assertIsNone(card['sourceTier']);self.assertEqual(card['sourceTierLabel'],'虎牙公开源评级')
+        self.assertNotIn('winRate',str(card));self.assertNotIn('99',str(card))
+
     def test_missing_description_and_relations_never_fabricate_synergy(self):
         result=display_cards({'metadata':{},'augments':{}},'英雄甲',['未知'])[0]
         self.assertEqual(result['description'],'描述未提供');self.assertEqual(result['notes'],[])

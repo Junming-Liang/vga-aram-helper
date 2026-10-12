@@ -32,7 +32,9 @@ The CI badge reflects the latest manual build and tests, not completed in-game v
 - **Public reference data and offline cache**: startup checks Huya's official public wiki. When the network is unavailable, validated cached data is used; if there is no cache, the app clearly reports that data is unavailable.
 - **Confirmed software updates**: GitHub Releases are checked, but downloading, verification, and installation start only after your confirmation.
 
-The current native overlay keeps three slots and shows names, effect descriptions, and condition reminders. It does not show win rates, statistically derived ratings, or a single best choice. The champion must be selected manually. The initial version targets windowed and borderless modes; exclusive fullscreen and compatibility with the real LoL client or Vanguard have not been validated. Publicly accessible data and the absence of memory reading do not imply approval by the game publisher.
+The native overlay preserves the three cards’ original screen order and shows names, effects, condition notes, and the selected champion’s literal Huya public-source tier (T1/T2/T3/T4). The tier is copied from that champion-specific record. Missing, null, or unrecognized tiers display “暂无评级” (no rating available); there is no global-tier fallback, win-rate conversion, or invented S/A/B/C mapping. Cards are not sorted by tier, no win rates are shown, and no single best choice is dictated. The overlay identifies the source date, data-package version, and game-data version.
+
+These are public-snapshot tiers, not a reproduction of Huya’s private live cloud model, and they may differ from its current client. The rating methodology and applicable policy scope are not fully verified; this project does not claim Riot/Tencent approval or confirmed compliance. The champion must be selected manually. The initial version targets windowed and borderless modes; exclusive fullscreen and compatibility with the real LoL client or Vanguard have not been validated. Publicly accessible data and the absence of memory reading do not imply approval by the game publisher.
 
 ## Quick start
 

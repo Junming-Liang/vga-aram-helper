@@ -14,7 +14,7 @@
 - [ ] `app_version.py` 版本号、目标 tag 和清单版本一致。
 - [ ] 使用公开仓库的标准 Windows runner；运行前检查账户存储配额，不启用付费 larger runner。
 - [ ] 记录构建的源码提交 SHA 和 Actions 链接。
-- [ ] Python、JavaScript、实际 EXE OCR/HTTP/三选一及浏览器诊断、原生模拟窗口捕获/穿透/生命周期测试通过。
+- [ ] Python、JavaScript、实际 EXE OCR/HTTP/三选一及浏览器诊断、原生模拟窗口捕获/穿透/生命周期与英雄专属原始源评级/缺失评级测试通过。
 - [ ] Windows 10/11 用户环境测试结果和原生 OTA 验收状态已记录。
 - [ ] EXE、清单、校验文件和许可包来自同一次成功构建。
 
@@ -26,5 +26,7 @@
 - [ ] 审核实际 Qt DLL/plugin 清单、对应源码与应用源码哈希、LGPL 修改库重建说明；源码归档随同一 Release 提供。
 - [ ] 保留第三方代码及模型许可，说明 EXE 未做 Authenticode 签名。
 - [ ] 更新 README 的下载入口和 [验证记录](reports/VALIDATION.md)。
+
+原生预览专用流程必须设置 prerelease=true、make_latest=false，不将其推给稳定 OTA；直接发布可避免重复大型 Actions artifact。
 
 CI artifact 用于构建交接，上传 artifact 不会创建 tag 或 Release。应用更新器只识别正式 GitHub Release。

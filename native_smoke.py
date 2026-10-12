@@ -61,12 +61,36 @@ def start_smoke(control,report_path,screenshot_path):
         report['targetForegroundBefore']=int(control.capture.u.GetForegroundWindow() or 0)
         control.confirm();assert control.state.confirmed
         checks.append('Production OCR handler stabilizes three names and manual-confirm handler creates overlay')
+        assert [card['name'] for card in control.overlay.cards]==names
+        assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
+        assert [widget.text() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
+        assert '来源日期' in control.overlay.heading.text() and '数据包' in control.overlay.heading.text() and '游戏资料' in control.overlay.heading.text()
+        control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
+        control.confirm();assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
+        report['source_tier_hero_specific']=True
+        tier_row=control.data['heroAugmentStats']['磐石守卫（演示）'][0];saved_tier=tier_row['tier']
+        for missing in [None,'UNKNOWN']:
+            tier_row['tier']=missing;control.confirm();assert control.overlay.tier_labels[1].text()=='虚构源评级（演示）：暂无评级'
+        tier_row['tier']=saved_tier;report['source_tier_missing_passed']=True
+        control.hero_box.setCurrentText('星火术士（演示）');control.confirm()
+        assert [card['name'] for card in control.overlay.cards]==names
+        assert all('winRate' not in card and 'sourceRank' not in card and 'recommendedName' not in card for card in control.overlay.cards)
+        rendered=' '.join(widget.text() for widget in control.overlay.tier_labels)
+        assert all(value not in rendered for value in ['60.00%','55.00%','50.00%','胜率'])
+        report.update(source_tier_display_passed=True,source_tier_screen_order_preserved=True,source_tier_no_winrate_display=True,
+                      source_tier_rendered=[widget.text() for widget in control.overlay.tier_labels])
+        checks.append('Actual native source-tier labels are hero-specific literals; null/unknown remain ungraded; screen order preserved with no win-rate/rank/best-choice fields')
         QtCore.QTimer.singleShot(250,lambda:run(verify_overlay))
     def verify_overlay():
         names=report['recognized'];overlay=control.overlay;u=control.capture.u;hwnd=int(overlay.winId());style=int(control.capture.get_long(hwnd,-20))
         assert style&0x80000 and style&0x08000000 and style&0x20 and style&0x8,hex(style)
         assert int(u.GetForegroundWindow() or 0)==control.target.hwnd,'Overlay stole focus'
-        assert overlay.isVisible();checks.append('Overlay is layered/topmost/noactivate/transparent and does not steal foreground focus')
+        assert overlay.isVisible();assert all(widget.isVisible() for widget in overlay.tier_labels)
+        visible_text=' '.join(widget.text() for widget in overlay.findChildren(QtWidgets.QLabel) if widget.isVisible())
+        assert '源顺位' not in visible_text and 'winRate' not in visible_text
+        fixture_rates=[row.get('winRate') for rows in control.data.get('heroAugmentStats',{}).values() for row in rows]
+        assert all(formatted not in visible_text for rate in fixture_rates if isinstance(rate,(int,float)) for formatted in (f'{rate:g}%',f'{rate:.2f}%',f'{rate}%'))
+        checks.append('Overlay is layered/topmost/noactivate/transparent and does not steal foreground focus')
         report['overlayStyle']=hex(style);report['foregroundPreserved']=True
         # Actual Win32 point hit test at a point inside the overlay; no game input.
         rect=W.RECT();u.GetWindowRect.argtypes=[W.HWND,ctypes.POINTER(W.RECT)];u.GetWindowRect.restype=W.BOOL;assert u.GetWindowRect(hwnd,ctypes.byref(rect))

@@ -109,3 +109,7 @@ python -m unittest discover -s tests -p 'test_huya_rpc.py' -v
 覆盖来源发现、数据完整性、缓存回退、域名与重定向、安装确认、Manifest/PE/哈希验证及模拟失败恢复。真实网络刷新记录见 [data-update-live-validation.json](reports/data-update-live-validation.json)。
 
 Windows 文件替换语义参考 [Microsoft 文件管理文档](https://learn.microsoft.com/en-us/windows/win32/fileio/moving-and-replacing-files)。
+
+## 预览版与稳定更新
+
+GitHub 标记为 prerelease 的原生预览版不会由稳定 `/releases/latest` 检查自动推送。预览版需从其发布页手动下载。是否采用与未来正式版相同的版本 tag，不改变这一隔离；后续稳定发布应使用新的版本号，现有发布文件不由自动流程覆盖。
