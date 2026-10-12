@@ -1,0 +1,81 @@
+name: VGA乱斗助手 - Manual Windows validation
+
+# Manual validation workflow. Publication is not evidence that it passed.
+# Windows/browser validation must be established by an actual successful run.
+# No push/PR/schedule trigger, deployment, artifact upload or paid runner label.
+on:
+  workflow_dispatch:
+    inputs:
+      free_runner_confirmed:
+        description: 'I checked this account/repo has free standard-runner use available'
+        type: boolean
+        required: true
+        default: false
+      run_browser_tests:
+        description: 'Download official Playwright Chromium and test localhost UI'
+        type: boolean
+        default: true
+      run_synthetic_ocr:
+        description: 'Install optional official PyPI OCR wheels and test a synthetic image'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hex-helper-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: ${{ inputs.free_runner_confirmed }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Standard-library unit and HTTP tests
+        run: python -m unittest discover -s tests -v
+      - name: JavaScript syntax and isolated UI logic tests
+        run: |
+          node --check static/app.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check static/choices.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_ui_logic.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_choices_ui.js
+      - name: Optional browser test dependencies
+        if: ${{ inputs.run_browser_tests }}
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-browser.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+      - name: Real Chromium localhost UI tests
+        if: ${{ inputs.run_browser_tests }}
+        run: python tests/browser_validation.py
+      - name: Optional synthetic local OCR test
+        if: ${{ inputs.run_synthetic_ocr }}
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-ocr.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/ocr_smoke.py
+      - name: Print validation report without uploading artifacts
+        if: ${{ always() }}
+        run: |
+          if (Test-Path reports/browser-validation.json) { Get-Content reports/browser-validation.json }
+          if (Test-Path reports/ocr-validation.json) { Get-Content reports/ocr-validation.json }
