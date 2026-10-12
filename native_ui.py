@@ -33,7 +33,7 @@ class TaskSignals(QtCore.QObject):
 class Overlay(QtWidgets.QWidget):
     def __init__(self,capture=None):
         super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
-        self.capture=capture;self.click_through=True;self.cards=[]
+        self.capture=capture;self.click_through=True;self.cards=[];self._layout_revision=0;self._placed_key=None;self._detail_labels=[];self._compact=False
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setWindowTitle(APP_NAME+' · 资料叠加');self.setStyleSheet(STYLE+'\nOverlay{background:transparent;}')
@@ -45,46 +45,84 @@ class Overlay(QtWidgets.QWidget):
         self.footer=label('仅窗口像素 · Ctrl+Alt+O 切换鼠标穿透 · 不是 Riot 评级/批准',True);inner.addWidget(self.footer)
         self.resize(940,230)
     def set_cards(self,hero,cards,source_date='未知',source_version='未知',confirmation='人工确认'):
-        self.cards=cards;self.tier_labels=[]
+        self.cards=cards;self.tier_labels=[];self._detail_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
-        self.heading.setText(f'{APP_NAME}  |  {hero}  |  {confirmation}  |  来源日期 {source_date}  |  {source_version}')
+        self._full_heading=f'{APP_NAME}  |  {hero}  |  {confirmation}  |  来源日期 {source_date}  |  {source_version}'
+        self._compact_heading=f'{hero} | {confirmation}\n来源日期 {source_date} | {source_version}'
+        self.heading.setText(self._full_heading)
         for card in cards:
             frame=QtWidgets.QFrame();frame.setObjectName('overlay-card');frame.setStyleSheet('#overlay-card{background:#1b3036;border:1px solid #49646a;border-radius:7px}');box=QtWidgets.QVBoxLayout(frame)
             box.addWidget(label(f"选项 {card['slot']} · {card['name']}"))
             tier_label=label(f"{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}",True);tier_label.setObjectName('source-tier-label');self.tier_labels.append(tier_label);box.addWidget(tier_label)
-            desc=card['description'];box.addWidget(label(desc[:140]+('…' if len(desc)>140 else ''),True))
-            if card['notes']:box.addWidget(label('条件/提醒：'+'；'.join(card['notes'])[:160],True))
+            desc=card['description'];detail=label(desc[:140]+('…' if len(desc)>140 else ''),True);box.addWidget(detail);self._detail_labels.append(detail)
+            if card['notes']:
+                note=label('条件/提醒：'+'；'.join(card['notes'])[:160],True);box.addWidget(note);self._detail_labels.append(note)
             self.row.addWidget(frame,1)
         self.adjustSize();self.resize(max(750,min(self.width(),1020)),max(200,self.height()))
     def configure(self):
         if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through)
     def set_click_through(self,value):
-        self.click_through=bool(value);visible=self.isVisible()
+        self.click_through=bool(value);self.hide();self._placed_key=None;self._layout_revision+=1
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,self.click_through)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        if visible:self.show()
         self.configure()
-        self.footer.setText('仅窗口像素 · Ctrl+Alt+O 切换鼠标穿透 · '+('鼠标穿透已开' if value else '鼠标穿透已关')+' · 非 Riot 批准')
+    def _set_compact(self,compact):
+        self._compact=compact
+        self.heading.setText(self._compact_heading if compact else self._full_heading)
+        for widget in self._detail_labels:widget.setVisible(not compact)
+        self.footer.setText(('紧凑：说明隐藏 · ' if compact else '')+'穿透'+('开' if self.click_through else '关')+' Ctrl+Alt+O · 非 Riot 评级/批准')
+        for layout in reversed(self.findChildren(QtWidgets.QLayout)):layout.invalidate();layout.activate()
+        self.layout().invalidate();self.layout().activate()
+    def _fit_layout(self,rect,dpr):
+        from overlay_geometry import layout_budget,placement
+        budget=layout_budget(rect,dpr)
+        for compact in (False,True):
+            self._set_compact(compact)
+            width=budget.logical_width
+            self.resize(width,max(100,min(self.height(),budget.logical_height)))
+            self.layout().activate()
+            hint=self.layout().totalHeightForWidth(width)
+            height=max(self.minimumSizeHint().height(),hint if hint>=0 else self.sizeHint().height(),100)
+            if self.minimumSizeHint().width()<=width and height<=budget.logical_height:
+                self.resize(width,height);self.layout().activate()
+                return placement(rect,budget,height)
+        raise CaptureUnavailable(f'客户区 {rect.width}×{rect.height} 像素 / 叠加缩放 {dpr:g} 倍：紧凑资料卡仍放不下，已隐藏。')
+    def _verify_rect(self,rect):
+        actual=W.RECT()
+        if not self.capture.u.GetWindowRect(int(self.winId()),ctypes.byref(actual)) or actual.right<=actual.left or actual.bottom<=actual.top or actual.left<rect.x or actual.top<rect.y or actual.right>rect.x+rect.width or actual.bottom>rect.y+rect.height:
+            raise CaptureUnavailable(f'叠加实际范围超出客户区 {rect.width}×{rect.height}，已隐藏。')
     def show_at(self,rect,target):
         if not self.cards:return
-        self.show();self.configure()
-        if self.capture:
-            # Win32 coordinates are physical pixels; avoids Qt/global-DPI mismatch.
-            getdpi=getattr(self.capture.u,'GetDpiForWindow',None)
-            if getdpi:getdpi.argtypes=[W.HWND];getdpi.restype=W.UINT
-            dpi=int(getdpi(target.hwnd)) if getdpi else 96
-            if not 48<=dpi<=960:raise CaptureUnavailable('无法取得有效的目标窗口 DPI，叠加已隐藏。')
-            factor=dpi/96
-            if rect.width<600*factor or rect.height<260*factor:raise CaptureUnavailable('目标客户区太小，请放大窗口后再显示叠加。')
-            margin=min(round(18*factor),max(0,(rect.height-32)//4))
-            width=min(rect.width-2*margin,round(950*factor));height=min(rect.height-2*margin,round(max(210,self.sizeHint().height())*factor))
-            x=rect.x+(rect.width-width)//2;y=rect.y+rect.height-height-margin
-            if not self.capture.u.SetWindowPos(int(self.winId()),W.HWND(-1),x,y,width,height,0x0010):raise CaptureUnavailable('无法把叠加放在目标窗口内，已隐藏。')
-            actual=W.RECT()
-            if not self.capture.u.GetWindowRect(int(self.winId()),ctypes.byref(actual)) or actual.left<rect.x or actual.top<rect.y or actual.right>rect.x+rect.width or actual.bottom>rect.y+rect.height:raise CaptureUnavailable('叠加几何范围未通过系统校验，已隐藏。')
-        else:self.move(rect.x+20,rect.y+max(20,rect.height-self.height()-20))
+        try:
+            if not self.capture:
+                self.show();self.move(rect.x+20,rect.y+max(20,rect.height-self.height()-20));return
+            hwnd=int(self.winId());dpr=float(self.windowHandle().devicePixelRatio())
+            key=(rect,self._layout_revision,dpr)
+            if self._placed_key==key:
+                self.show();self.configure();self._verify_rect(rect)
+                if float(self.windowHandle().devicePixelRatio())==dpr:return
+            # Move hidden own HWND toward the target monitor. The game's DPI
+            # may be96 even when Qt is150/200%; never use it to size Qt widgets.
+            self.hide()
+            anchor_x=rect.x+rect.width//2-round(self.width()*dpr/2)
+            anchor_y=rect.y+rect.height//2-round(self.height()*dpr/2)
+            if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),anchor_x,anchor_y,0,0,0x0001|0x0010):raise CaptureUnavailable('无法定位叠加所属显示器，已隐藏。')
+            dpr=float(self.windowHandle().devicePixelRatio())
+            for _ in range(3):
+                x,y,width,height=self._fit_layout(rect,dpr)
+                if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),x,y,width,height,0x0010):raise CaptureUnavailable('无法把叠加放在目标窗口内，已隐藏。')
+                final_dpr=float(self.windowHandle().devicePixelRatio())
+                if final_dpr!=dpr:dpr=final_dpr;continue
+                self.show();self.configure();self._verify_rect(rect)
+                final_dpr=float(self.windowHandle().devicePixelRatio())
+                if final_dpr==dpr:
+                    self._placed_key=(rect,self._layout_revision,dpr);return
+                self.hide();dpr=final_dpr
+            raise CaptureUnavailable('叠加跨显示器缩放持续变化，暂时隐藏，等待稳定布局。')
+        except Exception:
+            self._placed_key=None;self.hide();raise
     def nativeEvent(self,event_type,message):
         if os.name=='nt':
             msg=W.MSG.from_address(int(message))
@@ -232,7 +270,8 @@ class ControlWindow(QtWidgets.QWidget):
                 self.invalidate_scene('画面观察超过 4 秒未更新，旧资料已隐藏，请重新确认');self.overlay.hide();self.status.setText(self.state.reason)
             rect=self.capture.rect(self.target)
             if self.last_rect and rect!=self.last_rect:
-                self.invalidate_scene('目标窗口位置/尺寸改变，旧资料隐藏，需重新确认');self.overlay.hide()
+                if (rect.width,rect.height)!=(self.last_rect.width,self.last_rect.height):self.invalidate_scene('目标客户区大小改变，等待新画面重新识别')
+                self.overlay.hide() # Pure moves keep fresh identity/offers; only reposition.
             self.last_rect=rect
             if not self.capture.foreground(self.target):
                 if self.was_target_foreground:self.invalidate_scene('离开目标窗口，旧资料已隐藏；重新确认后再显示')
@@ -294,7 +333,7 @@ class ControlWindow(QtWidgets.QWidget):
         try:self.overlay.set_click_through(not self.overlay.click_through)
         except CaptureUnavailable as exc:
             self.stop_monitor();self.overlay.hide();self.status.setText(str(exc));return
-        self.toggle_button.setText('鼠标穿透：'+('开' if self.overlay.click_through else '关')+'（Ctrl+Alt+O）')
+        self.toggle_button.setText('鼠标穿透：'+('开' if self.overlay.click_through else '关')+'（Ctrl+Alt+O）');self.check_target()
     @QtCore.Slot(str,object,int)
     def task_result(self,kind,value,generation):
         if self.closed:return

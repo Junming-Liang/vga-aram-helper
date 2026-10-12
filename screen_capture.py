@@ -70,7 +70,8 @@ class Win32Capture:
         rect=W.RECT();point=W.POINT(0,0)
         if not self.u.GetClientRect(target.hwnd,ctypes.byref(rect)) or not self.u.ClientToScreen(target.hwnd,ctypes.byref(point)):raise CaptureUnavailable('无法读取目标窗口客户区。')
         width,height=rect.right-rect.left,rect.bottom-rect.top
-        if min(width,height)<64 or width*height>16_000_000:raise CaptureUnavailable('目标客户区尺寸不支持。')
+        if min(width,height)<64:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，宽和高需至少64像素。')
+        if width*height>16_000_000:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，超过当前1600万像素预算。')
         return ClientRect(point.x,point.y,width,height)
     def foreground(self,target):return int(self.u.GetAncestor(self.u.GetForegroundWindow(),2) or 0)==target.hwnd
     def validate(self,target,*,check_occlusion=True):
