@@ -91,6 +91,32 @@ class SessionFixtureTests(unittest.TestCase):
                 with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                     fixture.fixture_argv(command[0], 'client', png, root / 'ready.json', **kwargs)
 
+    def test_noactivate_is_explicit_test_only_and_preserves_default_argv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            png = root / 'original.png'; png.write_bytes(png_header())
+            arguments = (root / 'OwnedOccluder.exe', 'client', png, root / 'ready.json')
+            normal = fixture.fixture_argv(*arguments)
+            self.assertEqual(len(normal), 9)  # EXE plus the unchanged eight fixture arguments.
+            self.assertEqual(fixture.fixture_argv(*arguments, no_activate=False), normal)
+            self.assertEqual(fixture.fixture_argv(*arguments, no_activate=True), normal + ['noactivate'])
+            for invalid in (1, 0, 'yes', None):
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'boolean'):
+                    fixture.fixture_argv(*arguments, no_activate=invalid)
+
+    def test_csharp_nonactivating_mode_skips_only_owned_activation(self):
+        source = fixture.SOURCE.read_text()
+        for expected in ('args.Length != 8 && args.Length != 9', 'args[8] != "noactivate"',
+                         'noActivate = args.Length == 9;',
+                         'uint exStyle = noActivate ? 0x08000080u : 0u;',
+                         'ShowWindow(window, noActivate ? 4 : 5);',
+                         'if (!noActivate) SetForegroundWindow(window);'):
+            self.assertIn(expected, source)
+        # The opt-in changes the owned test window, never OS foreground policy/input.
+        for forbidden in ('AllowSetForegroundWindow', 'LockSetForegroundWindow', 'SendInput',
+                          'AttachThreadInput', 'keybd_event', 'mouse_event'):
+            self.assertNotIn(forbidden, source)
+
     def test_ready_path_must_be_fresh(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -129,7 +155,7 @@ class SessionFixtureTests(unittest.TestCase):
                           'AttachThreadInput', 'System.Net', 'HttpClient', 'Process.Start', 'Process.GetProcesses',
                           'SystemParametersInfo', 'ChangeDisplaySettings', 'WM_RELOAD'):
             self.assertNotIn(forbidden, source)
-        self.assertEqual(source.count('CreateWindowExW(0,'), 1)
+        self.assertEqual(source.count('CreateWindowExW(exStyle,'), 1)
 
 
 if __name__ == '__main__':

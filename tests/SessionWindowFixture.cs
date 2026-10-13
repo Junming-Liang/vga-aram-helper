@@ -21,7 +21,7 @@ internal static class SessionWindowFixture
     private static Bitmap bitmap;
     private static string imagePath, readyPath, role, className;
     private static int x, y, width, height, lifetime, paintCount;
-    private static bool recreating;
+    private static bool recreating, noActivate;
     private static IntPtr window;
     private static readonly Stopwatch Clock = new Stopwatch();
 
@@ -207,7 +207,10 @@ internal static class SessionWindowFixture
     private static IntPtr CreateOwnedWindow()
     {
         // Borderless own popup; the original image fills a bounded client area.
-        IntPtr result = CreateWindowExW(0, className, (role == "client" ? "League of Legends" : "VGA owned game fixture"), 0x80000000,
+        // The foreign occluder stays nonactivating from its very first show.
+        // Default client/game fixtures retain their original activation behavior.
+        uint exStyle = noActivate ? 0x08000080u : 0u; // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+        IntPtr result = CreateWindowExW(exStyle, className, (role == "client" ? "League of Legends" : "VGA owned game fixture"), 0x80000000,
             x, y, width, height, IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
         if (result == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         return result;
@@ -218,7 +221,9 @@ internal static class SessionWindowFixture
         if (SetTimer(window, new UIntPtr(1), 1000, IntPtr.Zero) == UIntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error());
         int before = paintCount;
-        ShowWindow(window, 5); SetForegroundWindow(window); UpdateWindow(window);
+        ShowWindow(window, noActivate ? 4 : 5); // SW_SHOWNOACTIVATE / SW_SHOW
+        if (!noActivate) SetForegroundWindow(window);
+        UpdateWindow(window);
         if (paintCount <= before) throw new InvalidOperationException("Fixture has not painted its PNG.");
     }
 
@@ -240,7 +245,11 @@ internal static class SessionWindowFixture
     {
         try
         {
-            if (args.Length != 8) throw new ArgumentException("Expected role PNG ready-json x y width height lifetime-seconds.");
+            if (args.Length != 8 && args.Length != 9)
+                throw new ArgumentException("Expected role PNG ready-json x y width height lifetime-seconds [noactivate].");
+            if (args.Length == 9 && args[8] != "noactivate")
+                throw new ArgumentException("Unknown fixture display option.");
+            noActivate = args.Length == 9;
             role = args[0];
             if (role != "client" && role != "game") throw new ArgumentException("Unknown fixture role.");
             imagePath = Path.GetFullPath(args[1]); readyPath = Path.GetFullPath(args[2]);

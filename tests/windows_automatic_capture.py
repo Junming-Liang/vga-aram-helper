@@ -217,18 +217,25 @@ def execute(reports, result):
             sequence = 0
             owned = []
 
-            def launch(role, *, executable=None, dimensions=size, position=(x, y), image=png):
+            def launch(role, *, executable=None, dimensions=size, position=(x, y), image=png, no_activate=False):
                 nonlocal sequence
                 sequence += 1
                 executable = executable or fixture[role + '_exe']
                 ready = work / f'{role}-{sequence}-ready.json'
                 argv = fixture_argv(executable, role, image, ready, x=position[0], y=position[1],
-                                    width=dimensions[0], height=dimensions[1], lifetime=MAX_SECONDS)
+                                    width=dimensions[0], height=dimensions[1], lifetime=MAX_SECONDS,
+                                    no_activate=no_activate)
+                foreground_before = int(native.u.GetForegroundWindow() or 0)
+                if no_activate:
+                    require(foreground_before != 0, 'Nonactivating fixture needs an existing foreground window')
                 process = native.spawn(argv[0], argv[1:], env, work)
                 item = {'process': process, 'exe': executable, 'role': role, 'ready': ready, 'size': dimensions}
                 owned.append(item)
 
                 def ready_window():
+                    if no_activate:
+                        require(int(native.u.GetForegroundWindow() or 0) == foreground_before,
+                                'Nonactivating owned fixture changed foreground during startup')
                     require(native.poll(process) is None, 'Owned fixture exited before readiness')
                     if not ready.is_file():
                         return None
@@ -238,16 +245,20 @@ def execute(reports, result):
                     assert_owned_window(native, process, executable, role, window, dimensions)
                     return window
 
-                item['window'] = events.wait(ready_window, 'Owned fixture never painted its PNG')
+                item['window'] = events.wait(ready_window, 'Owned fixture never painted its PNG: ' + role)
+                if no_activate:
+                    style = int(native.u.GetWindowLongPtrW(item['window']['hwnd'], -20))
+                    require(style & 0x08000080 == 0x08000080,
+                            'Owned occluder lacks native NOACTIVATE/TOOLWINDOW styles')
                 item['metadata'] = process_metadata(process['pid'])
                 require(normalized_path(item['metadata'].path) == normalized_path(str(executable)), 'Wrong real executable path')
                 require(item['metadata'].created > 0, 'Missing real process creation time')
                 return item
 
-            def foreground(item):
+            def foreground(item, phase):
                 events.wait(lambda: foreground_owned(native, item['process'], item['exe'], item['role'],
                                                       item['window'], item['size']),
-                            'Owned fixture could not become foreground')
+                            'Owned fixture could not become foreground: ' + item['role'] + ' / ' + phase)
                 events.settle()
 
             def close_owned(item):
@@ -325,13 +336,13 @@ def execute(reports, result):
 
                 client = launch('client')
                 bound(client)
-                foreground(client)
+                foreground(client, 'initial client')
                 result['client_capture'] = capture_matches()
                 game = launch('game')
                 require(game['metadata'].created > control.automatic_policy.started_after,
                         'New-game fixture was not actually created after Start')
                 bound(game)
-                foreground(game)
+                foreground(game, 'new game')
                 result['new_game_capture'] = capture_matches(fallback=True)
                 result['bounded_roi_capture'] = capture_matches(fallback=True, roi=(.2, .2, .5, .5))
                 result['wait_client_new_game'] = True
@@ -377,7 +388,7 @@ def execute(reports, result):
                 else:
                     raise AssertionError('Minimized target unexpectedly yielded pixels')
                 native.u.ShowWindow(game['window']['hwnd'], 9)  # SW_RESTORE.
-                foreground(game)
+                foreground(game, 'restore game')
                 bound(game)
                 result['restored_capture'] = capture_matches(fallback=True)
                 result['minimize_restore'] = True
@@ -385,12 +396,14 @@ def execute(reports, result):
                 # Separate PID, unrelated executable basename, no policy/metadata/window-list mocks.
                 foreign_exe = work / 'OwnedOccluder.exe'
                 shutil.copyfile(fixture['client_exe'], foreign_exe)
+                require(control.capture.foreground(control.target), 'Game must be foreground before occluder launch')
                 foreign = launch('client', executable=foreign_exe, dimensions=(64, 64), image=occluder_png,
-                                 position=(x + size[0] // 4, y + size[1] // 4))
+                                 position=(x + size[0] // 4, y + size[1] // 4), no_activate=True)
+                require(control.capture.foreground(control.target), 'Nonactivating occluder changed game foreground')
                 require(foreign['process']['pid'] != os.getpid(), 'Occluder must belong to a foreign owned process')
                 require(control.automatic_policy.inspect(control.capture.info(foreign['window']['hwnd'])) is None,
                         'Unrelated executable was recognized as League')
-                foreground(game)
+                foreground(game, 'occluder shown without activation')
                 require(control.capture.u.SetWindowPos(foreign['window']['hwnd'], W.HWND(-1), 0, 0, 0, 0,
                                                        0x0001 | 0x0002 | 0x0010 | 0x0040),
                         'Could not position the owned nonactivating topmost occluder')
@@ -407,10 +420,11 @@ def execute(reports, result):
                 require(not denied_calls, 'Occluded frame copied pixels before rejecting the foreign window')
                 result['foreign_occlusion_failed_closed'] = True
                 close_owned(foreign)
-                foreground(game)
+                foreground(game, 'occluder closed')
                 result['unoccluded_capture'] = capture_matches(fallback=True)
                 result['foreign_off_grid_occlusion'] = {'foreign_pid': foreign['process']['pid'],
-                    'size': [64, 64], 'nine_point_check_passed': True, 'full_guard_rejected_before_copy': True}
+                    'size': [64, 64], 'nine_point_check_passed': True, 'full_guard_rejected_before_copy': True,
+                    'nonactivating_from_first_show': True, 'foreground_preserved_during_launch': True}
 
                 stale_generation = seed_stale_state()
                 old_target = control.target
@@ -441,7 +455,7 @@ def execute(reports, result):
                 control.task_result('ocr', {'candidates': [], '_windowIdentity': old_target.identity,
                     '_capturedAt': time.monotonic()}, stale_generation)
                 require(not control.state.confirmed and not control.state.hero, 'Late old-HWND inference revived stale state')
-                foreground(game)
+                foreground(game, 'same-process HWND recreation')
                 result['recreated_capture'] = capture_matches(fallback=True)
                 result['same_process_recreation_cleared_stale'] = True
                 result['same_process_hwnd_recreated'] = {'pid': game['process']['pid'],
@@ -458,7 +472,7 @@ def execute(reports, result):
                 require((game['process']['pid'], game['metadata'].created) != (previous_pid, previous_metadata.created),
                         'Restart fixture did not establish a new actual process lifetime')
                 bound(game)
-                foreground(game)
+                foreground(game, 'game process restart')
                 result['restarted_capture'] = capture_matches(fallback=True)
                 result['process_restart_auto_reconnected'] = True
 
@@ -480,7 +494,7 @@ def execute(reports, result):
                         'Pre-existing-game case is not older than its new Start scope')
                 require(control.isMinimized() and control.capture.u.IsIconic(int(control.winId())),
                         'Restarted Start did not minimize the helper again')
-                foreground(game)
+                foreground(game, 'preexisting game after Start')
                 result['preexisting_game_capture'] = capture_matches(fallback=True)
                 result['preexisting_game_auto_connected'] = True
                 require(control.window_list.currentIndex() == 0 and control.window_list.currentData() is None,

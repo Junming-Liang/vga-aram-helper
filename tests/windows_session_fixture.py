@@ -89,10 +89,12 @@ def validate_png(path):
     return path
 
 
-def fixture_argv(exe, role, png, ready_json, *, x=20, y=20, width=964, height=602, lifetime=240):
+def fixture_argv(exe, role, png, ready_json, *, x=20, y=20, width=964, height=602, lifetime=240, no_activate=False):
     """Exact command vector; NativeJob.spawn(argv[0], argv[1:], env, cwd)."""
     if role not in TITLES:
         raise ValueError('Unknown owned fixture role')
+    if type(no_activate) is not bool:
+        raise ValueError('Fixture no_activate must be a boolean')
     for value, low, high in ((x, 0, 4096), (y, 0, 4096), (width, 64, 1600),
                              (height, 64, 1000), (lifetime, 1, 600)):
         if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
@@ -102,7 +104,8 @@ def fixture_argv(exe, role, png, ready_json, *, x=20, y=20, width=964, height=60
     if ready.exists():
         raise ValueError('Ready evidence path must be fresh')
     return [str(Path(exe).resolve()), role, str(png), str(ready),
-            *(str(value) for value in (x, y, width, height, lifetime))]
+            *(str(value) for value in (x, y, width, height, lifetime)),
+            *(['noactivate'] if no_activate else [])]
 
 
 def validate_ready(value, *, role, pid, width, height):
