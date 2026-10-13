@@ -1,0 +1,126 @@
+name: Measure and test smaller Windows package
+
+# Manual read-only candidate build. Preserve v0.4.2; upload only small evidence.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vga-windows-package-size
+  cancel-in-progress: false
+
+jobs:
+  package-size:
+    # Standard GitHub-hosted runner only; this workflow targets the public repo.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned build requirements from official PyPI
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force reports | Out-Null
+          python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
+      - name: Python unit tests
+        run: python -m unittest discover -s tests -v
+      - name: JavaScript checks
+        run: |
+          node --check static/app.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check static/ocr-ui.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check static/choices.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_ui_logic.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_choices_ui.js
+      - name: Verify exact-source overlay geometry at five app scales
+        run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
+      - name: Install and use approved free Community C++ runtime tooling
+        run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
+      - name: Build single-file EXE with local OCR models
+        run: python scripts/build_windows.py
+      - name: Install mandatory official browser test dependencies
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-browser.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run actual EXE with every baseline browser and OCR check
+        run: python tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe --browser
+      - name: Test actual native overlay against a synthetic mock window
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Repeat actual EXE native OCR and overlay at 150 percent app scale
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5
+      - name: Repeat actual EXE native OCR and overlay at 200 percent app scale
+        run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
+      - name: Test owned client-to-game screenshot selection handoff
+        run: python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Test this exact candidate EXE for native OTA success and rollback
+        run: |
+          $manifest = Get-Content dist/release/update-manifest.json -Raw | ConvertFrom-Json
+          python tests/windows_ota_smoke.py --exe dist/VGA-Aram-Helper.exe --expected-sha256 $manifest.sha256 --expected-size $manifest.size --release-source-sha "$env:GITHUB_SHA"
+      - name: Verify candidate size evidence and complete image-format coverage
+        run: python scripts/check_package_candidate.py
+      - name: Always check the small-evidence artifact budget
+        id: evidence_budget
+        if: ${{ always() }}
+        run: python scripts/check_artifact_budget.py --evidence-only
+      - name: Verify source licenses and exact candidate tested bytes without publication
+        if: ${{ success() }}
+        run: >-
+          python scripts/verify_release.py
+          --release-dir dist/release --evidence-dir reports --output-dir build/verified-preview
+          --repository "$env:GITHUB_REPOSITORY" --source-sha "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT"
+      - name: Upload only small test evidence when its budget passed
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-size-evidence-${{ github.sha }}
+          path: |
+            reports/windows-*
+            reports/hero-recognition-genuine.json
+            reports/champion-select-genuine.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Write run summary
+        if: ${{ always() }}
+        run: |
+          '## Candidate Windows package verification' >> $env:GITHUB_STEP_SUMMARY
+          'Read-only build; no release or v0.4.2 assets changed. Same-binary OTA fixture tests are not a two-version upgrade.' >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path reports/windows-package-size.json) {
+            Get-Content reports/windows-package-size.json >> $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path reports/windows-exe-smoke.json) {
+            Get-Content reports/windows-exe-smoke.json >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Actual EXE smoke test did not complete; do not treat this build as verified.' >> $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path dist/release/SHA256SUMS.txt) {
+            Get-Content dist/release/SHA256SUMS.txt >> $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path reports/windows-native-smoke.json) {
+            Get-Content reports/windows-native-smoke.json >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Native overlay verification did not complete; do not treat this build as verified.' >> $env:GITHUB_STEP_SUMMARY
+          }
