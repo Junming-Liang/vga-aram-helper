@@ -77,7 +77,7 @@ Capture is limited to visible client-area pixels of the selected foreground wind
 
 ## Preview and compatibility
 
-v0.4.3 removes unused packaging dependencies and design-source images while preserving full offline OCR, the native overlay, automatic champion/selection handoff, data refresh and updates. The [pre-version-bump Windows candidate](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343) passed all gates at **116,560,469 bytes (111.16 MiB), 22.444% smaller than v0.4.2**. v0.4.3 is rebuilt with its new version resources and must repeat those gates; its release manifest determines the final size and hash, which must not be copied from the candidate. See the [size record](WINDOWS_PACKAGE_SIZE.md) and [changelog](CHANGELOG.md).
+v0.4.3 removes unused packaging dependencies and design-source images while preserving full offline OCR, the native overlay, automatic champion/selection handoff, data refresh and updates. The [final Windows release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875) passed; the published EXE is **116,559,213 bytes (111.16 MiB), 22.445% smaller than v0.4.2**. Verify the same-release SHA-256 linked above. See the [size record](WINDOWS_PACKAGE_SIZE.md) and [changelog](CHANGELOG.md).
 
 v0.4.2 fixes overlay scaling and small-window layout. Placement uses the overlay window’s own Qt scale; compact cards preserve all three names, tiers and source metadata when space is limited. Fresh cards follow movement of the same window, while resizing waits for new recognition.
 
@@ -90,7 +90,7 @@ The following are **historical v0.3.0 baseline checks**, not proof of the new au
 - [Native EXE tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410): window capture, OCR, tier rendering, mouse click-through, and process lifecycle.
 - [Updater transaction tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458): local replacement of the same EXE, health checks, concurrency locking, and failure rollback.
 
-Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. The smaller candidate passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
+Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. v0.4.3 passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
 
 The EXE is not Authenticode-signed, so Windows may show an unknown-publisher warning. Verify the file hash and keep system security protections enabled.
 

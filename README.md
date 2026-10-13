@@ -77,7 +77,7 @@ python launcher.py
 
 ## 预览版与兼容性
 
-v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。版本升级前的[Windows 候选验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)实测 **116,560,469 字节（111.16 MiB），比 v0.4.2 小 22.444%**；全部测试通过。v0.4.3 会以新版本资源重新构建并重复这些门禁，最终字节数和哈希以该版清单为准，不能复用候选哈希。详见[体积记录](WINDOWS_PACKAGE_SIZE.md)和[变更日志](CHANGELOG.md)。
+v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。[最终 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)全部通过，发布 EXE 实测 **116,559,213 字节（111.16 MiB），比 v0.4.2 小 22.445%**。请核对上方同版 SHA-256；详见[体积记录](WINDOWS_PACKAGE_SIZE.md)和[变更日志](CHANGELOG.md)。
 
 v0.4.2 修正叠加缩放与小窗口布局：按叠加窗口自身的 Qt 缩放计算物理位置，空间不足时采用紧凑资料卡，保留三个名称、评级和来源。新鲜资料可随同一窗口平移；尺寸变化后等待重新识别。
 
@@ -90,7 +90,7 @@ v0.4.2 修正叠加缩放与小窗口布局：按叠加窗口自身的 Qt 缩放
 - [原生 EXE 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)：窗口捕获、OCR、评级显示、鼠标穿透与进程生命周期。
 - [更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)：同一 EXE 的本地替换、健康检查、并发锁与失败回滚。
 
-真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；上述精简候选已通过同二进制原生更新成功/并发/回滚测试；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
+真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；v0.4.3 已通过同二进制原生更新成功/并发/回滚测试；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
 
 EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对文件哈希并保留系统安全防护。
 

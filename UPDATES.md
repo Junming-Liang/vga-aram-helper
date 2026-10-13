@@ -131,6 +131,6 @@ GitHub 标记为 prerelease 的原生预览版不会由稳定 `/releases/latest`
 
 ### v0.4.3 精简包的同二进制事务门禁
 
-[精简候选验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)已经对新构建的较小 EXE 通过同二进制成功/并发/回滚测试。v0.4.3 发布工作流使用本次构建生成的 SHA-256、大小和源码提交再次运行该测试，不能以旧发布 EXE 代替。最终发布验证器同时核对更新报告、四种图片格式结果和实际重新读取的 EXE 归档。
+[精简候选验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)已经对新构建的较小 EXE 通过同二进制成功/并发/回滚测试。[v0.4.3 最终发布运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)又对新版本实际 EXE 完成该测试，使用本次生成的 SHA-256、大小和源码提交，未以旧发布 EXE 代替。最终发布验证器同时通过更新报告、四种图片格式结果和实际重新读取的 EXE 归档校验。
 
 v0.4.3 保持预发布状态，稳定 `/releases/latest` 更新检查不会自动发现它，需手动下载。原有两个不同版本的在线升级、应用内确认交接和系统级异常覆盖限制保持不变。

@@ -5,7 +5,23 @@ preview. It retains offline OCR models, native QtWidgets overlay/capture,
 automatic hero and champion selection, public-data refresh, browser diagnostics
 and OTA. Existing v0.4.2 tags and assets are never replaced.
 
-## Measured Windows candidate
+## Measured v0.4.3 release
+
+[Final Windows run 38383752875](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)
+passed and published the immutable [v0.4.3 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3):
+
+- Source/tag: `67361ca90124a8e5dee69d1fa0c560711fe9dac6`
+- Final EXE: **116,559,213 bytes (111.16 MiB)**
+- Reduction from v0.4.2: **33,732,329 bytes (32.17 MiB), 22.445%**
+- Final SHA256: `2dbe5c1a76b8fd13e2758eb1b6ad952da0a89a391890963c71dfe55cb054dc0b`
+- All exact-version package/model, supported-format OCR, native scale/capture,
+  selection, same-binary OTA, source/license and remote-asset digest gates passed
+
+The final manifest and same-release evidence describe these newly rebuilt bytes.
+The prior candidate below is preserved only as measurement history. No existing
+v0.4.2 tag or asset was replaced, and stable OTA still excludes this preview.
+
+## Earlier measured Windows candidate
 
 [Read-only Windows run 38381001343](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)
 passed at source `8067fac4f219830694fbdcb52b5dd36de78d4779`:
@@ -17,10 +33,9 @@ passed at source `8067fac4f219830694fbdcb52b5dd36de78d4779`:
   100/150/200% app scale, champion-selection handoff, same-binary native OTA
   success/concurrency/rollback, storage budget and source/license verification
 
-This candidate still had the old application version. The final **v0.4.3 EXE
-must be freshly rebuilt and tested**; its version resource and source changes
-can change its exact size/hash. The release manifest and generated release notes
-are authoritative for those final bytes. Do not substitute the candidate hash.
+This earlier candidate still had the old application version. The separate
+v0.4.3 build above regenerated its version resources and repeated every gate;
+its final size/hash differs. Do not substitute this candidate hash for v0.4.3.
 
 ## Verified baseline and initial estimate
 
@@ -46,7 +61,7 @@ PyInstaller CArchive, not installed-wheel directory sizes:
 Before rebuilding, subtracting those member lengths gave an **estimate of 118,091,838 bytes
 (112.62 MiB), about 21.4% smaller**, before changes in the Python import graph
 and archive overhead. The measured candidate above supersedes that estimate;
-neither figure is a promised exact v0.4.3 download size. Removing those entries also avoids about
+the final v0.4.3 measurement is reported separately above. Removing those entries also avoids about
 72 MiB of extracted payload. The build has a conservative 125,000,000-byte
 (119.21 MiB) size ceiling; exceeding it fails rather than silently regressing.
 
