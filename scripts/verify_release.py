@@ -19,9 +19,11 @@ import zlib
 import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.microsoft_runtime import verify_runtime_evidence, verify_notice_archive
+from scripts.windows_package import read_archive_measurement
+from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.2'
+PREVIEW_VERSION = '0.4.3'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -46,7 +48,7 @@ MODEL_HASHES = {
     'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
     'ch_ppocr_mobile_v2.0_cls_mobile.onnx': 'e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c',
 }
-EVIDENCE_NAMES = ('windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
+EVIDENCE_NAMES = ('windows-package-size.json', 'windows-ota-smoke.json', 'windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
                   'windows-build-environment.txt', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
                   'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json',
@@ -269,7 +271,9 @@ def verify_source_access(release_dir, build, source_sha, version):
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
         require({'launcher.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
-                 'scripts/build_windows.py', 'tests/windows_dpi_matrix.py', 'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
+                 'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
+                 'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
+                 'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
                 'Application source archive lacks native packaging inputs')
     return assets
 
@@ -601,6 +605,19 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     require(build.get('source_commit') == source_sha and build.get('version') == version, 'Build source/version mismatch')
     require(build.get('manifest') == manifest, 'Build and release manifests differ')
     require(build.get('status') == 'built-not-yet-smoke-tested', 'Unexpected build status')
+    package_size = read_json(files['windows-package-size.json'])
+    ota = read_json(files['windows-ota-smoke.json'])
+    require(build.get('package_size') == package_size, 'Build and measured package-size evidence differ')
+    try:
+        measured = read_archive_measurement(exe)
+        require(all(package_size.get(key) == value for key, value in measured.items()),
+                'Saved size/model inventory differs from actual release EXE')
+        validate_package_evidence(package_size, smoke, ota, source_sha)
+    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+        raise VerificationError('Package size, supported formats or candidate OTA gate failed: ' + str(exc)) from exc
+    require(package_size.get('pruning', {}).get('retained_pe_imports_checked') is True,
+            'Retained PE dependency check is missing')
+    require(ota.get('applicationVersion') == version, 'Candidate OTA version differs from release')
     require({m.get('name'): m.get('sha256') for m in build.get('bundled_models', [])} == MODEL_HASHES, 'Build model identity mismatch')
     inventory = build.get('archive_inventory', {})
     require(inventory.get('model_assets') == 3 and set(inventory.get('required_runtime_dlls', [])) ==
@@ -672,7 +689,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     assets.append(files['windows-native-overlay.png'])
     result = {'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
-              'native_scale_summary': native_scales,
+              'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
@@ -680,9 +697,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
              'Native overlay PREVIEW with screenshot-only automatic identification of the player’s own bottom-HUD portrait. '
              'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
-             'This version fixes a confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout under per-process application scaling. '
-             'It uses measured QWindow device-pixel ratios, bounded responsive layouts and a compact layout where required. '
-             'The user-reported exact error remains unconfirmed; this fix is not evidence that their specific machine or error has been reproduced. '
+             'This patch removes unused packaging payload while retaining the existing OCR model bytes, recognition settings, '
+             'native overlay and automatic hero/selection behavior. The v0.4.2 fix for the confirmed Qt logical/Win32 physical coordinate mismatch '
+             'and rigid overlay layout remains included. The user-reported exact error remains unconfirmed. '
              'Screenshot-only champion-select name detection and explicit client-to-game session capture remain available. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
@@ -692,6 +709,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'neutral; no invented grade, synthetic upgrade or inferred ranking. This is not a claim of a finished '
              'Huya-equivalent product or real-game validation.\n\n'
              f'Tested source commit: {source_sha}\nEXE SHA256: {checksum}\n'
+             f'Actual release size: {exe.stat().st_size:,} bytes; {package_size["saved_bytes"]:,} bytes ({package_size["saved_percent"]:.3f}%) smaller than v0.4.2.\n'
              f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n'
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
              'the SAME frozen EXE at controlled QT_SCALE_FACTOR 1, 1.5 and 2 on an unchanged 96-DPI desktop, '
@@ -699,7 +717,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'Each scale independently exercises frozen QtWidgets native windows, local capture/portrait matching/OCR, automatic hero and three-choice flow, '
              'unknown/changed-hero clearing, manual fallback, hide-before-capture, click-through, close/cleanup, source-tier rendering '
              '(including missing-grade fallback, original slot order and no displayed win rate/rank), and visible child/text layout checks. '
-             'Baseline HTTP/browser tests also ran once on that same EXE. '
+             'Baseline HTTP/browser tests also ran once on that same EXE; frozen OCR independently decoded PNG, JPEG, WebP and BMP. '
+             'The same exact candidate also passed local native OTA success/concurrency and mismatched-version rollback with OCR health checks. '
+             'This is a same-binary fixture test, not a genuine two-version upgrade, live GitHub download/discovery or UI confirmation handoff. '
              'A separate owned synthetic client/game fixture exercises actual Windows metadata and screenshot-based selection-to-game carry; ambiguity and stale-session cases are focused state tests. '
              'A separate same-build source-only Windows matrix at application scales 1, 1.25, 1.5, 2 and 2.5 checks required visible layouts, '
              'three-card text/tier containment, repeated placement, target translation and safe hide/recovery; its four implementation file hashes exactly match the attached application source ZIP. '
@@ -712,7 +732,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'It includes one still-frame hero-and-three-title observation, not temporal, all-hero or live-game accuracy proof. '
              'Champion-select text was also evaluated on one modified-client positive and three prerelease unassigned-card images from only two distinct scenes; all four recorded cases behaved as expected. '
              'This does not establish current unmodified client coverage or real trade/cancel behavior. '
-             'Windows 10/11 clean machines, exclusive fullscreen, live-game OCR and this version’s native OTA swap/rollback remain unverified.\n'
+             'Windows 10/11 clean machines, exclusive fullscreen and live-game OCR remain unverified.\n'
              'Unsigned executable: SmartScreen may warn about an unknown publisher. No signing or antivirus certification claim.\n'
              'This is prerelease=true. The existing stable /releases/latest OTA endpoint does NOT discover this preview. '
              f'Download manually if you choose to try it. The fixed {tag} tag preserves the tested immutable manifest URL.\n\n'
@@ -889,7 +909,7 @@ def main():
     result = verify(args.release_dir, args.evidence_dir, args.repository, args.source_sha, args.output_dir, args.run_id, args.run_attempt)
     require(result['version'] == PREVIEW_VERSION, f'This manual preview approval covers v{PREVIEW_VERSION} only')
     summary = {key: result[key] for key in ('repository', 'run_id', 'run_attempt', 'source_sha', 'version', 'tag',
-                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'native_scale_summary', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
+                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'native_scale_summary', 'package_size', 'native_ota_summary', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
     summary.update(prerelease=True, release_asset_count=len(result['assets']),
                    evidence_file_count=len(result['evidence_sha256']), evidence_sha256=result['evidence_sha256'])
     print(json.dumps(summary, indent=2), flush=True)

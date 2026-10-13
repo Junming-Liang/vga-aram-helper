@@ -145,3 +145,11 @@ def measure_archive(archive, executable):
             'largest_entries': sorted(entries, key=lambda x: -x['stored_bytes'])[:25],
             'unchanged_models': models, 'compression': 'PyInstaller default zlib; UPX disabled',
             'limitations': ['Size evidence alone is not functional acceptance; require the actual-EXE Windows suite.']}
+
+
+def read_archive_measurement(executable):
+    """Reread actual bytes at final verification, never trust a saved size claim."""
+    from PyInstaller.archive.readers import CArchiveReader
+    archive = CArchiveReader(str(executable))
+    assert_slim_inventory(archive.toc)
+    return measure_archive(archive, executable)
