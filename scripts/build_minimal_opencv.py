@@ -570,11 +570,34 @@ def _validate_provenance(proof, source_commit):
     return proof
 
 
+def sanitized_log_tail(path, limit=32768):
+    """Bound new-build diagnostics; never dump environment or whole log files."""
+    with Path(path).open('rb') as source:
+        source.seek(0, 2)
+        size = source.tell()
+        source.seek(max(0, size-limit))
+        raw = source.read(limit)
+    text = raw.decode('utf-8', errors='replace').replace('\r\n', '\n')
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+    text = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', text)
+    text = re.sub(r'(?i)(https?://)[^/\s@]+@', r'\1[redacted]@', text)
+    text = re.sub(r'(?i)(authorization\s*:\s*(?:bearer|basic)\s+)\S+', r'\1[redacted]', text)
+    text = re.sub(r'(?i)((?:[a-z0-9_]*(?:token|password|secret|credential|api_key)|signature)\s*[=:]\s*)[^\s&]+', r'\1[redacted]', text)
+    # Prefix every line so third-party text cannot become an Actions command.
+    output = '\n'.join('[opencv-build] '+line for line in text.splitlines())
+    raw_output = output.encode('utf-8')
+    if len(raw_output) > limit:
+        prefix = '[opencv-build] '
+        return prefix + raw_output[-(limit-len(prefix)):].decode('utf-8', errors='ignore')
+    return output
+
+
 def run(command, *, cwd=None, env=None, log=None, timeout=1200):
     if log:
         with Path(log).open('ab') as output:
             result = subprocess.run(command, cwd=cwd, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=timeout)
         if result.returncode:
+            print(sanitized_log_tail(log), flush=True)
             raise RuntimeError(f'Build command failed ({result.returncode}); see {Path(log).name}')
         return ''
     return subprocess.check_output(command, cwd=cwd, env=env, stderr=subprocess.STDOUT, timeout=timeout, text=True, encoding='utf-8')
@@ -735,7 +758,7 @@ def main():
         write_utf8((reports/'windows-opencv-build.json'), json.dumps(result, indent=2)+'\n')
         log = OUTPUT/'logs/build.log'
         if log.is_file():
-            (reports/'windows-opencv-build-diagnostic.txt').write_bytes(log.read_bytes()[-32768:])
+            write_utf8(reports/'windows-opencv-build-diagnostic.txt', sanitized_log_tail(log)+'\n')
         print(json.dumps(result), file=sys.stderr)
         raise SystemExit(1) from exc
 
