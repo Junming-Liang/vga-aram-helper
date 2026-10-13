@@ -1,4 +1,5 @@
 """Portable fail-closed build checks; never compile, install or contact a service."""
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -123,6 +124,9 @@ class MinimalOpenCVTests(unittest.TestCase):
         result = namespace['setup'](cmake_args=['-DWITH_FFMPEG=ON'])
         self.assertEqual(result['cmake_args'], ['-DWITH_FFMPEG=ON', *args])
         for raw in (None, '{', '{}', '[]', json.dumps(args+[args[0]]), json.dumps(['-T', 'v143']),
+                    json.dumps(args+['-DUNREVIEWED_EMPTY=']),
+                    json.dumps([arg for arg in args if not arg.startswith('-DCMAKE_ASM_COMPILER=')]),
+                    json.dumps([arg.replace('-DCMAKE_ASM_COMPILER=', '-DCMAKE_ASM_COMPILER=C:/gcc.exe') for arg in args]),
                     json.dumps([arg for arg in args if not arg.startswith('-DCMAKE_C_COMPILER=')])):
             with self.subTest(raw=raw), patch.dict(sys.modules, {'skbuild.platform_specifics.abstract': abstract}), patch.dict(os.environ, {}, clear=True):
                 if raw is not None: os.environ['VGA_OPENCV_CMAKE_ARGS_JSON'] = raw
@@ -147,7 +151,7 @@ class MinimalOpenCVTests(unittest.TestCase):
             return types.SimpleNamespace(returncode=0)
         old_directory = os.getcwd()
         with tempfile.TemporaryDirectory() as directory, patch.object(cmaker, 'get_platform'), patch.dict(os.environ, {
-                'VGA_OPENCV_CMAKE_ARGS_JSON': json.dumps(args), 'CMAKE_ARGS': '-DWITH_FFMPEG=OFF',
+                'VGA_OPENCV_CMAKE_ARGS_JSON': json.dumps(args), 'CMAKE_ARGS': '-DWITH_FFMPEG=OFF -DPYTHON3_LIMITED_API=ON',
                 'CMAKE_GENERATOR': 'Visual Studio 17 2022'}), patch.object(cmaker.subprocess, 'run', capture), \
                 patch.object(cmaker.CMaker, 'check_for_bad_installs'), patch('sys.stdout', io.StringIO()):
             try:
@@ -164,10 +168,68 @@ class MinimalOpenCVTests(unittest.TestCase):
             self.assertEqual(command[command.index('-T')+1], options['CMAKE_GENERATOR_TOOLSET'])
             self.assertEqual(command[command.index('-A')+1], 'x64')
             for key in ('CMAKE_GENERATOR_INSTANCE', 'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_LINKER',
-                        'CMAKE_GENERATOR_TOOLSET', 'CMAKE_GENERATOR_PLATFORM'):
+                        'CMAKE_GENERATOR_TOOLSET', 'CMAKE_GENERATOR_PLATFORM', 'CMAKE_ASM_COMPILER', 'CMAKE_ASM_NASM_COMPILER'):
                 self.assertIn('-D'+key+'='+options[key], command)
             self.assertFalse(any(arg.startswith('"') for arg in command))
         self.assertEqual([arg for arg in calls[-1] if arg.startswith('-DWITH_FFMPEG=')][-1], '-DWITH_FFMPEG=OFF')
+
+    def test_pinned_cmake_empty_asm_skips_probe_and_gnu_changes_library_names(self):
+        try:
+            import cmake
+            import importlib.metadata
+        except ImportError:
+            self.skipTest('Pinned isolated CMake is not installed')
+        if importlib.metadata.version('cmake') != build.BUILD_DEPENDENCIES['cmake']:
+            self.skipTest('Requires exact pinned CMake 4.3.2')
+        script = r'''
+cmake_minimum_required(VERSION 4.3.2)
+include(CheckLanguage)
+function(execute_process)
+  message(FATAL_ERROR "Empty generic ASM must not run a discovery subprocess")
+endfunction()
+set(CMAKE_ASM_COMPILER "")
+set(CMAKE_ASM_NASM_COMPILER "C:/pinned/nasm.exe")
+check_language(ASM)
+if(NOT DEFINED CMAKE_ASM_COMPILER OR NOT CMAKE_ASM_COMPILER STREQUAL "")
+  message(FATAL_ERROR "Generic ASM disable setting changed")
+endif()
+if(NOT CMAKE_ASM_NASM_COMPILER STREQUAL "C:/pinned/nasm.exe")
+  message(FATAL_ERROR "Dedicated NASM changed")
+endif()
+set(CMAKE_SYSTEM_NAME Windows)
+include(CMakeSystemSpecificInformation)
+if(NOT CMAKE_STATIC_LIBRARY_PREFIX STREQUAL "" OR NOT CMAKE_STATIC_LIBRARY_SUFFIX STREQUAL ".lib")
+  message(FATAL_ERROR "Expected Windows static library naming")
+endif()
+# Prove the contaminating platform file's effect without running its ld probe.
+function(execute_process)
+endfunction()
+include(Platform/Windows-GNU)
+if(NOT CMAKE_STATIC_LIBRARY_PREFIX STREQUAL "lib" OR NOT CMAKE_STATIC_LIBRARY_SUFFIX STREQUAL ".a")
+  message(FATAL_ERROR "Expected GNU naming contamination")
+endif()
+message(STATUS "Empty ASM skips probe; NASM preserved; GNU changes .lib to lib.a")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'check.cmake'; path.write_text(script)
+            output = build.run([str(Path(cmake.CMAKE_BIN_DIR)/('cmake.exe' if os.name == 'nt' else 'cmake')),
+                                '-P', str(path)], timeout=30)
+        self.assertIn('Empty ASM skips probe; NASM preserved; GNU changes .lib to lib.a', output)
+
+    def test_wrapper_assembly_markers_match_selected_limited_api(self):
+        # Upstream setup.py chooses python-3 versus python-3.12 using this marker,
+        # independently of its CMake keyword argument list.
+        tree = ast.parse(Path(build.__file__).read_text())
+        markers = [node.value.value for node in ast.walk(tree)
+                   if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                   and any(isinstance(target, ast.Subscript)
+                           and isinstance(target.slice, ast.Constant)
+                           and target.slice.value == 'CMAKE_ARGS' for target in node.targets)]
+        self.assertEqual(markers, ['-DWITH_FFMPEG=OFF -DPYTHON3_LIMITED_API=ON'])
+        self.assertEqual(markers[0].split(), ['-DWITH_FFMPEG=OFF', '-DPYTHON3_LIMITED_API=ON'])
+        self.assertEqual(build.OPTIONS['PYTHON3_LIMITED_API'], 'ON')
+        binary_regex = r'python/cv2/python-3*/cv2.*' if '-DPYTHON3_LIMITED_API=ON' in markers[0] else r'python/cv2/python-3.*/cv2.*'
+        self.assertIsNotNone(re.fullmatch(binary_regex, 'python/cv2/python-3/cv2.pyd'))
 
     def test_generated_text_bytes_are_platform_stable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -268,7 +330,7 @@ class MinimalOpenCVTests(unittest.TestCase):
         build.verify_cmake_cache(cache, toolchain)
         for key, value in [('CPU_BASELINE', 'AVX2'), ('CPU_DISPATCH', ''), ('WITH_IPP', 'OFF'),
                            ('ENABLE_FAST_MATH', 'ON'), ('BUILD_WITH_STATIC_CRT', 'OFF'),
-                           ('CMAKE_GENERATOR_TOOLSET', 'v143'), ('CMAKE_GENERATOR_PLATFORM', 'Win32'),
+                           ('CMAKE_ASM_COMPILER', 'C:/gcc.exe'), ('CMAKE_GENERATOR_TOOLSET', 'v143'), ('CMAKE_GENERATOR_PLATFORM', 'Win32'),
                            ('CMAKE_CXX_COMPILER', 'C:/Enterprise/cl.exe'), ('CMAKE_LINKER', 'C:/Enterprise/link.exe')]:
             with self.subTest(key=key), self.assertRaises(RuntimeError):
                 build.verify_cmake_cache({**cache, key: value}, toolchain)
