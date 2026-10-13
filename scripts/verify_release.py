@@ -14,16 +14,18 @@ from pathlib import Path
 import re
 import subprocess
 import struct
+import statistics
 import sys
 import zlib
 import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.microsoft_runtime import verify_runtime_evidence, verify_notice_archive
-from scripts.windows_package import read_archive_measurement
+from scripts.windows_package import read_archive_measurement, OFFICIAL_PROFILE, ADOPTED_PROFILE
+from scripts.minimal_opencv_package import validate_build_profile, verify_custom_evidence, verify_custom_notice_archive, verify_custom_source_archive, CUSTOM_VERSION, OFFICIAL_VERSION
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.3'
+PREVIEW_VERSION = '0.4.4'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -275,11 +277,11 @@ def verify_source_access(release_dir, build, source_sha, version):
                  'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
                  'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
                 'Application source archive lacks native packaging inputs')
-        if build.get('experimental') is True:
+        if build.get('opencv_custom_build'):
             require({'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
                      'scripts/probe_opencv_parity.py', 'ocr_privacy.py', 'packaging/opencv-minimal-patch.py',
                      'packaging/opencv-build-requirements.txt', 'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md'} <= set(archive.namelist()),
-                    'Experimental source archive lacks its exact custom build recipe')
+                    'Custom source archive lacks its exact build recipe')
     return assets
 
 
@@ -582,6 +584,39 @@ def check_preview_identity(verified, provenance):
             matches[0].get('size') == verified['exe_size'], 'Preview EXE identity differs from verified release asset')
 
 
+def verify_adopted_performance(report):
+    """Tighter publication screen; seconds throughout, not a universal speed claim."""
+    from scripts.probe_opencv_parity import PERFORMANCE_CASES
+    performance = report.get('performance', {})
+    require(report.get('status') == 'passed' and isinstance(performance, dict)
+            and set(performance) == PERFORMANCE_CASES | {'capture_synthetic_window'},
+            'Complete same-run performance evidence is required for adoption')
+    regressions = []
+    for name, row in performance.items():
+        require(isinstance(row, dict), 'Malformed timing row: '+name)
+        medians = []
+        for prefix in ('baseline', 'candidate'):
+            samples = row.get(prefix+'_samples_seconds')
+            require(isinstance(samples, list) and len(samples) == 7
+                    and all(type(value) in (int, float) and math.isfinite(value) and value > 0 for value in samples),
+                    'Invalid seven-sample timing evidence: '+name)
+            median = statistics.median(samples)
+            reported = row.get(prefix+'_median_seconds')
+            require(type(reported) in (int, float) and math.isclose(reported, median, rel_tol=1e-12, abs_tol=1e-12),
+                    'Reported timing median differs from raw samples: '+name)
+            medians.append(median)
+        ratio, delta = medians[1]/medians[0], medians[1]-medians[0]
+        require(type(row.get('ratio')) in (int, float) and type(row.get('delta_seconds')) in (int, float)
+                and math.isclose(row['ratio'], ratio, rel_tol=1e-12, abs_tol=1e-12)
+                and math.isclose(row['delta_seconds'], delta, rel_tol=1e-12, abs_tol=1e-12),
+                'Reported timing ratio/delta differs from raw samples: '+name)
+        if ratio > 1.15 + 1e-12 and delta > 0.005 + 1e-12:
+            regressions.append(name)
+    require(not regressions, 'Material timing regression; pause publication and review: '+', '.join(regressions))
+    return {'status': 'passed', 'policy': {'ratio_above': 1.15, 'delta_seconds_above': 0.005, 'both_required': True},
+            'performance': performance}
+
+
 def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id, run_attempt):
     require(repository == REPOSITORY, 'Repository is not the approved project')
     require(bool(re.fullmatch(r'[0-9a-f]{40}', source_sha)) and type(run_id) is int and run_id > 0 and type(run_attempt) is int and run_attempt > 0, 'Invalid source commit/run')
@@ -605,15 +640,20 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     require(sums == f'{checksum}  {filename}', 'SHA256SUMS does not match exactly')
     files = {name: evidence_file(evidence_dir, name) for name in EVIDENCE_NAMES}
     build = read_json(files['windows-build.json'])
-    experimental = build.get('experimental') is True
-    custom = [row for row in build.get('dependencies', [])
-              if str(row.get('name', '')).casefold().replace('-', '_') == 'opencv_python_headless'
-              and '+' in str(row.get('version', ''))]
-    require(not custom or experimental, 'Custom OpenCV cannot masquerade as an ordinary build')
-    if experimental:
-        from scripts.minimal_opencv_package import verify_experiment_evidence
-        extra = verify_experiment_evidence(exe, evidence_dir, build)
-        files.update({name: evidence_file(evidence_dir, name) for name in extra})
+    try:
+        profile = validate_build_profile(build)
+    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+        raise VerificationError('Invalid package profile: '+str(exc)) from exc
+    experimental = build['experimental']
+    adoption = None
+    if profile != OFFICIAL_PROFILE:
+        try:
+            extra = verify_custom_evidence(exe, evidence_dir, build)
+            files.update({name: evidence_file(evidence_dir, name) for name in extra})
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            raise VerificationError('Custom OpenCV evidence failed: '+str(exc)) from exc
+        if profile == ADOPTED_PROFILE:
+            adoption = verify_adopted_performance(read_json(files['windows-opencv-parity.json']))
     smoke = read_json(files['windows-exe-smoke.json'])
     selftest = read_json(files['windows-exe-self-test.json'])
     require(build.get('source_commit') == source_sha and build.get('version') == version, 'Build source/version mismatch')
@@ -623,7 +663,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     ota = read_json(files['windows-ota-smoke.json'])
     require(build.get('package_size') == package_size, 'Build and measured package-size evidence differ')
     try:
-        measured = read_archive_measurement(exe)
+        measured = read_archive_measurement(exe, profile=profile)
         require(all(package_size.get(key) == value for key, value in measured.items()),
                 'Saved size/model inventory differs from actual release EXE')
         validate_package_evidence(package_size, smoke, ota, source_sha)
@@ -685,6 +725,12 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         except (RuntimeError, KeyError, ValueError) as exc:
             raise VerificationError('Microsoft component notices/source proof missing or changed: ' + str(exc)) from exc
     assets.extend(verify_source_access(release_dir, build, source_sha, version))
+    if profile != OFFICIAL_PROFILE:
+        try:
+            verify_custom_notice_archive(release_dir/'third-party-licenses.zip', build['opencv_custom_build'])
+            verify_custom_source_archive(release_dir/f'vga-aram-helper-{version}-source.zip', evidence_dir, build)
+        except (RuntimeError, KeyError, ValueError, TypeError) as exc:
+            raise VerificationError('Custom OpenCV downloadable source/license proof failed: '+str(exc)) from exc
     verify_dpi_matrix(files['windows-dpi-candidate-matrix.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip')
     genuine_counts = verify_genuine_report(files['hero-recognition-genuine.json'],
@@ -701,7 +747,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     assets.append(evidence_zip)
     # Exact existing original mock screenshot, already fully PNG-validated above.
     assets.append(files['windows-native-overlay.png'])
-    result = {'experimental': experimental, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
+    result = {'experimental': experimental, 'package_profile': profile,
+              'opencv_build_profile': (build.get('opencv_custom_build') or {}).get('package_profile'),
+              'opencv_distribution_version': CUSTOM_VERSION if profile != OFFICIAL_PROFILE else OFFICIAL_VERSION,
+              'opencv_adoption': adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
               'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
@@ -724,7 +773,14 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'Huya-equivalent product or real-game validation.\n\n'
              f'Tested source commit: {source_sha}\nEXE SHA256: {checksum}\n'
              f'Actual release size: {exe.stat().st_size:,} bytes; {package_size["saved_bytes"]:,} bytes ({package_size["saved_percent"]:.3f}%) smaller than v{package_size["baseline"]["version"]}.\n'
-             f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n'
+             f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n' +
+             (f'OpenCV distribution: {CUSTOM_VERSION}, a maintained downstream build from pinned official source; '
+              'the application source ZIP includes its exact recipe and packaging-only patches, and the complete supplemental notices are included. '
+              'All three OCR models are unchanged. Same-run image/OCR/hero outputs match the official wheel. '
+              'The release timing screen requires no operation to be both over 15% and over 5 ms slower; raw seven-sample timings are attached. '
+              'This is limited fixture evidence, not a speed guarantee for every computer. '
+              'ORT_DISABLE_TELEMETRY=1 is set before runtime initialization and the API opt-out remains; this is not a general network firewall.\n\n'
+              if profile == ADOPTED_PROFILE else '') +
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
              'the SAME frozen EXE at controlled QT_SCALE_FACTOR 1, 1.5 and 2 on an unchanged 96-DPI desktop, '
              'each with a fixed physical 960x600 owned mock client fully inside the work area and an overlay strictly inside that client. '
@@ -862,6 +918,13 @@ def check_remote_assets(release, assets):
 
 def publish(verified, notes_file, provenance):
     require(verified.get('experimental') is not True, 'Experimental custom dependencies are not approved for publication')
+    require(verified.get('package_profile') == ADOPTED_PROFILE
+            and verified.get('opencv_build_profile') == ADOPTED_PROFILE
+            and verified.get('opencv_distribution_version') == CUSTOM_VERSION,
+            'This release requires the explicitly adopted, provenance-bound OpenCV profile')
+    adoption = verified.get('opencv_adoption')
+    require(isinstance(adoption, dict) and adoption == verify_adopted_performance(adoption),
+            'Adopted timing evidence differs from the publishing policy')
     check_preview_identity(verified, provenance)
     repo, tag, sha = verified['repository'], verified['tag'], verified['source_sha']
     require(repo == REPOSITORY and tag == 'v' + verified['version'] and

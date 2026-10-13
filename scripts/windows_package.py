@@ -26,11 +26,43 @@ EXPERIMENT_BASELINE = {
     'sha256': '2dbe5c1a76b8fd13e2758eb1b6ad952da0a89a391890963c71dfe55cb054dc0b',
 }
 EXPERIMENT_MAX_EXE_BYTES = 115_000_000
-EXPERIMENT_EXCLUDED_IMPORTS = ('PIL._imagingft', 'PIL._imagingcms')
+ADOPTED_BASELINE = dict(EXPERIMENT_BASELINE)
+ADOPTED_MAX_EXE_BYTES = 110_000_000
+CUSTOM_EXCLUDED_IMPORTS = ('PIL._imagingft', 'PIL._imagingcms')
+EXPERIMENT_EXCLUDED_IMPORTS = CUSTOM_EXCLUDED_IMPORTS
+OFFICIAL_PROFILE = 'official-opencv'
+EXPERIMENT_PROFILE = 'experimental-minimal-opencv-v1'
+ADOPTED_PROFILE = 'minimal-opencv-v1'
+CUSTOM_PROFILES = (EXPERIMENT_PROFILE, ADOPTED_PROFILE)
+
+
+def validate_package_profile(profile):
+    if not isinstance(profile, str) or profile not in (OFFICIAL_PROFILE, *CUSTOM_PROFILES):
+        raise RuntimeError('Unknown Windows package profile')
+    return profile
+
+
+def package_profile():
+    """Require an explicit choice for custom builds; never infer adoption."""
+    experimental = os.environ.get('VGA_EXPERIMENTAL_MINIMAL_OPENCV', '')
+    release = os.environ.get('VGA_RELEASE_PACKAGE_PROFILE', '')
+    if experimental not in ('', '0', '1'):
+        raise RuntimeError('Unknown experimental OpenCV opt-in value')
+    if release and release not in (OFFICIAL_PROFILE, ADOPTED_PROFILE):
+        raise RuntimeError('Unknown release package profile')
+    if experimental == '1':
+        if release:
+            raise RuntimeError('Conflicting experimental and release package profiles')
+        return EXPERIMENT_PROFILE
+    return release or OFFICIAL_PROFILE
 
 
 def experimental_package():
-    return os.environ.get('VGA_EXPERIMENTAL_MINIMAL_OPENCV') == '1'
+    return package_profile() == EXPERIMENT_PROFILE
+
+
+def custom_package():
+    return package_profile() in CUSTOM_PROFILES
 
 
 BRANDING_FILES = ('vga.ico', 'vga-icon-512.png')
@@ -48,9 +80,11 @@ def normalized_path(value):
     return str(value).replace('\\', '/').lower()
 
 
-def unused_binary_reason(name, *, experimental=None):
+def unused_binary_reason(name, *, experimental=None, profile=None):
     if experimental is None:
-        experimental = experimental_package()
+        experimental = (package_profile() if profile is None else validate_package_profile(profile)) in CUSTOM_PROFILES
+    elif profile is not None:
+        raise RuntimeError('Choose a package profile or the legacy experimental override, not both')
     name = normalized_path(name).rsplit('/', 1)[-1]
     if re.fullmatch(r'opencv_videoio_ffmpeg[0-9]+_64\.dll', name):
         return 'OpenCV video codec; this application only decodes still screenshots'
@@ -100,9 +134,10 @@ def trim_unused_binaries(entries, import_reader=pe_imports):
                   'scope': 'Static and delay PE imports; dynamic use separately covered by Windows EXE tests'}
 
 
-def assert_slim_inventory(names):
+def assert_slim_inventory(names, *, profile=None):
+    profile = package_profile() if profile is None else validate_package_profile(profile)
     names = {normalized_path(name) for name in names}
-    unwanted = sorted(name for name in names if unused_binary_reason(name) or
+    unwanted = sorted(name for name in names if unused_binary_reason(name, profile=profile) or
                        (name.startswith('assets/branding/') and name.rsplit('/', 1)[-1] not in BRANDING_FILES) or
                        (name.startswith(('rapidocr/', 'onnxruntime/')) and name.endswith(('.py', '.pyc'))))
     if unwanted:
@@ -119,9 +154,10 @@ def assert_slim_inventory(names):
         raise RuntimeError('Required slim-package resources are missing: ' + ', '.join(missing))
 
 
-def measure_archive(archive, executable):
+def measure_archive(archive, executable, *, profile=None):
     """Use real CArchive stored lengths, not installed-wheel or guessed ZIP size."""
     from model_inventory import EXPECTED_MODELS
+    profile = package_profile() if profile is None else validate_package_profile(profile)
     executable = Path(executable)
     entries, groups = [], defaultdict(lambda: {'stored_bytes': 0, 'unpacked_bytes': 0, 'entries': 0})
     models = []
@@ -147,14 +183,18 @@ def measure_archive(archive, executable):
     if len(models) != len(EXPECTED_MODELS):
         raise RuntimeError('Bundled OCR model inventory incomplete or duplicated')
     size = executable.stat().st_size
-    baseline = EXPERIMENT_BASELINE if experimental_package() else BASELINE
-    maximum = EXPERIMENT_MAX_EXE_BYTES if experimental_package() else MAX_EXE_BYTES
+    baseline, maximum = {
+        OFFICIAL_PROFILE: (BASELINE, MAX_EXE_BYTES),
+        EXPERIMENT_PROFILE: (EXPERIMENT_BASELINE, EXPERIMENT_MAX_EXE_BYTES),
+        ADOPTED_PROFILE: (ADOPTED_BASELINE, ADOPTED_MAX_EXE_BYTES),
+    }[profile]
     stored = sum(item['stored_bytes'] for item in entries)
     if stored > size:
         raise RuntimeError('Archive stored bytes exceed the executable size')
     with executable.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     return {'schema_version': 1, 'status': 'passed' if size <= maximum else 'failed',
+            'package_profile': profile,
             'measurement': 'Actual Windows EXE CArchive; stored sizes include existing lossless zlib compression',
             'executable': {'size': size, 'sha256': digest}, 'baseline': baseline,
             'maximum_exe_bytes': maximum, 'saved_bytes': baseline['size'] - size,
@@ -167,9 +207,10 @@ def measure_archive(archive, executable):
             'limitations': ['Size evidence alone is not functional acceptance; require the actual-EXE Windows suite.']}
 
 
-def read_archive_measurement(executable):
+def read_archive_measurement(executable, *, profile=None):
     """Reread actual bytes at final verification, never trust a saved size claim."""
     from PyInstaller.archive.readers import CArchiveReader
     archive = CArchiveReader(str(executable))
-    assert_slim_inventory(archive.toc)
-    return measure_archive(archive, executable)
+    profile = package_profile() if profile is None else validate_package_profile(profile)
+    assert_slim_inventory(archive.toc, profile=profile)
+    return measure_archive(archive, executable, profile=profile)

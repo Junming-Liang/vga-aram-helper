@@ -16,8 +16,9 @@ from app_version import __version__
 from model_inventory import verify_models
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
-from scripts.windows_package import assert_slim_inventory, measure_archive
-from scripts.minimal_opencv_package import check_build_mode, copy_custom_licenses, verify_custom_archive
+from scripts.windows_package import EXPERIMENT_PROFILE, assert_slim_inventory, measure_archive, package_profile
+from scripts.minimal_opencv_package import (check_build_mode, copy_custom_licenses,
+                                           validate_build_profile, verify_custom_archive)
 
 
 def sha256(path):
@@ -160,6 +161,7 @@ def main():
         raise SystemExit('Build on native Windows x64 with 64-bit Python. PyInstaller is not a cross-compiler.')
     os.chdir(ROOT)
     source_commit = verify_source_checkout(ROOT, os.environ.get('GITHUB_SHA'))
+    profile = package_profile()
     custom_build = check_build_mode()
     models = verify_models()
     build = ROOT / 'build'
@@ -182,8 +184,8 @@ def main():
     if custom_build:
         verify_custom_archive(archive, custom_build)
     bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
-    assert_slim_inventory(archive.toc)
-    size_report = measure_archive(archive, executable)
+    assert_slim_inventory(archive.toc, profile=profile)
+    size_report = measure_archive(archive, executable, profile=profile)
     size_report['source_commit'] = source_commit
     size_report['pruning'] = json.loads((build / 'windows-packaging-prune.json').read_text(encoding='utf-8'))
     reports = ROOT / 'reports'
@@ -217,8 +219,10 @@ def main():
               'python': platform.python_version(), 'source_commit': source_commit,
               'manifest': manifest, 'bundled_models': models, 'archive_inventory': bundled, 'dependencies': inventory,
               'source_access': source_access, 'package_size': size_report,
-              'experimental': bool(custom_build), 'opencv_custom_build': custom_build,
+              'package_profile': profile, 'experimental': profile == EXPERIMENT_PROFILE,
+              'opencv_custom_build': custom_build,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
+    validate_build_profile(report)
     reports = ROOT / 'reports'
     reports.mkdir(exist_ok=True)
     (reports / 'windows-build.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

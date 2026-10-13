@@ -1,7 +1,7 @@
-"""Build an explicitly opted-in, locally identified OpenCV Windows experiment.
+"""Build an explicitly selected, locally identified custom OpenCV Windows profile.
 
 Source/configuration pins make the procedure repeatable, not byte-reproducible
-across serviced Community compilers or runner SDKs. Production adoption requires
+across serviced Community compilers or runner SDKs. Every build requires
 separate exact-binary Windows parity and application acceptance gates.
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from scripts import microsoft_runtime
+from scripts.windows_package import CUSTOM_PROFILES, EXPERIMENT_PROFILE, package_profile
 
 VERSION = '5.0.0.93+vga1'
 SOURCE_FOLDER = 'opencv_python_headless-5.0.0.93'
@@ -467,7 +468,7 @@ def collect_licenses(source, install, destination, inputs, nasm_license):
         shutil.copyfile(ensure_regular(origin), destination/name)
     shutil.copyfile(ensure_regular(nasm_license), destination/'NASM-BUILD-TOOL-LICENSE.txt')
     write_utf8((destination/'WENQUANYI-NOTICE.txt'), FONT_NOTICE)
-    write_utf8((destination/'DOWNSTREAM-BUILD-NOTICE.txt'), downstream_notice())
+    write_utf8((destination/'DOWNSTREAM-BUILD-NOTICE.txt'), downstream_notice(inputs['package_profile']))
     write_utf8((destination/'BUILD-INPUTS-PROVENANCE.json'), json.dumps(inputs, indent=2)+'\n')
     return [file_record(path, destination) for path in sorted(destination.rglob('*')) if path.is_file()]
 
@@ -513,8 +514,11 @@ def inspect_native(path):
         pe.close()
 
 
-def downstream_notice():
-    return ('VGA experimental OpenCV '+VERSION+' is a downstream source build, not an official PyPI wheel.\n'
+def downstream_notice(profile=EXPERIMENT_PROFILE):
+    if profile not in CUSTOM_PROFILES:
+        raise RuntimeError('Downstream build notice requires a custom package profile')
+    return ('VGA custom OpenCV '+VERSION+' is a downstream source build, not an official PyPI wheel.\n'
+            'Packaging profile: '+profile+'.\n'
             'Only build-tool selection, wheel assembly, Python typing and package-version metadata were patched.\n'
             'No C++ image algorithm or OCR model source was changed.\n'
             'Exact upstream inputs and downstream patches are recorded in BUILD-INPUTS-PROVENANCE.json.\n')
@@ -529,14 +533,14 @@ def license_expectations(inputs):
         'OPENCV-APACHE-LICENSE.txt': {'size': 11358, 'sha256': 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30'},
     })
     for name, value in [('WENQUANYI-NOTICE.txt', FONT_NOTICE),
-                        ('DOWNSTREAM-BUILD-NOTICE.txt', downstream_notice()),
+                        ('DOWNSTREAM-BUILD-NOTICE.txt', downstream_notice(inputs['package_profile'])),
                         ('BUILD-INPUTS-PROVENANCE.json', json.dumps(inputs, indent=2)+'\n')]:
         raw = value.encode('utf-8'); expected[name] = {'size': len(raw), 'sha256': digest(raw)}
     return expected
 
 
 def validate_provenance(proof, source_commit=None):
-    """Recheck archived experiment evidence against this exact reviewed recipe."""
+    """Recheck archived custom-profile evidence against this exact recipe."""
     try:
         return _validate_provenance(proof, source_commit)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
@@ -546,7 +550,8 @@ def validate_provenance(proof, source_commit=None):
 def _validate_provenance(proof, source_commit):
     if (not isinstance(proof, dict) or type(proof.get('schema_version')) is not int or proof['schema_version'] != 1
             or proof.get('status') != 'passed' or 'error' in proof or proof.get('version') != VERSION
-            or proof.get('upstream_version') != '5.0.0.93'):
+            or proof.get('upstream_version') != '5.0.0.93'
+            or proof.get('package_profile') not in CUSTOM_PROFILES):
         raise RuntimeError('Missing successful custom OpenCV provenance')
     if source_commit is None:
         source_commit = os.environ.get('GITHUB_SHA') or run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, timeout=30).strip()
@@ -681,12 +686,13 @@ def clean_environment():
 
 
 def build():
+    profile = package_profile()
     if (sys.platform != 'win32' or struct.calcsize('P') != 8 or sys.version_info[:2] != (3, 12)
-            or os.environ.get('VGA_EXPERIMENTAL_MINIMAL_OPENCV') != '1'
+            or profile not in CUSTOM_PROFILES
             or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
-        raise RuntimeError('Explicit experimental opt-in on a GitHub-hosted Python3.12 x64 Windows runner is required')
+        raise RuntimeError('Explicit custom package profile on a GitHub-hosted Python3.12 x64 Windows runner is required')
     if Path(os.environ.get('GITHUB_WORKSPACE', '')).resolve() != ROOT.resolve():
-        raise RuntimeError('OpenCV experiment must use the workflow workspace')
+        raise RuntimeError('Custom OpenCV build must use the workflow workspace')
     proof = microsoft_runtime.verify_source_files()
     toolchain = community_toolchain(proof)
     cl = ensure_regular(Path(toolchain['compiler_path']))
@@ -696,7 +702,7 @@ def build():
         raise RuntimeError('Workflow source commit and checkout HEAD differ')
     validate_requirements(REQUIREMENTS.read_text(encoding='utf-8'))
     if OUTPUT.exists():
-        raise RuntimeError('Refusing to reuse an existing minimal OpenCV experiment')
+        raise RuntimeError('Refusing to reuse an existing minimal OpenCV build')
     temporary = Path(os.environ.get('RUNNER_TEMP', ''))
     if not temporary.is_absolute() or not temporary.is_dir():
         raise RuntimeError('A valid ephemeral runner temporary directory is required')
@@ -807,6 +813,7 @@ def build():
         raise RuntimeError('OpenCV feature/license audit failed; see the bounded intermediate audit above')
     run([sys.executable, '-m', 'pip', '--isolated', 'check'], env=env, log=logs/'pip-check.log', timeout=60)
     inputs = {'schema_version': 1, 'version': VERSION, 'upstream_version': '5.0.0.93',
+              'package_profile': profile,
               'source_commit': source_commit, 'recipe': file_record(Path(__file__)), 'community_runtime': proof,
               'source': assets['source'], 'download_inputs': assets,
               'upstream_git': {'opencv_python': 'b83046cda41133f1bf2e73e99dba16a1248f103a',
