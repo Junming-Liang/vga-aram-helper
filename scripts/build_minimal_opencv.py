@@ -328,14 +328,16 @@ def project_sdk_version(projects):
 
 
 def verify_build_information(info):
+    # Collect every mismatch so one native build yields a complete feature audit.
+    errors = []
     def require(pattern, message):
         if not re.search(pattern, info, re.MULTILINE):
-            raise RuntimeError('Minimal OpenCV build feature mismatch: ' + message)
+            errors.append(message)
     require(r'^General configuration for OpenCV 5\.0\.0\s', 'native version')
     require(r'^\s+To be built:\s+' + r'([^\r\n]+)', 'modules')
-    modules = re.search(r'^\s+To be built:\s+([^\r\n]+)', info, re.MULTILINE)[1].split()
-    if set(modules) != MODULES:
-        raise RuntimeError('Unexpected OpenCV modules: ' + ','.join(modules))
+    module_match = re.search(r'^\s+To be built:\s+([^\r\n]+)', info, re.MULTILINE)
+    if module_match and set(module_match[1].split()) != MODULES:
+        errors.append('unexpected OpenCV modules')
     for pattern, name in [
         (r'Algorithm Hint:\s+ALGO_HINT_ACCURATE', 'accurate hint'),
         (r'Baseline:\s+SSE SSE2 SSE3\s*$', 'SSE3 baseline'),
@@ -346,7 +348,6 @@ def verify_build_information(info):
         (r'Custom HAL:\s+YES \(ipp', 'IPP HAL'),
         (r'OpenCL:\s+YES', 'OpenCL'), (r'Built-in Unicode font:\s+YES', 'Unicode font'),
         (r'Lapack:\s+YES \(Built-In libclapack\)', 'CLAPACK'),
-        (r'Eigen:\s+NO', 'no alternate Eigen backend'),
         (r'Parallel framework:\s+Concurrency', 'Windows concurrency'),
         (r'Trace:\s+YES', 'trace/ITT'),
         (r'ZLib:\s+build \(ver 1\.3\.2\)', 'bundled zlib'),
@@ -357,8 +358,18 @@ def verify_build_information(info):
         (r'Limited API:\s+YES', 'Python limited API'),
     ]:
         require(pattern, name)
-    if '/fp:fast' in info or re.search(r'FFMPEG:\s+YES', info):
-        raise RuntimeError('Unexpected fast math or video support')
+    # Upstream CMake omits this line entirely with WITH_EIGEN=OFF/HAVE_EIGEN=0.
+    # The exact OFF cache setting is separately required; an enabled or ambiguous
+    # reported backend must still fail rather than being normalized away.
+    eigen = [value.strip() for value in re.findall(r'^\s*Eigen:[ \t]*([^\r\n]*)', info, re.MULTILINE)]
+    if eigen and eigen != ['NO']:
+        errors.append('no alternate Eigen backend')
+    if '/fp:fast' in info:
+        errors.append('unexpected fast math')
+    if re.search(r'FFMPEG:\s+YES', info):
+        errors.append('unexpected video support')
+    if errors:
+        raise RuntimeError('Minimal OpenCV build feature mismatch: ' + '; '.join(errors))
     return True
 
 
