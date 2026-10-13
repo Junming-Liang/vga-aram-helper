@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_e
     deliver_game(result);assert not w.state.confirmed
     deliver_game(result);assert w.state.confirmed and w.hero_origin=='client-provisional';assert 'HUD未复核' in w.overlay.heading.text();checks.append('Unknown portrait with real OCR three-card scene uses explicit this-session selection provenance and auto-confirms after stability')
     deliver_game({'candidates':[],'automatic_candidates':[],'hero_observation':{'confident':False}});assert not w.state.hero and not w.state.confirmed and w.selection_session.visible_identity(allow_provisional=True) is None;checks.append('Blank/lost game scene clears carried identity rather than treating previous state as fresh evidence')
-    w.stop_monitor();w.target=client;w.capture.focused=client
+    w.stop_monitor();w.window_list.addItem('synthetic client restart',client);w.window_list.setCurrentIndex(w.window_list.count()-1);w.capture.focused=client
     with patch('session_windows.SessionWindowPolicy',side_effect=policy):w.start_monitor()
     w.monitor.stop();deliver_selection(recognized);meta[10]=ProcessMetadata(meta[10].path,999);deliver_selection(recognized)
     assert not w.state.hero and not w.selection_session.assigned;checks.append('Process creation identity is rechecked at OCR result acceptance; PID reuse cannot apply stale client evidence')

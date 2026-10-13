@@ -15,10 +15,13 @@ internal static class SessionWindowFixture
 {
     private const uint WM_PAINT = 0x000F, WM_CLOSE = 0x0010, WM_DESTROY = 0x0002;
     private const uint WM_ERASEBKGND = 0x0014, WM_TIMER = 0x0113;
+    // Test harness may request recreation of this process's own HWND only.
+    private const uint WM_RECREATE_OWNED = 0x8000 + 73;
     private static readonly WndProc WindowProcedure = Dispatch;
     private static Bitmap bitmap;
     private static string imagePath, readyPath, role, className;
-    private static int width, height, lifetime, paintCount;
+    private static int x, y, width, height, lifetime, paintCount;
+    private static bool recreating;
     private static IntPtr window;
     private static readonly Stopwatch Clock = new Stopwatch();
 
@@ -127,8 +130,20 @@ internal static class SessionWindowFixture
             GetCurrentProcessId(), window.ToInt64(), role, className, width, height, paintCount);
         string temp = readyPath + ".tmp";
         File.WriteAllText(temp, value, new UTF8Encoding(false));
-        if (File.Exists(readyPath)) File.Replace(temp, readyPath, null);
-        else File.Move(temp, readyPath);
+        // The Python observer may briefly hold the previous JSON without delete
+        // sharing. Retry only this owned atomic publication, with a 250 ms cap.
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                if (File.Exists(readyPath)) File.Replace(temp, readyPath, null);
+                else File.Move(temp, readyPath);
+                break;
+            }
+            catch (IOException) { if (attempt >= 10) throw; }
+            catch (UnauthorizedAccessException) { if (attempt >= 10) throw; }
+            System.Threading.Thread.Sleep(25);
+        }
     }
 
     private static IntPtr Dispatch(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
@@ -153,6 +168,21 @@ internal static class SessionWindowFixture
                     }
                     finally { EndPaint(hwnd, ref paint); }
                     return IntPtr.Zero;
+                case WM_RECREATE_OWNED:
+                    // Allocate while the old HWND still exists, so the new handle
+                    // cannot equal the old one. Keep PID/creation time unchanged.
+                    IntPtr previous = window;
+                    IntPtr replacement = CreateOwnedWindow();
+                    recreating = true;
+                    try
+                    {
+                        window = replacement;
+                        if (!DestroyWindow(previous)) throw new Win32Exception("Fixture recreation destroy failed.");
+                    }
+                    finally { recreating = false; }
+                    ShowOwnedWindow();
+                    Ready();
+                    return IntPtr.Zero;
                 case WM_TIMER:
                     if (Clock.ElapsedMilliseconds >= lifetime * 1000L) DestroyWindow(hwnd);
                     return IntPtr.Zero;
@@ -161,7 +191,7 @@ internal static class SessionWindowFixture
                     return IntPtr.Zero;
                 case WM_DESTROY:
                     KillTimer(hwnd, new UIntPtr(1));
-                    PostQuitMessage(0);
+                    if (!recreating) PostQuitMessage(0);
                     return IntPtr.Zero;
             }
             return DefWindowProcW(hwnd, message, wParam, lParam);
@@ -172,6 +202,24 @@ internal static class SessionWindowFixture
             PostQuitMessage(1); // Never propagate a managed exception through USER32.
             return IntPtr.Zero;
         }
+    }
+
+    private static IntPtr CreateOwnedWindow()
+    {
+        // Borderless own popup; the original image fills a bounded client area.
+        IntPtr result = CreateWindowExW(0, className, (role == "client" ? "League of Legends" : "VGA owned game fixture"), 0x80000000,
+            x, y, width, height, IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
+        if (result == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return result;
+    }
+
+    private static void ShowOwnedWindow()
+    {
+        if (SetTimer(window, new UIntPtr(1), 1000, IntPtr.Zero) == UIntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        int before = paintCount;
+        ShowWindow(window, 5); SetForegroundWindow(window); UpdateWindow(window);
+        if (paintCount <= before) throw new InvalidOperationException("Fixture has not painted its PNG.");
     }
 
     private static void RecordError(Exception error)
@@ -196,7 +244,7 @@ internal static class SessionWindowFixture
             role = args[0];
             if (role != "client" && role != "game") throw new ArgumentException("Unknown fixture role.");
             imagePath = Path.GetFullPath(args[1]); readyPath = Path.GetFullPath(args[2]);
-            int x = Number(args[3], 0, 4096), y = Number(args[4], 0, 4096);
+            x = Number(args[3], 0, 4096); y = Number(args[4], 0, 4096);
             width = Number(args[5], 64, 1600); height = Number(args[6], 64, 1000);
             lifetime = Number(args[7], 1, 600);
             if (IntPtr.Size != 8 || Marshal.SizeOf(typeof(WindowClass)) != 80 ||
@@ -213,15 +261,9 @@ internal static class SessionWindowFixture
             wc.hInstance = GetModuleHandleW(null); wc.lpszClassName = className;
             wc.hCursor = LoadCursorW(IntPtr.Zero, new IntPtr(32512));
             if (RegisterClassExW(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            // Borderless own popup; the original image is drawn into a bounded client area.
-            window = CreateWindowExW(0, className, (role == "client" ? "League of Legends" : "VGA owned game fixture"), 0x80000000,
-                x, y, width, height, IntPtr.Zero, IntPtr.Zero, wc.hInstance, IntPtr.Zero);
-            if (window == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            window = CreateOwnedWindow();
             Clock.Start();
-            if (SetTimer(window, new UIntPtr(1), 1000, IntPtr.Zero) == UIntPtr.Zero)
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            ShowWindow(window, 5); SetForegroundWindow(window); UpdateWindow(window);
-            if (paintCount == 0) throw new InvalidOperationException("Fixture has not painted its PNG.");
+            ShowOwnedWindow();
             Ready();
             Message message;
             int status;
