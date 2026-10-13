@@ -96,6 +96,7 @@ class ReleaseFixture(unittest.TestCase):
         self.package_size = {'schema_version': 1, 'status': 'passed', 'source_commit': SHA,
             'executable': {'size': self.manifest['size'], 'sha256': self.hash},
             'saved_bytes': 150291542 - self.manifest['size'], 'saved_percent': 99.999,
+            'baseline': {'version': '0.4.2'},
             'pruning': {'retained_pe_imports_checked': True}}
         self.build['package_size'] = self.package_size
         # Tiny synthetic EXE fixtures test gate logic. Only the archive reader is
@@ -169,7 +170,7 @@ class ReleaseFixture(unittest.TestCase):
         self.addCleanup(source_patch.stop)
         source = self.release / f'vga-aram-helper-{VERSION}-source.zip'
         self.source_entries = {name: b'Unit-test source fixture' for name in
-            ('launcher.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py',
+            ('launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py',
              'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py',
              'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
              'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',

@@ -33,6 +33,25 @@ def supported_image_payloads(path):
             yield kind, output.getvalue()
 
 
+def icc_image_payloads(path):
+    """ICC metadata must remain harmless without the unused Pillow CMS extension.
+
+    ImageCms is used only by this external fixture generator, never by the EXE.
+    """
+    from PIL import Image, ImageCms
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+    with Image.open(path) as source:
+        image = source.convert('RGB')
+        for kind, options in (('PNG', {}), ('JPEG', {'quality': 100, 'subsampling': 0}),
+                              ('WEBP', {'lossless': True})):
+            output = io.BytesIO()
+            image.save(output, format=kind, icc_profile=profile, **options)
+            with Image.open(io.BytesIO(output.getvalue())) as encoded:
+                if encoded.info.get('icc_profile') != profile:
+                    raise RuntimeError('ICC screenshot fixture did not retain its profile')
+            yield kind, output.getvalue()
+
+
 def isolated_windows_environment(environ, work):
     """A copied Windows environment is a case-sensitive dict; normalize its keys."""
     env = {key.upper(): value for key, value in environ.items()}
@@ -196,6 +215,16 @@ def main():
                     format_results[kind] = actual
                 report['supported_image_formats'] = format_results
                 checks.append('Actual EXE OCR decodes PNG, JPEG, WebP and BMP; each fixture matches 3/3')
+                icc_results = {}
+                for kind, image in icc_image_payloads(ROOT / 'fixtures' / 'ocr-app-demo.png'):
+                    status, raw, _ = fetch('/api/ocr', {'image_base64': base64.b64encode(image).decode()})
+                    result = json.loads(raw)
+                    actual = [item['name'] for item in result['candidates']]
+                    assert status == 200 and actual == ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）'], (kind, result)
+                    assert result['network_transmission'] is False
+                    icc_results[kind] = actual
+                report['icc_image_formats'] = icc_results
+                checks.append('Actual EXE OCR preserves PNG/JPEG/WebP screenshots carrying ICC metadata')
                 for path in ('/favicon.ico', '/brand.png'):
                     status, raw, _ = fetch(path)
                     assert status == 200 and len(raw) > 0, path
