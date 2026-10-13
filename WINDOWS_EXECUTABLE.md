@@ -84,7 +84,9 @@ SHA-256 可检查文件损坏或不一致，但不能替代代码签名，也不
 
 `Build and publish native preview` 是另一条手动标准 Windows 工作流：重新构建、完成全部 EXE/OCR/原生源评级测试并校验后，在同一任务的最后一步直接上传 GitHub 预发布版。它不再创建大型 Actions EXE/源码 artifact，只保留预算允许的小型测试证据；不删除已有产物。`GH_TOKEN` 仅用于最后的发布步骤，不持久保存凭据。
 
-v0.4.4 发布工作流明确设置 `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`，从已固定哈希的官方 OpenCV 源码及审查过的补丁构建自编译 `5.0.0.93+vga1`（原生版本 `5.0.0`）；此二进制不是官方 PyPI wheel。它重新执行官方/自编译同机对比、精确版本 EXE 全部门禁，并校验补充许可 ZIP 与源码/配方/二进制到对比证据的绑定。仅设置环境变量或运行上述官方 wheel 诊断不能替代这些证明。全部原始离线模型、Qt/CRT 条款及对应源码供应保持不变。最终 v0.4.4 构建仍待验证；配方、维护成本与实测范围见 [OpenCV 验证记录](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)。
+v0.4.4 发布工作流明确设置 `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`，从已固定哈希的官方 OpenCV 源码及审查过的补丁构建自编译 `5.0.0.93+vga1`（原生版本 `5.0.0`）；此二进制不是官方 PyPI wheel。它重新执行官方/自编译同机对比、精确版本 EXE 全部门禁，并校验补充许可 ZIP 与源码/配方/二进制到对比证据的绑定。仅设置环境变量或运行上述官方 wheel 诊断不能替代这些证明。全部原始离线模型、Qt/CRT 条款及对应源码供应保持不变。最终 v0.4.4 已通过[发布运行 #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065)并发布预览版；配方、维护成本与实测范围见 [OpenCV 验证记录](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)。
+
+自编译 `cv2.pyd` 的 `/MT` 静态链接还嵌入微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可；维护这部分需要重建并重新分发。既有五份 DLL 条款不变，详见[范围说明和微软官方参考](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)；这不是法律合规认证。
 
 预发布版标记为 prerelease，不设为 latest，稳定更新接口不会推送它。版本 tag 与内置 manifest 一致；已有 tag 或 Release 会使发布失败，不覆盖旧文件。
 

@@ -9,7 +9,7 @@
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.4-0891b2" alt="Source version v0.4.4"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.3 preview"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.4 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -37,13 +37,13 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 
 ### Windows
 
-1. Download the [v0.4.3 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/vga-aram-helper-0.4.3-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/SHA256SUMS.txt).
+1. Download the [v0.4.4 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/vga-aram-helper-0.4.4-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Confirm the target window, start monitoring and return to the game. Champion detection is automatic by default. The first launch prepares about 5 MB of public portrait templates.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4) includes test evidence and corresponding source.
 
-The downloads above are the published v0.4.3. v0.4.4 source adopts the new Windows packaging recipe, but its final release build is still pending verification; do not use experimental bytes or hashes as a v0.4.4 download identity. Previews require manual download and are excluded from stable OTA. See [UPDATES.md](UPDATES.md).
+The v0.4.4 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -81,9 +81,9 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 v0.4.4 adopts the reviewed minimal OpenCV source build, truthfully labeled `5.0.0.93+vga1` (native version `5.0.0`). It preserves all offline models, four screenshot formats and existing features. Unused Pillow font/CMS extensions are removed; Qt fonts are unchanged. Maintaining pinned source, downstream patches, the Community compiler recipe and license evidence adds ongoing work. Ordinary source installs still use the official wheel.
 
-The [read-only Windows experiment](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432) passed all gates at **106,342,697 bytes, 8.765% smaller than v0.4.3**. That EXE still identifies as v0.4.3, so these are **not final v0.4.4 bytes or its hash**. All 112 image outputs, 10 OCR outputs and eight hero results matched on the same runner. Median OCR changed from 207.8164 to 211.738 ms (+1.89%, +3.92 ms); median hero matching and capture were faster. Seven measured samples after two warmups showed no meaningful regression, without establishing universal performance. v0.4.4 must be freshly built and pass every release gate. See [size and release status](WINDOWS_PACKAGE_SIZE.md), the [validation recipe](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md) and [changelog](CHANGELOG.md).
+The [final Windows release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065) passed: the v0.4.4 EXE is **106,343,250 bytes (101.42 MiB), 8.765% smaller than v0.4.3 and 29.242% smaller overall than v0.4.2**. All 112 image outputs, 10 OCR outputs and eight hero results matched on the same runner. Final-run median OCR was 343.9889→373.1095 ms (**+8.47%, +29.12 ms**); hero matching +2.15%, capture −2.69%, with seven samples after two warmups. OCR was measurably slower on that runner, within the approved publication gate. This is not a no-slowdown claim or a guarantee of real-game performance. See [final bytes and hash](WINDOWS_PACKAGE_SIZE.md), the [recipe and experiment history](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md) and [changelog](CHANGELOG.md).
 
-v0.4.3 removes unused packaging dependencies and design-source images while preserving full offline OCR, the native overlay, automatic champion/selection handoff, data refresh and updates. The [final Windows release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875) passed; the published EXE is **116,559,213 bytes (111.16 MiB), 22.445% smaller than v0.4.2**. Verify the same-release SHA-256 linked above. See the [size record](WINDOWS_PACKAGE_SIZE.md) and [changelog](CHANGELOG.md).
+Historical v0.4.3 removes unused packaging dependencies and design-source images while preserving full offline OCR, the native overlay, automatic champion/selection handoff, data refresh and updates. The [final Windows release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875) passed; the published EXE is **116,559,213 bytes (111.16 MiB), 22.445% smaller than v0.4.2**. These are historical figures; use the links above and [size record](WINDOWS_PACKAGE_SIZE.md) for the final v0.4.4 identity.
 
 v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout in small windows. Placement uses the overlay window’s own Qt scale; compact cards preserve all three names, tiers and source metadata when space is limited. Fresh cards follow movement of the same window, while resizing waits for new recognition.
 
@@ -96,7 +96,7 @@ The following are **historical v0.3.0 baseline checks**, not proof of the new au
 - [Native EXE tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410): window capture, OCR, tier rendering, mouse click-through, and process lifecycle.
 - [Updater transaction tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458): local replacement of the same EXE, health checks, concurrency locking, and failure rollback.
 
-Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. v0.4.3 passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
+Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. v0.4.4 passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
 
 The EXE is not Authenticode-signed, so Windows may show an unknown-publisher warning. Verify the file hash and keep system security protections enabled.
 
@@ -112,6 +112,6 @@ Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helpe
 
 Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights.
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV `/MT` build also embeds Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
 
 This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.

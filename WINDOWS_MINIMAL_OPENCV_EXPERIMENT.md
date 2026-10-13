@@ -1,6 +1,14 @@
 # Minimal OpenCV: Windows experiment and v0.4.4 adoption
 
-The **read-only experiment succeeded**, and its reviewed recipe is adopted for the v0.4.4 release path under `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`. **The final v0.4.4 release build remains pending:** adoption does not turn the experimental EXE into release evidence. The publisher must rebuild the custom wheel and versioned EXE and repeat every gate. It continues to reject artifacts marked experimental even if their environment flag is later cleared. Published v0.4.3 and earlier assets remain unchanged.
+The reviewed recipe is adopted under `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1` and the [v0.4.4 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4) is published. The [final Windows release run #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065) rebuilt the custom wheel/versioned EXE and passed every gate. Read-only experimental artifacts remain ineligible for publication even if their environment flag is cleared. Published v0.4.3 and earlier assets remain unchanged.
+
+## Final v0.4.4 release
+
+Run #10 succeeded in 16m09s at source/tag `96245a849e16e19fec4967c9107ac393e86e5ce8`. Its final EXE is **106,343,250 bytes (101.42 MiB)**, SHA256 `e9ca12f1b2d290a7dd68fed61723772ee26f8f8ff281c76637a63e70fd88a35d`: **10,215,963 bytes (8.765%)** smaller than v0.4.3 and **29.242%** smaller than v0.4.2.
+
+Final same-runner medians (seven measurements after two warmups, official → custom) were OCR **343.9889 → 373.1095 ms (+8.47%, +29.12 ms)**, hero matching **40.1646 → 41.0286 ms (+2.15%)**, and owned synthetic-window capture **12.4758 → 12.1400 ms (−2.69%)**. OCR was measurably slower on this runner, within the approved **>15% AND >5 ms** publication gate. These samples do not establish universal or real-game performance. All 112 image outputs, 10 full OCR outputs and eight hero results matched; model hashes and the full frozen-EXE gates passed.
+
+The next section preserves the earlier experiment, whose EXE was still v0.4.3. Its +1.89% OCR timing is historical and must not be substituted for the final release's +8.47% measurement.
 
 ## Successful Windows experiment
 
@@ -8,7 +16,7 @@ The **read-only experiment succeeded**, and its reviewed recipe is adopted for t
 
 All **112 image outputs, 10 full OCR outputs and eight hero results** matched the official wheel exactly in the selected same-runner corpus, and all three OCR model identities remained unchanged. The resulting frozen EXE passed all four input formats, three ICC-bearing formats, native 100/150/200% application scaling/capture/selection, same-binary OTA success/concurrency/rollback, and source/Qt/Community CRT/license gates.
 
-Seven measured samples after two warmups gave median times in milliseconds (official → custom): OCR **207.8164 → 211.7380** (+1.89%, +3.92 ms), hero matching **33.4690 → 32.1846**, and owned synthetic-window capture **9.9120 → 9.3513**. No meaningful regression was shown in these samples. The raw timings and the coarse failure screen are described below; passing them is not a universal performance guarantee.
+Seven measured samples after two warmups gave median times in milliseconds (official → custom): OCR **207.8164 → 211.7380** (+1.89%, +3.92 ms), hero matching **33.4690 → 32.1846**, and owned synthetic-window capture **9.9120 → 9.3513**. These are earlier experimental measurements only. The raw timings and coarse failure screen are described below; they do not supersede the final-release slowdown reported above or establish universal performance.
 
 ## Measured starting point
 
@@ -27,6 +35,8 @@ A separate Linux prototype of the same OpenCV source reduced that platform's nat
 
 v0.4.4 also carries the experiment’s hardening of the existing ONNX telemetry opt-out: ORT 1.31.0 documents that the API alone may run after minimal initialization. The launcher, model-inventory and OCR entry paths now set `ORT_DISABLE_TELEMETRY=1` before runtime import and retain the API opt-out. See [the exact upstream privacy documentation](https://github.com/microsoft/onnxruntime/blob/v1.31.0/docs/Privacy.md). This does not establish historical data transmission, claim a general network firewall or prove that every possible third-party network path is blocked.
 
+The `/MT` build also embeds Microsoft release CRT object code; servicing that code requires rebuilding the affected binary and distributing a new application release. Its applicable Microsoft terms are separate from OpenCV/Qt licenses; see the [runtime scope clarification and official references](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
+
 This adds a maintained source-build recipe and downstream packaging patches. Repeated source/configuration inputs are documented; byte-for-byte rebuild identity across changing GitHub runner/compiler images is **not** claimed.
 
 ## Validation and evidence
@@ -39,14 +49,14 @@ The workflow runs the official wheel and the custom wheel in separate fresh inte
 
 Each newly built EXE must then pass every existing acceptance gate: source/unit/JavaScript checks, source DPI matrix, actual bundled OCR and four input formats, browser UI, Qt native capture/overlay at 100/150/200% application scale, automatic hero and owned selection handoff, exact-binary OTA success/concurrency/rollback, model SHA256, Qt/Microsoft/source/license verification. ICC-bearing PNG/JPEG/WebP screenshots are also decoded through the actual isolated EXE. The archived custom OpenCV binary and all supplemental notices must match their build hashes. The publisher also verifies the final downloadable supplemental-license ZIP and binds the exact source/build recipe and compiled native identity to both sides of the paired comparison; stale or unrelated parity evidence cannot authorize publication. The experiment has a 115,000,000-byte EXE cap, below the released v0.4.3 baseline.
 
-Evidence uses `reports/windows-opencv-{build,baseline,candidate,parity}.json` plus the existing Windows reports. The verifier recomputes comparisons and rereads the actual CArchive rather than trusting a size claim. The limited genuine-screenshot reports were freshly rerun with v0.4.4 source on Linux using the official wheel; their old safety abstentions and limited sample scope remain. They are not Windows/custom-wheel evaluations. The experiment’s Windows saving is measured above; the final v0.4.4 release saving remains pending its separate new build. No real game, Vanguard, clean end-user machine, exhaustive input-domain or universal performance claim follows from these fixtures.
+Evidence uses `reports/windows-opencv-{build,baseline,candidate,parity}.json` plus the existing Windows reports. The verifier recomputes comparisons and rereads the actual CArchive rather than trusting a size claim. The limited genuine-screenshot reports were freshly rerun with v0.4.4 source on Linux using the official wheel; their old safety abstentions and limited sample scope remain. They are not Windows/custom-wheel evaluations. The experiment and final v0.4.4 release each have their separate measured identities above. No real game, Vanguard, clean end-user machine, exhaustive input-domain or universal performance claim follows from these fixtures.
 
 ## 中文摘要
 
-第二轮只读 Windows 验证已全部通过：实验包 106,342,697 字节，比已发布 v0.4.3 的 116,559,213 字节小 8.765%。该实验 EXE 内部仍为 v0.4.3，不能当作 v0.4.4 发布包或沿用其哈希。
+最终 v0.4.4 已在[发布运行 #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065)完成重新构建、通过全部门禁并发布预览版：EXE **106,343,250 字节**，比 v0.4.3 小 **8.765%**，比 v0.4.2 累计小 **29.242%**；最终哈希见上方。早期只读实验为 106,342,697 字节，内部仍为 v0.4.3，只保留为历史，不能混用。
 
 v0.4.4 已采用审查后的自编译配方，并明确使用 `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`。自编译版本标为 `5.0.0.93+vga1`，保留全部离线模型、当前四种截图格式和 CPU 加速方式；未使用的 Pillow 字体/CMS 扩展被去除，Qt 字体不变。固定源码、补丁、Community 编译器与许可证据需要持续维护，不承诺不同 runner/compiler 镜像间逐字节复现。
 
-同机 112 项图像输出、10 项完整 OCR 输出及 8 项英雄结果一致，模型 SHA-256 不变。每项预热 2 次后测量 7 次，OCR 中位数增加 1.89%（3.92 ms），英雄匹配和捕获中位数下降；样本未显示明显退步，但不能推及所有电脑或真实对局。四种格式及三种 ICC 格式、原生缩放、OTA、源码及许可门禁也已通过。
+最终同机 112 项图像输出、10 项完整 OCR 输出及 8 项英雄结果一致，模型 SHA-256 不变。每项预热 2 次后测量 7 次，OCR 中位数 343.9889→373.1095 ms（**+8.47%，+29.12 ms**），英雄匹配 +2.15%，捕获 −2.69%。OCR 在该 runner 上测得变慢，仍通过已批准门限；不宣称没有减速，也不推及所有电脑或真实对局。早期实验的 +1.89% 仅为历史数据。四种格式及三种 ICC 格式、原生缩放、OTA、源码及许可门禁也已通过。
 
-最终 v0.4.4 必须重新构建并通过全部门禁，采用 110,000,000 字节上限；发布门还会从七次原始样本重算中位数，任何测试项同时慢于基线 15% 且超过 5 ms 时停止自动发布并诊断，不靠反复重跑碰到通过值。发布门还核对最终可下载的补充许可证 ZIP，并严格绑定配方、源码、原生二进制与同机对比证据。实验仍保留 115,000,000 字节上限与 50% + 5 ms 的粗筛，且不能发布。v0.4.4 仍为预览版，稳定 OTA 排除；已发布标签和资产不变。真实截图报告已按 v0.4.4 实际重跑，但仅代表 Linux 官方 wheel 小样本。真实 LoL/Vanguard、干净机器和所有输入范围仍未验证。
+最终 v0.4.4 已重新构建并通过全部门禁，采用 110,000,000 字节上限；发布门还会从七次原始样本重算中位数，任何测试项同时慢于基线 15% 且超过 5 ms 时停止自动发布并诊断，不靠反复重跑碰到通过值。发布门还核对最终可下载的补充许可证 ZIP，并严格绑定配方、源码、原生二进制与同机对比证据。实验仍保留 115,000,000 字节上限与 50% + 5 ms 的粗筛，且不能发布。v0.4.4 仍为预览版，稳定 OTA 排除；已发布标签和资产不变。真实截图报告已按 v0.4.4 实际重跑，但仅代表 Linux 官方 wheel 小样本。真实 LoL/Vanguard、干净机器和所有输入范围仍未验证。

@@ -1,12 +1,36 @@
 # Windows package size
 
-v0.4.4 adopts the reviewed minimal OpenCV source-build recipe. **Its final
-versioned Windows release build is still pending verification; there is no final
-v0.4.4 EXE size or hash in this document yet.** The successful experiment below
-still had application version v0.4.3. It must not be relabeled or reused as the
-v0.4.4 release. Published v0.4.3 and earlier tags/assets remain immutable.
+v0.4.4 adopts the reviewed minimal OpenCV source-build recipe and is now
+[published as a preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4). Published v0.4.3 and earlier tags/assets
+remain immutable. The earlier experimental EXE is recorded separately below.
 
-## v0.4.4 adoption and pending release gate
+## Measured final v0.4.4 release
+
+[Final Windows release run #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065) succeeded in 16 minutes 9 seconds and
+rebuilt the versioned release through every acceptance gate:
+
+- Source/tag: `96245a849e16e19fec4967c9107ac393e86e5ce8`
+- Final EXE: **106,343,250 bytes (101.42 MiB)**
+- Saving against v0.4.3: **10,215,963 bytes (9.74 MiB), 8.765%**
+- Cumulative saving against v0.4.2: **43,948,292 bytes (41.91 MiB), 29.242%**
+- Final SHA256: `e9ca12f1b2d290a7dd68fed61723772ee26f8f8ff281c76637a63e70fd88a35d`
+- All 112 image outputs, 10 full OCR outputs and eight hero results matched;
+  all three original offline model hashes remained unchanged
+
+Final-run paired medians, with seven same-runner samples after two warmups
+(official wheel → custom wheel):
+
+| Workload | Baseline ms | Custom ms | Change |
+| --- | ---: | ---: | ---: |
+| OCR application demo | 343.9889 | 373.1095 | **+8.47%, +29.12 ms** |
+| Hero matching, 1080p | 40.1646 | 41.0286 | +2.15% |
+| Owned synthetic-window capture | 12.4758 | 12.1400 | −2.69% |
+
+OCR was measurably slower on this runner, within the approved publication gate
+below. This is not a no-slowdown claim or a universal/real-game performance
+guarantee. Earlier experimental timings are history, not final-release timings.
+
+## Adopted release gates and scope
 
 The publishing workflow explicitly selects
 `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`, rebuilds the hash-pinned
@@ -18,7 +42,7 @@ environment flag is later cleared.
 
 The adopted release has a **110,000,000-byte** regression ceiling against the
 immutable v0.4.3 baseline. The separate read-only experiment retains its
-115,000,000-byte ceiling. The release still has to pass all of the following on
+115,000,000-byte ceiling. The final release passed these required gates on
 its freshly built, exact-version bytes:
 
 - Exact image-operation/full-OCR/hero output comparisons and warmed timing checks;
@@ -46,8 +70,8 @@ downstream packaging patches, compiler settings and complete license evidence
 is an explicit additional maintenance cost. Byte-identical rebuilds across
 changing hosted runner/compiler images are not promised.
 
-v0.4.4 remains a prerelease excluded from stable OTA. Until its new release gates
-succeed, the README continues to link the published v0.4.3 download. See the
+v0.4.4 remains a prerelease excluded from stable OTA; the README links its
+manual download and same-version checksum. See the
 [recipe and full evidence scope](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md).
 
 ## Successful second-round experiment, not the v0.4.4 release
@@ -63,8 +87,8 @@ succeeded in 14 minutes 5 seconds at source
 - All four format, three ICC-format, native scale/capture/selection, exact-binary
   OTA, source/Qt/Community CRT/license and unchanged-model gates passed
 
-Seven measured samples after two warmups on the same Windows runner produced
-these medians (official wheel → custom wheel):
+For the earlier experiment only, seven measured samples after two warmups on
+the same Windows runner produced these medians (official → custom):
 
 | Workload | Baseline ms | Custom ms | Change |
 | --- | ---: | ---: | ---: |
@@ -72,12 +96,12 @@ these medians (official wheel → custom wheel):
 | Hero matching, 1080p | 33.4690 | 32.1846 | −3.84% |
 | Owned synthetic-window capture | 9.9120 | 9.3513 | −5.66% |
 
-No meaningful regression was shown in these tested samples. This is not a
-universal performance guarantee, general screenshot accuracy measurement, real
+These earlier experimental measurements are not a universal performance
+guarantee, general screenshot accuracy measurement, real
 LoL/Vanguard validation or a clean Windows 10/11 machine test. The genuine
 screenshot reports were separately rerun with v0.4.4 source on Linux using the
 **official** wheel and retain their abstentions; they do not evaluate the custom
-Windows wheel. Final v0.4.4 metrics must come from its own build and manifest.
+Windows wheel. Final v0.4.4 metrics are recorded above from its separate build.
 
 ## Measured v0.4.3 release
 

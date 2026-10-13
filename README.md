@@ -9,7 +9,7 @@
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.4-0891b2" alt="源码版本 v0.4.4"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.3 预览版"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.4 预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -37,13 +37,13 @@ Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄
 
 ### Windows
 
-1. 下载 [v0.4.3 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/vga-aram-helper-0.4.3-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/SHA256SUMS.txt)。
+1. 下载 [v0.4.4 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/vga-aram-helper-0.4.4-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/SHA256SUMS.txt)。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
 3. 确认目标游戏窗口，点击开始监测并切回游戏。默认自动识别英雄，无需预选；首次启动会准备约 5 MB 的公开头像缓存。
 
-单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3)提供测试证据和对应源码。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4)提供测试证据和对应源码。
 
-上方为已发布的 v0.4.3。v0.4.4 源码已采用新的 Windows 打包配方，最终发布构建仍待验证；请勿把实验包体积或哈希作为 v0.4.4 下载依据。预览版需手动下载，稳定 OTA 不自动发现；机制见 [UPDATES.md](UPDATES.md)。
+v0.4.4 预览版已发布，需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -81,9 +81,9 @@ v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，�
 
 v0.4.4 采用已审查的最小 OpenCV 源码构建，明确标记为自编译 `5.0.0.93+vga1`（原生版本 `5.0.0`）。保留全部离线模型、四种截图格式与现有功能；去除未使用的 Pillow 字体/CMS 扩展，Qt 字体不变。代价是需要继续维护固定源码、补丁、Community 编译器配方与许可证证据。常规源码安装仍使用官方 wheel。
 
-[只读 Windows 实验](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432)全部门禁通过，实验包为 **106,342,697 字节，比 v0.4.3 小 8.765%**；但该 EXE 内部仍为 v0.4.3，**不是最终 v0.4.4 体积或哈希**。同机 112 项图像输出、10 项 OCR 输出、8 项英雄结果一致；OCR 中位数 207.8164→211.738 ms（+1.89%，+3.92 ms），英雄匹配与捕获中位数均下降。每项 2 次预热、7 次测量的样本未显示明显退步，不代表所有电脑。v0.4.4 必须重新构建并通过全部发布门禁；详见[体积与发布状态](WINDOWS_PACKAGE_SIZE.md)、[验证配方](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)及[变更日志](CHANGELOG.md)。
+[最终 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065)全部通过：v0.4.4 EXE 为 **106,343,250 字节（101.42 MiB），比 v0.4.3 小 8.765%，比 v0.4.2 累计小 29.242%**。同机 112 项图像输出、10 项 OCR 输出、8 项英雄结果一致。最终运行的 OCR 中位数 343.9889→373.1095 ms（**+8.47%，+29.12 ms**），英雄匹配 +2.15%，捕获 −2.69%；每项预热 2 次、测量 7 次。OCR 在该 runner 上测得变慢，仍在已批准发布门限内；不能据此宣称无减速或保证真实对局性能。详见[最终体积与哈希](WINDOWS_PACKAGE_SIZE.md)、[验证配方和实验历史](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)及[变更日志](CHANGELOG.md)。
 
-v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。[最终 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)全部通过，发布 EXE 实测 **116,559,213 字节（111.16 MiB），比 v0.4.2 小 22.445%**。请核对上方同版 SHA-256；详见[体积记录](WINDOWS_PACKAGE_SIZE.md)和[变更日志](CHANGELOG.md)。
+历史 v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。[最终 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)全部通过，发布 EXE 实测 **116,559,213 字节（111.16 MiB），比 v0.4.2 小 22.445%**。这是历史版本数据；最终 v0.4.4 身份以上方链接和[体积记录](WINDOWS_PACKAGE_SIZE.md)为准。
 
 v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以及固定叠加布局造成的小窗口问题：按叠加窗口自身的 Qt 缩放计算物理位置，空间不足时采用紧凑资料卡，保留三个名称、评级和来源。新鲜资料可随同一窗口平移；尺寸变化后等待重新识别。
 
@@ -96,7 +96,7 @@ v0.4.4 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中�
 - [原生 EXE 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)：窗口捕获、OCR、评级显示、鼠标穿透与进程生命周期。
 - [更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)：同一 EXE 的本地替换、健康检查、并发锁与失败回滚。
 
-真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；v0.4.3 已通过同二进制原生更新成功/并发/回滚测试；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
+真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；v0.4.4 已通过同二进制原生更新成功/并发/回滚测试；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
 
 EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对文件哈希并保留系统安全防护。
 
@@ -112,6 +112,6 @@ EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对
 
 原创代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项；OCR 依赖、模型及其他第三方组件遵循各自许可。Release 附完整许可、对应 Qt 源码和同提交应用源码，详见[第三方声明](THIRD_PARTY_NOTICES.md)。第三方游戏资料不在本项目 MIT 许可范围内。
 
-使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。
+使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.4/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。自编译 OpenCV 的 `/MT` 还包含微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可，更新这部分需要重建；详见[运行库范围说明](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)。
 
 本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。
