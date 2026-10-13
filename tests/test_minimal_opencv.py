@@ -387,7 +387,7 @@ mark_as_advanced(CPU_BASELINE)
         build.verify_cmake_cache(cache, toolchain)
         for key, value in [('CPU_BASELINE', 'AVX2'), ('CPU_DISPATCH', ''), ('WITH_IPP', 'OFF'),
                            ('ENABLE_FAST_MATH', 'ON'), ('BUILD_WITH_STATIC_CRT', 'OFF'),
-                           ('CMAKE_ASM_COMPILER', 'C:/gcc.exe'), ('CMAKE_GENERATOR_TOOLSET', 'v143'), ('CMAKE_GENERATOR_PLATFORM', 'Win32'),
+                           ('CMAKE_ASM_NASM_COMPILER', 'C:/unreviewed/nasm.exe'), ('CMAKE_ASM_COMPILER', 'C:/gcc.exe'), ('CMAKE_GENERATOR_TOOLSET', 'v143'), ('CMAKE_GENERATOR_PLATFORM', 'Win32'),
                            ('CMAKE_CXX_COMPILER', 'C:/Enterprise/cl.exe'), ('CMAKE_LINKER', 'C:/Enterprise/link.exe')]:
             with self.subTest(key=key), self.assertRaises(RuntimeError):
                 build.verify_cmake_cache({**cache, key: value}, toolchain)
@@ -436,6 +436,44 @@ mark_as_advanced(CPU_BASELINE)
             self.assertIn(label, str(caught.exception))
         with self.assertRaisesRegex(RuntimeError, 'native version.*modules.*accurate hint'):
             build.verify_build_information('')
+
+    def test_native_measurement_is_available_without_an_acceptance_claim(self):
+        proof = {'wheel': {'size': 1234, 'sha256': 'a'*64, 'path': 'private-path'},
+                 'native': {'size': 6000, 'sha256': 'b'*64, 'zlib9_size': 2000}}
+        report = build.native_size_measurement(proof)
+        self.assertEqual(report['native_zlib9_saved_bytes'], 30_519_497-2000)
+        self.assertEqual(report['status'], 'measurement_only')
+        self.assertTrue(report['no_acceptance_claim'])
+        self.assertTrue(report['not_exe_measurement'])
+        self.assertNotIn('private-path', json.dumps(report))
+
+    def test_generated_notices_use_windows_layout_and_exact_full_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            install = Path(directory)
+            correct = install/'etc/licenses'; correct.mkdir(parents=True)
+            linux = install/'share/licenses/opencv5'; linux.mkdir(parents=True)
+            (correct/'one-LICENSE.txt').write_bytes(b'one')
+            (correct/'two-LICENSE.txt').write_bytes(b'two')
+            (linux/'do-not-use.txt').write_bytes(b'wrong platform')
+            expected = {name+'-LICENSE.txt': {'size': 3, 'sha256': build.digest(name.encode())}
+                        for name in ('one', 'two')}
+            with patch.object(build, 'GENERATED_LICENSES', expected):
+                generated, files, audit = build.generated_license_audit(install)
+                self.assertEqual(generated, correct)
+                self.assertEqual(len(files), 2)
+                self.assertEqual(audit['status'], 'passed')
+                (correct/'one-LICENSE.txt').write_bytes(b'bad')
+                (correct/'two-LICENSE.txt').unlink()
+                (correct/'extra.txt').write_bytes(b'extra')
+                _, _, audit = build.generated_license_audit(install)
+                self.assertEqual(audit['status'], 'failed')
+                self.assertEqual(audit['missing'], ['two-LICENSE.txt'])
+                self.assertEqual(audit['unexpected'], ['extra.txt'])
+                self.assertEqual(audit['mismatched'], ['one-LICENSE.txt'])
+                self.assertEqual(audit['missing_count'], 1)
+                with self.assertRaisesRegex(RuntimeError, 'license audit failed'):
+                    build.collect_licenses(install, install, install/'output', {}, install/'nasm')
+                self.assertFalse((install/'output').exists())
 
     def test_unexpected_or_dynamic_crt_pe_imports_are_rejected(self):
         build.validate_pe_imports(['kernel32.dll', 'python3.dll', 'ole32.dll'], [])
