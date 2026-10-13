@@ -4,6 +4,7 @@ import argparse
 from contextlib import ExitStack, contextmanager
 import base64
 import hashlib
+import io
 import json
 import ntpath
 import os
@@ -17,6 +18,19 @@ import time
 from urllib.request import ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def supported_image_payloads(path):
+    """Encode the same owned fixture for every supported screenshot decoder."""
+    from PIL import Image
+    yield 'PNG', Path(path).read_bytes()
+    with Image.open(path) as source:
+        image = source.convert('RGB')
+        for kind, options in (('JPEG', {'quality': 100, 'subsampling': 0}),
+                              ('WEBP', {'lossless': True}), ('BMP', {})):
+            output = io.BytesIO()
+            image.save(output, format=kind, **options)
+            yield kind, output.getvalue()
 
 
 def isolated_windows_environment(environ, work):
@@ -172,6 +186,19 @@ def main():
                 assert status == 200 and ocr['network_transmission'] is False
                 assert [item['name'] for item in ocr['candidates']] == ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）'], ocr
                 checks.append('Frozen HTTP OCR API recognizes original demo fixture with bundled models')
+                format_results = {}
+                for kind, image in supported_image_payloads(ROOT / 'fixtures' / 'ocr-app-demo.png'):
+                    status, raw, _ = fetch('/api/ocr', {'image_base64': base64.b64encode(image).decode()})
+                    result = json.loads(raw)
+                    actual = [item['name'] for item in result['candidates']]
+                    assert status == 200 and actual == ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）'], (kind, result)
+                    assert result['network_transmission'] is False
+                    format_results[kind] = actual
+                report['supported_image_formats'] = format_results
+                checks.append('Actual EXE OCR decodes PNG, JPEG, WebP and BMP; each fixture matches 3/3')
+                for path in ('/favicon.ico', '/brand.png'):
+                    status, raw, _ = fetch(path)
+                    assert status == 200 and len(raw) > 0, path
                 offered = ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）']
                 for hero, preferred in [('星火术士（演示）', offered[0]), ('磐石守卫（演示）', offered[1])]:
                     status, raw, _ = fetch('/api/compare', {'hero': hero, 'offered': offered})
