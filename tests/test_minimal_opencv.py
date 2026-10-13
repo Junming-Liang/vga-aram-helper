@@ -420,6 +420,23 @@ mark_as_advanced(CPU_BASELINE)
             with self.subTest(old=old), self.assertRaises(RuntimeError):
                 build.verify_build_information(BUILD_INFO.replace(old, new))
 
+    def test_eigen_off_summary_omission_is_not_an_enabled_backend(self):
+        absent = re.sub(r'^.*Eigen:.*\n', '', BUILD_INFO, flags=re.MULTILINE)
+        self.assertTrue(build.verify_build_information(absent))
+        for value in ('YES (ver 3.4.0)', 'UNKNOWN', '', 'NO\n    Eigen: NO'):
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'no alternate Eigen backend'):
+                build.verify_build_information(BUILD_INFO.replace('Eigen: NO', 'Eigen: '+value))
+
+    def test_build_feature_audit_reports_all_mismatches_together(self):
+        info = BUILD_INFO.replace('SIMD Support: YES', 'SIMD Support: NO').replace(
+            'OpenCL: YES', 'OpenCL: NO').replace('/fp:precise', '/fp:fast')
+        with self.assertRaises(RuntimeError) as caught:
+            build.verify_build_information(info)
+        for label in ('JPEG SIMD', 'OpenCL', 'precise arithmetic', 'unexpected fast math'):
+            self.assertIn(label, str(caught.exception))
+        with self.assertRaisesRegex(RuntimeError, 'native version.*modules.*accurate hint'):
+            build.verify_build_information('')
+
     def test_unexpected_or_dynamic_crt_pe_imports_are_rejected(self):
         build.validate_pe_imports(['kernel32.dll', 'python3.dll', 'ole32.dll'], [])
         for imports, delayed in [(['kernel32.dll'], []), (['kernel32.dll', 'python3.dll'], ['vcruntime140.dll']),
