@@ -1,0 +1,9 @@
+# Isolated source-build tools from official PyPI; never replace app dependencies.
+pip==25.0.1
+cmake==4.3.2
+scikit-build==0.18.1
+setuptools==69.5.1
+wheel==0.45.1
+numpy==2.0.2
+packaging==26.3
+distro==1.9.0
