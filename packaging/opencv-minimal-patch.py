@@ -16,7 +16,7 @@ try:
 except (KeyError, ValueError) as exc:
     raise RuntimeError("Missing or malformed reviewed OpenCV arguments") from exc
 if (not isinstance(_vga_args, list) or not _vga_args
-        or any(not isinstance(arg, str) or not re.fullmatch(r"-D[A-Za-z0-9_]+=[^\r\n\x00]+", arg) for arg in _vga_args)):
+        or any(not isinstance(arg, str) or (arg != "-DCMAKE_ASM_COMPILER=" and not re.fullmatch(r"-D[A-Za-z0-9_]+=[^\r\n\x00]+", arg)) for arg in _vga_args)):
     raise RuntimeError("Invalid reviewed OpenCV CMake argument list")
 _vga_options = dict(arg[2:].split("=", 1) for arg in _vga_args)
 if len(_vga_options) != len(_vga_args):
@@ -24,6 +24,7 @@ if len(_vga_options) != len(_vga_args):
 _vga_toolset = _vga_options.get("CMAKE_GENERATOR_TOOLSET", "")
 if (not re.fullmatch(r"host=x64,version=14\.\d+\.\d+", _vga_toolset)
         or _vga_options.get("CMAKE_GENERATOR_PLATFORM") != "x64"
+        or _vga_options.get("CMAKE_ASM_COMPILER") != ""
         or not all(_vga_options.get(key) for key in ("CMAKE_GENERATOR_INSTANCE", "CMAKE_C_COMPILER", "CMAKE_CXX_COMPILER", "CMAKE_LINKER"))):
     raise RuntimeError("Missing reviewed Community generator identity")
 
@@ -46,7 +47,7 @@ def setup(*args, **kwargs):
 
 FILE_HASHES = {
     'cv2/version.py': ('34006b83568c39018d7151fdae827831f3fb6cff93e14b702fbf8190cd7187db', '68419d7f3b67f38fa7e46f9cc941179a2f74a41fe297983383574c0e297d2e00'),
-    'setup.py': ('5b380b183fa3865b89efc30483ee640dc100d67512f6a066e7cb3f9e5eb989f6', 'b4e7548c049f2aba0e0d3b386bc92d50d8cf73361d1459eebb9b89b3ad78a2d4'),
+    'setup.py': ('5b380b183fa3865b89efc30483ee640dc100d67512f6a066e7cb3f9e5eb989f6', 'aebbdb19a8ba0a049f7e2f967e310f99ce1483d09dfd159fbd643248a95951c7'),
     'opencv/modules/python/src2/typing_stubs_generation/api_refinement.py': ('4bc6e3b7616f6bf4fd84b5d7e8d5d6f0af03cf23db990e51af25b5e7004485fd', '92dd53237160d5ee562d651113970374d3da5de0eea70e331734b7c55bf9be18'),
     'opencv/modules/python/src2/typing_stubs_generation/generation.py': ('39419b707c9ffd9fae04be42eeab8572d1fad9c2bc2c3b1fa90d4f4559472bd1', '989c56d785b5c458855f0c32d0acb05f51af067820cf768e8fdb8f46379f2ec7'),
 }
