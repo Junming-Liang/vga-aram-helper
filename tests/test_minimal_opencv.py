@@ -325,6 +325,63 @@ message(STATUS "Empty ASM skips probe; NASM preserved; GNU changes .lib to lib.a
         with patch.object(module, 'FILE_HASHES', pins), self.assertRaisesRegex(RuntimeError, 'exactly once'):
             module.transform(originals)
 
+    def test_cache_parser_preserves_quoted_msvc_keys_and_metadata(self):
+        cache = build.parse_cmake_cache('''// Windows flag probes contain colons in their names.
+"HAVE_CXX_ARCH:AVX":INTERNAL=1
+"HAVE_CXX_ARCH:AVX2":INTERNAL=1
+"HAVE_CXX_ARCH:AVX512":INTERNAL=1
+CMAKE_CXX_COMPILER:FILEPATH=C:/Program Files/Community/cl.exe
+CPU_BASELINE:STRING=SSE3
+CPU_BASELINE-STRINGS:INTERNAL=SSE3;SSE4_1
+CPU_BASELINE-ADVANCED:INTERNAL=1
+CMAKE_ASM_COMPILER:UNINITIALIZED=
+"key:with=equals":STRING=first=second
+TRAILING:STRING='keep space '
+''')
+        self.assertEqual([cache['HAVE_CXX_ARCH:'+value] for value in ('AVX', 'AVX2', 'AVX512')], ['1']*3)
+        self.assertEqual(cache['CMAKE_CXX_COMPILER'], 'C:/Program Files/Community/cl.exe')
+        self.assertEqual(cache['CPU_BASELINE'], 'SSE3')
+        self.assertEqual(cache['CPU_BASELINE-STRINGS'], 'SSE3;SSE4_1')
+        self.assertEqual(cache['CMAKE_ASM_COMPILER'], '')
+        self.assertEqual(cache['key:with=equals'], 'first=second')
+        self.assertEqual(cache['TRAILING'], 'keep space ')
+        for text in ('X:BOOL=ON\nX:BOOL=OFF', 'X:BOOL=ON\n"X":BOOL=ON',
+                     '"flag:value":INTERNAL=1\n"flag:value":STRING=1'):
+            with self.subTest(text=text), self.assertRaisesRegex(RuntimeError, 'Duplicate CMake cache key.*line 1.*line 2'):
+                build.parse_cmake_cache(text)
+        for text in ('"unterminated:key:BOOL=ON', 'X:BOGUS=ON', 'X:BOOL'):
+            with self.assertRaisesRegex(RuntimeError, 'Malformed CMake cache entry at line 1'):
+                build.parse_cmake_cache(text)
+
+    def test_pinned_cmake_generated_quoted_key_cache(self):
+        try:
+            import cmake
+            import importlib.metadata
+        except ImportError:
+            self.skipTest('Pinned isolated CMake is not installed')
+        if importlib.metadata.version('cmake') != build.BUILD_DEPENDENCIES['cmake']:
+            self.skipTest('Requires exact pinned CMake 4.3.2')
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)/'source'; source.mkdir()
+            (source/'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 4.3.2)
+project(CacheFormat NONE)
+set("HAVE_CXX_ARCH:AVX" 1 CACHE INTERNAL "MSVC flag probe")
+set("HAVE_CXX_ARCH:AVX2" 1 CACHE INTERNAL "MSVC flag probe")
+set(CPU_BASELINE SSE3 CACHE STRING "CPU baseline")
+set_property(CACHE CPU_BASELINE PROPERTY STRINGS SSE3 SSE4_1)
+mark_as_advanced(CPU_BASELINE)
+''')
+            output = Path(directory)/'build'
+            build.run([str(Path(cmake.CMAKE_BIN_DIR)/('cmake.exe' if os.name == 'nt' else 'cmake')),
+                       '-S', str(source), '-B', str(output)], timeout=30)
+            text = (output/'CMakeCache.txt').read_text()
+            self.assertIn('"HAVE_CXX_ARCH:AVX":INTERNAL=1', text)
+            self.assertIn('"HAVE_CXX_ARCH:AVX2":INTERNAL=1', text)
+            cache = build.parse_cmake_cache(text)
+            self.assertEqual(cache['HAVE_CXX_ARCH:AVX'], '1')
+            self.assertEqual(cache['HAVE_CXX_ARCH:AVX2'], '1')
+            self.assertEqual(cache['CPU_BASELINE-ADVANCED'], '1')
+
     def test_cmake_flags_and_community_compiler_are_mandatory(self):
         proof = provenance_fixture('a'*40); cache = proof['verified_cmake_cache']; toolchain = proof['toolchain']
         build.verify_cmake_cache(cache, toolchain)
