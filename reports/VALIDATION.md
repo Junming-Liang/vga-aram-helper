@@ -1,12 +1,17 @@
-# Current source verification: v0.4.4 preparation (2026-10-13 UTC)
+# Current release verification: v0.4.4 (2026-10-13 UTC)
 
-**Final v0.4.4 Windows release gates are pending.** The reviewed minimal OpenCV
-recipe has been adopted, but the successful
-[Windows experiment 38410925432](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432)
-used source `db5db2b92c61df179491a432316cdd022466a6e8` and an EXE still versioned
-v0.4.3. Its 106,342,697-byte result is not a final v0.4.4 release measurement.
-The publishing workflow must rebuild the custom wheel/EXE and repeat paired
-parity, native/format/OTA/model and source/license gates. See
+The [final Windows release run #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065) succeeded in 16m09s and published
+[the v0.4.4 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4) at source/tag `96245a849e16e19fec4967c9107ac393e86e5ce8`. The final EXE is
+**106,343,250 bytes (101.42 MiB)**, SHA256
+`e9ca12f1b2d290a7dd68fed61723772ee26f8f8ff281c76637a63e70fd88a35d`. It saves **8.765%** against v0.4.3 and **29.242%** against v0.4.2.
+
+The newly rebuilt custom wheel/EXE passed paired output, native/format/OTA/model
+and source/license gates. Final same-runner OCR median was
+343.9889→373.1095 ms (**+8.47%, +29.12 ms**), within the approved >15% AND >5 ms
+publication stop. Hero matching was +2.15% and capture −2.69%. These seven
+samples after two warmups are measured runner results, not a no-slowdown or
+real-game performance guarantee. The earlier experiment's 106,342,697-byte EXE
+and +1.89% OCR change remain separate historical evidence. See
 [the size record](../WINDOWS_PACKAGE_SIZE.md) and
 [the recipe/evidence scope](../WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md).
 
@@ -77,9 +82,11 @@ v0.4.4 的两份真实截图报告已实际重新执行：英雄样本 2/3 识�
 Linux 官方 OpenCV wheel，启动前已设置遥测退出环境变量；不代表自编译 Windows
 识别准确率、真实 LoL/Vanguard 或干净 Windows 机器测试通过。
 
-Windows 实验已通过全部门禁，但实验 EXE 内仍为 v0.4.3。最终 v0.4.4 必须重新
-构建与验证后才可发布，体积/哈希不能沿用实验结果。下面的 v0.4.1/v0.3.0
-记录均保留为历史，不能据其旧测试计数或“待验证”语句判断当前状态。
+最终 v0.4.4 已重新构建、通过全部门禁并发布预览版，EXE 为 106,343,250 字节。
+最终同机 OCR 中位数增加 8.47%（29.12 ms），仍通过已批准发布门限；不宣称
+没有减速。实验 EXE 内仍为 v0.4.3，其体积/哈希和 +1.89% OCR 不能替代最终
+结果。下面的 v0.4.1/v0.3.0 记录均保留为历史，不能据其旧测试计数或
+“待验证”语句判断当前状态。
 
 ---
 
