@@ -1,11 +1,13 @@
 """Standard-library tests for matching and localhost OCR request boundaries."""
 import base64
+from email.message import Message
 from http.client import HTTPConnection
 import json
 from pathlib import Path
 import sys
 import threading
 import unittest
+from unittest.mock import Mock, patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from local_ocr import candidate_matches,normalized_name
@@ -58,17 +60,36 @@ class OCRHTTPTests(unittest.TestCase):
     def post(self,payload,path='/api/ocr',headers=None):
         connection=HTTPConnection('127.0.0.1',self.server.server_port,timeout=5)
         h={'Content-Type':'application/json'};h.update(headers or {})
-        connection.request('POST',path,body=json.dumps(payload),headers=h)
+        # Header-only rejection fixtures send no trailing body. The server
+        # deliberately rejects Host/Origin/path/type/length before reading it;
+        # sending a later body can race that close and reset the socket on Windows.
+        body=None if payload is None else json.dumps(payload)
+        connection.request('POST',path,body=body,headers=h)
         response=connection.getresponse();body=json.loads(response.read());connection.close();return response.status,body
     def test_valid_local_request(self):self.assertEqual(self.post({'image_base64':base64.b64encode(b'test-image').decode()})[0],200)
-    def test_foreign_origin_denied(self):self.assertEqual(self.post({},headers={'Origin':'https://evil.example'})[0],403)
+    def test_foreign_origin_denied(self):self.assertEqual(self.post(None,headers={'Origin':'https://evil.example'})[0],403)
+    def test_foreign_headers_reject_before_any_body_read_or_ocr_call(self):
+        # Keep explicit coverage of a declared nonempty body without depending
+        # on TCP delivery timing after the server has already rejected headers.
+        for extra in ({'Host':'evil.example'}, {'Origin':'https://evil.example'}):
+            with self.subTest(headers=extra), patch.object(FakeOCR,'recognize') as recognize:
+                handler=object.__new__(self.server.RequestHandlerClass)
+                handler.server=self.server;handler.path='/api/ocr';handler.headers=Message()
+                for key,value in {'Host':'127.0.0.1','Content-Type':'application/json',
+                                  'Content-Length':'1234',**extra}.items():handler.headers[key]=value
+                handler.rfile=Mock();handler.rfile.read.side_effect=AssertionError('Rejected body must not be read')
+                response=[];handler.send_json=lambda status,value:response.append((status,value))
+                handler.do_POST()
+                self.assertEqual(len(response),1);self.assertEqual(response[0][0],403)
+                self.assertIn('error',response[0][1])
+                handler.rfile.read.assert_not_called();recognize.assert_not_called()
     def test_local_origin_allowed(self):self.assertEqual(self.post({'image_base64':base64.b64encode(b'test-image').decode()},headers={'Origin':f'http://127.0.0.1:{self.server.server_port}'})[0],200)
-    def test_foreign_host_denied(self):self.assertEqual(self.post({},headers={'Host':'evil.example'})[0],403)
-    def test_non_json_denied(self):self.assertEqual(self.post({},headers={'Content-Type':'text/plain'})[0],415)
+    def test_foreign_host_denied(self):self.assertEqual(self.post(None,headers={'Host':'evil.example'})[0],403)
+    def test_non_json_denied(self):self.assertEqual(self.post(None,headers={'Content-Type':'text/plain'})[0],415)
     def test_missing_image_denied(self):self.assertEqual(self.post({})[0],400)
     def test_invalid_base64_denied(self):self.assertEqual(self.post({'image_base64':'not base64!'})[0],400)
     def test_invalid_image_denied(self):self.assertEqual(self.post({'image_base64':'eA=='})[0],400)
-    def test_unknown_route(self):self.assertEqual(self.post({},path='/api/anything')[0],404)
-    def test_oversized_declared_length(self):self.assertEqual(self.post({},headers={'Content-Length':str(13*1024*1024)})[0],413)
+    def test_unknown_route(self):self.assertEqual(self.post(None,path='/api/anything')[0],404)
+    def test_oversized_declared_length(self):self.assertEqual(self.post(None,headers={'Content-Length':str(13*1024*1024)})[0],413)
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -102,18 +102,21 @@ class ComparisonHTTPTests(unittest.TestCase):
         cls.server=make_server(fixture(),0);cls.thread=threading.Thread(target=cls.server.serve_forever,daemon=True);cls.thread.start()
     @classmethod
     def tearDownClass(cls):cls.server.shutdown();cls.server.server_close();cls.thread.join()
-    def request(self,path,payload=None,origin=None):
+    def request(self,path,payload=None,origin=None,*,bodyless_post=False):
         conn=HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
         headers={'Content-Type':'application/json'}
         if origin:headers['Origin']=origin
-        conn.request('POST' if payload is not None else 'GET',path,json.dumps(payload) if payload is not None else None,headers)
+        # Header rejection uses a bodyless POST to avoid a late body racing
+        # the server's early close on Windows; valid JSON requests are unchanged.
+        method='POST' if payload is not None or bodyless_post else 'GET'
+        conn.request(method,path,json.dumps(payload) if payload is not None else None,headers)
         r=conn.getresponse();body=r.read();conn.close();return r.status,body
     def test_compare_http(self):
         status,body=self.request('/api/compare',{'hero':'英雄甲','offered':NAMES})
         self.assertEqual(status,200);self.assertEqual(json.loads(body)['recommendedName'],'强化甲')
     def test_invalid_and_cross_origin(self):
         self.assertEqual(self.request('/api/compare',{'hero':'英雄甲','offered':[]})[0],400)
-        self.assertEqual(self.request('/api/compare',{'hero':'英雄甲','offered':NAMES},'https://evil.example')[0],403)
+        self.assertEqual(self.request('/api/compare',origin='https://evil.example',bodyless_post=True)[0],403)
     def test_new_assets_and_status(self):
         for path in ['/choices.js','/favicon.ico','/brand.png','/api/status']:
             self.assertEqual(self.request(path)[0],200)
