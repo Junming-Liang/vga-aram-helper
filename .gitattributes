@@ -6,3 +6,8 @@ packaging/microsoft-runtime/** -text
 hero_recognition.py text eol=lf
 hero_portraits.py text eol=lf
 champion_select.py text eol=lf
+
+# Exact recipe hashes are part of custom OpenCV provenance on every host.
+scripts/build_minimal_opencv.py text eol=lf
+packaging/opencv-minimal-patch.py text eol=lf
+packaging/opencv-build-requirements.txt text eol=lf
