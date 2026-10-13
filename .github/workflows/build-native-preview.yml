@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.4 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.5 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.4
+  group: vga-native-preview-v0.4.5
   cancel-in-progress: false
 
 jobs:
@@ -65,6 +65,8 @@ jobs:
           node tests/test_ui_logic.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/test_choices_ui.js
+      - name: Test automatic window lifecycle and bounded capture on owned Windows fixtures
+        run: python tests/windows_automatic_capture.py --reports reports
       - name: Verify exact-source overlay geometry at five app scales
         run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
       - name: Install and use approved free Community C++ runtime tooling
