@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import threading
 import unicodedata
+from ocr_privacy import load_private_onnxruntime
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 16_000_000
@@ -77,8 +78,7 @@ class LocalOCR:
         try:
             from PIL import Image, UnidentifiedImageError
             import numpy as np
-            import onnxruntime
-            onnxruntime.disable_telemetry_events()
+            load_private_onnxruntime()
             from rapidocr import RapidOCR
         except ImportError as exc:
             raise RuntimeError('未安装可选 OCR 依赖。请在虚拟环境安装 requirements-ocr.txt 后使用 --enable-ocr 启动。') from exc

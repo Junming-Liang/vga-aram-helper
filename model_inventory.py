@@ -1,6 +1,7 @@
 """Pinned RapidOCR 3.10.0 wheel model identities; no downloader in this module."""
 import hashlib
 from pathlib import Path
+from ocr_privacy import disable_telemetry_before_import
 
 EXPECTED_MODELS = {
     "PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
@@ -11,6 +12,7 @@ EXPECTED_MODELS = {
 
 def verify_models(model_dir=None):
     if model_dir is None:
+        disable_telemetry_before_import()
         import rapidocr
         model_dir = Path(rapidocr.__file__).resolve().parent / "models"
     output = []

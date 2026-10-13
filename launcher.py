@@ -5,6 +5,8 @@ import argparse
 import json
 import multiprocessing
 import os
+from ocr_privacy import disable_telemetry_before_import
+disable_telemetry_before_import()
 from pathlib import Path
 import sys
 import threading
@@ -42,6 +44,7 @@ def bundled_self_test() -> dict:
         raise RuntimeError("Blank image produced candidates")
     return {"status": "passed", "applicationVersion": __version__, "frozen": bool(getattr(sys, "frozen", False)),
             "bundled_models": models, "recognized": actual, "blank_candidates": 0,
+            "ort_telemetry_opt_out": os.environ.get("ORT_DISABLE_TELEMETRY"),
             "fixture_sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(),
             "versions": {package: importlib.metadata.version(package) for package in ("rapidocr", "onnxruntime", "numpy", "Pillow")},
             "scope": "Original synthetic Chinese image only; not real-game accuracy or anti-cheat validation."}
