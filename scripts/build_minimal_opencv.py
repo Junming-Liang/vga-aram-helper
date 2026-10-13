@@ -65,6 +65,9 @@ BUILD_DEPENDENCIES = {'pip': '25.0.1', 'cmake': '4.3.2', 'scikit-build': '0.18.1
                       'packaging': '26.3', 'distro': '1.9.0'}
 OPTIONS = {
     'BUILD_LIST': 'core,imgproc,imgcodecs,python3', 'PYTHON3_LIMITED_API': 'ON',
+    # Mirror upstream Windows CI: generic ASM can select GCC and corrupt .lib naming.
+    # Dedicated pinned ASM_NASM remains enabled for libjpeg-turbo SIMD.
+    'CMAKE_ASM_COMPILER': '',
     'BUILD_SHARED_LIBS': 'OFF', 'BUILD_WITH_STATIC_CRT': 'ON',
     'BUILD_TESTS': 'OFF', 'BUILD_PERF_TESTS': 'OFF', 'BUILD_EXAMPLES': 'OFF',
     'BUILD_opencv_apps': 'OFF', 'BUILD_DOCS': 'OFF',
@@ -679,7 +682,7 @@ def build():
                'CMAKE_ASM_NASM_COMPILER': Path(nasm).as_posix()}
     # Classic skbuild splits CMAKE_ARGS twice, first without shell quoting.
     # The hash-pinned setup adapter receives intact argument strings via JSON.
-    env['CMAKE_ARGS'] = '-DWITH_FFMPEG=OFF'
+    env['CMAKE_ARGS'] = '-DWITH_FFMPEG=OFF -DPYTHON3_LIMITED_API=ON'
     env['VGA_OPENCV_CMAKE_ARGS_JSON'] = json.dumps(['-D'+key+'='+value for key, value in options.items()])
     env['PATH'] = str(build_env/'Scripts')+os.pathsep+str(nasm.parent)+os.pathsep+env.get('PATH', '')
     wheels = work/'wheels'; wheels.mkdir()
