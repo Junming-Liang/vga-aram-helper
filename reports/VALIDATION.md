@@ -1,4 +1,16 @@
-# Current release verification: v0.4.4 (2026-10-13 UTC)
+# Candidate verification: v0.4.5 (2026-10-13 UTC)
+
+This source candidate repairs automatic window lifecycle handling, helper self-occlusion and guarded GPU-frame fallback. It preserves fail-closed foreign-window checks and the existing package/model profile. A portrait write failure is reproducible under Windows sharing-lock conditions, but the owner/cause of the user's historical WinError 5 is not established; diagnostic observations must not be presented as that missing historical proof. A bounded local-only diagnostic report/button now records error codes, write stage, temp-handle closure, attributes and instantaneous sharing-access probes without full paths or pictures.
+
+Local verification at this checkpoint: 587 Python unit tests passed with 10 Windows/dependency skips; existing Qt offscreen/CPU OCR auto-hero and selection checks passed; the new default-AUTO Qt test passed without selecting an HWND. Offscreen metadata/signature inputs are synthetic. The committed public still-image reports were actually rerun with version 0.4.5; they retain 2/3 positive hero matches, 3/3 negative abstentions, 1/1 selection positive and 3/3 selection negatives (two distinct negative scenes). These remain Linux still-image evidence, not live Windows compatibility.
+
+The new `windows_automatic_capture.py` fixture must still run on a real Windows runner. It uses actual owned-window metadata/pixels with an explicitly injected exact-fixture publisher verifier and a forced blank HWND attempt to exercise the real compositor fallback. The release gate binds six source hashes, version and commit, and requires all lifecycle/capture/trust-ABI/cleanup results. Its source-only evidence is distinct from the same packaged-EXE native/OCR/selection/OTA gates. No user photos or real-game screenshots were added.
+
+The last published release below remains historical evidence until the new Windows run completes; it does not validate this candidate.
+
+---
+
+# Last published release verification: v0.4.4 (2026-10-13 UTC)
 
 The [final Windows release run #10](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38417923065) succeeded in 16m09s and published
 [the v0.4.4 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4) at source/tag `96245a849e16e19fec4967c9107ac393e86e5ce8`. The final EXE is

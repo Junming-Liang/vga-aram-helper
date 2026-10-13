@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "scope": "Actual Qt offscreen controls/timers, synthetic OS metadata and trust verifier. No Windows/LoL capture claim.",
+  "checks": [
+    "Start without a selected HWND minimizes the helper and normally waits for a later client",
+    "Chinese-layout client appears after Start and is connected without touching window selection",
+    "Already-running same-install game takes priority without a selection assignment; no stale hero carried",
+    "Reused HWND/PID with a new process creation time clears hero, cards, and manual edit state",
+    "Close and recreated game window reconnect within the pinned installation",
+    "Stopped scope rejects a late discovery result",
+    "Unverified identity exposes a clear per-session confirmation; No captures nothing, Yes trusts only this session/installation",
+    "Repeated Start during slow trust verification keeps one worker and discards old scopes",
+    "Cache failure exposes sanitized local-only diagnostic details even when no file can be saved"
+  ]
+}

@@ -2,7 +2,7 @@
   "status": "passed",
   "scope": "Real Qt offscreen + original synthetic portrait/OCR pipeline only. No Windows GDI or real gameplay accuracy claim.",
   "checks": [
-    "Windows runner1024x728 work area fits964x602 supported own-HUD mock without changing display settings",
+    "Physical1024x728 work area fits fixed960x600 own-HUD mock without changing display settings",
     "Automatic hero is default, with no preselected hero or required manual setup",
     "Actual portrait matching + CPU OCR reach production handlers; two consistent frames automatically show hero-specific tiers",
     "No hero dropdown or manual confirmation used on high-confidence path",

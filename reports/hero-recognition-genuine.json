@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.4",
+  "applicationVersion": "0.4.5",
   "status": "partial_with_abstentions",
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
     "hero_recognition.py": "8a953d83454388767d24daaaf777f219802efc2376806621b6170d7951948ee0",
-    "hero_portraits.py": "69e9c2c755e41a41d2ecc0a8f3c3fdeaf49f4551588670f78cea2bbdba78f86a"
+    "hero_portraits.py": "22e8834d4cbff5f0abd9c7abda80252ad0425ff843bc6624256fee5196aea300"
   },
   "templates": {
     "source_url": "https://ddragon.leagueoflegends.com/api/versions.json",
@@ -57,7 +57,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.753,
+      "elapsed_seconds": 0.641,
       "image_redistributed": false
     },
     {
@@ -121,7 +121,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.631,
+      "elapsed_seconds": 0.586,
       "image_redistributed": false
     },
     {
@@ -157,7 +157,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.625,
+      "elapsed_seconds": 0.584,
       "image_redistributed": false
     },
     {
@@ -193,7 +193,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.697,
+      "elapsed_seconds": 0.675,
       "image_redistributed": false
     },
     {
@@ -230,7 +230,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.704,
+      "elapsed_seconds": 0.633,
       "image_redistributed": false
     }
   ],
