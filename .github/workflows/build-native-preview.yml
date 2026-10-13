@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.2 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.3 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.2
+  group: vga-native-preview-v0.4.3
   cancel-in-progress: false
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
     # Standard GitHub-hosted runner only; this workflow targets the public repo.
     if: ${{ inputs.publish_preview && github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
     runs-on: windows-2022
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: write
       actions: read
@@ -83,10 +83,22 @@ jobs:
         run: python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
       - name: Test owned client-to-game screenshot selection handoff
         run: python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Test this exact candidate EXE for native OTA success and rollback
+        run: |
+          $manifest = Get-Content dist/release/update-manifest.json -Raw | ConvertFrom-Json
+          python tests/windows_ota_smoke.py --exe dist/VGA-Aram-Helper.exe --expected-sha256 $manifest.sha256 --expected-size $manifest.size --release-source-sha "$env:GITHUB_SHA"
+      - name: Verify candidate size evidence and complete image-format coverage
+        run: python scripts/check_package_candidate.py
       - name: Always check the small-evidence artifact budget
         id: evidence_budget
         if: ${{ always() }}
         run: python scripts/check_artifact_budget.py --evidence-only
+      - name: Verify fresh native preview, source licenses and exact tested bytes
+        if: ${{ success() }}
+        run: >-
+          python scripts/verify_release.py
+          --release-dir dist/release --evidence-dir reports --output-dir build/verified-preview
+          --repository "$env:GITHUB_REPOSITORY" --source-sha "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT"
       - name: Upload only small test evidence when its budget passed
         if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
         uses: actions/upload-artifact@v4
@@ -115,12 +127,6 @@ jobs:
           } else {
             'Native overlay verification did not complete; do not treat this build as verified.' >> $env:GITHUB_STEP_SUMMARY
           }
-      - name: Verify fresh native preview, source licenses and exact tested bytes
-        if: ${{ success() }}
-        run: >-
-          python scripts/verify_release.py
-          --release-dir dist/release --evidence-dir reports --output-dir build/verified-preview
-          --repository "$env:GITHUB_REPOSITORY" --source-sha "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT"
       - name: Create verified draft and publish its ID only as a non-latest prerelease
         if: ${{ success() }}
         # Only the final publishing step maps the ephemeral token into an environment.
