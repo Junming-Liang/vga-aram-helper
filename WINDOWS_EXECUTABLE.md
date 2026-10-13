@@ -2,7 +2,7 @@
 
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
-**目前尚未正式发布 Windows 便携版。** 发布文件请以 [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) 为准；构建结果可在 [Actions](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml) 查看。
+**Windows 便携版目前以预览版提供，尚非稳定正式版。** 发布文件请以 [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) 为准；构建结果可在 [Actions](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml) 查看。
 
 ## 运行
 
@@ -12,7 +12,7 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
-3. 在列表中明确选择目标窗口，选择英雄，点击开始监测。候选由本机 OCR 提取，仍需人工核对三个名称后确认显示。
+3. 在列表中明确选择目标窗口并点击开始监测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
 4. 资料显示在透明置顶叠加层中；默认鼠标穿透，`Ctrl+Alt+O` 可切换。关闭主控制窗口会停止监测并关闭叠加层。
 
 首次启动需要解压内置依赖并检查数据，可能稍慢。请使用普通用户权限运行，避免放入系统目录。Windows ARM64、32 位和 Windows 7/8 暂不支持，Wine 未验证。
@@ -21,7 +21,7 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 初版面向窗口/无边框模式，独占全屏、受保护画面和真实 LoL/Vanguard 兼容性尚未验证。仅使用普通系统窗口信息及所选前台窗口的可见像素，不读取游戏进程内存、不注入、不装输入钩子，也不自动选牌。切出、遮挡、窗口关闭或候选变化时暂停显示旧资料。
 
-当前原生叠加显示候选名称、机制描述、条件提醒及当前英雄的虎牙公开源评级（原始 T1–T4）。缺失/未知评级显示“暂无评级”；保留三个输入槽位，不展示胜率、不自行换算等级或输出唯一最佳选择。公开资料快照不等于虎牙私有云端实时模型。英雄仍需人工选择；OCR 只提供候选，不应直接信任识别结果。
+当前原生叠加显示候选名称、机制描述、条件提醒及当前英雄的虎牙公开源评级（原始 T1–T4）。缺失/未知评级显示“暂无评级”；保留三个输入槽位，不展示胜率、不自行换算等级或输出唯一最佳选择。公开资料快照不等于虎牙私有云端实时模型。自动英雄和 OCR 都有不确定性；无法确认时隐藏旧结果并保留人工纠正，不应盲目信任识别结果。
 
 ### 文件与更新
 

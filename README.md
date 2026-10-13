@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.2-0891b2" alt="源码版本 v0.4.2"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.2"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.2 预览版"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.3-0891b2" alt="源码版本 v0.4.3"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.3 预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -37,11 +37,11 @@ Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄
 
 ### Windows
 
-1. 下载 [v0.4.2 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.2/vga-aram-helper-0.4.2-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.2/SHA256SUMS.txt)。
+1. 下载 [v0.4.3 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/vga-aram-helper-0.4.3-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/SHA256SUMS.txt)。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
 3. 确认目标游戏窗口，点击开始监测并切回游戏。默认自动识别英雄，无需预选；首次启动会准备约 5 MB 的公开头像缓存。
 
-单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.2)提供测试证据和对应源码。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3)提供测试证据和对应源码。
 
 当前预览版需手动下载；稳定版更新机制见 [UPDATES.md](UPDATES.md)。
 
@@ -77,6 +77,8 @@ python launcher.py
 
 ## 预览版与兼容性
 
+v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。版本升级前的[Windows 候选验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)实测 **116,560,469 字节（111.16 MiB），比 v0.4.2 小 22.444%**；全部测试通过。v0.4.3 会以新版本资源重新构建并重复这些门禁，最终字节数和哈希以该版清单为准，不能复用候选哈希。详见[体积记录](WINDOWS_PACKAGE_SIZE.md)和[变更日志](CHANGELOG.md)。
+
 v0.4.2 修正叠加缩放与小窗口布局：按叠加窗口自身的 Qt 缩放计算物理位置，空间不足时采用紧凑资料卡，保留三个名称、评级和来源。新鲜资料可随同一窗口平移；尺寸变化后等待重新识别。
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
@@ -88,7 +90,7 @@ v0.4.2 修正叠加缩放与小窗口布局：按叠加窗口自身的 Qt 缩放
 - [原生 EXE 测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410)：窗口捕获、OCR、评级显示、鼠标穿透与进程生命周期。
 - [更新事务测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)：同一 EXE 的本地替换、健康检查、并发锁与失败回滚。
 
-真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；v0.4.2 原生更新替换、跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
+真实 LoL/Vanguard、独占全屏及干净 Windows 10/11 环境尚未验证；上述精简候选已通过同二进制原生更新成功/并发/回滚测试；跨版本在线升级和应用内确认交接仍待测试。公开快照评级可能与虎牙私有实时模型不同，评级方法与适用游戏政策仍有未核实之处，本项目未获 Riot/腾讯批准。详细范围见 [WINDOWS_TESTING.md](WINDOWS_TESTING.md)。
 
 EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对文件哈希并保留系统安全防护。
 
@@ -104,6 +106,6 @@ EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对
 
 原创代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项；OCR 依赖、模型及其他第三方组件遵循各自许可。Release 附完整许可、对应 Qt 源码和同提交应用源码，详见[第三方声明](THIRD_PARTY_NOTICES.md)。第三方游戏资料不在本项目 MIT 许可范围内。
 
-使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.2/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。
+使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.3/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。
 
 本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。

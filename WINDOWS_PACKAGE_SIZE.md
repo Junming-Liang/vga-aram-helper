@@ -1,12 +1,28 @@
 # Windows package size
 
-This is a package-only candidate. It retains the existing offline OCR models,
-native QtWidgets overlay/capture, automatic hero and champion-selection paths,
-public-data refresh, browser diagnostics and OTA updater. It does not publish or
-replace v0.4.2. A new patch release must use its own version and pass the existing
-preview release gates after the candidate has been measured on Windows.
+v0.4.3 carries the validated package-only changes into a separately versioned
+preview. It retains offline OCR models, native QtWidgets overlay/capture,
+automatic hero and champion selection, public-data refresh, browser diagnostics
+and OTA. Existing v0.4.2 tags and assets are never replaced.
 
-## Verified baseline and current estimate
+## Measured Windows candidate
+
+[Read-only Windows run 38381001343](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)
+passed at source `8067fac4f219830694fbdcb52b5dd36de78d4779`:
+
+- EXE: **116,560,469 bytes (111.16 MiB)**
+- Reduction from v0.4.2: **33,731,073 bytes (32.17 MiB), 22.444%**
+- Candidate SHA256: `6f47c9074d91ef8d9b25390e6a59185580e0a6fb48e45b950fad6ab013a029b1`
+- Passed frozen PNG/JPEG/WebP/BMP OCR, browser, native capture/overlay at
+  100/150/200% app scale, champion-selection handoff, same-binary native OTA
+  success/concurrency/rollback, storage budget and source/license verification
+
+This candidate still had the old application version. The final **v0.4.3 EXE
+must be freshly rebuilt and tested**; its version resource and source changes
+can change its exact size/hash. The release manifest and generated release notes
+are authoritative for those final bytes. Do not substitute the candidate hash.
+
+## Verified baseline and initial estimate
 
 The immutable [v0.4.2 release](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.2)
 EXE is **150,291,542 bytes (143.33 MiB)**. Its SHA256 is
@@ -27,10 +43,10 @@ PyInstaller CArchive, not installed-wheel directory sizes:
 | Duplicate raw RapidOCR/ORT Python source files | 983,954 |
 | Total known stored payload | 32,199,704 |
 
-Subtracting those member lengths gives an **estimate of 118,091,838 bytes
+Before rebuilding, subtracting those member lengths gave an **estimate of 118,091,838 bytes
 (112.62 MiB), about 21.4% smaller**, before changes in the Python import graph
-and archive overhead. This is **not a measured candidate Windows build** and is
-not a promised final download size. Removing those entries also avoids about
+and archive overhead. The measured candidate above supersedes that estimate;
+neither figure is a promised exact v0.4.3 download size. Removing those entries also avoids about
 72 MiB of extracted payload. The build has a conservative 125,000,000-byte
 (119.21 MiB) size ceiling; exceeding it fails rather than silently regressing.
 
@@ -78,10 +94,15 @@ suite, source geometry matrix, actual EXE browser/OCR checks, native capture and
 overlay at 100/150/200% app scale, automatic hero/champion selection, and native
 OTA success/concurrency/rollback against the **newly built candidate bytes**.
 OTA remains a same-binary local fixture test, not a two-version live upgrade.
-The existing source/license release verifier runs without publication.
+The existing source/license release verifier runs without publication. The
+preview publishing workflow repeats the same gates on its newly versioned EXE,
+remeasures the release archive and requires the exact candidate OTA/format
+evidence before publishing; the new reports are included in the evidence ZIP.
 
-Only bounded small evidence is uploaded, with the existing storage-budget gate
-and one-day retention. No large EXE/source Actions artifact or release is created.
+Both workflows upload only bounded small Actions evidence, with the existing
+storage-budget gate and one-day retention. The read-only candidate workflow
+creates no release. The preview workflow publishes verified release assets
+directly, without duplicating large EXE/source files in Actions storage.
 
 `reports/windows-package-size.json` records:
 

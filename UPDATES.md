@@ -127,3 +127,10 @@ GitHub 标记为 prerelease 的原生预览版不会由稳定 `/releases/latest`
 2026-10-12 的[Windows 专项运行 #2](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458)已通过：测试源码提交 `cc88873`，使用发布源码提交 `1ce516e` 构建的原始 `v0.3.0` EXE。成功事务验证了旧窗口存活期间等待且不改目标、并发更新器被锁拒绝、文件确实替换、Qt/OCR 健康令牌与版本一致，以及完整进程退出。回滚事务将预期版本设为 `0.3.1`、保持候选真实版本 `0.3.0`，确认健康检查拒绝候选，更新器从 `.previous` 恢复原始 SHA-256 并重启原窗口。两项均通过，报告 `all_owned_processes_exited=true`。
 
 结果见该次运行摘要中的 `windows-ota-smoke.json`。这些结论仅覆盖上述同二进制本地事务，不扩展为不同版本升级、在线获取或应用内 `launch_update()` 交接已通过。
+
+
+### v0.4.3 精简包的同二进制事务门禁
+
+[精简候选验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38381001343)已经对新构建的较小 EXE 通过同二进制成功/并发/回滚测试。v0.4.3 发布工作流使用本次构建生成的 SHA-256、大小和源码提交再次运行该测试，不能以旧发布 EXE 代替。最终发布验证器同时核对更新报告、四种图片格式结果和实际重新读取的 EXE 归档。
+
+v0.4.3 保持预发布状态，稳定 `/releases/latest` 更新检查不会自动发现它，需手动下载。原有两个不同版本的在线升级、应用内确认交接和系统级异常覆盖限制保持不变。
