@@ -88,4 +88,4 @@ CI 的 Windows Server 环境不能覆盖所有个人电脑。正式发布前还�
 
 `python -m unittest discover -s tests -p test_portrait_cache.py -v` 在 Windows 上必须实际运行文件共享锁用例；Linux 跳过不能算通过这些用例。
 
-v0.4.5 发布门禁还将要求自动发现报告的源码哈希与本次源码 ZIP 相同。没有用户照片或真实对局截图被加入仓库/测试报告。
+[v0.4.5 发布运行 #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079)已通过该源码自动发现测试：全部生命周期/遮挡/清理检查通过，所有捕获与原创测试图的平均通道误差为 0.0；六份源码哈希与发布源码 ZIP 相同。同次运行七项原生头像缓存共享锁/诊断测试通过，最终 EXE 的多倍率、OCR、选人、更新、源码与许可门禁通过。源码测试与最终 EXE 证据分别记录；无真实 LoL/Vanguard 兼容性结论。没有用户照片或真实对局截图被加入仓库/测试报告。

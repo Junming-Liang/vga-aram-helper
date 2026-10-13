@@ -1,6 +1,8 @@
 # Changelog / 变更日志
 
-## 0.4.5（候选修复，Windows 验收通过前不发布）
+## v0.4.5 — Automatic windows and capture reliability / 自动窗口与捕获修复
+
+### 简体中文
 
 - 默认自动发现唯一的英雄联盟客户端/游戏，不需要选择窗口；支持先开助手后开游戏、已在对局、同目录重启与窗口重建，以及国服 LeagueClient 子目录布局。
 - 开始后最小化控制台，避免助手遮挡自己的捕获；最小化、切出、遮挡和空白帧为自动重试的等待状态。
@@ -8,6 +10,16 @@
 - 自动绑定核对本机签名与游戏文件身份；无法验证时只提供一次会话内的明确安装目录确认，不静默放宽范围。
 - 修复头像缓存被占用/拒绝写入时整批已验证头像不可用的问题；有限重试后可用本次内存模板，不把未完整缓存标成成功。
 - 增加元数据/生命周期/遮挡/回退及 Windows 真实共享锁回归。新增 Windows 自动发现测试只使用原创窗口；不代表真实 LoL/Vanguard 兼容性验证。
+
+- [Windows 发布运行 #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079)通过全部门禁并发布 [v0.4.5 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5)，源码/标签 `1939043c64554868bba3931a214d89946a339b53`。EXE 为 **106,399,997 字节（101.47 MiB）**，SHA-256：`c43d1cd0a7848cad6c7b24ffd13943c653b823c19ed3d1992669943457ad2195`。默认流程无需手动选择窗口；仍需点击开始授权本局监测。
+- Windows 源码自动发现/捕获测试全部通过，七项原生缓存锁/诊断测试通过；最终 EXE 的缩放、OCR、选人衔接、更新与源码/许可门禁通过。原创窗口测试含明确的测试文件信任注入，不代表真实 LoL/Vanguard 验证；历史 WinError 5 的占用者/根因仍不确定。
+
+### English
+
+- Default Start discovers a unique verified League client/game and follows one installation through late launch, an existing game, restart and HWND recreation. The helper minimizes to avoid covering capture; expected unavailable frames wait and retry.
+- Blank or failed HWND capture uses a guarded client-area-only compositor copy, with full higher-window intersection checks before and after capture. Ambiguous or unverifiable automatic candidates never silently broaden capture.
+- Validated portrait templates remain usable in memory when bounded cache retries fail. A local diagnostic records write stage, error codes, attributes and sharing probes without paths or pictures; the historical WinError 5 owner/cause is not established.
+- [Windows run #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079) passed every gate and published [v0.4.5](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5) from `1939043c64554868bba3931a214d89946a339b53`: **106,399,997 bytes**, SHA-256 `c43d1cd0a7848cad6c7b24ffd13943c653b823c19ed3d1992669943457ad2195`. The source-only automatic fixture, seven native cache cases and final-EXE scale/OCR/selection/OTA/source/license gates passed. Owned-window fixtures and injected fixture trust do not establish real League/Vanguard compatibility.
 
 ## v0.4.4 — Adopt minimal OpenCV / 采用精简 OpenCV
 

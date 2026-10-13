@@ -1,8 +1,18 @@
 # Windows package size
 
-v0.4.4 adopts the reviewed minimal OpenCV source-build recipe and is now
-[published as a preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.4). Published v0.4.3 and earlier tags/assets
-remain immutable. The earlier experimental EXE is recorded separately below.
+v0.4.5 retains the reviewed minimal OpenCV source-build recipe adopted in v0.4.4.
+Published tags/assets remain immutable. Earlier release and experimental measurements are preserved separately below.
+
+## Measured final v0.4.5 release
+
+[Windows release run #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079) passed all acceptance gates and published [v0.4.5](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5) with the same `minimal-opencv-v1` profile and original offline models.
+
+- Source/tag: `1939043c64554868bba3931a214d89946a339b53`
+- Final EXE: **106,399,997 bytes (101.47 MiB)**
+- Change from v0.4.4: **+56,747 bytes**
+- Final SHA256: `c43d1cd0a7848cad6c7b24ffd13943c653b823c19ed3d1992669943457ad2195`
+
+This release adds automatic-window/capture reliability and portrait-cache handling. The v0.4.4 paired timings below are historical measurements, not new v0.4.5 timing results. Same-run parity, warmed timing, source/license and frozen-EXE gates were rerun for this release.
 
 ## Measured final v0.4.4 release
 

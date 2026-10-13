@@ -2,7 +2,7 @@
 
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
-**Windows 便携版目前以预览版提供，尚非稳定正式版。** 发布文件请以 [Releases](https://github.com/Junming-Liang/vga-aram-helper/releases) 为准；构建结果可在 [Actions](https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/windows-build.yml) 查看。
+**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.5](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5)，并核对同版 SHA-256；该版本构建结果见 [Windows 发布运行 #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079)。
 
 ## 运行
 
@@ -12,7 +12,7 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
-3. v0.4.5 源码默认使用“自动识别英雄联盟”，点击开始即可。控制台会最小化以免遮挡游戏；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。旧版 v0.4.4 仍需指定窗口。
+3. v0.4.5 默认使用“自动识别英雄联盟”，点击开始即可。控制台会最小化以免遮挡游戏；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
 4. 资料显示在透明置顶叠加层中；默认鼠标穿透，`Ctrl+Alt+O` 可切换。关闭主控制窗口会停止监测并关闭叠加层。
 
 首次启动需要解压内置依赖并检查数据，可能稍慢。请使用普通用户权限运行，避免放入系统目录。Windows ARM64、32 位和 Windows 7/8 暂不支持，Wine 未验证。
