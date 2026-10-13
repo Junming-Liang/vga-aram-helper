@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.3 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.4 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.3
+  group: vga-native-preview-v0.4.4
   cancel-in-progress: false
 
 jobs:
@@ -20,12 +20,14 @@ jobs:
     # Standard GitHub-hosted runner only; this workflow targets the public repo.
     if: ${{ inputs.publish_preview && github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: write
       actions: read
     env:
       PYTHONUTF8: '1'
+      ORT_DISABLE_TELEMETRY: '1'
+      VGA_RELEASE_PACKAGE_PROFILE: 'minimal-opencv-v1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
     defaults:
       run:
@@ -49,6 +51,8 @@ jobs:
           New-Item -ItemType Directory -Force reports | Out-Null
           python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
       - name: Python unit tests
+        env:
+          VGA_RELEASE_PACKAGE_PROFILE: ''
         run: python -m unittest discover -s tests -v
       - name: JavaScript checks
         run: |
@@ -65,6 +69,23 @@ jobs:
         run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
       - name: Install and use approved free Community C++ runtime tooling
         run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
+      - name: Probe official pinned OpenCV on this Windows runner
+        run: python scripts/probe_opencv_parity.py generate --output reports/windows-opencv-baseline.json
+      - name: Rebuild adopted hash-pinned OpenCV with the approved Community compiler
+        run: python scripts/build_minimal_opencv.py
+      - name: Probe adopted OpenCV in a fresh interpreter and require exact parity
+        run: |
+          python scripts/probe_opencv_parity.py generate --output reports/windows-opencv-candidate.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/probe_opencv_parity.py compare reports/windows-opencv-baseline.json reports/windows-opencv-candidate.json --output reports/windows-opencv-parity.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
+      - name: Re-run Python tests with the adopted native library
+        env:
+          VGA_RELEASE_PACKAGE_PROFILE: ''
+        run: python -m unittest discover -s tests -v
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Install mandatory official browser test dependencies
@@ -114,6 +135,12 @@ jobs:
         if: ${{ always() }}
         run: |
           '## Windows EXE verification' >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path reports/windows-opencv-parity.json) {
+            Get-Content reports/windows-opencv-parity.json >> $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path reports/windows-package-size.json) {
+            Get-Content reports/windows-package-size.json >> $env:GITHUB_STEP_SUMMARY
+          }
           if (Test-Path reports/windows-exe-smoke.json) {
             Get-Content reports/windows-exe-smoke.json >> $env:GITHUB_STEP_SUMMARY
           } else {
