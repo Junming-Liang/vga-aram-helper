@@ -108,3 +108,11 @@ SHA-256 可检查文件损坏或不一致，但不能替代代码签名，也不
 - [PyInstaller 运行时资源](https://pyinstaller.org/en/stable/runtime-information.html)
 - [PyInstaller 官方发行包](https://pypi.org/project/pyinstaller/6.22.3/)
 - [RapidOCR 模型许可](https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/)
+
+## Package-size candidate validation
+
+See [WINDOWS_PACKAGE_SIZE.md](WINDOWS_PACKAGE_SIZE.md) for the verified v0.4.2
+size baseline, reviewed package-only removals, measured archive report and
+regression ceiling. The manual read-only `test-windows-package-size.yml` workflow
+runs the full frozen-EXE acceptance suite plus all supported image formats and
+native same-binary OTA transactions. It does not modify existing releases.

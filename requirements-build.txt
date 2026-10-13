@@ -1,4 +1,5 @@
 # Maintainer-only Windows x64 build dependencies from official PyPI.
+-c packaging/windows-build-constraints.txt
 -r requirements-ocr.txt
 pyinstaller==6.22.3
 
