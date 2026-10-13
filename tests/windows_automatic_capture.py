@@ -87,8 +87,12 @@ def make_original_png(path, size):
     for row in range(4):
         for column in range(6):
             x, y = column * width // 6, row * height // 4
-            draw.rectangle((x + 5, y + 5, (column + 1) * width // 6 - 6,
-                            (row + 1) * height // 4 - 6), fill=colors[(row + column) % 4])
+            right, bottom = (column + 1) * width // 6, (row + 1) * height // 4
+            # Keep the original 5px game-scene margins; tiny occluder cells
+            # need smaller insets so every rectangle still has ordered bounds.
+            pad_x, pad_y = min(5, (right - x) // 8), min(5, (bottom - y) // 8)
+            draw.rectangle((x + pad_x, y + pad_y, right - pad_x - 1,
+                            bottom - pad_y - 1), fill=colors[(row + column) % 4])
     draw.rectangle((width // 4, height // 4, width // 4 + 70, height // 4 + 70), fill=(239, 53, 184))
     image.save(path, format='PNG')
     return image
