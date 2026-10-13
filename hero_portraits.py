@@ -7,17 +7,103 @@ partial dictionary cannot create misleading runner-up confidence margins.
 from __future__ import annotations
 import hashlib
 import io
+import os
 from pathlib import Path
 import re
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from update_network import fetch_bytes, strict_json, atomic_write, json_bytes, UpdateError
+from update_network import fetch_bytes, strict_json, json_bytes, UpdateError
 
 HOSTS=frozenset({'ddragon.leagueoflegends.com'})
 BASE='https://ddragon.leagueoflegends.com'
 VERSION_URL=BASE+'/api/versions.json'
 MAX_PORTRAITS=400
+# Keep cache contention and Windows sharing-lock recovery bounded. Stripes avoid
+# retaining a lock for every historical cache path/version in a long-lived app.
+_CACHE_LOCKS=tuple(threading.Lock() for _ in range(32))
+_CACHE_RETRY_DELAYS=(0.05,0.15,0.3)
+_CACHE_LOCK_TIMEOUT=0.5
+
+
+def _check_active(cancelled,deadline):
+    if cancelled.is_set():raise UpdateError('Portrait loading cancelled')
+    if time.monotonic()>=deadline:raise UpdateError('Portrait loading timed out')
+
+
+def _write_cache(path,payload,*,cancelled,deadline):
+    """Best-effort persistence; callers may use verified images without a cache.
+
+    Never delete/modify an existing destination to bypass a sharing lock. Only
+    Windows access/sharing/lock errors from replacement get a short retry; disk
+    space, directory permissions and other failures return to the caller.
+    """
+    path=Path(path)
+    from portrait_cache_diagnostics import capture_failure,error_codes
+    lock=_CACHE_LOCKS[hash(os.path.normcase(str(path.resolve())))%len(_CACHE_LOCKS)]
+    lock_deadline=min(deadline,time.monotonic()+_CACHE_LOCK_TIMEOUT)
+    while True:
+        _check_active(cancelled,deadline)
+        remaining=lock_deadline-time.monotonic()
+        if remaining<=0:
+            error=OSError('Portrait cache is busy')
+            error.cache_diagnostic=capture_failure(path,None,'acquire-lock',error,
+                                                  temp_created=False,temp_flushed=False,temp_closed=False)
+            raise error
+        if lock.acquire(timeout=min(0.05,remaining)):break
+    temporary=None;stage='inspect-existing';diagnostic=None
+    temp_created=False;temp_flushed=False;temp_closed=False
+    def record(error):
+        nonlocal diagnostic
+        if diagnostic is None:
+            diagnostic=capture_failure(path,temporary,stage,error,temp_created=temp_created,
+                                       temp_flushed=temp_flushed,temp_closed=temp_closed)
+        diagnostic['attemptErrors'].append({'stage':stage,**error_codes(error)})
+        return diagnostic
+    try:
+        _check_active(cancelled,deadline)
+        # Concurrent loads, interrupted downloads and another app instance may
+        # already have written these exact verified bytes. Do not replace them.
+        try:
+            with path.open('rb') as handle:
+                if handle.read(len(payload)+1)==payload:return
+        except OSError:pass
+        stage='create-directory'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        stage='create-temp'
+        fd,temporary=tempfile.mkstemp(prefix='.'+path.name+'-',dir=path.parent)
+        temp_created=True;stage='write-temp'
+        handle=None
+        try:
+            with os.fdopen(fd,'wb') as handle:
+                handle.write(payload);stage='flush-temp';handle.flush();os.fsync(handle.fileno());temp_flushed=True
+        finally:temp_closed=handle is not None and handle.closed
+        stage='replace'
+        # The temp handle MUST be closed before replacement on Windows.
+        for attempt in range(len(_CACHE_RETRY_DELAYS)+1):
+            _check_active(cancelled,deadline)
+            try:
+                os.replace(temporary,path)
+                if diagnostic is not None:diagnostic['outcome']='recovered-after-retry'
+                return diagnostic
+            except OSError as exc:
+                record(exc)
+                if getattr(exc,'winerror',None) not in (5,32,33) or attempt==len(_CACHE_RETRY_DELAYS):raise
+                cancelled.wait(min(_CACHE_RETRY_DELAYS[attempt],max(0,deadline-time.monotonic())))
+    except OSError as exc:
+        if diagnostic is None:record(exc)
+        exc.cache_diagnostic=diagnostic
+        raise
+    finally:
+        try:
+            if temporary is not None:
+                try:os.unlink(temporary)
+                except FileNotFoundError:pass
+                except OSError as exc:
+                    if diagnostic is not None:diagnostic['cleanupError']=error_codes(exc)
+                    # Never mask the write result or touch unrelated files.
+        finally:lock.release()
 
 
 def decode_portrait(payload):
@@ -45,8 +131,16 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
     """Return complete decoded bank + provenance/status; no dependency installs."""
     cache=Path(cache_dir);fetcher=fetcher or fetch_bytes;deadline=time.monotonic()+150
     cancelled=cancelled or threading.Event()
+    cache_diagnostics=[];diagnostic_lock=threading.Lock()
+    def diagnostic_status(status):
+        if not cache_diagnostics:return status
+        from portrait_cache_diagnostics import report,save_report
+        details=report(cache_diagnostics)
+        saved=save_report(cache,details)
+        return {**status,'cacheDiagnostics':details,'cacheDiagnosticSaved':saved,
+                'message':status['message']+'；可点击“头像缓存诊断”查看本地错误详情。'}
     def fetch(url,limit):
-        if cancelled.is_set():raise ValueError('Portrait loading cancelled')
+        _check_active(cancelled,deadline)
         return fetcher(url,max_bytes=limit,hosts=HOSTS,timeout=8,deadline=deadline)
     def cached():
         raw=(cache/'manifest.json').read_bytes()
@@ -72,16 +166,32 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
         version=versions[0]
         if bank is not None and status['version']==version:return bank,{**status,'state':'current','message':status['message']+'；已检查官方版本'}
         roster_url=f'{BASE}/cdn/{version}/data/en_US/champion.json';roster=fetch(roster_url,2*1024*1024);records=parse_roster(roster,version)
+        cache_failed=threading.Event()
+        def persist(path,payload):
+            _check_active(cancelled,deadline)
+            if cache_failed.is_set():return
+            diagnostic=None
+            try:diagnostic=_write_cache(path,payload,cancelled=cancelled,deadline=deadline)
+            except OSError as exc:
+                cache_failed.set();diagnostic=getattr(exc,'cache_diagnostic',None)
+            if diagnostic is not None:
+                from portrait_cache_diagnostics import retain_failure
+                with diagnostic_lock:
+                    retain_failure(cache_diagnostics,diagnostic)
         def download(record):
             payload=fetch(record['url'],1024*1024);image=decode_portrait(payload)
-            atomic_write(cache/version/record['asset'],payload)
+            persist(cache/version/record['asset'],payload)
             return record,hashlib.sha256(payload).hexdigest(),image
         with ThreadPoolExecutor(max_workers=6,thread_name_prefix='vga-public-portrait') as pool:results=list(pool.map(download,records))
-        bank={};hashes={}
-        for record,sha,image in results:bank[record['championId']]=image;hashes[record['asset']]=sha
+        fresh_bank={};hashes={}
+        for record,sha,image in results:fresh_bank[record['championId']]=image;hashes[record['asset']]=sha
         manifest={'version':version,'rosterUrl':roster_url,'rosterSha256':hashlib.sha256(roster).hexdigest(),'hashes':hashes,'source':VERSION_URL,'fetchedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'rights':'Riot-owned Data Dragon assets; local recognition cache only; no game screenshots transmitted.'}
-        atomic_write(cache/f'roster-{version}.json',roster);atomic_write(cache/'manifest.json',json_bytes(manifest))
-        return bank,{'state':'fresh','version':version,'source':VERSION_URL,'count':len(bank),'message':f'本人头像模板 {version}（Riot Data Dragon，{len(bank)} 英雄）'}
+        persist(cache/f'roster-{version}.json',roster);persist(cache/'manifest.json',json_bytes(manifest))
+        _check_active(cancelled,deadline)
+        message=f'本人头像模板 {version}（Riot Data Dragon，{len(fresh_bank)} 英雄）'
+        if cache_failed.is_set():
+            message+='；本地缓存写入失败，本次仍可自动识别，下次启动可能需重新下载。请关闭其他助手实例后重试，并检查缓存目录是否可写。'
+        return fresh_bank,diagnostic_status({'state':'memory-only' if cache_failed.is_set() else 'fresh','version':version,'source':VERSION_URL,'count':len(fresh_bank),'message':message})
     except Exception as exc:
-        if bank is not None and not cancelled.is_set():return bank,{**status,'message':status['message']+'；网络更新失败，头像版本可能较旧'}
-        return {},{'state':'unavailable','message':'自动英雄模板不可用：'+str(exc)+'；不会猜测英雄，可人工纠正。'}
+        if bank is not None and not cancelled.is_set():return bank,diagnostic_status({**status,'message':status['message']+'；网络更新失败，头像版本可能较旧'})
+        return {},diagnostic_status({'state':'unavailable','message':'自动英雄模板不可用：'+str(exc)+'；不会猜测英雄，可人工纠正。'})

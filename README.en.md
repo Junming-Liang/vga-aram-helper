@@ -65,7 +65,7 @@ python launcher.py
 
 ### Start in champion select
 
-Select the client window, leave same-installation new-game handoff enabled, and click Start. The highlighted own champion row, central exact name and post-choice skin thumbnails must agree in two observations. Initial cards, hovered previews and bench choices are not treated as your assignment. Changed assignments require new evidence; this is not an irrevocable lock.
+In the v0.4.5 source, keep the default automatic League discovery and click Start. The helper minimizes and follows the same installation’s client/game, including an already running match or later launch. The download links above remain the last Windows-verified release until this candidate passes its gates. The highlighted own champion row, central exact name and post-choice skin thumbnails must agree in two observations. Initial cards, hovered previews and bench choices are not treated as your assignment. Changed assignments require new evidence; this is not an irrevocable lock.
 
 Only a unique newly started game process from the same installation may be adopted. Changing the handoff option or stopping revokes the session. Conflicting HUD identity, uncertain scenes and observation timeouts clear carried evidence; manual correction remains available. Cards explicitly identify selection-derived identity until own-HUD verification. See [champion-select scope](CHAMPION_SELECTION.md).
 

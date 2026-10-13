@@ -79,3 +79,13 @@ CI 的 Windows Server 环境不能覆盖所有个人电脑。正式发布前还�
 - [Playwright CI 指南](https://playwright.dev/python/docs/ci)
 - [Playwright 浏览器管理](https://playwright.dev/python/docs/browsers)
 - [GitHub Actions 计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+## v0.4.5 自动发现/捕获回归
+
+`python tests/native_discovery_qt_validation.py` 在 Qt offscreen 控件上验证默认不选窗口的 Start、后启动客户端、已有游戏、PID/HWND 替换、停止后的旧回调和会话内目录确认。这里的系统元数据和签名接受为合成替身，不是 Windows 证据。
+
+`python tests/windows_automatic_capture.py --reports reports` 在真实 Windows 上编译并管理原创 Win32 窗口，使用实际路径/PID 创建时间和 OS 像素，默认 Start 不指定 HWND。仅该源码测试注入“本次临时目录内的原创可执行文件”发行商验证器；普通程序没有测试豁免。报告单独标记信任替身。原生 WinVerifyTrust 另以已签名系统文件、未签名原创文件及篡改副本测试。
+
+`python -m unittest discover -s tests -p test_portrait_cache.py -v` 在 Windows 上必须实际运行文件共享锁用例；Linux 跳过不能算通过这些用例。
+
+v0.4.5 发布门禁还将要求自动发现报告的源码哈希与本次源码 ZIP 相同。没有用户照片或真实对局截图被加入仓库/测试报告。

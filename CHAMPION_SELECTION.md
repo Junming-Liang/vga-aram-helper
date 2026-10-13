@@ -1,6 +1,6 @@
-# Champion-select handoff / 选人衔接（v0.4.1）
+# Champion-select handoff / 选人衔接
 
-Experimental screenshot-only selection recognition. Select the League client and explicitly Start with handoff enabled. No nickname setup or hero preselection is required. The [v0.4.1 Windows EXE gate](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38265698203) passed with original owned client/game fixtures, actual window metadata and local OCR. This validates the synthetic session flow; current real-client and live-game compatibility remain unverified.
+Experimental screenshot-only selection recognition. In v0.4.5 source, keep automatic League discovery selected and explicitly Start with handoff enabled. No nickname setup or hero preselection is required. The [v0.4.1 Windows EXE gate](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38265698203) passed with original owned client/game fixtures, actual window metadata and local OCR. This validates the synthetic session flow; current real-client and live-game compatibility remain unverified.
 
 ## Evidence and limits
 
@@ -13,7 +13,7 @@ Experimental screenshot-only selection recognition. Select the League client and
 
 ## Capture consent and OS metadata
 
-`session_windows.py` binds the explicitly selected client’s HWND, PID, process creation time and final executable path. The client must be `LeagueClientUx.exe` or `LeagueClient.exe`. A newly created unique `Game/League of Legends.exe` under the same final installation root may be adopted only within the active session. Pre-existing games, another installation, multiple game windows, PID reuse and changed HWND identities fail closed.
+`automatic_windows.py` binds the unique verified client/game installation after Start; `session_windows.py` retains the explicit selected-window diagnostic policy. Automatic discovery checks the executable signature/product identity or asks for an explicit session-only installation confirmation when it cannot establish that identity. It pins HWND, PID, process creation time and final executable path. The client must be `LeagueClientUx.exe` or `LeagueClient.exe`. A newly created unique `Game/League of Legends.exe` under the same final installation root may be adopted only within the active session. The automatic path can connect to a pre-existing game using fresh HUD evidence; it cannot inherit a prior selection. Another installation or multiple game windows are never guessed. PID reuse/window recreation invalidate old observations and require a fresh unique binding. The older selected-client diagnostic policy still requires a newly started game for its selection handoff.
 
 Windows process handles request only `PROCESS_QUERY_LIMITED_INFORMATION (0x1000)` for `QueryFullProcessImageNameW` and `GetProcessTimes`. Final-path resolution uses `FILE_READ_ATTRIBUTES (0x80)` to resolve junctions/reparse paths. No process-memory access right, memory reads, LCU/private client API, injection or input hooks are used. A filename is not a security certification; these checks constrain capture scope rather than certify the game executable.
 

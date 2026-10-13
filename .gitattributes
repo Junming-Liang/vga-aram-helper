@@ -11,3 +11,11 @@ champion_select.py text eol=lf
 scripts/build_minimal_opencv.py text eol=lf
 packaging/opencv-minimal-patch.py text eol=lf
 packaging/opencv-build-requirements.txt text eol=lf
+
+# Raw-byte Windows automatic-capture evidence must match the source ZIP on all hosts.
+automatic_windows.py text eol=lf
+native_ui.py text eol=lf
+screen_capture.py text eol=lf
+session_windows.py text eol=lf
+tests/windows_automatic_capture.py text eol=lf
+tests/SessionWindowFixture.cs text eol=lf

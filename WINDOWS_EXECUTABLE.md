@@ -12,7 +12,7 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
-3. 在列表中明确选择目标窗口并点击开始监测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
+3. v0.4.5 源码默认使用“自动识别英雄联盟”，点击开始即可。控制台会最小化以免遮挡游戏；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。旧版 v0.4.4 仍需指定窗口。
 4. 资料显示在透明置顶叠加层中；默认鼠标穿透，`Ctrl+Alt+O` 可切换。关闭主控制窗口会停止监测并关闭叠加层。
 
 首次启动需要解压内置依赖并检查数据，可能稍慢。请使用普通用户权限运行，避免放入系统目录。Windows ARM64、32 位和 Windows 7/8 暂不支持，Wine 未验证。
@@ -120,3 +120,15 @@ size baseline, reviewed package-only removals, measured archive report and
 regression ceiling. The manual read-only `test-windows-package-size.yml` workflow
 runs the full frozen-EXE acceptance suite plus all supported image formats and
 native same-binary OTA transactions. It does not modify existing releases.
+
+## v0.4.5 自动连接与捕获边界
+
+正常路径不需要指定 HWND。每次“开始”绑定一个安装目录，自动核对窗口类、系统报告的完整可执行文件路径、PID 创建时间、Windows 离线 Authenticode 信任及签名文件的游戏产品身份。支持根目录客户端与国服 `LeagueClient` 子目录，游戏必须位于同根目录的 `Game` 中。多个安装或同类窗口时等待，不猜测。
+
+未知签名/产品身份不会偷偷放行；任务栏提示用户打开控制台，查看具体程序并明确确认自己的安装目录。该确认只对当前监测有效，停止即撤销；不修改 Windows 信任或安全设置。当前中国/国际客户端所有发行商变体尚未实机覆盖。
+
+游戏为空白、切出、最小化、被其他窗口遮挡或窗口重建时自动等待/重试。HWND GDI 不返回可用像素时，后备方式仅分配并复制目标客户区内的像素，不创建整桌面图像；捕获前后检查前台、窗口身份、完整显示器内范围以及所有更高窗口的相交情况。跨屏或部分移出屏幕的客户区会等待。控制台仅在开始成功后最小化，不操作游戏输入。
+
+头像完整下载并校验后，即使本地缓存写入被其他进程短暂锁住，也可在当前运行使用内存中的模板；缓存状态会如实说明。不会要求以管理员身份启动或关闭防护软件。
+
+这些是针对已收到错误和源码复现的修复。Windows 原创模拟窗口、真实文件共享锁与原生签名 API 测试仍不等于真实 LoL/Vanguard 对局验证。
