@@ -251,15 +251,30 @@ def community_toolchain(proof):
 
 
 def parse_cmake_cache(text):
-    result = {}
-    for line in text.splitlines():
+    """Parse CMake's quoted-key syntax without merging distinct MSVC flag keys."""
+    result = {}; entries = {}
+    cache_types = {'BOOL', 'FILEPATH', 'PATH', 'STRING', 'INTERNAL', 'STATIC', 'UNINITIALIZED'}
+    for number, line in enumerate(text.splitlines(), 1):
         if not line or line.startswith(('#', '//')):
             continue
-        match = re.fullmatch(r'([^:=]+):[^=]+=(.*)', line)
-        if match:
-            if match[1] in result:
-                raise RuntimeError('Duplicate CMake cache key')
-            result[match[1]] = match[2]
+        # CMake cmState::ParseCacheEntry checks quoted keys before unquoted keys.
+        # For example, "HAVE_CXX_ARCH:AVX2":INTERNAL=1 is one complete key.
+        match = re.fullmatch(r'"([^"\r\n]+)":([^:=\r\n]+)=(.*)', line)
+        if match is None:
+            match = re.fullmatch(r'([^:="\r\n]+):([^:=\r\n]+)=(.*)', line)
+        if match is None or match[2] not in cache_types:
+            raise RuntimeError(f'Malformed CMake cache entry at line {number}')
+        key, kind, value = match.groups()
+        if key in result:
+            prior_number, prior_kind = entries[key]
+            raise RuntimeError(f'Duplicate CMake cache key {key[:160]!r}: '
+                               f'{prior_kind} at line {prior_number}, {kind} at line {number}')
+        # CMake uses single quotes to preserve trailing whitespace in values.
+        value = value.rstrip('\r\t ')
+        if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+        result[key] = value
+        entries[key] = (number, kind)
     return result
 
 
