@@ -92,6 +92,19 @@ valid_provenance_fixture = provenance_fixture
 
 
 class MinimalOpenCVTests(unittest.TestCase):
+    def test_failure_diagnostic_is_bounded_sanitized_and_not_an_actions_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'build.log'
+            path.write_bytes(b'old-prefix'*10000+b'\n::error::CMake Error: failed\n'
+                b'https://person:password@example.invalid/path\nAuthorization: Bearer test-credential\n'
+                b'API_TOKEN=abc123 SECRET=hidden password=hidden\n\x1b[31merror C1000: compiler failure\x1b[0m\n')
+            tail=build.sanitized_log_tail(path, limit=512)
+            self.assertNotIn('person:password',tail);self.assertNotIn('test-credential',tail)
+            self.assertNotIn('abc123',tail);self.assertNotIn('hidden',tail);self.assertNotIn('\x1b',tail)
+            self.assertIn('error C1000: compiler failure',tail)
+            self.assertTrue(all(line.startswith('[opencv-build] ') for line in tail.splitlines()))
+            self.assertLessEqual(len(tail.encode()),512)
+
     def test_frontend_adapter_has_one_generator_and_intact_arguments(self):
         options = provenance_fixture('a'*40)['cmake_options']
         args = ['-D'+key+'='+value for key, value in options.items()]
