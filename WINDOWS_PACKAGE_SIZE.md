@@ -1,9 +1,83 @@
 # Windows package size
 
-v0.4.3 carries the validated package-only changes into a separately versioned
-preview. It retains offline OCR models, native QtWidgets overlay/capture,
-automatic hero and champion selection, public-data refresh, browser diagnostics
-and OTA. Existing v0.4.2 tags and assets are never replaced.
+v0.4.4 adopts the reviewed minimal OpenCV source-build recipe. **Its final
+versioned Windows release build is still pending verification; there is no final
+v0.4.4 EXE size or hash in this document yet.** The successful experiment below
+still had application version v0.4.3. It must not be relabeled or reused as the
+v0.4.4 release. Published v0.4.3 and earlier tags/assets remain immutable.
+
+## v0.4.4 adoption and pending release gate
+
+The publishing workflow explicitly selects
+`VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`, rebuilds the hash-pinned
+OpenCV source with the reviewed Community compiler recipe, and records the
+truthful custom distribution version `5.0.0.93+vga1` (native `5.0.0`). It must
+repeat the official-versus-custom paired Windows comparisons before freezing.
+Read-only experiment artifacts remain ineligible for publication, even when an
+environment flag is later cleared.
+
+The adopted release has a **110,000,000-byte** regression ceiling against the
+immutable v0.4.3 baseline. The separate read-only experiment retains its
+115,000,000-byte ceiling. The release still has to pass all of the following on
+its freshly built, exact-version bytes:
+
+- Exact image-operation/full-OCR/hero output comparisons and warmed timing checks;
+  adopted publication stops if a workload median, recomputed from seven raw
+  samples, is both more than 15% and more than 5 ms slower. The isolated
+  experiment retains its coarser 50% + 5 ms screen. A hit pauses automatic
+  publication for diagnosis, not blind reruns until a passing sample appears
+- Unchanged SHA-256 identities of all three original offline OCR models
+- Frozen PNG/JPEG/WebP/BMP OCR and ICC-bearing PNG/JPEG/WebP decoding/OCR
+- Native capture/overlay at 100/150/200% application scale, automatic champion,
+  owned champion-selection handoff, browser diagnostics and source DPI matrix
+- Exact-binary local OTA success/concurrency/rollback, with process cleanup
+- Qt/Microsoft Community CRT and custom OpenCV provenance, complete notices,
+  corresponding Qt/application source, and final asset identity checks. The
+  downloadable supplemental-license ZIP and exact recipe/source/native-binary
+  bindings to paired parity evidence are verified before publication
+
+The new build removes only unused OpenCV modules and unused Pillow font/CMS
+native extensions. Qt renders application text and keeps its font support.
+Offline recognition, native QtWidgets capture/overlay, automatic champion and
+selection, public-data refresh, browser diagnostics and OTA are retained. No
+model quantization, recognition-resolution/threshold change, UPX, custom
+bootloader or first-run model download is introduced. Maintaining pinned source,
+downstream packaging patches, compiler settings and complete license evidence
+is an explicit additional maintenance cost. Byte-identical rebuilds across
+changing hosted runner/compiler images are not promised.
+
+v0.4.4 remains a prerelease excluded from stable OTA. Until its new release gates
+succeed, the README continues to link the published v0.4.3 download. See the
+[recipe and full evidence scope](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md).
+
+## Successful second-round experiment, not the v0.4.4 release
+
+[Read-only Windows run 38410925432](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432)
+succeeded in 14 minutes 5 seconds at source
+`db5db2b92c61df179491a432316cdd022466a6e8`:
+
+- Experimental EXE, still application v0.4.3: **106,342,697 bytes (101.42 MiB)**
+- Saving against released v0.4.3: **10,216,516 bytes (9.74 MiB), 8.765%**
+- Experimental SHA256: `6c718e88b4acd7dc59231ebb7a3867d415290378ee44300e3a70231e78443f2d`
+- Exact parity: **112 image outputs, 10 full OCR outputs, eight hero results**
+- All four format, three ICC-format, native scale/capture/selection, exact-binary
+  OTA, source/Qt/Community CRT/license and unchanged-model gates passed
+
+Seven measured samples after two warmups on the same Windows runner produced
+these medians (official wheel → custom wheel):
+
+| Workload | Baseline ms | Custom ms | Change |
+| --- | ---: | ---: | ---: |
+| OCR application demo | 207.8164 | 211.7380 | +1.89%, +3.92 ms |
+| Hero matching, 1080p | 33.4690 | 32.1846 | −3.84% |
+| Owned synthetic-window capture | 9.9120 | 9.3513 | −5.66% |
+
+No meaningful regression was shown in these tested samples. This is not a
+universal performance guarantee, general screenshot accuracy measurement, real
+LoL/Vanguard validation or a clean Windows 10/11 machine test. The genuine
+screenshot reports were separately rerun with v0.4.4 source on Linux using the
+**official** wheel and retain their abstentions; they do not evaluate the custom
+Windows wheel. Final v0.4.4 metrics must come from its own build and manifest.
 
 ## Measured v0.4.3 release
 
@@ -62,12 +136,12 @@ Before rebuilding, subtracting those member lengths gave an **estimate of 118,09
 (112.62 MiB), about 21.4% smaller**, before changes in the Python import graph
 and archive overhead. The measured candidate above supersedes that estimate;
 the final v0.4.3 measurement is reported separately above. Removing those entries also avoids about
-72 MiB of extracted payload. The build has a conservative 125,000,000-byte
-(119.21 MiB) size ceiling; exceeding it fails rather than silently regressing.
+72 MiB of extracted payload. The v0.4.3 build used a conservative 125,000,000-byte
+(119.21 MiB) size ceiling; v0.4.4 uses the stricter adopted-profile ceiling above.
 
-## Why the removals preserve application features
+## First-round removals retained from v0.4.3
 
-- OpenCV still-image processing remains unchanged. Native screen capture does
+- First-round packaging did not change OpenCV still-image processing. Native screen capture does
   not use video decoding, VideoCapture or VideoWriter.
 - ONNX Runtime's Python extension includes the CPU inference implementation;
   the separate C API DLL is not imported by this Python application. The pinned
@@ -99,11 +173,14 @@ the final v0.4.3 measurement is reported separately above. Removing those entrie
 
 ## Reproduce and validate
 
-Build with the normal `scripts/build_windows.py` workflow on native Windows x64.
+For v0.4.4, use the publishing workflow’s explicit adopted profile and paired
+comparison gates described above. `scripts/build_windows.py` freezes the newly
+built custom wheel on native Windows x64; setting a profile alone does not
+replace the required source-build provenance or paired evidence.
 `packaging/windows-build-constraints.txt` fixes the baseline's transitive runtime
 and build dependency versions to avoid accidental upgrades during comparison.
 
-The manual `test-windows-package-size.yml` workflow uses the standard public
+The first-round manual `test-windows-package-size.yml` workflow uses the standard public
 `windows-2022` runner with read-only repository permission. It runs the Python/JS
 suite, source geometry matrix, actual EXE browser/OCR checks, native capture and
 overlay at 100/150/200% app scale, automatic hero/champion selection, and native
@@ -114,7 +191,7 @@ preview publishing workflow repeats the same gates on its newly versioned EXE,
 remeasures the release archive and requires the exact candidate OTA/format
 evidence before publishing; the new reports are included in the evidence ZIP.
 
-Both workflows upload only bounded small Actions evidence, with the existing
+The workflows upload only bounded small Actions evidence, with the existing
 storage-budget gate and one-day retention. The read-only candidate workflow
 creates no release. The preview workflow publishes verified release assets
 directly, without duplicating large EXE/source files in Actions storage.

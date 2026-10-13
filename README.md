@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.3-0891b2" alt="源码版本 v0.4.3"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.4-0891b2" alt="源码版本 v0.4.4"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.3 预览版"></a>
 </p>
 <p align="center">
@@ -43,7 +43,7 @@ Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄
 
 单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3)提供测试证据和对应源码。
 
-当前预览版需手动下载；稳定版更新机制见 [UPDATES.md](UPDATES.md)。
+上方为已发布的 v0.4.3。v0.4.4 源码已采用新的 Windows 打包配方，最终发布构建仍待验证；请勿把实验包体积或哈希作为 v0.4.4 下载依据。预览版需手动下载，稳定 OTA 不自动发现；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -73,17 +73,23 @@ python launcher.py
 
 资料来自[虎牙官方公开 wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1)。评级使用对应英雄的原始记录；资料卡标注来源日期、数据包与游戏资料版本。来源日期和获取时间分别记录，便于判断资料时效。格式与字段说明见 [DATA.md](DATA.md)。
 
-采集范围为所选前台窗口的可见客户区；启用选人接续时，还包括经安装路径和进程创建时间核验的本局新游戏窗口。仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。联网仅用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
+采集范围为所选前台窗口的可见客户区；启用选人接续时，还包括经安装路径和进程创建时间核验的本局新游戏窗口。仅处理屏幕像素，不读取游戏进程内存。正常监测截图在本机内存中处理，不保存或上传；显式合成诊断可保存测试图。应用主动联网用于公开数据、Riot Data Dragon 头像缓存与软件更新；截图不发送给这些服务。头像为 Riot 所有，不随源码或 EXE 打包。
+
+v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，同时保留 API 退出设置。[官方 ORT 1.31.0 文档](https://github.com/microsoft/onnxruntime/blob/v1.31.0/docs/Privacy.md)说明 API 可能晚于最小初始化。这是退出设置加固，不推断此前是否发生传输，也不是网络防火墙或完整出站审计。
 
 ## 预览版与兼容性
 
+v0.4.4 采用已审查的最小 OpenCV 源码构建，明确标记为自编译 `5.0.0.93+vga1`（原生版本 `5.0.0`）。保留全部离线模型、四种截图格式与现有功能；去除未使用的 Pillow 字体/CMS 扩展，Qt 字体不变。代价是需要继续维护固定源码、补丁、Community 编译器配方与许可证证据。常规源码安装仍使用官方 wheel。
+
+[只读 Windows 实验](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432)全部门禁通过，实验包为 **106,342,697 字节，比 v0.4.3 小 8.765%**；但该 EXE 内部仍为 v0.4.3，**不是最终 v0.4.4 体积或哈希**。同机 112 项图像输出、10 项 OCR 输出、8 项英雄结果一致；OCR 中位数 207.8164→211.738 ms（+1.89%，+3.92 ms），英雄匹配与捕获中位数均下降。每项 2 次预热、7 次测量的样本未显示明显退步，不代表所有电脑。v0.4.4 必须重新构建并通过全部发布门禁；详见[体积与发布状态](WINDOWS_PACKAGE_SIZE.md)、[验证配方](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)及[变更日志](CHANGELOG.md)。
+
 v0.4.3 精简未使用的打包依赖与设计源图，保留完整离线 OCR、原生叠加层、自动英雄/选人衔接、数据刷新及更新功能。[最终 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875)全部通过，发布 EXE 实测 **116,559,213 字节（111.16 MiB），比 v0.4.2 小 22.445%**。请核对上方同版 SHA-256；详见[体积记录](WINDOWS_PACKAGE_SIZE.md)和[变更日志](CHANGELOG.md)。
 
-v0.4.2 修正叠加缩放与小窗口布局：按叠加窗口自身的 Qt 缩放计算物理位置，空间不足时采用紧凑资料卡，保留三个名称、评级和来源。新鲜资料可随同一窗口平移；尺寸变化后等待重新识别。
+v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以及固定叠加布局造成的小窗口问题：按叠加窗口自身的 Qt 缩放计算物理位置，空间不足时采用紧凑资料卡，保留三个名称、评级和来源。新鲜资料可随同一窗口平移；尺寸变化后等待重新识别。
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
 
-当前公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+v0.4.4 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 
 以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 

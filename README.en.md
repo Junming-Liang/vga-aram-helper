@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.3-0891b2" alt="Source version v0.4.3"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.4-0891b2" alt="Source version v0.4.4"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.3 preview"></a>
 </p>
 <p align="center">
@@ -43,7 +43,7 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 
 The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.3) includes test evidence and corresponding source.
 
-Download the current preview manually. See [UPDATES.md](UPDATES.md) for the stable-release update mechanism.
+The downloads above are the published v0.4.3. v0.4.4 source adopts the new Windows packaging recipe, but its final release build is still pending verification; do not use experimental bytes or hashes as a v0.4.4 download identity. Previews require manual download and are excluded from stable OTA. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -73,17 +73,23 @@ Only a unique newly started game process from the same installation may be adopt
 
 Reference data comes from [Huya's official public wiki](https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1). Tiers use the selected champion's original records. Cards identify the source date, data-package version, and game-data version. The source date and retrieval time are recorded separately to help assess freshness. See [DATA.md](DATA.md) for formats and fields.
 
-Capture is limited to visible client-area pixels of the selected foreground window and, when selection handoff is enabled, its unique new game window verified by installation path and process creation time. Game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Network requests only fetch public reference data, Riot Data Dragon portrait templates and software updates. Screenshots are never sent to those services. Riot-owned portraits stay in the local cache and are not bundled in the source or EXE.
+Capture is limited to visible client-area pixels of the selected foreground window and, when selection handoff is enabled, its unique new game window verified by installation path and process creation time. Game process memory is not read. Normal monitoring screenshots stay in local memory and are neither saved nor uploaded. Explicit synthetic diagnostics can save test images. Application-initiated network requests fetch public reference data, Riot Data Dragon portrait templates and software updates. Screenshots are never sent to those services. Riot-owned portraits stay in the local cache and are not bundled in the source or EXE.
+
+v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization and keeps the API opt-out. [Official ORT 1.31.0 documentation](https://github.com/microsoft/onnxruntime/blob/v1.31.0/docs/Privacy.md) explains that the API can run after minimal initialization. This hardens the opt-out; it does not establish prior transmission or provide a network firewall or comprehensive outbound audit.
 
 ## Preview and compatibility
 
+v0.4.4 adopts the reviewed minimal OpenCV source build, truthfully labeled `5.0.0.93+vga1` (native version `5.0.0`). It preserves all offline models, four screenshot formats and existing features. Unused Pillow font/CMS extensions are removed; Qt fonts are unchanged. Maintaining pinned source, downstream patches, the Community compiler recipe and license evidence adds ongoing work. Ordinary source installs still use the official wheel.
+
+The [read-only Windows experiment](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432) passed all gates at **106,342,697 bytes, 8.765% smaller than v0.4.3**. That EXE still identifies as v0.4.3, so these are **not final v0.4.4 bytes or its hash**. All 112 image outputs, 10 OCR outputs and eight hero results matched on the same runner. Median OCR changed from 207.8164 to 211.738 ms (+1.89%, +3.92 ms); median hero matching and capture were faster. Seven measured samples after two warmups showed no meaningful regression, without establishing universal performance. v0.4.4 must be freshly built and pass every release gate. See [size and release status](WINDOWS_PACKAGE_SIZE.md), the [validation recipe](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md) and [changelog](CHANGELOG.md).
+
 v0.4.3 removes unused packaging dependencies and design-source images while preserving full offline OCR, the native overlay, automatic champion/selection handoff, data refresh and updates. The [final Windows release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38383752875) passed; the published EXE is **116,559,213 bytes (111.16 MiB), 22.445% smaller than v0.4.2**. Verify the same-release SHA-256 linked above. See the [size record](WINDOWS_PACKAGE_SIZE.md) and [changelog](CHANGELOG.md).
 
-v0.4.2 fixes overlay scaling and small-window layout. Placement uses the overlay window’s own Qt scale; compact cards preserve all three names, tiers and source metadata when space is limited. Fresh cards follow movement of the same window, while resizing waits for new recognition.
+v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout in small windows. Placement uses the overlay window’s own Qt scale; compact cards preserve all three names, tiers and source metadata when space is limited. Fresh cards follow movement of the same window, while resizing waits for new recognition.
 
 The [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029) passed at controlled 100%, 150% and 200% application process scaling using the same EXE and a fixed 960×600-pixel original mock window. Checks cover capture/OCR, automatic champion and three-choice display, card bounds and text layout, stale-state clearing and shutdown cleanup. Champion-select recognition and session handoff also passed. The same build’s source matrix passed 35 window cases at 100%–250% scaling, including small-window hiding and recovery. Actual OS DPI, mixed-monitor transitions, fully visible 4K layouts and the cause of the reported user error remain unconfirmed.
 
-In a small public screenshot sample, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
+In the small public screenshot sample actually rerun with v0.4.4 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 
 The following are **historical v0.3.0 baseline checks**, not proof of the new automatic champion feature:
 

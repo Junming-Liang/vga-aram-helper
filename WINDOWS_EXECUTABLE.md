@@ -67,7 +67,7 @@ SHA-256 可检查文件损坏或不一致，但不能替代代码签名，也不
 .\scripts\build-windows.ps1
 ```
 
-脚本在项目目录创建 `.venv-build`，从官方 PyPI 安装固定顶层版本的依赖，构建并运行 EXE 冒烟测试。微软 DLL 来自实际安装的 Community 发行目录；其签名、版本、依赖和逐字节来源均需验证，不能以 CI 预装运行库代替。托管 runner 的官方安装失败或要求重启时停止构建，不自动重启。
+上述本地脚本在项目目录创建 `.venv-build`，从官方 PyPI 安装固定顶层版本的依赖，用于官方 wheel 的源码/打包诊断，构建并运行 EXE 冒烟测试。它不等同于 v0.4.4 已采用的自编译 OpenCV 发布配方；正式预览发布路径见下节。微软 DLL 来自实际安装的 Community 发行目录；其签名、版本、依赖和逐字节来源均需验证，不能以 CI 预装运行库代替。托管 runner 的官方安装失败或要求重启时停止构建，不自动重启。
 
 - EXE：`dist\VGA-Aram-Helper.exe`
 - 发布文件：`dist\release\`
@@ -83,6 +83,8 @@ SHA-256 可检查文件损坏或不一致，但不能替代代码签名，也不
 ## 原生预览版发布
 
 `Build and publish native preview` 是另一条手动标准 Windows 工作流：重新构建、完成全部 EXE/OCR/原生源评级测试并校验后，在同一任务的最后一步直接上传 GitHub 预发布版。它不再创建大型 Actions EXE/源码 artifact，只保留预算允许的小型测试证据；不删除已有产物。`GH_TOKEN` 仅用于最后的发布步骤，不持久保存凭据。
+
+v0.4.4 发布工作流明确设置 `VGA_RELEASE_PACKAGE_PROFILE=minimal-opencv-v1`，从已固定哈希的官方 OpenCV 源码及审查过的补丁构建自编译 `5.0.0.93+vga1`（原生版本 `5.0.0`）；此二进制不是官方 PyPI wheel。它重新执行官方/自编译同机对比、精确版本 EXE 全部门禁，并校验补充许可 ZIP 与源码/配方/二进制到对比证据的绑定。仅设置环境变量或运行上述官方 wheel 诊断不能替代这些证明。全部原始离线模型、Qt/CRT 条款及对应源码供应保持不变。最终 v0.4.4 构建仍待验证；配方、维护成本与实测范围见 [OpenCV 验证记录](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md)。
 
 预发布版标记为 prerelease，不设为 latest，稳定更新接口不会推送它。版本 tag 与内置 manifest 一致；已有 tag 或 Release 会使发布失败，不覆盖旧文件。
 
