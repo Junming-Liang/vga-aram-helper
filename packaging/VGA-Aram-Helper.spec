@@ -2,35 +2,35 @@
 # Build this only on native Windows x64, using the pinned build environment.
 from pathlib import Path
 import sys
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 ROOT = Path(SPECPATH).parent
 sys.path.insert(0, str(ROOT))
 from model_inventory import verify_models
 from scripts.microsoft_runtime import replace_runtime_entries
+from scripts.windows_package import BRANDING_FILES, EXCLUDED_IMPORTS, trim_unused_binaries
+import json
 verify_models()  # Missing/changed wheel models fail the build, never download at runtime.
 
 binaries = []
 datas = [(str(ROOT / 'static'), 'static'), (str(ROOT / 'fixtures'), 'fixtures'),
-         (str(ROOT / 'build' / 'licenses'), 'licenses'), (str(ROOT / 'LICENSE'), '.'), (str(ROOT / 'assets' / 'branding'), 'assets/branding')]
+         (str(ROOT / 'build' / 'licenses'), 'licenses'), (str(ROOT / 'LICENSE'), '.'), *[(str(ROOT / 'assets' / 'branding' / name), 'assets/branding') for name in BRANDING_FILES]]
 hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke']
-# Includes RapidOCR config, dictionaries, three ONNX models and package metadata.
-# Optional CUDA/Paddle/Torch engines are not dependencies of the chosen CPU runtime.
-for package in ('rapidocr', 'onnxruntime'):
-    package_datas, package_binaries, package_hidden = collect_all(package)
-    datas += package_datas
-    binaries += package_binaries
-    hiddenimports += package_hidden
+# RapidOCR exports RapidOCR lazily, so explicitly retain its entry point and
+# CPU backend. Normal import analysis then follows their real dependencies.
+# Data collection excludes duplicate .py source, while preserving all wheel
+# model/config/dictionary files. Models are unchanged and hash-checked above.
+hiddenimports += ['rapidocr.main', 'rapidocr.inference_engine.onnxruntime']
+datas += collect_data_files('rapidocr', include_py_files=False)
 datas += collect_data_files('certifi')
 for distribution in ('rapidocr', 'onnxruntime', 'numpy', 'Pillow', 'PySide6-Essentials', 'shiboken6'):
     datas += copy_metadata(distribution)
-# ONNX Runtime, OpenCV, NumPy, Shapely and PyClipper native DLLs are also handled by
-# PyInstaller's maintained hooks; explicit ONNX collection prevents hidden providers.
-binaries += collect_dynamic_libs('onnxruntime')
+# Maintained PyInstaller hooks collect the ONNX, OpenCV, NumPy and geometry
+# native dependencies; do not collect ORT training/export tools or test data.
 
 a = Analysis([str(ROOT / 'launcher.py')], pathex=[str(ROOT)], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={}, runtime_hooks=[],
-             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets'], noarchive=False)
+             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets', *EXCLUDED_IMPORTS], noarchive=False)
 # Our ordinary QWidget painters use the raster backend. Do not distribute Qt's
 # optional software-OpenGL fallback or Microsoft shader compiler; neither is
 # needed by this UI. Native Windows acceptance tests exercise this exact bundle.
@@ -45,6 +45,11 @@ a.binaries = [entry for entry in a.binaries
 # Use only the signed, unmodified release CRT supplied by the Community product
 # installed for this build, consistently replacing root and package duplicates.
 a.binaries = replace_runtime_entries(a.binaries)
+# The retained PE import graph must not depend on any newly removed binary.
+# Actual Windows frozen-EXE tests also cover the dynamically loaded CPU backend.
+a.binaries, pruning = trim_unused_binaries(a.binaries)
+(ROOT / 'build' / 'windows-packaging-prune.json').write_text(
+    json.dumps(pruning, indent=2) + '\n', encoding='utf-8')
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='VGA-Aram-Helper',
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
