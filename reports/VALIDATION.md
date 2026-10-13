@@ -1,6 +1,91 @@
-# Current source verification: v0.4.1 (2026-10-12 UTC)
+# Current source verification: v0.4.4 preparation (2026-10-13 UTC)
 
-The older sections below are historical, including their test counts and pending-feature statements. They do not describe the current release status. Tested v0.4.0 download and Windows run links are in the bilingual README.
+**Final v0.4.4 Windows release gates are pending.** The reviewed minimal OpenCV
+recipe has been adopted, but the successful
+[Windows experiment 38410925432](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38410925432)
+used source `db5db2b92c61df179491a432316cdd022466a6e8` and an EXE still versioned
+v0.4.3. Its 106,342,697-byte result is not a final v0.4.4 release measurement.
+The publishing workflow must rebuild the custom wheel/EXE and repeat paired
+parity, native/format/OTA/model and source/license gates. See
+[the size record](../WINDOWS_PACKAGE_SIZE.md) and
+[the recipe/evidence scope](../WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md).
+
+## Fresh limited screenshot evaluations
+
+Both committed genuine-screenshot JSON reports were actually regenerated on
+2026-10-13 with `app_version.py` set to `0.4.4`; they were not version-relabelled.
+These are **Linux still-image tests using the official OpenCV wheel**, not
+Windows custom-wheel evaluations. No screenshot was redistributed or fetched
+anew, and no referenced third-party plugin was installed or executed.
+
+- `hero-recognition-genuine.json`: 2/3 selected positives recognized (Samira and
+  Katarina), one positive abstention (Milio), 3/3 selected negatives withheld,
+  zero observed wrong heroes. The one full still-frame pipeline retained the
+  three exact title matches and title-geometry pass. This does not establish
+  general game accuracy or temporal/live Windows behavior.
+- `champion-select-genuine.json`: the one plugin-modified July 2025 Traditional
+  Chinese post-choice sample recognized; all three June 2025 prerelease
+  initial-card negatives withheld. Those negatives represent two distinct
+  scenes, including resized/original variants of one scene. Current unmodified
+  client behavior and live trade/cancel sequences remain unverified.
+- Excluding only the application version and measured per-case elapsed times,
+  both new reports exactly match the previous observed results, source/image
+  identities, scope limits and implementation hashes. Elapsed times are single
+  local observations, not a performance comparison with the Windows experiment.
+
+The launch environment set `ORT_DISABLE_TELEMETRY=1` **before Python started**;
+the application retains its API opt-out. Python was 3.12.14 on Linux x86_64,
+with official `opencv-python-headless==5.0.0.93`, `rapidocr==3.10.0`,
+`onnxruntime==1.31.0`, `Pillow==12.3.0` and `numpy==2.5.4`. This is not an outbound
+network audit or a claim about historical transmissions. See
+[ORT's exact upstream opt-out documentation](https://github.com/microsoft/onnxruntime/blob/v1.31.0/docs/Privacy.md).
+
+Cached-input checks compared every screenshot with its manifest and the prior
+report: all six hero fixtures and four selection fixtures were unchanged. The
+173-entry roster was unchanged, and every portrait matched its cached manifest
+hash and size. All three models matched the pinned identities in
+`model_inventory.py`:
+
+| Input | SHA-256 |
+| --- | --- |
+| Hero fixture manifest | `64e3348be660a8f13668127a8372216b9ba4c7b238d07eabc7465c46c6fca3ea` |
+| Selection fixture manifest | `d0ebcb81a50472386585e96a9a0b6e33a9b37718916eb2c605c7bd734f9912ff` |
+| Portrait template manifest (173 entries) | `b32ca2691dad6b333c43ea14367c0d02fe30314272d0d0b28ae00fa525d927fd` |
+| English roster, version 16.20.1 | `84fd12721ea0cec502d2a747aea94d8e57d4da337422d1d3ca33a7890909787f` |
+| Cached reference-data input | `475846c3dc3d45403507950b81c556dc4ee60e03cf75769d27cb286fa07296ba` |
+| PP-OCRv6_det_small.onnx | `090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f` |
+| PP-OCRv6_rec_small.onnx | `6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884` |
+| ch_ppocr_mobile_v2.0_cls_mobile.onnx | `e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c` |
+
+Reproduction commands, with caller-supplied permitted cached inputs (the images
+and complete third-party data are not part of this repository):
+
+```sh
+ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" scripts/validate_hero_screenshots.py \
+  --templates "$TEMPLATES" --fixtures "$HERO_FIXTURES/sources.json" \
+  --data "$REFERENCE_DATA/current.json" --output reports/hero-recognition-genuine.json
+ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" scripts/validate_champion_select_screenshots.py \
+  --rosters "$TEMPLATES" --fixtures "$SELECTION_FIXTURES/sources.json" \
+  --output reports/champion-select-genuine.json
+```
+
+## 中文范围说明
+
+v0.4.4 的两份真实截图报告已实际重新执行：英雄样本 2/3 识别、米利欧弃权，
+三个负例均弃权；选人样本一个正例识别、三个负例弃权（只含两个不同负例场景）。
+输入图片、资料和三份模型哈希已核对，既有判断、弃权和限制不变。执行环境是
+Linux 官方 OpenCV wheel，启动前已设置遥测退出环境变量；不代表自编译 Windows
+识别准确率、真实 LoL/Vanguard 或干净 Windows 机器测试通过。
+
+Windows 实验已通过全部门禁，但实验 EXE 内仍为 v0.4.3。最终 v0.4.4 必须重新
+构建与验证后才可发布，体积/哈希不能沿用实验结果。下面的 v0.4.1/v0.3.0
+记录均保留为历史，不能据其旧测试计数或“待验证”语句判断当前状态。
+
+---
+
+# Historical source verification: v0.4.1 (2026-10-12 UTC)
+
+This section and everything below it are historical, including their test counts, version-specific links and pending-feature statements. They do not describe current release readiness.
 
 - New selection flow: actual local Qt widgets and CPU OCR on original client/card fixtures pass nine checks (`native-selection-qt.json`). OS metadata is faked in that local test; it is not Windows handoff proof.
 - Literal source-tier rendering, portrait automation and existing widget regression checks remain covered in `native-qt-offscreen.json` and `native-auto-qt.json`.
