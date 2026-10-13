@@ -126,17 +126,44 @@ class PortraitCacheDiagnosticTests(unittest.TestCase):
     def test_complete_bank_retains_evidence_when_local_log_cannot_be_saved(self,_):
         with tempfile.TemporaryDirectory() as temp:
             cache=Path(temp)/'hero-portraits';replace=os.replace
+            write=portraits._write_cache;retain=diagnostics.retain_failure
+            replace_started=threading.Event();contention_recorded=threading.Event()
+            # Six workers report in completion order. Force a real bounded
+            # in-process lock timeout (which has no WinError) before Hero0's
+            # injected replacement error. Never assume the first record is it.
+            def ordered_write(path,payload,**kwargs):
+                if Path(path).name!='Hero0.png':self.assertTrue(replace_started.wait(5))
+                return write(path,payload,**kwargs)
             def denied(source,destination):
-                if Path(destination).name=='Hero0.png':raise windows_error(5)
+                if Path(destination).name=='Hero0.png':
+                    replace_started.set()
+                    raise windows_error(5)
                 return replace(source,destination)
+            def retain_and_signal(records,diagnostic):
+                retain(records,diagnostic)
+                if diagnostic['stage']=='acquire-lock':contention_recorded.set()
+            def controlled_probe(path):
+                self.assertTrue(contention_recorded.wait(5))
+                return {'state':'test-controlled-probe'}
             with patch.object(portraits.os,'replace',side_effect=denied), \
+                 patch.object(portraits,'_write_cache',side_effect=ordered_write), \
+                 patch.object(portraits,'_CACHE_LOCKS',(threading.Lock(),)), \
+                 patch.object(portraits,'_CACHE_LOCK_TIMEOUT',0.05), \
                  patch.object(portraits,'_CACHE_RETRY_DELAYS',(0,0,0)), \
+                 patch.object(diagnostics,'sharing_probe',side_effect=controlled_probe), \
+                 patch.object(diagnostics,'retain_failure',side_effect=retain_and_signal), \
                  patch.object(diagnostics,'save_report',return_value=False):
                 bank,status=portraits.load_portraits(cache,fetcher=fetcher())
             self.assertEqual(len(bank),100)
             self.assertEqual(status['state'],'memory-only')
             self.assertFalse(status['cacheDiagnosticSaved'])
-            self.assertEqual(status['cacheDiagnostics']['failures'][0]['error']['winerror'],5)
+            failures=status['cacheDiagnostics']['failures']
+            self.assertEqual(failures[0]['stage'],'acquire-lock')
+            self.assertNotIn('winerror',failures[0]['error'])
+            target=[row for row in failures if row['asset']=='Hero0.png' and row['stage']=='replace']
+            self.assertEqual(len(target),1,failures)
+            self.assertEqual(target[0]['error']['winerror'],5)
+            self.assertEqual([row['winerror'] for row in target[0]['attemptErrors']],[5]*4)
             self.assertIn('头像缓存诊断',status['message'])
 
 
