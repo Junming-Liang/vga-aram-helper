@@ -8,7 +8,7 @@ ROOT = Path(SPECPATH).parent
 sys.path.insert(0, str(ROOT))
 from model_inventory import verify_models
 from scripts.microsoft_runtime import replace_runtime_entries
-from scripts.windows_package import BRANDING_FILES, EXCLUDED_IMPORTS, EXPERIMENT_EXCLUDED_IMPORTS, experimental_package, trim_unused_binaries
+from scripts.windows_package import BRANDING_FILES, EXCLUDED_IMPORTS, CUSTOM_EXCLUDED_IMPORTS, custom_package, trim_unused_binaries
 import json
 verify_models()  # Missing/changed wheel models fail the build, never download at runtime.
 
@@ -23,7 +23,7 @@ hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_versio
 hiddenimports += ['rapidocr.main', 'rapidocr.inference_engine.onnxruntime']
 datas += collect_data_files('rapidocr', include_py_files=False)
 datas += collect_data_files('certifi')
-if experimental_package():
+if custom_package():
     datas += copy_metadata('opencv-python-headless')
 for distribution in ('rapidocr', 'onnxruntime', 'numpy', 'Pillow', 'PySide6-Essentials', 'shiboken6'):
     datas += copy_metadata(distribution)
@@ -32,7 +32,7 @@ for distribution in ('rapidocr', 'onnxruntime', 'numpy', 'Pillow', 'PySide6-Esse
 
 a = Analysis([str(ROOT / 'launcher.py')], pathex=[str(ROOT)], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={}, runtime_hooks=[],
-             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets', *EXCLUDED_IMPORTS, *(EXPERIMENT_EXCLUDED_IMPORTS if experimental_package() else ())], noarchive=False)
+             excludes=['torch', 'paddle', 'tensorflow', 'openvino', 'tensorrt', 'tkinter', 'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets', *EXCLUDED_IMPORTS, *(CUSTOM_EXCLUDED_IMPORTS if custom_package() else ())], noarchive=False)
 # Our ordinary QWidget painters use the raster backend. Do not distribute Qt's
 # optional software-OpenGL fallback or Microsoft shader compiler; neither is
 # needed by this UI. Native Windows acceptance tests exercise this exact bundle.
