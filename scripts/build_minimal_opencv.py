@@ -20,6 +20,7 @@ import tarfile
 import time
 import urllib.request
 import zipfile
+import zlib
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,7 +289,8 @@ def verify_cmake_cache(cache, toolchain):
     expected_paths = {'CMAKE_GENERATOR_INSTANCE': toolchain['installation_path'],
                       'CMAKE_C_COMPILER': toolchain['compiler_path'],
                       'CMAKE_CXX_COMPILER': toolchain['compiler_path'],
-                      'CMAKE_LINKER': toolchain['linker_path']}
+                      'CMAKE_LINKER': toolchain['linker_path'],
+                      'CMAKE_ASM_NASM_COMPILER': toolchain['nasm']['path']}
     for key, expected in expected_paths.items():
         if PureWindowsPath(cache.get(key, '')) != PureWindowsPath(expected):
             raise RuntimeError('OpenCV compiler is outside the approved Community instance: ' + key)
@@ -403,20 +405,56 @@ def validate_wheel(path):
         for required in ('cv2/typing/__init__.py', 'cv2/py.typed', 'cv2/LICENSE.txt', 'cv2/LICENSE-3RD-PARTY.txt'):
             if required not in names:
                 raise RuntimeError('Custom wheel is missing required metadata/licensing: ' + required)
-        return {'wheel': file_record(path), 'native': {'path': native[0], 'size': len(data), 'sha256': digest(data)}}
+        return {'wheel': file_record(path), 'native': {'path': native[0], 'size': len(data),
+                'sha256': digest(data), 'zlib9_size': len(zlib.compress(data, 9))}}
+
+
+def native_size_measurement(wheel_proof):
+    native = {key: wheel_proof['native'][key] for key in ('size', 'sha256', 'zlib9_size')}
+    return {'schema_version': 1, 'status': 'measurement_only', 'version': VERSION,
+            'wheel': {key: wheel_proof['wheel'][key] for key in ('size', 'sha256')},
+            'native': native,
+            'baseline': {'version': '0.4.3', 'native_size': 85_848_064, 'stored_size': 30_519_497},
+            'native_zlib9_saved_bytes': 30_519_497-native['zlib9_size'],
+            'not_exe_measurement': True, 'no_acceptance_claim': True}
+
+
+def generated_license_audit(install):
+    # OpenCVInstallLayout.cmake uses etc/licenses on Windows, not the UNIX path.
+    generated = Path(install) / 'etc' / 'licenses'
+    files = sorted(path for path in generated.rglob('*') if path.is_file())
+    total = sum(path.stat().st_size for path in files)
+    report = {'layout': 'etc/licenses', 'file_count': len(files), 'total_bytes': total,
+              'missing': [], 'unexpected': [], 'mismatched': [], 'errors': []}
+    if len(files) > 100 or total > 5_000_000:
+        report['errors'].append('generated notice inventory exceeds bounds')
+    else:
+        actual = {}
+        for path in files:
+            name = path.relative_to(generated).as_posix()
+            safe_member_name(name)
+            ensure_regular(path)
+            actual[name] = file_record(path, generated)
+        report['missing'] = sorted(set(GENERATED_LICENSES)-set(actual))
+        report['unexpected'] = sorted(set(actual)-set(GENERATED_LICENSES))
+        report['mismatched'] = sorted(name for name in set(actual) & set(GENERATED_LICENSES)
+                                     if any(actual[name][key] != GENERATED_LICENSES[name][key]
+                                            for key in ('size', 'sha256')))
+        if any(report[key] for key in ('missing', 'unexpected', 'mismatched')):
+            report['errors'].append('generated notice names or exact hashes differ')
+    report['status'] = 'failed' if report['errors'] else 'passed'
+    # Printed names come only from this bounded new-build inventory, never bodies.
+    for key in ('missing', 'unexpected', 'mismatched'):
+        report[key+'_count'] = len(report[key])
+        report[key] = [re.sub(r'[^A-Za-z0-9_.+/-]', '?', name)[:120] for name in report[key][:80]]
+    return generated, files, report
 
 
 def collect_licenses(source, install, destination, inputs, nasm_license):
     source, install, destination = map(Path, (source, install, destination))
-    generated = install / 'share' / 'licenses' / 'opencv5'
-    files = sorted(path for path in generated.rglob('*') if path.is_file())
-    names = {path.name.lower() for path in files}
-    required = {'fonts-rubik_ofl.txt', 'libjpeg-turbo-license.md', 'libpng-license',
-                'clapack-lapack_license', 'zlib-license'}
-    if (not required <= names or not any('ippicv-eula' in name for name in names)
-            or not any('ippicv-third-party-programs' in name for name in names)
-            or len(files) > 100 or sum(p.stat().st_size for p in files) > 5_000_000):
-        raise RuntimeError('Generated OpenCV license bundle is incomplete or excessive')
+    generated, files, audit = generated_license_audit(install)
+    if audit['status'] != 'passed':
+        raise RuntimeError('Generated OpenCV license audit failed: '+json.dumps(audit, ensure_ascii=True))
     destination.mkdir(parents=True, exist_ok=False)
     for path in files:
         ensure_regular(path)
@@ -720,6 +758,12 @@ def build():
     if len(candidates) != 1:
         raise RuntimeError('Expected exactly one custom wheel')
     wheel = candidates[0]; wheel_proof = validate_wheel(wheel)
+    # This is a native-library measurement, never a successful EXE/release claim.
+    # Emit it before later audit gates so their failures cannot hide size evidence.
+    reports = ROOT/'reports'; reports.mkdir(exist_ok=True)
+    measurement = native_size_measurement(wheel_proof)
+    write_utf8(reports/'windows-opencv-native-size.json', json.dumps(measurement, indent=2)+'\n')
+    print(json.dumps(measurement), flush=True)
     caches = list((source/'_skbuild').glob('*/cmake-build/CMakeCache.txt'))
     if len(caches) != 1:
         raise RuntimeError('Expected one source-build CMake cache')
@@ -748,7 +792,19 @@ def build():
     write_utf8((reports/'windows-opencv-build-info.txt'), runtime['build_info'])
     if any(native[key] != wheel_proof['native'][key] for key in ('size', 'sha256')):
         raise RuntimeError('Installed OpenCV native bytes differ from built wheel')
-    verify_build_information(runtime['build_info'])
+    feature_errors = []
+    try:
+        verify_build_information(runtime['build_info'])
+    except RuntimeError as exc:
+        feature_errors.append(str(exc))
+    _, _, license_audit = generated_license_audit(cmake_build.parent/'cmake-install')
+    audit = {'schema_version': 1, 'status': 'failed' if feature_errors or license_audit['status'] != 'passed' else 'passed',
+             'feature_mismatches': feature_errors, 'generated_licenses': license_audit,
+             'no_acceptance_claim': True}
+    write_utf8(reports/'windows-opencv-intermediate-audit.json', json.dumps(audit, indent=2)+'\n')
+    print(json.dumps(audit, ensure_ascii=True), flush=True)
+    if audit['status'] != 'passed':
+        raise RuntimeError('OpenCV feature/license audit failed; see the bounded intermediate audit above')
     run([sys.executable, '-m', 'pip', '--isolated', 'check'], env=env, log=logs/'pip-check.log', timeout=60)
     inputs = {'schema_version': 1, 'version': VERSION, 'upstream_version': '5.0.0.93',
               'source_commit': source_commit, 'recipe': file_record(Path(__file__)), 'community_runtime': proof,
