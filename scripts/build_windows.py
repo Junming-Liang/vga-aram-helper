@@ -16,6 +16,7 @@ from app_version import __version__
 from model_inventory import verify_models
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
+from scripts.windows_package import assert_slim_inventory, measure_archive
 
 
 def sha256(path):
@@ -174,6 +175,16 @@ def main():
     archive = CArchiveReader(str(executable))
     bundled = assert_archive_inventory(archive.toc)
     bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
+    assert_slim_inventory(archive.toc)
+    size_report = measure_archive(archive, executable)
+    size_report['source_commit'] = source_commit
+    size_report['pruning'] = json.loads((build / 'windows-packaging-prune.json').read_text(encoding='utf-8'))
+    reports = ROOT / 'reports'
+    reports.mkdir(exist_ok=True)
+    (reports / 'windows-package-size.json').write_text(json.dumps(size_report, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'package_size': size_report}, indent=2), flush=True)
+    if size_report['status'] != 'passed':
+        raise RuntimeError('Windows package size regression: see reports/windows-package-size.json')
     print(json.dumps({'qt_binaries': bundled['qt_binaries']}, indent=2), flush=True)
     print(json.dumps({'licensed_microsoft_runtime': bundled['microsoft_runtime']}, indent=2), flush=True)
     release = ROOT / 'dist' / 'release'
@@ -198,7 +209,7 @@ def main():
     report = {'status': 'built-not-yet-smoke-tested', 'version': __version__, 'platform': platform.platform(),
               'python': platform.python_version(), 'source_commit': source_commit,
               'manifest': manifest, 'bundled_models': models, 'archive_inventory': bundled, 'dependencies': inventory,
-              'source_access': source_access,
+              'source_access': source_access, 'package_size': size_report,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
     reports = ROOT / 'reports'
     reports.mkdir(exist_ok=True)
