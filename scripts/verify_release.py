@@ -270,11 +270,16 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'launcher.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
+        require({'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
                  'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
                  'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
                  'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
                 'Application source archive lacks native packaging inputs')
+        if build.get('experimental') is True:
+            require({'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
+                     'scripts/probe_opencv_parity.py', 'ocr_privacy.py', 'packaging/opencv-minimal-patch.py',
+                     'packaging/opencv-build-requirements.txt', 'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md'} <= set(archive.namelist()),
+                    'Experimental source archive lacks its exact custom build recipe')
     return assets
 
 
@@ -600,6 +605,15 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     require(sums == f'{checksum}  {filename}', 'SHA256SUMS does not match exactly')
     files = {name: evidence_file(evidence_dir, name) for name in EVIDENCE_NAMES}
     build = read_json(files['windows-build.json'])
+    experimental = build.get('experimental') is True
+    custom = [row for row in build.get('dependencies', [])
+              if str(row.get('name', '')).casefold().replace('-', '_') == 'opencv_python_headless'
+              and '+' in str(row.get('version', ''))]
+    require(not custom or experimental, 'Custom OpenCV cannot masquerade as an ordinary build')
+    if experimental:
+        from scripts.minimal_opencv_package import verify_experiment_evidence
+        extra = verify_experiment_evidence(exe, evidence_dir, build)
+        files.update({name: evidence_file(evidence_dir, name) for name in extra})
     smoke = read_json(files['windows-exe-smoke.json'])
     selftest = read_json(files['windows-exe-self-test.json'])
     require(build.get('source_commit') == source_sha and build.get('version') == version, 'Build source/version mismatch')
@@ -687,7 +701,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     assets.append(evidence_zip)
     # Exact existing original mock screenshot, already fully PNG-validated above.
     assets.append(files['windows-native-overlay.png'])
-    result = {'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
+    result = {'experimental': experimental, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
               'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
@@ -709,7 +723,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'neutral; no invented grade, synthetic upgrade or inferred ranking. This is not a claim of a finished '
              'Huya-equivalent product or real-game validation.\n\n'
              f'Tested source commit: {source_sha}\nEXE SHA256: {checksum}\n'
-             f'Actual release size: {exe.stat().st_size:,} bytes; {package_size["saved_bytes"]:,} bytes ({package_size["saved_percent"]:.3f}%) smaller than v0.4.2.\n'
+             f'Actual release size: {exe.stat().st_size:,} bytes; {package_size["saved_bytes"]:,} bytes ({package_size["saved_percent"]:.3f}%) smaller than v{package_size["baseline"]["version"]}.\n'
              f'Tested Windows run: https://github.com/{REPOSITORY}/actions/runs/{run_id}\n\n'
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
              'the SAME frozen EXE at controlled QT_SCALE_FACTOR 1, 1.5 and 2 on an unchanged 96-DPI desktop, '
@@ -847,6 +861,7 @@ def check_remote_assets(release, assets):
 
 
 def publish(verified, notes_file, provenance):
+    require(verified.get('experimental') is not True, 'Experimental custom dependencies are not approved for publication')
     check_preview_identity(verified, provenance)
     repo, tag, sha = verified['repository'], verified['tag'], verified['source_sha']
     require(repo == REPOSITORY and tag == 'v' + verified['version'] and

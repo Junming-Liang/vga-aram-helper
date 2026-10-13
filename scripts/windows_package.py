@@ -7,6 +7,7 @@ are intentionally reviewed separately and exercised in actual-EXE Windows CI.
 from __future__ import annotations
 from collections import defaultdict
 import hashlib
+import os
 from pathlib import Path
 import re
 
@@ -19,6 +20,19 @@ BASELINE = {
 # Conservative first target: at least 16.8% smaller than the immutable v0.4.2.
 # A changed dependency must pass this guard or receive an explicit policy edit.
 MAX_EXE_BYTES = 125_000_000
+EXPERIMENT_BASELINE = {
+    'version': '0.4.3', 'source_commit': '67361ca90124a8e5dee69d1fa0c560711fe9dac6',
+    'size': 116_559_213,
+    'sha256': '2dbe5c1a76b8fd13e2758eb1b6ad952da0a89a391890963c71dfe55cb054dc0b',
+}
+EXPERIMENT_MAX_EXE_BYTES = 115_000_000
+EXPERIMENT_EXCLUDED_IMPORTS = ('PIL._imagingft', 'PIL._imagingcms')
+
+
+def experimental_package():
+    return os.environ.get('VGA_EXPERIMENTAL_MINIMAL_OPENCV') == '1'
+
+
 BRANDING_FILES = ('vga.ico', 'vga-icon-512.png')
 EXCLUDED_IMPORTS = (
     'PIL.AvifImagePlugin', 'PIL._avif',
@@ -34,7 +48,9 @@ def normalized_path(value):
     return str(value).replace('\\', '/').lower()
 
 
-def unused_binary_reason(name):
+def unused_binary_reason(name, *, experimental=None):
+    if experimental is None:
+        experimental = experimental_package()
     name = normalized_path(name).rsplit('/', 1)[-1]
     if re.fullmatch(r'opencv_videoio_ffmpeg[0-9]+_64\.dll', name):
         return 'OpenCV video codec; this application only decodes still screenshots'
@@ -42,6 +58,8 @@ def unused_binary_reason(name):
         return 'Standalone C API; Python CPU inference is linked into pybind11_state'
     if name in {'libcrypto-3-x64.dll', 'libssl-3-x64.dll'}:
         return 'Orphaned optional Qt OpenSSL backend; Python SSL dependencies are retained'
+    if experimental and any(name.startswith(prefix + '.') for prefix in ('_imagingft', '_imagingcms')) and name.endswith('.pyd'):
+        return 'Unused Pillow font rendering/color management; screenshot pixels use ordinary Pillow decoding, UI fonts use Qt'
     if name.startswith('_avif.') and name.endswith('.pyd'):
         return 'AVIF is outside the supported PNG/JPEG/WebP/BMP screenshot formats'
     return None
@@ -129,16 +147,18 @@ def measure_archive(archive, executable):
     if len(models) != len(EXPECTED_MODELS):
         raise RuntimeError('Bundled OCR model inventory incomplete or duplicated')
     size = executable.stat().st_size
+    baseline = EXPERIMENT_BASELINE if experimental_package() else BASELINE
+    maximum = EXPERIMENT_MAX_EXE_BYTES if experimental_package() else MAX_EXE_BYTES
     stored = sum(item['stored_bytes'] for item in entries)
     if stored > size:
         raise RuntimeError('Archive stored bytes exceed the executable size')
     with executable.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    return {'schema_version': 1, 'status': 'passed' if size <= MAX_EXE_BYTES else 'failed',
+    return {'schema_version': 1, 'status': 'passed' if size <= maximum else 'failed',
             'measurement': 'Actual Windows EXE CArchive; stored sizes include existing lossless zlib compression',
-            'executable': {'size': size, 'sha256': digest}, 'baseline': BASELINE,
-            'maximum_exe_bytes': MAX_EXE_BYTES, 'saved_bytes': BASELINE['size'] - size,
-            'saved_percent': round(100 * (BASELINE['size'] - size) / BASELINE['size'], 3),
+            'executable': {'size': size, 'sha256': digest}, 'baseline': baseline,
+            'maximum_exe_bytes': maximum, 'saved_bytes': baseline['size'] - size,
+            'saved_percent': round(100 * (baseline['size'] - size) / baseline['size'], 3),
             'stored_payload_bytes': stored, 'unpacked_payload_bytes': sum(item['unpacked_bytes'] for item in entries),
             'container_overhead_bytes': size - stored, 'entry_count': len(entries),
             'groups': [{'name': name, **sizes} for name, sizes in sorted(groups.items(), key=lambda x: -x[1]['stored_bytes'])],

@@ -17,6 +17,7 @@ from model_inventory import verify_models
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
 from scripts.windows_package import assert_slim_inventory, measure_archive
+from scripts.minimal_opencv_package import check_build_mode, copy_custom_licenses, verify_custom_archive
 
 
 def sha256(path):
@@ -61,6 +62,7 @@ def collect_licenses(destination):
             raise RuntimeError('Qt dependency version changed; regenerate exact-version licenses')
     _, qt_license_files = copy_bundle(ROOT / 'packaging' / 'qt-licenses', destination)
     microsoft_license_files = copy_notices(destination)
+    custom_license_files = copy_custom_licenses(destination)
     inventory = []
     for distribution in sorted(metadata.distributions(), key=lambda item: item.metadata['Name'].casefold()):
         name = distribution.metadata['Name']
@@ -78,6 +80,8 @@ def collect_licenses(destination):
             found.append(str(target.relative_to(destination)))
         if name.casefold().replace('-', '_') in {'pyside6_essentials', 'shiboken6'}:
             found += qt_license_files
+        if name.casefold().replace('-', '_') == 'opencv_python_headless':
+            found += custom_license_files
         inventory.append({'name': name, 'version': distribution.version, 'license_files': found,
                           'license_expression': distribution.metadata.get('License-Expression')})
     python_license = Path(sys.base_prefix) / 'LICENSE.txt'
@@ -156,6 +160,7 @@ def main():
         raise SystemExit('Build on native Windows x64 with 64-bit Python. PyInstaller is not a cross-compiler.')
     os.chdir(ROOT)
     source_commit = verify_source_checkout(ROOT, os.environ.get('GITHUB_SHA'))
+    custom_build = check_build_mode()
     models = verify_models()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -174,6 +179,8 @@ def main():
     from PyInstaller.archive.readers import CArchiveReader
     archive = CArchiveReader(str(executable))
     bundled = assert_archive_inventory(archive.toc)
+    if custom_build:
+        verify_custom_archive(archive, custom_build)
     bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
     assert_slim_inventory(archive.toc)
     size_report = measure_archive(archive, executable)
@@ -210,6 +217,7 @@ def main():
               'python': platform.python_version(), 'source_commit': source_commit,
               'manifest': manifest, 'bundled_models': models, 'archive_inventory': bundled, 'dependencies': inventory,
               'source_access': source_access, 'package_size': size_report,
+              'experimental': bool(custom_build), 'opencv_custom_build': custom_build,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
     reports = ROOT / 'reports'
     reports.mkdir(exist_ok=True)
