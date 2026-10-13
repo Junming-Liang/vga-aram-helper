@@ -13,6 +13,8 @@ from unittest.mock import patch
 import zipfile
 from tests.test_microsoft_runtime import runtime_fixture
 from scripts import microsoft_runtime as ms_runtime
+from scripts import minimal_opencv_package as custom_package
+from scripts.probe_opencv_parity import PERFORMANCE_CASES
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('verify_release', ROOT / 'scripts' / 'verify_release.py')
@@ -21,12 +23,20 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.4.3'
+VERSION = '0.4.4'
 
 
 def current_provenance():
     return {'repository': gate.REPOSITORY, 'source_sha': SHA, 'run_id': RUN_ID, 'run_attempt': RUN_ATTEMPT,
             'workflow': gate.PREVIEW_WORKFLOW, 'event': 'workflow_dispatch', 'branch': 'main'}
+
+
+def adoption_timing_fixture(baseline=0.2, candidate=0.204):
+    row = {'baseline_samples_seconds': [baseline]*7, 'candidate_samples_seconds': [candidate]*7,
+           'baseline_median_seconds': baseline, 'candidate_median_seconds': candidate,
+           'ratio': candidate/baseline, 'delta_seconds': candidate-baseline, 'regression': False}
+    return {'status': 'passed', 'performance': {name: copy.deepcopy(row)
+            for name in PERFORMANCE_CASES | {'capture_synthetic_window'}}}
 
 
 def source_matrix_fixture():
@@ -83,6 +93,18 @@ class ReleaseFixture(unittest.TestCase):
                       'manifest': self.manifest, 'bundled_models': models,
                       'archive_inventory': {'model_assets': 3, 'required_runtime_dlls':
                           sorted(gate.RUNTIME_DLLS), 'qt_binaries': ['PySide6/' + name for name in sorted(gate.QT_RUNTIME_DLLS - {'qwindows.dll'})] + ['PySide6/plugins/platforms/qwindows.dll']}}
+        # Release fixture bytes are synthetic. Dedicated custom-package tests
+        # exercise the complete provenance, CArchive, license ZIP and source bindings.
+        self.custom_proof = {'status': 'passed', 'version': custom_package.CUSTOM_VERSION,
+                             'package_profile': gate.ADOPTED_PROFILE, 'source_commit': SHA}
+        self.build.update(package_profile=gate.ADOPTED_PROFILE, experimental=False,
+                          opencv_custom_build=self.custom_proof)
+        for name, result in (('verify_custom_evidence', custom_package.EVIDENCE_NAMES),
+                             ('verify_custom_notice_archive', None), ('verify_custom_source_archive', None)):
+            wrapper = patch.object(gate, name, return_value=result)
+            wrapper.start(); self.addCleanup(wrapper.stop)
+        for name in custom_package.EVIDENCE_NAMES:
+            self.write_json(self.evidence/name, adoption_timing_fixture() if name.endswith('-parity.json') else {'unit_fixture': True})
         self.build['archive_inventory']['qt_binaries'] += ['pyside6/' + row['filename'] for row in runtime_fixture()['files']]
         proof = runtime_fixture()
         paths = ['pyside6/' + row['filename'] for row in proof['files']] + ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll']
@@ -157,6 +179,9 @@ class ReleaseFixture(unittest.TestCase):
         self.build['dependencies'] = [{'name': name, 'version': gate.QT_VERSION,
                                       'license_files': ['qt-licenses/pyside-setup/LICENSES/LGPL-3.0-only.txt']}
                                      for name in ('PySide6-Essentials', 'shiboken6')]
+        self.build['dependencies'].append({'name': 'opencv-python-headless', 'version': custom_package.CUSTOM_VERSION,
+                                           'license_files': ['opencv-test-LICENSE.txt']})
+        self.license_entries['opencv-test-LICENSE.txt'] = b'Unit-test OpenCV notice fixture'
         self.write_license_archive()
         # Small stand-ins test byte validation without copying 73 MB in each unit case.
         # A separate unpatched test checks the actual production pinned inventory.
@@ -175,7 +200,9 @@ class ReleaseFixture(unittest.TestCase):
              'selection_session.py', 'session_windows.py', 'selection_smoke.py', 'requirements-build.txt',
              'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
              'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
-             'packaging/VGA-Aram-Helper.spec')}
+             'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
+             'scripts/probe_opencv_parity.py', 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt',
+             'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md')}
         for name in gate.DPI_SOURCE_FILES:
             self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
         with zipfile.ZipFile(source, 'w') as archive:
@@ -249,13 +276,13 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.4.3')
+        self.assertEqual(result['tag'], 'v0.4.4')
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
         self.assertTrue(all(row['overlay_layout_passed'] for row in result['native_scale_summary']))
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
-            self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES))
+            self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES) | set(custom_package.EVIDENCE_NAMES))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)
 
     def test_package_size_report_is_required_and_remeasured(self):
@@ -787,7 +814,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.3/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.4/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -906,13 +933,35 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.4.3', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.4', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.4.3', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.3',
+        return {'id': 123, 'tag_name': 'v0.4.4', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.4',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
+
+    def test_custom_release_gates_are_mandatory_and_receive_metadata_profile(self):
+        for function in ('verify_custom_evidence', 'verify_custom_notice_archive', 'verify_custom_source_archive'):
+            with self.subTest(function=function), patch.object(gate, function, side_effect=RuntimeError('custom proof changed')):
+                with self.assertRaisesRegex(gate.VerificationError, 'custom proof changed'):
+                    self.verify()
+        with patch.object(gate, 'read_archive_measurement', return_value=copy.deepcopy(self.package_size)) as reader:
+            self.verify()
+            self.assertEqual(reader.call_args.kwargs, {'profile': gate.ADOPTED_PROFILE})
+
+    def test_publish_requires_adopted_profile_and_rechecks_raw_speed_evidence(self):
+        valid = self.verify()
+        for key, value in (('package_profile', gate.OFFICIAL_PROFILE), ('opencv_build_profile', 'experimental-minimal-opencv-v1'),
+                           ('opencv_distribution_version', custom_package.OFFICIAL_VERSION), ('opencv_adoption', None)):
+            with self.subTest(key=key), patch.object(gate, 'gh_api') as api, self.assertRaises(gate.VerificationError):
+                gate.publish({**valid, key: value}, self.output/'release-notes.txt', current_provenance())
+            api.assert_not_called()
+        bad = copy.deepcopy(valid)
+        bad['opencv_adoption']['performance']['ocr_app_demo']['candidate_samples_seconds'] = [0.9]*7
+        with patch.object(gate, 'gh_api') as api, self.assertRaisesRegex(gate.VerificationError, 'median'):
+            gate.publish(bad, self.output/'release-notes.txt', current_provenance())
+        api.assert_not_called()
 
     def test_publish_reserves_tag_then_draft_verifies_then_publishes(self):
         result = self.verify()
@@ -922,7 +971,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.3', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.4', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -933,7 +982,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.4.3', ' '.join(publish))
+        self.assertNotIn('v0.4.4', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -1000,12 +1049,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.4.3', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.4', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.3'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.4'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.4.3')
+            gate.find_release(gate.REPOSITORY, 'v0.4.4')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -1022,13 +1071,61 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.4.3'])
+                gate.gh_run(['release', 'create', 'v0.4.4'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.3'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.4'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 
+class AdoptedTimingTests(unittest.TestCase):
+    def test_seconds_and_both_thresholds_are_required(self):
+        # 20 percent but only 4ms, or 10ms but only 5 percent, must not fail.
+        for baseline, candidate in ((0.020, 0.024), (0.020, 0.025), (0.2, 0.23), (0.200, 0.210), (0.2, 0.2), (0.2, 0.19)):
+            self.assertEqual(gate.verify_adopted_performance(adoption_timing_fixture(baseline, candidate))['status'], 'passed')
+        for baseline, candidate in ((0.2, 0.24), (0.020, 0.026)):
+            with self.assertRaisesRegex(gate.VerificationError, 'Material timing regression'):
+                gate.verify_adopted_performance(adoption_timing_fixture(baseline, candidate))
+
+    def test_missing_samples_fake_units_and_changed_ratios_fail(self):
+        for field, value in (('candidate_samples_seconds', [204]*7), ('ratio', 0.1), ('delta_seconds', 4.0),
+                             ('baseline_samples_seconds', [0.2]*6), ('baseline_samples_seconds', [float('nan')]*7)):
+            report = adoption_timing_fixture(); report['performance']['ocr_app_demo'][field] = value
+            with self.subTest(field=field), self.assertRaises(gate.VerificationError):
+                gate.verify_adopted_performance(report)
+        report = adoption_timing_fixture(); report['performance'].pop('ocr_app_demo')
+        with self.assertRaises(gate.VerificationError): gate.verify_adopted_performance(report)
+
+
 class WorkflowSafetyTests(unittest.TestCase):
+    def test_windows_git_archive_preserves_every_probe_and_recipe_input(self):
+        from scripts.probe_opencv_parity import SOURCE_FILES
+        names = (*SOURCE_FILES, 'scripts/build_minimal_opencv.py',
+                 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            def git(*args):
+                return subprocess.run(['git', '-c', 'core.autocrlf=true', *args], cwd=root,
+                                      check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            git('init')
+            (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())
+            for name in names:
+                path = root/name; path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((ROOT/name).read_bytes())
+            git('add', '.gitattributes', *names)
+            git('-c', 'user.name=Packaging test', '-c', 'user.email=packaging-test@example.invalid',
+                'commit', '--no-gpg-sign', '-m', 'Probe source archive fixture')
+            for name in names: (root/name).unlink()
+            git('checkout-index', '--force', '--all')
+            output = root/'source.zip'; git('archive', '--format=zip', '--output', str(output), 'HEAD')
+            with zipfile.ZipFile(output) as archive:
+                for name in names:
+                    checkout = (root/name).read_bytes()
+                    with self.subTest(name=name):
+                        self.assertEqual(archive.read(name), checkout)
+                        self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), hashlib.sha256(checkout).hexdigest())
+                for name in names[-3:]:
+                    self.assertEqual(archive.read(name), (ROOT/name).read_bytes())
+
     def test_windows_git_archive_preserves_all_four_evaluated_dpi_module_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -1115,7 +1212,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn('persist-credentials: false', text)
         self.assertIn('ref: ${{ github.sha }}', text)
         self.assertIn('runs-on: windows-2022', text)
-        self.assertIn('timeout-minutes: 45', text)
+        self.assertIn('timeout-minutes: 60', text)
         self.assertNotIn('actions/download-artifact', text)
         self.assertEqual(text.count('actions/upload-artifact@v4'), 1)
         self.assertIn('path: |\n            reports/windows-*\n            reports/hero-recognition-genuine.json\n            reports/champion-select-genuine.json', text)

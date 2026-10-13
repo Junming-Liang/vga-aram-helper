@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +15,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsPackageTests(unittest.TestCase):
+    def setUp(self):
+        environment = patch.dict(os.environ, {'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '', 'VGA_RELEASE_PACKAGE_PROFILE': ''})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_profiles_require_unambiguous_explicit_selection(self):
+        for selector, expected in [({}, package.OFFICIAL_PROFILE),
+                ({'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '1'}, package.EXPERIMENT_PROFILE),
+                ({'VGA_RELEASE_PACKAGE_PROFILE': package.ADOPTED_PROFILE}, package.ADOPTED_PROFILE),
+                ({'VGA_RELEASE_PACKAGE_PROFILE': package.OFFICIAL_PROFILE}, package.OFFICIAL_PROFILE)]:
+            with patch.dict(os.environ, selector):
+                self.assertEqual(package.package_profile(), expected)
+                self.assertEqual(package.experimental_package(), expected == package.EXPERIMENT_PROFILE)
+                self.assertEqual(package.custom_package(), expected in package.CUSTOM_PROFILES)
+        for selector in ({'VGA_EXPERIMENTAL_MINIMAL_OPENCV': 'yes'},
+                         {'VGA_RELEASE_PACKAGE_PROFILE': 'unknown'},
+                         {'VGA_RELEASE_PACKAGE_PROFILE': package.EXPERIMENT_PROFILE},
+                         {'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '1', 'VGA_RELEASE_PACKAGE_PROFILE': package.ADOPTED_PROFILE},
+                         {'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '1', 'VGA_RELEASE_PACKAGE_PROFILE': package.OFFICIAL_PROFILE}):
+            with self.subTest(selector=selector), patch.dict(os.environ, selector), self.assertRaises(RuntimeError):
+                package.package_profile()
+
     def test_reviewed_binary_removals_are_narrow(self):
         for name in ('cv2/opencv_videoio_ffmpeg500_64.dll', 'onnxruntime/capi/onnxruntime.dll',
                      'libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'PIL/_avif.cp312-win_amd64.pyd'):
@@ -55,7 +78,7 @@ class WindowsPackageTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Unused or duplicate'):
                 package.assert_slim_inventory(self.required_names() + [name])
 
-    def measure_fixture(self, mutate=False, missing=False, maximum=125_000_000):
+    def measure_fixture(self, mutate=False, missing=False, maximum=125_000_000, profile=None):
         raw = b'unchanged model fixture'
         class Archive:
             toc = {} if missing else {'rapidocr\\models\\fixture.onnx': (0, 5, len(raw), 1, 'x')}
@@ -65,7 +88,7 @@ class WindowsPackageTests(unittest.TestCase):
             exe = Path(folder) / 'app.exe'; exe.write_bytes(b'fixture-exe')
             with patch('model_inventory.EXPECTED_MODELS', {'fixture.onnx': hashlib.sha256(raw).hexdigest()}), \
                  patch.object(package, 'MAX_EXE_BYTES', maximum):
-                return package.measure_archive(Archive(), exe)
+                return package.measure_archive(Archive(), exe, profile=profile)
 
     def test_measurement_reports_real_lengths_and_verified_model_bytes(self):
         result = self.measure_fixture()
@@ -82,6 +105,29 @@ class WindowsPackageTests(unittest.TestCase):
 
     def test_size_cap_marks_oversized_executable_failed(self):
         self.assertEqual(self.measure_fixture(maximum=10)['status'], 'failed')
+
+    def test_size_policy_is_bound_to_explicit_profile_not_verifier_environment(self):
+        for profile, baseline, maximum in ((package.OFFICIAL_PROFILE, package.BASELINE, package.MAX_EXE_BYTES),
+                (package.EXPERIMENT_PROFILE, package.EXPERIMENT_BASELINE, 115_000_000),
+                (package.ADOPTED_PROFILE, package.ADOPTED_BASELINE, 110_000_000)):
+            with patch.dict(os.environ, {'VGA_RELEASE_PACKAGE_PROFILE': 'invalid', 'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '1'}):
+                result = self.measure_fixture(profile=profile)
+            self.assertEqual(result['package_profile'], profile)
+            self.assertEqual(result['baseline'], baseline)
+            self.assertEqual(result['maximum_exe_bytes'], maximum)
+        self.assertEqual(package.ADOPTED_BASELINE['version'], '0.4.3')
+        self.assertEqual(package.ADOPTED_BASELINE['size'], 116_559_213)
+        for profile in (None, 'unreviewed'):
+            with patch.dict(os.environ, {'VGA_RELEASE_PACKAGE_PROFILE': 'invalid'}), self.assertRaises(RuntimeError):
+                self.measure_fixture(profile=profile)
+
+    def test_explicit_inventory_profile_controls_custom_pillow_cuts(self):
+        names = self.required_names() + ['PIL/_imagingft.cp312-win_amd64.pyd']
+        with patch.dict(os.environ, {'VGA_RELEASE_PACKAGE_PROFILE': 'invalid'}):
+            package.assert_slim_inventory(names, profile=package.OFFICIAL_PROFILE)
+            for profile in package.CUSTOM_PROFILES:
+                with self.assertRaisesRegex(RuntimeError, 'Unused or duplicate'):
+                    package.assert_slim_inventory(names, profile=profile)
 
     @staticmethod
     def evidence():
@@ -119,6 +165,8 @@ class WindowsPackageTests(unittest.TestCase):
                       'replace_runtime_entries(a.binaries)', 'trim_unused_binaries(a.binaries)', 'upx=False'):
             self.assertIn(value, spec)
         self.assertNotIn('collect_all', spec)
+        self.assertIn("if custom_package():\n    datas += copy_metadata('opencv-python-headless')", spec)
+        self.assertIn('CUSTOM_EXCLUDED_IMPORTS if custom_package() else ()', spec)
         self.assertEqual(package.BRANDING_FILES, ('vga.ico', 'vga-icon-512.png'))
         self.assertIn('PIL.AvifImagePlugin', package.EXCLUDED_IMPORTS)
         self.assertIn('PIL._avif', package.EXCLUDED_IMPORTS)

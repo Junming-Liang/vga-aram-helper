@@ -43,7 +43,7 @@ BUILD_INFO = '''General configuration for OpenCV 5.0.0 =========================
 '''
 
 
-def provenance_fixture(source_commit=None):
+def provenance_fixture(source_commit=None, profile=build.EXPERIMENT_PROFILE):
     """Synthetic valid schema for companion packaging tests; no executable claim."""
     spec = importlib.util.spec_from_file_location('vga_runtime_fixture', build.ROOT/'tests/test_microsoft_runtime.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
@@ -67,6 +67,7 @@ def provenance_fixture(source_commit=None):
     source_commit = source_commit or build.run(['git', 'rev-parse', 'HEAD'], cwd=build.ROOT, timeout=30).strip()
     assets = {name: {**value, 'path': 'C:/downloads/'+value['filename']} for name, value in build.ASSETS.items()}
     inputs = {'schema_version': 1, 'version': build.VERSION, 'upstream_version': '5.0.0.93',
+              'package_profile': profile,
               'source_commit': source_commit, 'recipe': build.file_record(Path(build.__file__)),
               'community_runtime': runtime, 'source': assets['source'], 'download_inputs': assets,
               'upstream_git': {'opencv_python': 'b83046cda41133f1bf2e73e99dba16a1248f103a',
@@ -508,6 +509,7 @@ mark_as_advanced(CPU_BASELINE)
         self.assertIn('NASM-BUILD-TOOL-LICENSE.txt', paths)
         self.assertIn('BUILD-INPUTS-PROVENANCE.json', paths)
         cases = [('status', 'failed'), ('version', '5.0.0.93'), ('source_commit', 'b'*40), ('error', ''),
+                 ('package_profile', 'official-opencv'), ('package_profile', 'unknown'),
                  ('licenses', []), ('build_dependencies', {}), ('static_crt', '/MD')]
         for key, value in cases:
             changed = copy.deepcopy(proof); changed[key] = value
@@ -527,6 +529,49 @@ mark_as_advanced(CPU_BASELINE)
         for mutate in mutations:
             changed = copy.deepcopy(proof); mutate(changed)
             with self.assertRaises(RuntimeError): build.validate_provenance(changed, source_commit='a'*40)
+
+    def test_adopted_provenance_binds_profile_into_exact_license_bytes(self):
+        from scripts.windows_package import ADOPTED_PROFILE
+        for profile in build.CUSTOM_PROFILES:
+            proof = provenance_fixture('a'*40, profile=profile)
+            self.assertIs(build.validate_provenance(proof, source_commit='a'*40), proof)
+            self.assertIn(profile, build.downstream_notice(profile))
+        proof = provenance_fixture('a'*40)
+        proof['package_profile'] = ADOPTED_PROFILE
+        with self.assertRaisesRegex(RuntimeError, 'license/input-provenance bytes differ'):
+            build.validate_provenance(proof, source_commit='a'*40)
+        del proof['package_profile']
+        with self.assertRaisesRegex(RuntimeError, 'provenance'):
+            build.validate_provenance(proof, source_commit='a'*40)
+
+    def test_actual_cache_must_use_exact_pinned_nasm_path(self):
+        proof = provenance_fixture('a'*40)
+        for value in ('', 'C:/unreviewed/nasm.exe', 'nasm', 'C:/build/nasm/../nasm.exe'):
+            changed = copy.deepcopy(proof)
+            changed['verified_cmake_cache']['CMAKE_ASM_NASM_COMPILER'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'CMAKE_ASM_NASM_COMPILER'):
+                build.validate_provenance(changed, source_commit='a'*40)
+        changed = copy.deepcopy(proof)
+        changed['verified_cmake_cache']['CMAKE_ASM_NASM_COMPILER'] = 'C:\\build\\nasm\\nasm.exe'
+        build.verify_cmake_cache(changed['verified_cmake_cache'], changed['toolchain'])
+
+    def test_custom_build_requires_explicit_profile_and_hosted_windows(self):
+        from scripts.windows_package import ADOPTED_PROFILE
+        environment = {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                       'GITHUB_WORKSPACE': str(build.ROOT), 'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '',
+                       'VGA_RELEASE_PACKAGE_PROFILE': ''}
+        for selector in ({'VGA_EXPERIMENTAL_MINIMAL_OPENCV': '1'},
+                         {'VGA_RELEASE_PACKAGE_PROFILE': ADOPTED_PROFILE}):
+            with patch.dict(os.environ, {**environment, **selector}), patch.object(build.sys, 'platform', 'win32'), \
+                    patch.object(build.sys, 'version_info', (3, 12)), patch.object(build.struct, 'calcsize', return_value=8), \
+                    patch.object(build.microsoft_runtime, 'verify_source_files', side_effect=RuntimeError('runtime gate reached')):
+                with self.assertRaisesRegex(RuntimeError, 'runtime gate reached'):
+                    build.build()
+                with patch.dict(os.environ, {'RUNNER_ENVIRONMENT': 'self-hosted'}):
+                    with self.assertRaisesRegex(RuntimeError, 'GitHub-hosted'):
+                        build.build()
+        with patch.dict(os.environ, environment), self.assertRaisesRegex(RuntimeError, 'Explicit custom package profile'):
+            build.build()
 
     def test_environment_removes_inherited_toolchain_without_global_changes(self):
         inherited = {name: 'untrusted' for name in ['INCLUDE', 'LIB', 'LIBPATH', 'VCINSTALLDIR', 'VCToolsInstallDir',
