@@ -5,12 +5,12 @@
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
-    "hero_recognition.py": "8a953d83454388767d24daaaf777f219802efc2376806621b6170d7951948ee0",
+    "hero_recognition.py": "a2a99b7d941d5d318d67d52e688867f94dc2fa62d398161e2c49c1ec739fb01a",
     "hero_portraits.py": "a6d320b8cc8f586e74b2e5fecb266f1fecbfe5f706844c89f19714356f1a97a3",
     "local_ocr.py": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
     "model_inventory.py": "c847e69c04ffb84fb2af6eb7acf781b1146f06005cd336a19125093f91c67032",
-    "screen_capture.py": "ac34585df0f19d6bbacb7cfdcabd7917c847e0ded39cba18e21b4d48545f0ae4",
+    "screen_capture.py": "a560a05a7266e7d67633b8c7dd0aebbe1a38ddc7ee6053142e6ca9ae01c56722",
     "native_state.py": "376e1e7c7794b54c8f0af841fbb9294cf0b896e366a8018a59a408f1c99c13b4",
     "engine.py": "865f96b3e96807493c3cce23dea7ff5f06c3ac59058f5702f7d97c263a09de3e"
   },
@@ -63,7 +63,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.799,
+      "elapsed_seconds": 0.805,
       "image_redistributed": false
     },
     {
@@ -127,7 +127,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.719,
+      "elapsed_seconds": 0.664,
       "image_redistributed": false
     },
     {
@@ -163,7 +163,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.687,
+      "elapsed_seconds": 0.643,
       "image_redistributed": false
     },
     {
@@ -199,7 +199,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.772,
+      "elapsed_seconds": 0.767,
       "image_redistributed": false
     },
     {
@@ -236,7 +236,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.682,
+      "elapsed_seconds": 0.767,
       "image_redistributed": false
     }
   ],

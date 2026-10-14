@@ -17,7 +17,7 @@
     "Inference timeout hides cards while retaining one bounded active OCR job",
     "Late timed-out OCR result cannot revive an old scene",
     "Freshly completed inference cannot revive an already old captured image",
-    "Unexpected capture/setup exception fails closed",
+    "Unexpected asynchronous capture exception fails closed",
     "Closure is bounded; late worker completes without emitting into torn-down Qt"
   ],
   "scope": "Actual Qt offscreen widgets/input only. Windows GDI, focus, RegisterHotKey, click-through, LoL and Vanguard not tested here."

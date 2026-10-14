@@ -1,0 +1,504 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "applicationVersion": "0.4.7",
+  "driver_sha256": "af3bed4eba13945116af81376e9124bd397b9476439bc9c4126bd4e81310830b",
+  "scope": "Local full portrait+actual OCR pipeline parity and callback timings. Excludes Windows capture, GUI dispatch and live-game latency; no general accuracy claim or images copied.",
+  "environment": {
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "python": "3.12.14",
+    "opencv": "5.0.0",
+    "threads": 2
+  },
+  "baseline_sha256": "8a953d83454388767d24daaaf777f219802efc2376806621b6170d7951948ee0",
+  "candidate_sha256": "a2a99b7d941d5d318d67d52e688867f94dc2fa62d398161e2c49c1ec739fb01a",
+  "local_ocr_sha256": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
+  "roster_sha256": "84fd12721ea0cec502d2a747aea94d8e57d4da337422d1d3ca33a7890909787f",
+  "template_count": 173,
+  "vocabulary_count": 209,
+  "vocabulary_sha256": "9710009c4644594ebb94abbf0531157195c6d920b4c4bd3c9c01a156fa20a13b",
+  "roi": [
+    0.15,
+    0.25,
+    0.7,
+    0.35
+  ],
+  "cases": [
+    {
+      "case": "https://upload3.inven.co.kr/upload/2026/02/25/bbs/i1710778643.png",
+      "kind": "public",
+      "image_sha256": "fb6ba1b773d5238d2dec5309a0a1efa9125ac032b3a3331a13dad619476adc27",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "855b5315a5887d1333ab7097ed41a1ac9fadc5e8cbe2addbbe80270caf2e86b6",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.7307,
+        "margin": 0.0065,
+        "box": [
+          1380,
+          1338,
+          40,
+          40
+        ],
+        "candidateChampionId": "82"
+      },
+      "candidate_phases": {
+        "before_match_ms": 252.7721330006898,
+        "signature": "8b4e4ac62efe2defa58ff0dfa33a2fe61b9b911f25cee61e3e0e9fe95cdd82de",
+        "crop_sha256": "1213cab0dcf4f6b348b1db83a6eeec4f96904cac64e45fe5d8161e9ad1615104",
+        "before_ocr_ms": 834.7588160004307,
+        "total_ms": 1030.297807000352
+      }
+    },
+    {
+      "case": "https://pbs.twimg.com/amplify_video_thumb/1989656382396588032/img/E3SCNvBxAguI_TmL.jpg",
+      "kind": "public",
+      "image_sha256": "59061c0d4810b3d6a935510e0ca6e2560acf4bb626f303d8beee540959def3db",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "b8539b8d6239b0814e601bbf6fcbcdcc716f574cb7fa1c83444feceee85c3c03",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "当前分辨率/纵横比未验证"
+      },
+      "candidate_phases": {
+        "before_match_ms": 83.10540500042407,
+        "signature": null,
+        "crop_sha256": "8ed70434147b7df57ec72149808c1e410f3afb7e28a0e8b58752a22faaa49557",
+        "before_ocr_ms": 83.2901990006576,
+        "total_ms": 237.69350700058567
+      }
+    },
+    {
+      "case": "https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/PreciousCourageousWatercressCoolStoryBro-CYx3B3APGtUyN5Wd/ab6a4249-dfa7-424e-bb0e-f11a17f7625b/preview.jpg",
+      "kind": "public",
+      "image_sha256": "8623f5542e0dd646723aa4bf5e4ce6b588678cedaf6c07a86923f61339c99fb1",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "0a7241ef881e9c3109f2b6aa87971dd50fde8bd6ad2eb847ac4998ad5bc645c3",
+      "hero_observation": {
+        "hero": "Katarina",
+        "championId": "55",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9516,
+        "margin": 0.1708,
+        "box": [
+          702,
+          1005,
+          42,
+          42
+        ],
+        "candidateChampionId": "55",
+        "colorScore": 0.9465
+      },
+      "candidate_phases": {
+        "before_match_ms": 111.89480399934837,
+        "signature": "5654010c7cd48e54c8132fb5669dfbb350768a888a5accb6d51f9c762606bd60",
+        "crop_sha256": "d7de759ea6d4df6dfadae6516c8d5db510e751252449aa43c6e45fc09e7de635",
+        "before_ocr_ms": 693.3234409998477,
+        "total_ms": 798.5361649998595
+      }
+    },
+    {
+      "case": "https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/MotionlessExpensiveTarsierStinkyCheese-M1-R2Xq8vvekstrx/74e98070-9c0e-4832-a77d-78be46ea37af/preview.jpg",
+      "kind": "public",
+      "image_sha256": "d8317d3149c11c69956c16f1e30e30c1f3b9559d96a23b7bbed5b9af38c37b0f",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "71bcca17d96a174dc300370c25ec110296f3a0705aaa235eace394fa26bead2e",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.7945,
+        "margin": 0.0306,
+        "box": [
+          668,
+          1040,
+          30,
+          30
+        ],
+        "candidateChampionId": "80"
+      },
+      "candidate_phases": {
+        "before_match_ms": 121.80989400076214,
+        "signature": "44895b9c853e5d38f115201c178f3725dcddd27e163524a708bda8910d1c58bb",
+        "crop_sha256": "f16fe6c3483f984e27cdbc60e8103387bd67b63ea754991b0ab8f1c837cd1f1d",
+        "before_ocr_ms": 747.8218810001636,
+        "total_ms": 899.7584670005381
+      }
+    },
+    {
+      "case": "https://turbo-uploads.s3.eu-north-1.amazonaws.com/i_just_played_an_all_prismatics_aram_mayhem_fa9d4de2a0.webp",
+      "kind": "public",
+      "image_sha256": "4cc05c62f544f7192dfb6dd9bbc56ee30aac1cb9d89b3fe427d02288befffe1b",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "6b862bd3839d55ea84f78d5192cdd1da5e195a7aa14c76d7132e1e69e9edd769",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.779,
+        "margin": 0.0228,
+        "box": [
+          1020,
+          1378,
+          44,
+          44
+        ],
+        "candidateChampionId": "80"
+      },
+      "candidate_phases": {
+        "before_match_ms": 153.55013399948803,
+        "signature": "44160844264125e2a897046ff1c1445ef09253da2e70930464a2724d6aad22c2",
+        "crop_sha256": "422da9fe28ada7cecbb9e96d6184d945fdb5ff538fa3db5539314c39f795a0df",
+        "before_ocr_ms": 727.1372329996666,
+        "total_ms": 1698.5730989999865
+      }
+    },
+    {
+      "case": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png",
+      "kind": "public",
+      "image_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "cfb5bfbe959d3132cb3c212f592e937a6640f1cd91eb5c8a9a5369c467d375d8",
+      "hero_observation": {
+        "hero": "Samira",
+        "championId": "360",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9748,
+        "margin": 0.1527,
+        "box": [
+          836,
+          1316,
+          68,
+          68
+        ],
+        "candidateChampionId": "360",
+        "colorScore": 0.9692
+      },
+      "candidate_phases": {
+        "before_match_ms": 214.7408600003473,
+        "signature": "8bbb3d981b40c5ec8be777917c4aeac65e5c160b5364970dacd56844b15e83d2",
+        "crop_sha256": "0cc3fe176a6874269333e70722b4e7c50c4c97513dc26194e16f59af2ea7dbd3",
+        "before_ocr_ms": 786.3211000003503,
+        "total_ms": 1281.8937550000555
+      }
+    },
+    {
+      "case": "1280x720",
+      "kind": "synthetic",
+      "image_sha256": "e3c48aedc70e2559027a390030626ac6cfaec40124970855c5c17d1520592ab0",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "f34546ac36c16155d6dc48067143954d4cb1ebd2a9a17bf3a680edfff8a30d27",
+      "hero_observation": {
+        "hero": "Original hero 0",
+        "championId": "9001",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9621,
+        "margin": 0.4067,
+        "box": [
+          430,
+          661,
+          34,
+          34
+        ],
+        "candidateChampionId": "9001",
+        "colorScore": 0.9558
+      },
+      "candidate_phases": {
+        "before_match_ms": 12.400191999404342,
+        "signature": "3394f3b3beeecbc6f04a3f8f92e2462b1c287beff86f0dfef2587c4d96fa0a4e",
+        "crop_sha256": "e5e41a47e622ca1abae5af92fdd4de6202143981f113a6e7e2d07c2564caf246",
+        "before_ocr_ms": 31.373619999612856,
+        "total_ms": 77.54080299946509
+      }
+    },
+    {
+      "case": "1920x1080",
+      "kind": "synthetic",
+      "image_sha256": "fa069b5d4533de4cad84e64a80fecaf6daaa26f16bbd0b5d759ea9b01f00150a",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "3700fc9db2fc55352aec1ce4e82c26787c3b8643e1deaf2278385755a9e9e9e0",
+      "hero_observation": {
+        "hero": "Original hero 0",
+        "championId": "9001",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9584,
+        "margin": 0.4041,
+        "box": [
+          642,
+          990,
+          51,
+          51
+        ],
+        "candidateChampionId": "9001",
+        "colorScore": 0.9489
+      },
+      "candidate_phases": {
+        "before_match_ms": 39.98021300049004,
+        "signature": "dccea097bf42640430e0a84277a207a393d4571ab45759fba90bfbfb165a3a82",
+        "crop_sha256": "d69e62c17ba4026f67d940ef1999e70334483cdaad66dec56c42ade249c9eb7b",
+        "before_ocr_ms": 60.21993900048983,
+        "total_ms": 140.0063040000532
+      }
+    },
+    {
+      "case": "2560x1440",
+      "kind": "synthetic",
+      "image_sha256": "909fc47220027fb7f0b0b56e93adda30d737f80dbd3963cdba75f527a1d11de5",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "b72677486a0ebb2cd59bfc2148fb1b3002e0291008e8ff4b0b7f9c04f1c81d3a",
+      "hero_observation": {
+        "hero": "Original hero 0",
+        "championId": "9001",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9719,
+        "margin": 0.4046,
+        "box": [
+          858,
+          1320,
+          68,
+          68
+        ],
+        "candidateChampionId": "9001",
+        "colorScore": 0.9612
+      },
+      "candidate_phases": {
+        "before_match_ms": 57.873816000210354,
+        "signature": "f5f085f13bbbcff8b60aa39676db7339e30dd55a9f3b244386163580038bbd06",
+        "crop_sha256": "e3d65140a9b9e7db4b120ec46364c959aa67c31b7c35b54f2aa07c249ae2ee0f",
+        "before_ocr_ms": 75.71391199962818,
+        "total_ms": 164.02961499989033
+      }
+    },
+    {
+      "case": "3440x1440",
+      "kind": "synthetic",
+      "image_sha256": "829105875bd1b4aab1bed390ec8a18b0659726668e642e3d1ac26b4fdd7e0c74",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "685f1ceb55b5999c3d7eaee3f1b075b96d09cc4b2dca0bfffa5323a664e55735",
+      "hero_observation": {
+        "hero": "Original hero 0",
+        "championId": "9001",
+        "confident": true,
+        "method": "own-hud-portrait",
+        "reason": "本人 HUD 头像通过空间与模板校验",
+        "score": 0.9719,
+        "margin": 0.4046,
+        "box": [
+          1298,
+          1320,
+          68,
+          68
+        ],
+        "candidateChampionId": "9001",
+        "colorScore": 0.9612
+      },
+      "candidate_phases": {
+        "before_match_ms": 72.52296600017871,
+        "signature": "c8bda38d6d198eb4b9c79a9cf3910a7af9521015ec9b063eab7f7535b50c6445",
+        "crop_sha256": "0f8ac278e5098a8a0d5d3cc053750f45c5905264ef18ba589617bc4e788e3c8c",
+        "before_ocr_ms": 90.58628300044802,
+        "total_ms": 161.713157000122
+      }
+    },
+    {
+      "case": "sidebar",
+      "kind": "synthetic",
+      "image_sha256": "116c1edd499947bbab8cee3ce7d1a177e9ac3e0fce6d4c1e05a8a6081006c33f",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "d0fe7386768bf68494728d3cfe243a843dc572a53aab8b0bcc68be5f4312d4f1",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.0,
+        "margin": 0.0,
+        "box": [
+          381,
+          619,
+          20,
+          20
+        ],
+        "candidateChampionId": "9001"
+      },
+      "candidate_phases": {
+        "before_match_ms": 12.231812999743852,
+        "signature": "70a1c822fdbb423a5143b90ab796ecaff99b9db1fc3775661a5e5b5a9a00259d",
+        "crop_sha256": "e5e41a47e622ca1abae5af92fdd4de6202143981f113a6e7e2d07c2564caf246",
+        "before_ocr_ms": 29.104241999448277,
+        "total_ms": 73.11903200024972
+      }
+    },
+    {
+      "case": "grayscale",
+      "kind": "synthetic",
+      "image_sha256": "3d58ec2454bb60f4bbc80e66a038b1bd3bafeec19e4727cee99b952e716bbfa0",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "f41acc390ba46200ae2ca3bee3baea5460c782a0e2f4d892b35041d06b82e14a",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "灰度/死亡头像不自动确定",
+        "score": 0.9621,
+        "margin": 0.4067,
+        "box": [
+          430,
+          661,
+          34,
+          34
+        ],
+        "candidateChampionId": "9001"
+      },
+      "candidate_phases": {
+        "before_match_ms": 12.20488299986755,
+        "signature": "a41c894cacf028a068edb0f30bcaed37d6db0c1c5b1a2391f789e4580bf4d11f",
+        "crop_sha256": "e5e41a47e622ca1abae5af92fdd4de6202143981f113a6e7e2d07c2564caf246",
+        "before_ocr_ms": 30.51253200010251,
+        "total_ms": 81.36028199987777
+      }
+    },
+    {
+      "case": "blank",
+      "kind": "synthetic",
+      "image_sha256": "f96ee22fe133954af6925b48510c2cf65fb4ad520bd3f85dbd14c25579866852",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "d0fe7386768bf68494728d3cfe243a843dc572a53aab8b0bcc68be5f4312d4f1",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "本人头像匹配不够确定",
+        "score": 0.0,
+        "margin": 0.0,
+        "box": [
+          381,
+          619,
+          20,
+          20
+        ],
+        "candidateChampionId": "9001"
+      },
+      "candidate_phases": {
+        "before_match_ms": 13.138848999915353,
+        "signature": "affa7b279a9d8ab1ba943ffb792ab54d42158e323f898e8c4b987d3f579dbf34",
+        "crop_sha256": "dd1c4052b85eb6a56c66d93e96011c1a0d8f89e6a243dcac848d58059a4e3cb2",
+        "before_ocr_ms": 33.48723599992809,
+        "total_ms": 109.85111799982406
+      }
+    },
+    {
+      "case": "portrait layout",
+      "kind": "synthetic",
+      "image_sha256": "2b088942f908254da01bebc9ce40b6739b9b29f6f3ce72079a72abbcf97fbcfc",
+      "exact_output_parity_except_ocr_timing": true,
+      "result_sha256": "ebd87f30ae305d377be91ab1a2ff9184eca5c846baff48bdab7ce3c3435792f8",
+      "hero_observation": {
+        "hero": null,
+        "championId": null,
+        "confident": false,
+        "method": "own-hud-portrait",
+        "reason": "当前分辨率/纵横比未验证"
+      },
+      "candidate_phases": {
+        "before_match_ms": 17.28367400028219,
+        "signature": null,
+        "crop_sha256": "785debe8f4353bf8c8c040441618abb8723bb8e2ab91990dd644ddbebbe49ce4",
+        "before_ocr_ms": 17.30385400060186,
+        "total_ms": 114.0745450002214
+      }
+    }
+  ],
+  "timing_image_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+  "warmups_per_arm": 2,
+  "timing_ms": {
+    "baseline_total": {
+      "samples_ms": [
+        1637.8106640004262,
+        1685.708631000125,
+        1576.849236000271,
+        1480.798560999574,
+        1464.5415790000698,
+        1499.4425120003143,
+        1435.2837510004974,
+        1449.8216150004737,
+        1475.2340180002648
+      ],
+      "median_ms": 1480.798560999574,
+      "min_ms": 1435.2837510004974,
+      "max_ms": 1685.708631000125
+    },
+    "candidate_total": {
+      "samples_ms": [
+        1360.8995140002662,
+        1507.0178450005187,
+        1312.8803859999607,
+        1392.552276999595,
+        1379.257389000486,
+        1351.4211209994755,
+        1227.6931460000924,
+        1310.9849080001368,
+        1277.3906540005555
+      ],
+      "median_ms": 1351.4211209994755,
+      "min_ms": 1227.6931460000924,
+      "max_ms": 1507.0178450005187
+    },
+    "before_match": {
+      "samples_ms": [
+        179.1155560003972,
+        194.54739699995116,
+        183.0975529992429,
+        184.9164719997134,
+        188.50415100041573,
+        200.74457099963183,
+        185.07587900057842,
+        188.58286300019245,
+        193.75994900019577
+      ],
+      "median_ms": 188.50415100041573,
+      "min_ms": 179.1155560003972,
+      "max_ms": 200.74457099963183
+    },
+    "before_ocr": {
+      "samples_ms": [
+        726.9872839997333,
+        814.8260070001925,
+        756.6261549991395,
+        794.0419729993664,
+        745.1603690005868,
+        766.2470429995665,
+        768.3054460003405,
+        755.0119710003855,
+        764.3092409998644
+      ],
+      "median_ms": 764.3092409998644,
+      "min_ms": 726.9872839997333,
+      "max_ms": 814.8260070001925
+    }
+  }
+}
