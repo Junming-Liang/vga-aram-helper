@@ -78,8 +78,8 @@ readback zero. The first native request then failed closed at
 pipe, Job and owned-window cleanup completed. No successful pixel/static-frame
 or frozen result was established.
 
-The next diagnostic preserves every timestamp/freshness predicate and deadline.
-Its failure-only optional `clock` object records the raw QPC counter/frequency,
+The diagnostic used for run 32 preserved every timestamp/freshness predicate and
+deadline. Its failure-only optional `clock` object records the raw QPC counter/frequency,
 request cutoff, frame timestamp, the exact converted QPC sample used by the
 predicate, and the prior accepted frame timestamp. All values have exact signed
 64-bit bounds. A nonpositive frame retains zero sample fields because the
@@ -100,6 +100,43 @@ a local `c++` compiler exists; it is explicitly skipped where that tool is absen
 This is arithmetic/serialization evidence, not Windows capture evidence. The
 mandatory Windows helper compilation independently evaluates eight native QPC
 arithmetic `static_assert` cases.
+
+### Bounded compositor-timestamp readiness after run 32
+
+Run 32 passed focused tests and native compilation. At source scale 1, two ROI
+requests returned exact synthetic pixels (mean channel error 0.0) from the same
+helper/session. The first request took 719 ms and the second 79 ms on that runner;
+two samples followed by a failure are not a product latency benchmark or release
+acceptance. The registered opaque overlay remained valid during the intervening
+idle display. The third request failed at `frame-timestamp` with these exact
+100-nanosecond values:
+
+- Request cutoff: 24076721565
+- Frame compositor timestamp: 24077031250
+- Observed QPC time: 24076885278 (raw counter identical; frequency 10000000)
+- Previous accepted frame: 24071250000
+
+The frame timestamp was 14.5972 ms ahead of the sampled current clock. This does
+not identify the operating-system cause. It does justify testing readiness
+waiting instead of immediately treating a future-dated GPU frame as usable or
+changing the clock origin.
+
+The experimental repair retains at most one checked-out GPU frame while it is
+future-dated. It continues the same strict identity/focus/geometry/occlusion and
+hidden-overlay checks on the existing scheduled interval, within the original
+request deadline. No texture staging, copying or mapping occurs until the frame
+has a positive timestamp no later than the current clock, is strictly newer than
+the request cutoff and previous accepted frame, and matches the existing exact
+content geometry. Zero/negative timestamps still fail. An explicit ready flag
+and a still-unexpired deadline are required before proceeding beyond the wait gate; simply
+holding a frame at timeout cannot satisfy the success gate.
+
+No tolerance, offset subtraction, timer extension, forced target animation or
+old-frame reuse is introduced. Parent cancellation/watchdogs and the mandatory
+three-request truly static-window test remain unchanged. The freshness evidence
+is the compositor's timestamp, not independent instrumentation proving the wall
+clock arrival time of the target's pixels. Full source/frozen Windows acceptance
+is still required for this repair, and production remains disabled.
 
 ## Existing approved Windows build environment only
 
