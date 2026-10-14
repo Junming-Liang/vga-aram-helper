@@ -1,0 +1,267 @@
+{
+  "result": "passed",
+  "applicationVersion": "0.4.6",
+  "recorded_at_executor_clock": "2026-10-14T03:38:59.116432+00:00",
+  "baseline_commit": "0417bd30844525bb5f5e511cfd942eff86801795",
+  "baseline_local_ocr_sha256": "88cf17aa262a3a336a829ee32a453b1715b156b0bba96e905b79c9496a0cc5b5",
+  "candidate_local_ocr_sha256": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
+  "environment": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "vocabulary_count": 221,
+  "vocabulary_sha256": "a5a629b441e79c83075d75a9dc56d9894bd127abdf185fbe983934502cd1a4d5",
+  "vocabulary_source_url": "https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/augments-CcCw5SNQ.json",
+  "vocabulary_scope": "Historical public reference snapshot; not current live-game coverage",
+  "literal_dictionary_checks": {
+    "count": 221,
+    "candidate_exact_count": 221,
+    "intentional_changes": [
+      {
+        "input": "无限循环往复",
+        "baseline": [
+          {
+            "name": "循环往复",
+            "method": "contained-name"
+          }
+        ],
+        "candidate": [
+          {
+            "name": "无限循环往复",
+            "method": "exact"
+          }
+        ]
+      }
+    ]
+  },
+  "exact_three_titles_matching": {
+    "output_equal": true,
+    "line_count": 3,
+    "baseline": {
+      "median_ms": 2.622919,
+      "min_ms": 2.531004,
+      "max_ms": 2.689214,
+      "batches": 7,
+      "iterations_per_batch": 100
+    },
+    "candidate": {
+      "median_ms": 0.015118,
+      "min_ms": 0.014876,
+      "max_ms": 0.015933,
+      "batches": 7,
+      "iterations_per_batch": 100
+    },
+    "baseline_over_candidate_ratio": 173.5
+  },
+  "design_reference": {
+    "url": "https://github.com/Nyx0ra/lol-aram-mayhem-hextech-helper/blob/main/main.py",
+    "license": "MIT",
+    "use": "Exact-before-fuzzy lookup idea; independently implemented, no copied source"
+  },
+  "limits": [
+    "Matcher timings exclude OCR inference, image decoding and screen capture",
+    "Only bounded local measurements; no aggregate accuracy claim",
+    "No live Windows execution or real user-session validation",
+    "No model, preprocessing, confidence threshold or automatic-confirmation changes",
+    "Three alternating warm samples do not establish an end-to-end latency improvement",
+    "Only one static public screenshot; output parity is not an accuracy estimate"
+  ],
+  "public_sample": {
+    "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png",
+    "sample_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+    "sample_count": 1,
+    "image_included": false,
+    "crop_xyxy": [
+      620,
+      520,
+      1935,
+      635
+    ],
+    "crop_excludes_helper_overlays": true,
+    "source_context": "One public screenshot with third-party helper overlays; not a clean gameplay accuracy corpus",
+    "gold_labels": "Manually inspected actual card title row, not colored helper overlay labels",
+    "expected_names": [
+      "心灵净化",
+      "暴击律动",
+      "虚幻武器"
+    ],
+    "actual_title_row_candidates": [
+      {
+        "name": "心灵净化",
+        "recognized_text": "心灵净化",
+        "ocr_confidence": 0.996,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            744.51611328125,
+            552.8571166992188
+          ],
+          [
+            872.258056640625,
+            552.8571166992188
+          ],
+          [
+            872.258056640625,
+            597.8571166992188
+          ],
+          [
+            744.51611328125,
+            597.8571166992188
+          ]
+        ],
+        "requires_confirmation": true
+      },
+      {
+        "name": "暴击律动",
+        "recognized_text": "暴击律动",
+        "ocr_confidence": 0.9999,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            1215.48388671875,
+            552.8571166992188
+          ],
+          [
+            1344.51611328125,
+            552.8571166992188
+          ],
+          [
+            1344.51611328125,
+            600.4285888671875
+          ],
+          [
+            1215.48388671875,
+            600.4285888671875
+          ]
+        ],
+        "requires_confirmation": true
+      },
+      {
+        "name": "虚幻武器",
+        "recognized_text": "虚幻武器",
+        "ocr_confidence": 0.9829,
+        "name_similarity": 1.0,
+        "match_method": "exact",
+        "box": [
+          [
+            1687.741943359375,
+            552.8571166992188
+          ],
+          [
+            1815.4837646484375,
+            552.8571166992188
+          ],
+          [
+            1815.4837646484375,
+            597.8571166992188
+          ],
+          [
+            1687.741943359375,
+            597.8571166992188
+          ]
+        ],
+        "requires_confirmation": true
+      }
+    ],
+    "inference": {
+      "full_image": {
+        "ocr_lines_equal": true,
+        "candidates_equal": true,
+        "names": [
+          "心灵净化",
+          "暴击律动",
+          "虚幻武器"
+        ],
+        "warm_wall_time_ms": {
+          "baseline": {
+            "median": 848.264,
+            "samples": [
+              875.418,
+              797.875,
+              848.264
+            ]
+          },
+          "candidate": {
+            "median": 955.987,
+            "samples": [
+              955.987,
+              920.223,
+              1009.047
+            ]
+          }
+        }
+      },
+      "title_only_crop": {
+        "ocr_lines_equal": true,
+        "candidates_equal": true,
+        "names": [
+          "心灵净化",
+          "暴击律动",
+          "虚幻武器"
+        ],
+        "warm_wall_time_ms": {
+          "baseline": {
+            "median": 147.06,
+            "samples": [
+              147.06,
+              134.273,
+              174.794
+            ]
+          },
+          "candidate": {
+            "median": 172.273,
+            "samples": [
+              173.426,
+              172.273,
+              154.247
+            ]
+          }
+        }
+      }
+    },
+    "full_image_matching": {
+      "output_equal": true,
+      "line_count": 35,
+      "baseline": {
+        "median_ms": 31.752346,
+        "min_ms": 31.058332,
+        "max_ms": 33.887433,
+        "batches": 7,
+        "iterations_per_batch": 20
+      },
+      "candidate": {
+        "median_ms": 26.115188,
+        "min_ms": 24.759416,
+        "max_ms": 28.124813,
+        "batches": 7,
+        "iterations_per_batch": 20
+      },
+      "baseline_over_candidate_ratio": 1.22
+    },
+    "actual_title_row_matching": {
+      "output_equal": true,
+      "line_count": 6,
+      "baseline": {
+        "median_ms": 5.014881,
+        "min_ms": 4.94679,
+        "max_ms": 5.232898,
+        "batches": 7,
+        "iterations_per_batch": 100
+      },
+      "candidate": {
+        "median_ms": 2.535331,
+        "min_ms": 2.333008,
+        "max_ms": 2.946034,
+        "batches": 7,
+        "iterations_per_batch": 100
+      },
+      "baseline_over_candidate_ratio": 1.98
+    }
+  },
+  "versions": {
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.4",
+    "Pillow": "12.3.0"
+  }
+}
