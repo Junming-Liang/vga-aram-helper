@@ -1,4 +1,18 @@
-# Published release verification: v0.4.5 (2026-10-13 UTC)
+# Published release verification: v0.4.6 (2026-10-14 UTC)
+
+[Windows release run #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) passed all mandatory gates and published [v0.4.6](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6) from source/tag `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`. Final EXE: **106,553,042 bytes (101.62 MiB)**, SHA-256 `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`. The release remains a non-latest prerelease; earlier tags and assets are unchanged.
+
+- Both source and the exact final EXE passed explicit-HWND WGC at 100%/150%/200% application scaling, including decorated/borderless original windows, ROI-only pixels, identity/geometry/protection guards, bounded cancellation and helper/Job/pipe cleanup.
+- The redesigned source overlay passed the five-scale Windows matrix. The same final EXE passed all three native overlay/OCR scales, both hero transitions with two independent inferences, unchanged-title reuse without increasing confirmation counts, asynchronous capture, click-through, stale-state clearing and physical/text containment. A separate validator rejects overlays covering over half of the client height.
+- Automatic-window lifecycle, existing guarded fallback, original selection handoff, same-binary OTA success/concurrency/rollback, baseline EXE/browser/OCR, native OpenCV parity/timing, model/source/license hashes and final release verification all passed.
+- Local final source tests passed 710 Python tests with ten disclosed Linux/platform/dependency skips. Independent review repeated the full suite; separate actual Qt application-scale renders and original fixtures tested the new native UI. These offscreen renders are not Windows capture or physical-monitor DPI evidence.
+- Source-bound public still-image reports retain their actual v0.4.6 runs: hero positives 2/3 with one safe abstention, negatives 3/3 abstained; selection positive 1/1 and negatives 3/3 across two scenes. No wrong hero was observed in those small samples. They do not establish general game accuracy or the Windows custom-wheel's real-game performance.
+
+Real LoL/Vanguard, exclusive fullscreen, clean Windows 10/11 devices, mixed-monitor system DPI and cross-version online upgrades remain unverified. The historical WinError 5 owner/cause remains unknown. No user photos or real-game screenshots were added; the new dictionary disclosure is explicit read-only lookup, not a retained live result.
+
+---
+
+# Historical release verification: v0.4.5 (2026-10-13 UTC)
 
 [Windows release run #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079) passed every gate and published [v0.4.5](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5) at source/tag `1939043c64554868bba3931a214d89946a339b53`. Final EXE: **106,399,997 bytes (101.47 MiB)**, SHA-256 `c43d1cd0a7848cad6c7b24ffd13943c653b823c19ed3d1992669943457ad2195`. Public asset metadata and the tested identity agree. Earlier released tags/assets remain unchanged.
 
