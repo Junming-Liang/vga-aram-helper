@@ -116,9 +116,9 @@ void report_failure(int code, char const* check, uint32_t hresult = 0) noexcept 
         WriteFile(GetStdHandle(STD_ERROR_HANDLE), data, DWORD(count), &written, nullptr);
     }
 }
-// Seven fixed 3-byte checkpoints, surfaced only for nonzero process exit after
-// complete pipe cleanup. They identify the last reached main-thread checkpoint,
-// not the faulting thread/operation or a crash cause. No exception handling,
+// Seven fixed 3-byte checkpoints; failure diagnostics surface them only for
+// nonzero exit after complete pipe cleanup. They identify the last reached
+// main-thread checkpoint, not the faulting thread/operation or a crash cause. No exception handling,
 // retries, teardown reordering or success conversion. The existing parent cap
 // covers the entire transcript: 21 bytes plus the bounded failure JSON.
 enum class ShutdownStage : char {
@@ -450,6 +450,26 @@ void validate_request(Request const& request, Input const& p, uint64_t last_id) 
                 stale, "request-roi");
     }
 }
+void pin_graphics_capture_module() {
+    // Experimental module-lifetime test, not a proven crash-cause diagnosis.
+    // Keep only the already-loaded system WGC module mapped through apartment
+    // teardown and process return. Every object release/Close and RoUninitialize
+    // below still runs unchanged. PIN lasts until process termination.
+    // https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw
+    wchar_t directory[MAX_PATH]{};
+    UINT length = GetSystemDirectoryW(directory, MAX_PATH);
+    require(length > 0 && length < MAX_PATH && directory[length] == L'\0',
+            failed, "capture-module-pin");
+    std::wstring path(directory, length);
+    require(path.find(L'\0') == std::wstring::npos, failed, "capture-module-pin");
+    if (path.back() != L'\\') path += L'\\';
+    path += L"GraphicsCapture.dll";
+    HMODULE module = nullptr;
+    // A full system path avoids basename ambiguity. This API cannot load a
+    // missing module, and failure has no DLL-search or LoadLibrary fallback.
+    require(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, path.c_str(), &module) &&
+            module != nullptr, failed, "capture-module-pin");
+}
 void run(Input const& p) {
     phase("support");
     require(ApiInformation::IsApiContractPresent(L"Windows.Foundation.UniversalApiContract", 8) &&
@@ -494,6 +514,8 @@ void run(Input const& p) {
     auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device,
         DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, size);
     auto session = pool.CreateCaptureSession(item);
+    // Factory, item, pool and session are alive; capture has not started.
+    pin_graphics_capture_module();
     if (ApiInformation::IsPropertyPresent(L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsCursorCaptureEnabled"))
         session.IsCursorCaptureEnabled(false);
     // Secondary windows default to false on platforms before this API exists.
