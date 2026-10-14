@@ -1,6 +1,7 @@
 """Portable WGC protocol/guard tests, never presented as Windows OS evidence."""
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +16,9 @@ from PIL import Image
 from screen_capture import CapturePaused, ClientRect, Win32Capture, WindowInfo
 from session_windows import ProcessMetadata
 from wgc_capture import (HEADER, MAGIC, HELPER_NAME, MANIFEST_NAME, WgcCapture,
-                         WgcError, WgcUnavailable, decode_frame, validate_request)
+                         WgcError, WgcUnavailable, decode_frame, validate_request,
+                         MAX_DIAGNOSTIC_BYTES, DIAGNOSTIC_PHASES, DIAGNOSTIC_CHECKS,
+                         sanitize_native_diagnostic, decode_native_diagnostic)
 
 
 class WgcTests(unittest.TestCase):
@@ -35,7 +38,7 @@ class WgcTests(unittest.TestCase):
 
     def process(self, code=0, data=None):
         return SimpleNamespace(returncode=code, communicate=Mock(return_value=(self.encoded if data is None else data, None)),
-                               poll=Mock(return_value=code), kill=Mock(), stdout=Mock(), stdin=Mock())
+                               poll=Mock(return_value=code), kill=Mock(), stdout=Mock(), stderr=Mock(), stdin=Mock())
 
     def invoke(self, capture, process, **kwargs):
         with patch('wgc_capture.os.name', 'nt'), patch('wgc_capture.process_metadata', return_value=self.metadata), \
@@ -81,6 +84,7 @@ class WgcTests(unittest.TestCase):
             '-1000', '60', '800', '600', '100', '40', '32', '24', '800'])
         self.assertFalse(spawn.call_args.kwargs['shell'])
         self.assertEqual(spawn.call_args.kwargs['stdin'], subprocess.PIPE)
+        self.assertEqual(spawn.call_args.kwargs['stderr'], subprocess.PIPE)
         self.assertEqual(image.size, (32, 24)); process.kill.assert_not_called()
 
     def test_native_start_gate_is_released_only_after_job_assignment(self):
@@ -162,7 +166,7 @@ class WgcTests(unittest.TestCase):
         with patch('wgc_capture.time.monotonic', side_effect=[0., 2.1]), self.assertRaises(WgcError):
             self.invoke(capture, process)
         self.assertIs(capture._pending_cleanup, process)
-        process.stdout.close.assert_not_called()
+        process.stdout.close.assert_not_called(); process.stderr.close.assert_not_called()
         with patch('wgc_capture.subprocess.Popen') as spawn, self.assertRaises(WgcError) as error:
             capture.capture(self.target, self.rect, self.roi)
         self.assertEqual(error.exception.status, 'cleanup-pending'); spawn.assert_not_called()
@@ -174,7 +178,7 @@ class WgcTests(unittest.TestCase):
         with patch('wgc_capture.time.monotonic', side_effect=[0., 2.1]), self.assertRaises(WgcError):
             self.invoke(capture, process)
         self.assertIs(capture._pending_cleanup, process)
-        process.stdout.close.assert_not_called(); process.kill.assert_called_once()
+        process.stdout.close.assert_not_called(); process.stderr.close.assert_not_called(); process.kill.assert_called_once()
 
     def test_exited_process_with_active_pipe_reader_is_not_synchronously_closed(self):
         capture = self.wrapper(); process = self.process()
@@ -182,7 +186,7 @@ class WgcTests(unittest.TestCase):
         with patch('wgc_capture.time.monotonic', side_effect=[0., 2.1]), self.assertRaises(WgcError):
             self.invoke(capture, process)
         self.assertIs(capture._pending_cleanup, process)
-        process.stdout.close.assert_not_called(); process.kill.assert_not_called()
+        process.stdout.close.assert_not_called(); process.stderr.close.assert_not_called(); process.kill.assert_not_called()
         with self.assertRaises(WgcError) as error:
             capture.capture(self.target, self.rect, self.roi)
         self.assertEqual(error.exception.status, 'cleanup-pending')
@@ -206,6 +210,108 @@ class WgcTests(unittest.TestCase):
             path.write_bytes(b'changed test exe')
             with self.assertRaises(WgcError) as error: capture._verify_helper()
             self.assertEqual(error.exception.status, 'untrusted-helper')
+
+
+class WgcDiagnosticTests(unittest.TestCase):
+    def diagnostic(self):
+        return {'schema_version': 1, 'code': 12, 'phase': 'item-size', 'check': 'item-dimensions',
+                'hresult': 0, 'observed': [0, 0, 336, 279], 'expected': [0, 0, 322, 272],
+                'window_rect': [20, 30, 336, 279], 'frame_rect': [27, 30, 322, 272],
+                'style': 0, 'extended_style': 0}
+
+    def encoded(self, value=None):
+        return json.dumps(self.diagnostic() if value is None else value).encode('ascii')
+
+    def test_allowlisted_native_failure_survives_exactly_and_is_detached(self):
+        value = self.diagnostic()
+        result = decode_native_diagnostic(self.encoded(value), 12)
+        self.assertEqual(result, value)
+        sanitized = sanitize_native_diagnostic(value)
+        value['observed'][0] = 999
+        self.assertEqual(sanitized['observed'][0], 0)
+        error = WgcError('stale', 'safe message', sanitized)
+        sanitized['observed'][0] = 888
+        self.assertEqual(error.diagnostic['observed'][0], 0)
+        self.assertEqual(str(error), 'safe message')
+
+    def test_unknown_private_fields_or_ids_are_never_preserved(self):
+        for key in ('title', 'path', 'pid', 'hwnd', 'pixels', 'stderr', 'environment'):
+            value = dict(self.diagnostic(), **{key: 'must never appear'})
+            with self.subTest(key=key):
+                self.assertIsNone(sanitize_native_diagnostic(value))
+                self.assertIsNone(decode_native_diagnostic(self.encoded(value), 12))
+        for field in ('phase', 'check'):
+            value = self.diagnostic(); value[field] = 'private arbitrary text'
+            self.assertIsNone(sanitize_native_diagnostic(value))
+
+    def test_missing_fields_bad_types_and_out_of_bounds_values_rejected(self):
+        baseline = self.diagnostic()
+        for field in baseline:
+            value = dict(baseline); del value[field]
+            with self.subTest(missing=field):
+                self.assertIsNone(sanitize_native_diagnostic(value))
+        for field, bad in (('schema_version', True), ('schema_version', 2), ('code', True),
+                ('code', 0), ('code', 99), ('phase', []), ('check', {}), ('hresult', -1),
+                ('hresult', 2**32), ('style', True), ('extended_style', '0'),
+                ('observed', [0, 0, 32, True]), ('observed', [0, 0, 32, 2**32]),
+                ('expected', [0, 0, 32]), ('window_rect', (0, 0, 32, 24)),
+                ('frame_rect', [0, 0, 32, -(2**32)-1])):
+            value = dict(baseline); value[field] = bad
+            with self.subTest(field=field, bad=bad):
+                self.assertIsNone(sanitize_native_diagnostic(value))
+
+    def test_only_one_bounded_ascii_record_matching_exit_status_is_accepted(self):
+        valid = self.encoded()
+        self.assertIsNotNone(decode_native_diagnostic(valid, 12))
+        for data in (None, '', b'', valid + valid, b'prefix ' + valid, b'\xff',
+                     valid + b' ' * MAX_DIAGNOSTIC_BYTES, b'[' * 999,
+                     valid.replace(b'"code": 12', b'"code": 12, "code": 12')):
+            with self.subTest(data=str(data)[:80]):
+                self.assertIsNone(decode_native_diagnostic(data, 12))
+        self.assertIsNone(decode_native_diagnostic(valid, 14))
+        self.assertIsNone(decode_native_diagnostic(valid, 0))
+
+    def test_native_buffer_and_phase_check_ids_match_parser_contract(self):
+        source = (Path(__file__).resolve().parents[1] / 'native/wgc_capture.cpp').read_text()
+        self.assertIn('char data[1024]{};', source)
+        self.assertEqual(set(re.findall(r'phase\("([a-z-]+)"\)', source)) | {'startup'}, DIAGNOSTIC_PHASES)
+        identifiers = set(re.findall(r'(?:stale|unsupported|timed_out|protected_content|failed), "([a-z-]+)"', source))
+        identifiers |= {'invariant', 'hresult', 'exception', 'occluder-query', 'occluder-overlap'}
+        self.assertEqual(identifiers, DIAGNOSTIC_CHECKS)
+
+    def test_native_failure_attaches_only_sanitized_evidence_and_closes_both_pipes(self):
+        harness = WgcTests(); harness.setUp()
+        process = harness.process(12)
+        process.communicate.return_value = (b'', self.encoded())
+        with self.assertRaises(WgcError) as error:
+            harness.invoke(harness.wrapper(), process)
+        self.assertEqual(error.exception.status, 'stale')
+        self.assertEqual(error.exception.diagnostic, self.diagnostic())
+        process.stdout.close.assert_called_once(); process.stderr.close.assert_called_once()
+        for bad in (b'private stderr text', self.encoded(dict(self.diagnostic(), path='private'))):
+            process = harness.process(12); process.communicate.return_value = (b'', bad)
+            with self.assertRaises(WgcError) as error:
+                harness.invoke(harness.wrapper(), process)
+            self.assertEqual(error.exception.status, 'stale')
+            self.assertIsNone(error.exception.diagnostic)
+            self.assertNotIn('private', str(error.exception))
+
+    def test_success_ignores_stderr_and_closes_both_pipes(self):
+        harness = WgcTests(); harness.setUp()
+        process = harness.process()
+        process.communicate.return_value = (harness.encoded, b'private stray stderr')
+        image, _ = harness.invoke(harness.wrapper(), process)
+        self.assertEqual(image.size, (32, 24))
+        process.stdout.close.assert_called_once(); process.stderr.close.assert_called_once()
+
+    def test_pending_cleanup_closes_both_pipes_only_after_communicate_finishes(self):
+        harness = WgcTests(); harness.setUp()
+        capture = harness.wrapper(); pending = harness.process()
+        capture._pending_cleanup = pending
+        harness.invoke(capture, harness.process())
+        pending.communicate.assert_called_once_with(timeout=0)
+        pending.stdout.close.assert_called_once(); pending.stderr.close.assert_called_once()
+        self.assertIsNone(capture._pending_cleanup)
 
 
 class WgcRoutingTests(unittest.TestCase):
