@@ -20,7 +20,7 @@ import time
 
 from app_version import __version__
 
-CHECK_FIELDS = ('owned_hwnd_pixels_passed', 'routed_wgc_backend_passed', 'roi_bounds_passed',
+CHECK_FIELDS = ('owned_hwnd_pixels_passed', 'routed_wgc_backend_passed', 'borderless_hwnd_pixels_passed', 'roi_bounds_passed',
     'native_roi_bounds_passed', 'stale_identity_passed', 'resize_stale_passed', 'destroy_stale_passed', 'focus_loss_passed',
     'occlusion_passed', 'minimized_passed', 'protected_window_passed', 'cancel_before_launch_passed',
     'cancel_during_wait_passed', 'timeout_watchdog_passed', 'helpers_exited_passed', 'pipe_readers_exited_passed',
@@ -90,7 +90,7 @@ def execute(result):
         fn = getattr(u, name); fn.argtypes = args; fn.restype = return_type
     old_dpi = u.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
     require(bool(old_dpi), 'Cannot establish local PMv2 observer coordinates')
-    app = window = cover = None
+    app = window = cover = borderless = None
     processes, jobs = [], []
     original_popen = wgc_capture.subprocess.Popen
     original_job = wgc_capture._CaptureJob
@@ -142,6 +142,17 @@ def execute(result):
         require(abs(dpr - result['requested_app_scale']) < .01, 'Requested/measured Qt scale differs')
         require((rect.width, rect.height) == (round(320*dpr), round(240*dpr)),
                 'Owned client did not preserve requested physical DPI dimensions')
+        def geometry(widget_hwnd, client):
+            outer, frame = W.RECT(), W.RECT()
+            require(u.GetWindowRect(widget_hwnd, ctypes.byref(outer)), 'Cannot measure owned Win32 bounds')
+            require(capture._cloaked_fn is not None and capture._cloaked_fn(
+                widget_hwnd, 9, ctypes.byref(frame), ctypes.sizeof(frame)) >= 0,
+                'Cannot measure owned DWM frame bounds')
+            def coordinates(value):
+                return [value.left, value.top, value.right-value.left, value.bottom-value.top]
+            return {'client': [client.x, client.y, client.width, client.height],
+                    'window': coordinates(outer), 'frame': coordinates(frame)}
+        result['owned_geometry'] = geometry(hwnd, rect)
         # Exact fractions avoid fractional-pixel interpolation at all tested scales.
         roi = (rect.width // 4, rect.height // 4, rect.width // 2, rect.height // 2)
         backend = WgcCapture()
@@ -185,6 +196,29 @@ def execute(result):
         require(routed_rect == rect and capture.last_backend == 'windows-graphics-capture',
                 'Normal capture routing silently used a different backend')
         result.update(last_backend=capture.last_backend, routed_wgc_backend_passed=True)
+        # Also prove the equal-bounds client mapping with a separate owned,
+        # frameless window. Keep the decorated case and every negative test.
+        borderless = OwnedWindow()
+        borderless.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
+        borderless.resize(320, 240)
+        borderless.move(30, 30)
+        focus(borderless)
+        borderless_target = capture.info(int(borderless.winId()))
+        require(borderless_target.pid == os.getpid(), 'Borderless fixture is not owned')
+        borderless_rect = capture.rect(borderless_target)
+        require((borderless_rect.width, borderless_rect.height) == (rect.width, rect.height),
+                'Borderless physical client dimensions differ')
+        result['borderless_geometry'] = geometry(borderless_target.hwnd, borderless_rect)
+        borderless_bounds = result['borderless_geometry']
+        require(borderless_bounds['client'] == borderless_bounds['window'] == borderless_bounds['frame'],
+                'Borderless fixture did not establish identical Win32/DWM/client bounds')
+        image = threaded(lambda: backend.capture(borderless_target, borderless_rect, roi))
+        result['borderless_mean_channel_error'] = pixel_error(image, borderless_rect, roi)
+        result['borderless_hwnd_pixels_passed'] = True
+        borderless.close(); borderless.destroy()
+        focus(window)
+        require(capture.rect(target) == rect and geometry(hwnd, rect) == result['owned_geometry'],
+                'Original owned geometry changed before negative checks')
         def rejects(fn, field, statuses=None, on_wait=None):
             started = time.monotonic()
             try:
@@ -346,12 +380,12 @@ def execute(result):
         leaked = [process for process in processes if process.poll() is None]
         for process in leaked:
             process.kill(); process.wait(timeout=5)
-        for widget in (cover, window):
+        for widget in (borderless, cover, window):
             if widget is not None:
                 widget.close(); widget.destroy()
         if app is not None:
             app.processEvents()
-        result['windows_closed_passed'] = all(widget is None or not widget.isVisible() for widget in (window, cover))
+        result['windows_closed_passed'] = all(widget is None or not widget.isVisible() for widget in (window, cover, borderless))
         u.SetThreadDpiAwarenessContext(old_dpi)
         require(not leaked, 'Cleanup found a live owned capture helper')
 
