@@ -29,6 +29,11 @@ def good_matrix():
 
 
 class Coordinates(unittest.TestCase):
+    def test_fitting_but_obstructive_overlay_is_rejected(self):
+        row=good_row(CASES[0],'1')
+        row['overlay_window_physical']['height']=302
+        self.assertIn('native_overlay_exceeds_half_client_height',case_issues(row))
+
     def test_negative_monitor_origin_is_legal(self):
         self.assertTrue(contains(rectangle(-1920,0,1920,1080), rectangle(-1910,10,950,230)))
     def test_overflow_is_not_hidden_by_qt_bounds(self):
@@ -172,8 +177,8 @@ class TranslationQuantization(unittest.TestCase):
 
     def test_measured_pairs_pass_matrix_gate_without_weakening_repeated_placement(self):
         report = good_matrix()
-        for index, dpr, a, b in ((2,1.5,(29,228,927,366),(33,233,927,366)),
-                                  (3,2,(34,34,916,554),(40,40,916,554))):
+        for index, dpr, a, b in ((2,1.5,(29,378,927,216),(33,383,927,216)),
+                                  (3,2,(34,318,916,270),(40,324,916,270))):
             before, after = self.measured_pair(dpr,a,b)
             rows = report['children'][index]['cases']
             rows[0], rows[2] = before, after

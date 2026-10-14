@@ -165,6 +165,61 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             self.assertFalse(self.window.state.confirmed)
             self.assertEqual(len(infer_calls), 3)
 
+    def test_changed_hero_cached_titles_require_two_fresh_confirmations_in_both_directions(self):
+        from screen_capture import ClientRect
+        names = list(self.window.data['augments'])[:3]
+        heroes = list(self.window.data['heroes'])[:2]
+        self.assertEqual(len(heroes), 2)
+        selected = [heroes[0]]
+        calls = []
+        candidates = [{'name': name, 'recognized_text': name, 'match_method': 'exact',
+                       'ocr_confidence': .99, 'box': [[x-40, 150], [x+40, 150],
+                                                    [x+40, 180], [x-40, 180]]}
+                      for x, name in zip((150, 450, 750), names)]
+        class Capture:
+            def capture(inner, *args, **kwargs):
+                return b'owned-image', ClientRect(0, 0, 900, 600)
+        class OCR:
+            def recognize(inner, image, vocabulary):
+                calls.append(selected[0])
+                return {'automatic_candidates': copy.deepcopy(candidates),
+                        'candidates': copy.deepcopy(candidates),
+                        'image_size': {'width': 900, 'height': 400}}
+        def recognize(image, roi, ocr, vocabulary, matcher):
+            result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
+            result['hero_observation'] = {'hero': selected[0], 'confident': True}
+            return result
+        def tick():
+            self.window.capture_hidden(self.window.state.generation)
+            self.wait(lambda: not self.window.ocr_busy)
+        self.window.capture = Capture()
+        self.window.ocr = OCR()
+        self.window.ocr_reuse.clock = lambda: 100.0  # Deterministic non-expired owned cache.
+        with patch('hero_recognition.recognize_frame', side_effect=recognize):
+            tick(); tick()
+            self.assertTrue(self.window.state.confirmed)
+            self.assertEqual(len(calls), 2)
+            for hero in (heroes[1], heroes[0]):
+                selected[0] = hero
+                before = len(calls)
+                tick()  # Fresh hero + reused title must revoke old confirmation.
+                self.assertEqual(len(calls), before)
+                self.assertEqual(self.window.state.automatic_frames, 0)
+                self.assertEqual(self.window.state.hero, '')
+                self.assertFalse(self.window.state.confirmed)
+                self.assertFalse(self.window.overlay.isVisible())
+                tick()
+                self.assertEqual(len(calls), before + 1)
+                self.assertEqual(self.window.state.automatic_frames, 1)
+                self.assertEqual(self.window.state.hero, hero)
+                self.assertFalse(self.window.state.confirmed)
+                self.assertFalse(self.window.overlay.isVisible())
+                tick()
+                self.assertEqual(len(calls), before + 2)
+                self.assertEqual(self.window.state.automatic_frames, 2)
+                self.assertEqual(self.window.state.hero, hero)
+                self.assertTrue(self.window.state.confirmed)
+
     def test_watchdog_never_restores_overlay_while_capture_worker_is_busy(self):
         from native_ui import ControlWindow
         from screen_capture import ClientRect

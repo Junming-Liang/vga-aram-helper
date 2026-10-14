@@ -29,7 +29,7 @@ from native_state import display_cards
 from screen_capture import ClientRect
 overlay=Overlay();overlay.set_cards('星火术士（演示）',display_cards(data,'星火术士（演示）',['星火共鸣','晶盾回路','风步微光']),'虚构日期','数据包演示 / 游戏资料演示','高置信自动识别')
 overlay._fit_layout(ClientRect(20,20,width,height),dpr);overlay.show();app.processEvents()
-layout_rows=inspect_smoke_layout(overlay);assert any(row.get('text','').startswith('来源日期') or '来源日期' in row.get('text','') for row in layout_rows)
+layout_rows=inspect_smoke_layout(overlay);assert ('来源日期' in overlay.metadata_label.text() and overlay.metadata_label.isVisibleTo(overlay) is (not overlay._compact))
 overlay.tier_labels[0].resize(1,1)
 try:inspect_smoke_layout(overlay)
 except AssertionError:pass

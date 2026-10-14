@@ -62,6 +62,8 @@ def validate_physical_geometry(result, app_scale):
                          ('mock_window_physical', 'clientRect'), ('clientRect', 'overlay_window_physical')):
         if not contained(rects[outer], rects[inner]):
             raise RuntimeError('Native physical containment failed: ' + inner)
+    if rects['overlay_window_physical']['height']*2>client['height']:
+        raise RuntimeError('Native overlay covers more than half the client height')
     if type(result.get('overlay_compact')) is not bool:
         raise RuntimeError('Native compact layout state is missing')
 

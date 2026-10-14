@@ -119,6 +119,8 @@ def case_issues(row):
     if visible:
         if not contains(row['target_client_physical'], row['overlay_window_physical']):
             issues.append('native_overlay_outside_owned_client')
+        if row['overlay_window_physical']['height']*2>row['target_client_physical']['height']:
+            issues.append('native_overlay_exceeds_half_client_height')
         if not row['geometry_mapping_matches']:
             issues.append('qt_logical_to_native_physical_mismatch')
         if row['layout_issues']:

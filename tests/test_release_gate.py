@@ -149,7 +149,7 @@ class ReleaseFixture(unittest.TestCase):
                        'desktop_work_area_physical': dict(x=0, y=0, width=1024, height=720),
                        'mock_window_physical': dict(x=20, y=20, width=960, height=600),
                        'clientRect': dict(x=20, y=20, width=960, height=600),
-                       'overlay_window_physical': dict(x=40, y=200, width=920, height=400),
+                       'overlay_window_physical': dict(x=40, y=380, width=920, height=220),
                        'overlay_compact': False, 'physical_mock_geometry_passed': True, 'overlay_layout_passed': True}
         self.native.update(dict.fromkeys(gate.NATIVE_AUTOMATION_FIELDS, True))
         self.extra_scale_smokes, self.extra_natives = {}, {}
@@ -448,7 +448,7 @@ class ReleaseFixture(unittest.TestCase):
                 ('mock_window_physical', 'x', -1), ('mock_window_physical', 'y', -1),
                 ('mock_window_physical', 'width', 2000), ('mock_window_physical', 'height', 2000),
                 ('overlay_window_physical', 'x', 20), ('overlay_window_physical', 'y', 20),
-                ('overlay_window_physical', 'x', 60), ('overlay_window_physical', 'y', 220),
+                ('overlay_window_physical', 'x', 60), ('overlay_window_physical', 'y', 401),
                 ('overlay_window_physical', 'width', 961), ('overlay_window_physical', 'height', 601),
             ]
             for rect, field, bad in mutations:
@@ -749,6 +749,12 @@ class ReleaseFixture(unittest.TestCase):
                 self.write_reports()
                 with self.assertRaises(gate.VerificationError): self.verify()
                 self.native = saved
+
+    def test_native_overlay_must_fit_half_height_even_inside_client(self):
+        self.native['overlay_window_physical'].update(y=30,height=301)
+        self.write_reports()
+        with self.assertRaisesRegex(gate.VerificationError,'half-client-height'):
+            self.verify()
 
     def test_automatic_hero_lifecycle_proof_is_mandatory(self):
         for field in gate.NATIVE_AUTOMATION_FIELDS:

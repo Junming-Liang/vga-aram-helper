@@ -162,6 +162,12 @@ class NativePackagingTests(unittest.TestCase):
             value=self.geometry_fixture();edit(value)
             with self.assertRaises(RuntimeError):native_smoke.validate_physical_geometry(value,1)
 
+    def test_native_overlay_cannot_cover_over_half_the_client(self):
+        value=self.geometry_fixture()
+        value['overlay_window_physical'].update(y=30,height=301)
+        with self.assertRaisesRegex(RuntimeError,'half'):
+            native_smoke.validate_physical_geometry(value,1)
+
     def test_failed_native_report_exposes_only_bounded_synthetic_text(self):
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary)/'native.json'
