@@ -391,6 +391,11 @@ class WrapperTests(unittest.TestCase):
         self.process.exit()
         self.assertTrue(self.capture._transport.ready_for_replacement.wait(2))
 
+    def test_stop_uses_the_same_immediate_close_cancellation_path(self):
+        # close() above executes the real wrapper against fake process/Job I/O.
+        # This binding is not evidence of Windows driver or Job teardown timing.
+        self.assertIs(session.WgcSessionCapture.stop, session.WgcSessionCapture.close)
+
     def _capture_error(self, result):
         try:
             self.capture.capture(self.target, self.rect, ROI)
@@ -640,13 +645,14 @@ class NativeSourceParityTests(unittest.TestCase):
         self.assertIn('validate(p, &geometry);', before)
         self.assertIn('validate(p, &geometry);', after)
         self.assertIn('frame_time > cutoff && frame_time > last_frame_time', self.new)
-        self.assertIn('frame_time > 0 && frame_time <= qpc_100ns(false, &diagnostic.clock)', self.new)
+        self.assertIn('require(frame_time > 0, stale, "frame-timestamp");', self.new)
+        self.assertIn('bool timestamp_ready = frame_time <= qpc_100ns(false, &diagnostic.clock);', self.new)
         self.assertIn('require(idle.entered >= frame_time, stale, "frame-timestamp");', self.new)
         self.assertIn('SecureZeroMemory(pixels.data(), pixels.size()); pixels.clear();', self.new)
         self.assertIn('~SensitivePixels()', self.new)
 
     def test_native_clock_uses_only_existing_samples_and_resets_on_phase_change(self):
-        self.assertEqual(self.new.count('qpc_100ns('), 4)  # Definition, cutoff, frame and idle.
+        self.assertEqual(self.new.count('qpc_100ns('), 4)  # Definition, cutoff, each readiness check and idle.
         self.assertEqual(self.new.count('QueryPerformanceCounter('), 1)
         self.assertEqual(self.new.count('QueryPerformanceFrequency('), 1)
         self.assertEqual(self.new.count('frame_clock(cutoff, frame_time, previous_frame_time);'), 2)
@@ -665,7 +671,7 @@ class NativeSourceParityTests(unittest.TestCase):
         reporting = self.new[self.new.index('struct Failure {'):self.new.index('struct Handle {')]
         qpc = self.new[self.new.index('constexpr int64_t qpc_ticks_100ns('):self.new.index('void write_all(')]
         frame_guard = re.search(r'frame_clock\(cutoff, frame_time, previous_frame_time\);\s*'
-                                r'require\(frame_time > 0[^;]+;', self.new).group()
+                                r'require\(frame_time > 0[^;]+;\s*bool timestamp_ready[^;]+;', self.new).group()
         idle_guard = re.search(r'frame_clock\(cutoff, frame_time, previous_frame_time\);\s*'
                                r'Idle idle[^;]+;\s*require\(idle.entered[^;]+;', self.new).group()
         idle_start = self.new.index('struct Idle {')
@@ -703,7 +709,7 @@ int main() {
 #endif
     int64_t cutoff = 10000000, frame_time = -1, previous_frame_time = 9999999;
     phase("frame-wait");
-    try { FRAME_GUARD assert(false); }
+    try { FRAME_GUARD (void)timestamp_ready; assert(false); }
     catch (Failure const& error) {
         assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
         assert(counter_calls == 0 && frequency_calls == 0);
@@ -713,21 +719,24 @@ int main() {
     }
     phase("frame-wait");
     frame_time = 10000003;
-    try { FRAME_GUARD assert(false); }
-    catch (Failure const& error) {
-        assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
+    {   // A future timestamp is unready, not an immediate failure or success.
+        FRAME_GUARD
+        assert(!timestamp_ready);
         assert(counter_calls == 1 && frequency_calls == 1);
         assert(diagnostic.clock.qpc_counter == ticks && diagnostic.clock.qpc_frequency == frequency &&
                diagnostic.clock.observed_now_100ns == 10000002);
-        report_failure(error.code, error.check);
     }
+    ticks = frame_time;
+    { FRAME_GUARD assert(timestamp_ready); }
+    assert(counter_calls == 2 && frequency_calls == 2);
+    ticks = 10000002;
     phase("validate-idle");
     struct { uint64_t id; } request{1};
     struct { uint64_t generation; } p{7};
     try { IDLE_GUARD assert(false); }
     catch (Failure const& error) {
         assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
-        assert(counter_calls == 2 && frequency_calls == 2);
+        assert(counter_calls == 3 && frequency_calls == 3);
         assert(diagnostic.clock.previous_frame_100ns == previous_frame_time);
         report_failure(error.code, error.check);
     }
@@ -765,21 +774,332 @@ int main() {
             ran = subprocess.run([str(binary)], capture_output=True, timeout=10)
             self.assertEqual(ran.returncode, 0, ran.stderr)
         rows = ran.stdout.splitlines(keepends=True)
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 9)
         for row in rows:
             self.assertLess(len(row), 1024)
         records = [json.loads(row) for row in rows]
         self.assertEqual(records[0]['clock'], dict(qpc_counter=0, qpc_frequency=0, cutoff_100ns=10000000,
                          frame_100ns=-1, observed_now_100ns=0, previous_frame_100ns=9999999))
-        self.assertEqual(records[1]['clock'], records[2]['clock'])
         self.assertEqual(records[1]['clock']['frame_100ns'], 10000003)
-        for index in (0, 1, 2, 3, 4):
+        self.assertEqual(records[1]['phase'], 'validate-idle')
+        for index in (0, 1, 2, 3):
             self.assertEqual(session.decode_session_diagnostic(rows[index], 12), records[index])
-        self.assertEqual(len(rows[4]), 637)  # All allowed numeric fields at longest-width bounds.
-        self.assertEqual(len(rows[5]), 781)  # Even every native int64 slot at its longest width fits.
-        self.assertIsNone(session.decode_session_diagnostic(rows[5], 12))  # Geometry stays v1-bounded.
-        for index in (3, 6, 7, 8, 9):
+        self.assertEqual(len(rows[3]), 637)  # All allowed numeric fields at longest-width bounds.
+        self.assertEqual(len(rows[4]), 781)  # Even every native int64 slot at its longest width fits.
+        self.assertIsNone(session.decode_session_diagnostic(rows[4], 12))  # Geometry stays v1-bounded.
+        for index in (2, 5, 6, 7, 8):
             self.assertNotIn('clock', records[index])
+
+    def test_actual_cpp_readiness_loop_and_strict_guards(self):
+        # Compile the production loop, validators and geometry/clock predicates.
+        # Win32/WGC calls below are controlled stubs, not Windows pixel, Stop,
+        # scheduler or cleanup evidence. The readback sentinel only proves that
+        # the extracted loop's success barrier was (or was not) crossed.
+        compiler = shutil.which('c++')
+        if not compiler:
+            self.skipTest('Portable C++ compiler absent; Windows readiness evidence still required')
+        metadata = self.new[self.new.index('struct ClockDiagnostic {'):self.new.index('struct SensitivePixels')]
+        failure = self.new[self.new.index('struct Failure {'):self.new.index('void report_failure(')]
+        handles = self.new[self.new.index('struct Handle {'):self.new.index('// No ROI is supplied')]
+        inputs = self.new[self.new.index('constexpr DWORD watchdog_ms'):self.new.index('#pragma pack(push, 1)')]
+        geometry = self.new[self.new.index('struct Geometry {'):self.new.index('int64_t number(')]
+        guards = self.new[self.new.index('uint64_t creation_time('):self.new.index('constexpr int64_t qpc_ticks_100ns(')]
+        qpc = self.new[self.new.index('constexpr int64_t qpc_ticks_100ns('):self.new.index('void write_all(')]
+        loop = self.new[self.new.index('        auto deadline = GetTickCount64() + request.wait_ms;'):
+                        self.new.index('        phase("frame-size");')]
+        self.assertIn('if (!frame) frame = pool.TryGetNextFrame();', loop)
+        self.assertIn('require(frame_ready && GetTickCount64() < deadline, timed_out, "frame-deadline");', loop)
+        for forbidden in ('Surface(', 'CreateTexture2D(', 'CopySubresourceRegion(', 'Map(',
+                          'write_all(', 'lease =', 'cutoff =', 'last_frame_time ='):
+            self.assertNotIn(forbidden, loop)
+        harness = r"""
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+#define CALLBACK
+using DWORD = uint32_t;
+using BOOL = int;
+using HANDLE = void*;
+using HWND = void*;
+using LPARAM = intptr_t;
+struct RECT { int32_t left, top, right, bottom; };
+struct POINT { int32_t x, y; };
+struct FILETIME { uint32_t dwLowDateTime, dwHighDateTime; };
+struct LARGE_INTEGER { int64_t QuadPart; };
+struct MONITORINFO { DWORD cbSize; RECT rcMonitor; };
+constexpr int stale = 12, timed_out = 11, protected_content = 13, failed = 14;
+constexpr uint64_t pixel_budget = 16000000;
+constexpr int FALSE = 0, TRUE = 1, WAIT_TIMEOUT = 258, PROCESS_QUERY_LIMITED_INFORMATION = 4096;
+constexpr int GA_ROOT = 2, GWL_STYLE = -16, GWL_EXSTYLE = -20;
+constexpr int DWMWA_CLOAKED = 14, DWMWA_EXTENDED_FRAME_BOUNDS = 9, MONITOR_DEFAULTTONULL = 0;
+constexpr uint32_t WS_EX_LAYERED = 0x80000, WS_EX_NOACTIVATE = 0x8000000,
+    WS_EX_TOOLWINDOW = 0x80, WS_EX_TOPMOST = 8, WS_EX_TRANSPARENT = 0x20;
+HANDLE const INVALID_HANDLE_VALUE = reinterpret_cast<HANDLE>(intptr_t(-1));
+HWND const target_hwnd = reinterpret_cast<HWND>(1), overlay_hwnd = reinterpret_cast<HWND>(2),
+    occluder_hwnd = reinterpret_cast<HWND>(3);
+HANDLE const parent_handle = reinterpret_cast<HANDLE>(4), event_handle = reinterpret_cast<HANDLE>(5);
+std::string scenario;
+uint64_t elapsed_ms = 0;
+int waits = 0, validation_calls = 0, counter_calls = 0, frequency_calls = 0,
+    frame_reads = 0, pool_calls = 0, content_calls = 0, frame_closes = 0,
+    live_frames = 0, readback_entries = 0;
+int64_t initial_now = 200;
+std::vector<DWORD> waited;
+std::vector<uint64_t> validated_at;
+bool changed(char const* name) { return waits > 0 && scenario == name; }
+bool SUCCEEDED(int result) { return result >= 0; }
+bool CloseHandle(HANDLE) { return true; }
+HANDLE CreateEventW(void*, BOOL, BOOL, void*) { return event_handle; }
+DWORD WaitForSingleObject(HANDLE, DWORD);
+uint64_t GetTickCount64() {
+    if (scenario == "deadline-final" && counter_calls == 2) elapsed_ms = 60;
+    return elapsed_ms;
+}
+bool QueryPerformanceCounter(LARGE_INTEGER* out) {
+    ++counter_calls;
+    out->QuadPart = initial_now + int64_t(elapsed_ms) * 10000;
+    return true;
+}
+bool QueryPerformanceFrequency(LARGE_INTEGER* out) {
+    ++frequency_calls; out->QuadPart = 10000000; return true;
+}
+HANDLE OpenProcess(DWORD access, BOOL, DWORD pid) {
+    assert(access == PROCESS_QUERY_LIMITED_INFORMATION && pid == 77);
+    return target_hwnd;
+}
+BOOL GetProcessTimes(HANDLE handle, FILETIME* created, FILETIME*, FILETIME*, FILETIME*) {
+    created->dwHighDateTime = 0;
+    created->dwLowDateTime = handle == parent_handle ? 200000 :
+        (changed("process-created") ? 100001 : 100000);
+    return TRUE;
+}
+struct ApiInformation {
+    static bool IsApiContractPresent(wchar_t const*, int version) {
+        assert(version == 10); return !changed("overlay-support");
+    }
+};
+int DwmIsCompositionEnabled(BOOL* out) { *out = TRUE; return 0; }
+BOOL IsWindow(HWND hwnd) {
+    return !((hwnd == target_hwnd && changed("window-visible")) ||
+             (hwnd == overlay_hwnd && changed("overlay-owner")));
+}
+BOOL IsWindowVisible(HWND hwnd) {
+    if (hwnd == overlay_hwnd) return changed("overlay-hidden");
+    if (hwnd == occluder_hwnd) return changed("occluder-overlap");
+    return TRUE;
+}
+BOOL IsIconic(HWND hwnd) { return hwnd == target_hwnd && changed("minimized"); }
+HWND GetAncestor(HWND hwnd, int flag) { assert(flag == GA_ROOT); return hwnd; }
+HWND GetForegroundWindow() { return changed("foreground-root") ? overlay_hwnd : target_hwnd; }
+DWORD GetWindowThreadProcessId(HWND hwnd, DWORD* out) {
+    *out = hwnd == target_hwnd ? (changed("window-process") ? 78 : 77) : 99; return 1;
+}
+HANDLE GetPropW(HWND hwnd, wchar_t const* name) {
+    assert(hwnd == overlay_hwnd && std::wstring(name) == L"VGA.WGC.SessionV2.Overlay.555");
+    return reinterpret_cast<HANDLE>(changed("overlay-generation") ? 556 : 555);
+}
+intptr_t GetWindowLongPtrW(HWND hwnd, int field) {
+    if (hwnd != overlay_hwnd || field != GWL_EXSTYLE) return 0;
+    return WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
+        (changed("overlay-style") ? 0 : WS_EX_TRANSPARENT);
+}
+BOOL GetWindowDisplayAffinity(HWND hwnd, DWORD* out) {
+    *out = hwnd == overlay_hwnd ? (changed("overlay-affinity") ? 1 : 0x11) :
+        (changed("display-affinity") ? 1 : 0); return TRUE;
+}
+BOOL GetClientRect(HWND, RECT* out) { *out = {0, 0, 320, 240}; return TRUE; }
+BOOL ClientToScreen(HWND, POINT* out) {
+    *out = {changed("client-geometry") ? 9 : 8, 31}; return TRUE;
+}
+int DwmGetWindowAttribute(HWND, int attribute, void* out, size_t) {
+    if (attribute == DWMWA_CLOAKED) *static_cast<DWORD*>(out) = changed("window-uncloaked") ? 1 : 0;
+    else { assert(attribute == DWMWA_EXTENDED_FRAME_BOUNDS); *static_cast<RECT*>(out) = {7, 0, 329, 272}; }
+    return 0;
+}
+BOOL GetWindowRect(HWND hwnd, RECT* out) {
+    *out = hwnd == target_hwnd ? RECT{0, 0, changed("geometry-stable") ? 337 : 336, 279} :
+        RECT{20, 40, 50, 70}; return TRUE;
+}
+HANDLE MonitorFromRect(RECT*, int) { return target_hwnd; }
+BOOL GetMonitorInfoW(HANDLE, MONITORINFO* out) {
+    out->rcMonitor = {changed("client-on-monitor") ? 100 : 0, 0, 1000, 1000}; return TRUE;
+}
+BOOL EnumWindows(BOOL (*callback)(HWND, LPARAM), LPARAM argument) {
+    if (callback(occluder_hwnd, argument)) callback(target_hwnd, argument); return TRUE;
+}
+""" + metadata + failure + handles + inputs + geometry + r"""
+CaptureSignal* active_signal = nullptr;
+struct ParentCancelled {};
+DWORD WaitForSingleObject(HANDLE handle, DWORD duration) {
+    if (handle == parent_handle) {
+        assert(duration == 0);
+        ++validation_calls; validated_at.push_back(elapsed_ms);
+        if (changed("deadline-validation")) elapsed_ms = 60;
+        return changed("parent-lifetime") ? 0 : WAIT_TIMEOUT;
+    }
+    assert(handle == event_handle && duration > 0 && duration <= watchdog_ms);
+    assert(elapsed_ms < 60 && duration <= 60 - elapsed_ms);
+    assert(readback_entries == 0 && live_frames <= 1);
+    ++waits; waited.push_back(duration); elapsed_ms += duration;
+    if (scenario == "closed") active_signal->closed.store(true);
+    // Simulate the parent's out-of-process cancellation. The native capture
+    // loop does not consume a pipelined Stop command, and this is not Job proof.
+    if (scenario == "parent-cancel") throw ParentCancelled{};
+    return WAIT_TIMEOUT;
+}
+""" + guards + qpc + r"""
+struct Size { int Width, Height; };
+struct Candidate { int64_t timestamp; Size content{322, 272}; };
+struct FrameData {
+    Candidate candidate;
+    explicit FrameData(Candidate value) : candidate(value) { assert(++live_frames == 1); }
+    ~FrameData() { --live_frames; }
+};
+struct Direct3D11CaptureFrame {
+    std::shared_ptr<FrameData> data;
+    Direct3D11CaptureFrame(std::nullptr_t) {}
+    explicit Direct3D11CaptureFrame(Candidate candidate) : data(std::make_shared<FrameData>(candidate)) {}
+    explicit operator bool() const { return bool(data); }
+    struct Time { int64_t value; int64_t count() const { return value; } };
+    Time SystemRelativeTime() const { ++frame_reads; return {data->candidate.timestamp}; }
+    Size ContentSize() const {
+        ++content_calls;
+        if (scenario == "deadline-content" && content_calls == 2) elapsed_ms = 60;
+        return data->candidate.content;
+    }
+    void Close() { assert(data); ++frame_closes; data.reset(); }
+    Direct3D11CaptureFrame& operator=(std::nullptr_t) { data.reset(); return *this; }
+};
+struct Pool {
+    std::vector<Candidate> queued;
+    Direct3D11CaptureFrame TryGetNextFrame() {
+        assert(live_frames == 0); ++pool_calls;
+        if (queued.empty()) return Direct3D11CaptureFrame{nullptr};
+        auto value = queued.front(); queued.erase(queued.begin());
+        return Direct3D11CaptureFrame{value};
+    }
+};
+int main(int argc, char** argv) {
+    assert(argc == 2); scenario = argv[1];
+    Input p{target_hwnd, 77, 100000, 8, 31, 320, 240, 99, 200000, overlay_hwnd,
+            required_overlay_style, 555, 7, parent_handle};
+    Geometry geometry{{7, 0, 329, 272}, {0, 0, 336, 279}, {8, 31}, {0, 0, 320, 240}};
+    Size size{336, 279};
+    auto signal = std::make_shared<CaptureSignal>(); active_signal = signal.get();
+    struct { uint32_t wait_ms; } request{60};
+    int64_t cutoff = 100, last_frame_time = 90, previous_frame_time = last_frame_time;
+    Pool pool{{Candidate{250200}}}; // Strict equality with now at the second check.
+    if (scenario == "ready-now") pool.queued = {Candidate{200}};
+    if (scenario == "one-tick-future") pool.queued = {Candidate{201}};
+    if (scenario == "two-waits") pool.queued = {Candidate{500200}};
+    if (scenario == "persistent-future") pool.queued = {Candidate{1000000000}};
+    if (scenario == "ready-at-deadline") pool.queued = {Candidate{600200}};
+    if (scenario == "no-frame") pool.queued.clear();
+    if (scenario == "zero") pool.queued = {Candidate{0}};
+    if (scenario == "negative") pool.queued = {Candidate{-1}};
+    if (scenario == "stale") pool.queued = {Candidate{100}, Candidate{500200}};
+    if (scenario == "stale-only") pool.queued = {Candidate{100}};
+    if (scenario == "duplicate") {
+        last_frame_time = previous_frame_time = 300;
+        pool.queued = {Candidate{300}, Candidate{500200}};
+    }
+    if (scenario == "duplicate-only") {
+        last_frame_time = previous_frame_time = 300;
+        pool.queued = {Candidate{300}};
+    }
+    if (scenario == "bad-content") pool.queued = {Candidate{250200, {321, 272}}, Candidate{500200}};
+    if (scenario == "clipped-content") { size = {322, 272}; pool.queued = {Candidate{250200, {336, 279}}}; }
+    if (scenario == "run32-values") {
+        initial_now = 24076885278; cutoff = 24076721565;
+        last_frame_time = previous_frame_time = 24071250000;
+        pool.queued = {Candidate{24077031250}};
+    }
+    auto const original_cutoff = cutoff, original_previous = previous_frame_time;
+    int failure_code = 0; std::string failure_check;
+    try {
+ACTUAL_LOOP
+        ++readback_entries;
+        assert(frame_ready && frame && elapsed_ms < 60);
+        assert(frame_time > cutoff && frame_time > last_frame_time);
+        assert(frame_time <= diagnostic.clock.observed_now_100ns);
+        assert(same(capture_bounds, geometry.frame));
+    } catch (Failure const& error) {
+        failure_code = error.code; failure_check = error.check;
+    } catch (ParentCancelled const&) { failure_check = "parent-cancel"; }
+    assert(cutoff == original_cutoff && previous_frame_time == original_previous &&
+           last_frame_time == original_previous);
+    assert(live_frames == 0); // Retained candidate is released on every exit.
+    assert(frequency_calls == counter_calls);
+    assert(counter_calls == frame_reads - ((scenario == "zero" || scenario == "negative") ? 1 : 0));
+    if (diagnostic.clock.present) {
+        assert(diagnostic.clock.cutoff_100ns == original_cutoff);
+        assert(diagnostic.clock.previous_frame_100ns == original_previous);
+    }
+    if (scenario == "ready-now") {
+        assert(readback_entries == 1 && waits == 0 && validation_calls == 1 && counter_calls == 1);
+    } else if (scenario == "future-ready" || scenario == "one-tick-future" || scenario == "run32-values") {
+        assert(readback_entries == 1 && waits == 1 && validation_calls == 2 && counter_calls == 2);
+        assert(pool_calls == 1 && frame_closes == 0);
+    } else if (scenario == "two-waits") {
+        assert(readback_entries == 1 && waits == 2 && validation_calls == 3 && counter_calls == 3);
+        assert(pool_calls == 1 && frame_closes == 0);
+    } else if (scenario == "persistent-future" || scenario == "ready-at-deadline" || scenario == "no-frame") {
+        assert(readback_entries == 0 && failure_code == timed_out && failure_check == "frame-deadline");
+        assert(elapsed_ms == 60 && waited == std::vector<DWORD>({25, 25, 10}));
+        assert(validation_calls == 3 && validated_at == std::vector<uint64_t>({0, 25, 50}));
+        assert(pool_calls == (scenario == "no-frame" ? 3 : 1));
+        assert(counter_calls == (scenario == "no-frame" ? 0 : 3));
+    } else if (scenario == "stale-only" || scenario == "duplicate-only") {
+        assert(readback_entries == 0 && failure_code == timed_out && failure_check == "frame-deadline");
+        assert(elapsed_ms == 60 && waited == std::vector<DWORD>({25, 25, 10}));
+        assert(validation_calls == 3 && counter_calls == 1 && pool_calls == 3 && frame_closes == 1);
+    } else if (scenario == "zero" || scenario == "negative") {
+        assert(readback_entries == 0 && failure_code == stale && failure_check == "frame-timestamp");
+        assert(counter_calls == 0 && waits == 0);
+    } else if (scenario == "stale" || scenario == "duplicate" || scenario == "bad-content") {
+        assert(readback_entries == 1 && waits == 2 && validation_calls == 3 && counter_calls == 3);
+        assert(pool_calls == 2 && frame_closes == 1);
+    } else if (scenario == "clipped-content") {
+        assert(readback_entries == 0 && failure_code == stale && failure_check == "content-in-pool");
+        assert(waits == 0 && pool_calls == 1);
+    } else if (scenario == "deadline-validation" || scenario == "deadline-content" || scenario == "deadline-final") {
+        assert(readback_entries == 0 && failure_code == timed_out && failure_check == "frame-deadline");
+        assert(elapsed_ms == 60 && waits == 1 && pool_calls == 1 && counter_calls == 2);
+    } else if (scenario == "closed" || scenario == "parent-cancel") {
+        assert(readback_entries == 0 && waits == 1 && counter_calls == 1 && validation_calls == 1);
+        assert(failure_check == (scenario == "closed" ? "item-open" : "parent-cancel"));
+    } else {
+        assert(readback_entries == 0 && waits == 1 && pool_calls == 1 && validation_calls == 2 && counter_calls == 1);
+        assert(failure_code == (scenario == "display-affinity" ? protected_content : stale));
+        assert(failure_check == (scenario == "minimized" ? "window-visible" : scenario));
+    }
+}
+"""
+        harness = harness.replace('ACTUAL_LOOP', loop)
+        cases = ('ready-now', 'future-ready', 'one-tick-future', 'two-waits', 'run32-values',
+                 'persistent-future', 'ready-at-deadline', 'no-frame', 'zero', 'negative',
+                 'stale', 'stale-only', 'duplicate', 'duplicate-only', 'bad-content', 'clipped-content',
+                 'deadline-validation', 'deadline-content', 'deadline-final', 'closed', 'parent-cancel',
+                 'parent-lifetime', 'overlay-support', 'overlay-owner', 'overlay-generation', 'overlay-style',
+                 'overlay-affinity', 'overlay-hidden', 'window-visible', 'minimized', 'foreground-root',
+                 'window-process', 'process-created', 'window-uncloaked', 'display-affinity', 'client-geometry',
+                 'geometry-stable', 'client-on-monitor', 'occluder-overlap')
+        with tempfile.TemporaryDirectory() as directory:
+            source, binary = Path(directory) / 'readiness.cpp', Path(directory) / 'readiness.exe'
+            source.write_text(harness)
+            built = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', str(source), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            for case in cases:
+                with self.subTest(case=case):
+                    ran = subprocess.run([str(binary), case], capture_output=True, timeout=10)
+                    self.assertEqual(ran.returncode, 0, ran.stderr)
+                    self.assertEqual(ran.stdout, b'')
 
     def test_no_monitor_item_injection_or_border_suppression(self):
         for forbidden in ('CreateForMonitor(', 'SetWindowsHookEx', 'ReadProcessMemory',
