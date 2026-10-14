@@ -1,5 +1,16 @@
 # Changelog / 变更日志
 
+## v0.4.7 candidate · 浅色仪表盘 / Light dashboard
+
+**候选源码，等待 Windows 验证；尚未发布。当前可下载预览版仍为 v0.4.6。 / Candidate source awaiting Windows validation; not published. The downloadable preview remains v0.4.6.**
+
+- 按选定的 B 浅色方向实现原生仪表盘：本局英雄、监测状态及左/中/右候选为主界面；主监测按钮在“开始监测”和“停止监测”间切换。“设置”“核对资料”“关于”进入次级页面，监测期间仍可停止。
+- 叠加以候选名称和原始 T1–T4 评级为主，保留公开源/虚构演示标记、原位置、鼠标穿透及半屏高度限制。完整资料按名称查阅；来源日期、数据包、游戏资料版本与非 Riot 评级/未获批准说明可从“关于”访问。
+- 可见评级胶囊和可访问来源标签分别记录与验证：可见文本如 `T1`，可访问标签为 `虎牙公开源评级：T1` 或 `虚构源评级（演示）：T1`。未评级资料仍明确标示；查阅不会确认监测结果。
+- 有限真实公开静态截图以 v0.4.7 源码重新执行：本人 HUD 正例 2/3 识别、1 次弃权，反例 3/3 弃权；选人正例 1/1、反例 3/3（两个独立反例场景），均未出现错误英雄。仍是 Linux 小样本，不能替代 Windows、真实 LoL/Vanguard 或当前原生客户端验证。
+- Implements the selected light B direction with a champion/status/three-candidate dashboard, one Start/Stop monitoring action, and secondary Settings, Check reference and About pages. The compact overlay keeps names, literal source tiers, public/demo attribution and original order; full source metadata and non-Riot limitations remain reachable in About.
+- Visible tier pills and exact accessible source labels are separate evidence fields. Version/report bindings target v0.4.7; all release gates remain required. Existing capture, privacy, stale-result clearing and manual-confirmation boundaries are unchanged. This records implementation, not final aesthetic acceptance or Windows release success; v0.4.6 tags/assets and historical benchmarks are unchanged.
+
 ## v0.4.6 · 原生界面与截图识别可靠性
 
 - [Windows 发布运行 #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) 通过全部门禁并发布 [v0.4.6 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6)。源码/标签 `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`；EXE **106,553,042 字节（101.62 MiB）**，SHA-256 `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`。保持 prerelease / 非 latest，稳定 OTA 不自动发现。真实 LoL/Vanguard 仍未验证。

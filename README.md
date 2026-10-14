@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.6-0891b2" alt="源码版本 v0.4.6"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.7_candidate-0891b2" alt="源码版本 v0.4.7 候选"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.6 预览版"></a>
 </p>
 <p align="center">
@@ -31,7 +31,7 @@ VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海
 - **英雄专属海克斯评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
 - **自动本人英雄**：只在底部本人 HUD 区域匹配 Riot Data Dragon 头像，连续两帧一致后使用；不会从记分板或全屏人名猜英雄。
 - **本地 OCR**：三个不同候选名称精确匹配、布局和置信度通过且连续两帧一致时自动显示；不确定时人工修正。
-- **紧凑原生界面**：开始/停止操作保持可达，高级设置可折叠；叠加按原三栏显示，超过半屏高度则隐藏，支持鼠标穿透和 `Ctrl+Alt+O`。完整说明可在控制台按名称查阅，查阅不代表识别或确认。
+- **紧凑原生界面**：已发布 v0.4.6 的开始/停止操作保持可达，高级设置可折叠；叠加按原三栏显示，超过半屏高度则隐藏，支持鼠标穿透和 `Ctrl+Alt+O`。完整说明可在控制台按名称查阅，查阅不代表识别或确认。
 - **数据刷新与缓存**：启动时检查公开资料，离线时使用已验证缓存。
 - **软件更新**：检查稳定版 GitHub Release，确认后下载并校验安装。
 
@@ -57,6 +57,14 @@ python launcher.py
 ```
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## v0.4.7 候选界面（等待 Windows 验证）
+
+当前源码按选定的 B 浅色方向实现仪表盘；尚未发布，以上下载和已通过的发布记录仍指向 v0.4.6。
+
+- 主界面显示本局英雄、监测状态和左/中/右三个候选。一个主监测按钮随状态显示“开始监测”或“停止监测”；次级页面在监测期间仍提供停止入口。
+- “设置”调整窗口连接、本人英雄纠正和截图范围；“核对资料”提供候选纠正、明确确认及按输入名称查阅完整资料；“关于”提供完整来源日期、数据包和游戏资料版本、更新状态及兼容性说明。“返回”回到仪表盘。查阅不会自动确认或替换当前监测结果。
+- 紧凑叠加显示名称与原始评级，并标明“虎牙公开源”或“虚构演示”；保留三项原位置、鼠标穿透和半屏高度上限。可见评级胶囊（例如 `T1`）与可访问来源标签（`虎牙公开源评级：T1` 或 `虚构源评级（演示）：T1`）是分别验证的证据字段。完整来源资料及“并非 Riot 评级或批准”的限制可在“关于”查看。
 
 ## 使用方法
 

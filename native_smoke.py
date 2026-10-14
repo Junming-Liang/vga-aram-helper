@@ -65,10 +65,13 @@ def inspect_smoke_layout(overlay):
     assert len(overlay.cards)==3 and len(overlay.tier_labels)==3 and all(label.isVisibleTo(overlay) for label in overlay.tier_labels)
     assert overlay.metadata_label.isVisibleTo(overlay) is (not overlay._compact)
     assert '来源日期' in overlay.metadata_label.text() and '非 Riot' in overlay.footer.text()
-    if overlay._compact:assert '简版' in overlay.footer.text()
+    assert overlay.footer.isVisibleTo(overlay) and overlay.footer.text()==overlay._source_marker+' · 非 Riot 评级/批准'
     for i,card in enumerate(overlay.cards):
         labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
-        assert labels[0].isVisibleTo(overlay) and labels[0].text()==f"选项 {card['slot']} · {card['name']}"
+        assert labels[0].isVisibleTo(overlay) and labels[0].text()==card['name']
+        assert labels[0].accessibleName()==f"选项 {card['slot']} · {card['name']}"
+        assert overlay.tier_labels[i].text()==(card.get('sourceTier') or '暂无评级')
+        assert overlay.tier_labels[i].accessibleName()==f"{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}"
     return rows
 
 
@@ -197,14 +200,15 @@ def start_smoke(control,report_path,screenshot_path):
         checks.append('Both hero transitions immediately hide old cards; a reused title is discarded and exactly two independent new-hero OCR results are required')
         assert [card['name'] for card in control.overlay.cards]==names
         assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
-        assert [widget.text() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
+        assert [widget.text() for widget in control.overlay.tier_labels]==['T1','T2','T3']
+        assert [widget.accessibleName() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
         assert '来源日期' in control.overlay.metadata_label.text() and '数据包' in control.overlay.metadata_label.text() and '游戏资料' in control.overlay.metadata_label.text()
         control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
         control.confirm();assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
         report['source_tier_hero_specific']=True;report['auto_manual_fallback_passed']=not control.hero_auto.isChecked()
         tier_row=control.data['heroAugmentStats']['磐石守卫（演示）'][0];saved_tier=tier_row['tier']
         for missing in [None,'UNKNOWN']:
-            tier_row['tier']=missing;control.confirm();assert control.overlay.tier_labels[1].text()=='虚构源评级（演示）：暂无评级'
+            tier_row['tier']=missing;control.confirm();assert control.overlay.tier_labels[1].text()=='暂无评级' and control.overlay.tier_labels[1].accessibleName()=='虚构源评级（演示）：暂无评级'
         tier_row['tier']=saved_tier;report['source_tier_missing_passed']=True
         control.hero_box.setCurrentText('星火术士（演示）');control.confirm()
         assert [card['name'] for card in control.overlay.cards]==names
@@ -212,7 +216,16 @@ def start_smoke(control,report_path,screenshot_path):
         rendered=' '.join(widget.text() for widget in control.overlay.tier_labels)
         assert all(value not in rendered for value in ['60.00%','55.00%','50.00%','胜率'])
         report.update(source_tier_display_passed=True,source_tier_screen_order_preserved=True,source_tier_no_winrate_display=True,
-                      source_tier_rendered=[widget.text() for widget in control.overlay.tier_labels])
+                      source_tier_rendered=[widget.text() for widget in control.overlay.tier_labels],
+                      card_names_rendered=[widget.text() for widget in control.overlay._title_labels],
+                      source_tier_accessible=[widget.accessibleName() for widget in control.overlay.tier_labels],
+                      source_attribution_rendered=control.overlay.footer.text())
+        before=(control.state.generation,control.state.confirmed,control.state.offered,control.overlay.isVisible())
+        control.show_page('about');app.processEvents()
+        assert control.source.isVisibleTo(control) and control.compatibility.isVisibleTo(control)
+        assert all(text in control.source.text() for text in ('来源日期','数据包','游戏资料版本')) and '尚未验证' in control.compatibility.text()
+        control.show_page('main');assert (control.state.generation,control.state.confirmed,control.state.offered,control.overlay.isVisible())==before
+        report['source_details_reachable']=True
         checks.append('Actual native source-tier labels are hero-specific literals; null/unknown remain ungraded; screen order preserved with no win-rate/rank/best-choice fields')
         QtCore.QTimer.singleShot(50,lambda:run(verify_async_capture))
     def verify_async_capture():

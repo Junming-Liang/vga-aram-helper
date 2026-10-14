@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.6-0891b2" alt="Source version v0.4.6"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.7_candidate-0891b2" alt="Source version v0.4.7 candidate"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.6 preview"></a>
 </p>
 <p align="center">
@@ -31,7 +31,7 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 - **Champion-specific augment tiers**: displays Huya's public-source T1–T4 tiers in the original three-choice order. Missing data is labeled “暂无评级” (no rating available).
 - **Automatic own champion**: matches only the bottom own-HUD portrait against Riot Data Dragon templates and requires two consistent observations.
 - **Local OCR**: three exact, distinct, spatially aligned, high-confidence card titles automatically display after two consecutive safe observations; uncertainty keeps manual correction available.
-- **Compact native UI**: reachable Start/Stop actions, collapsible advanced settings, and three screen-ordered cards with click-through and `Ctrl+Alt+O`. Overlays exceeding half the client height hide. A separate exact-name dictionary view provides complete descriptions without claiming recognition or confirmation.
+- **Compact native UI**: the published v0.4.6 has reachable Start/Stop actions, collapsible advanced settings, and three screen-ordered cards with click-through and `Ctrl+Alt+O`. Overlays exceeding half the client height hide. A separate exact-name dictionary view provides complete descriptions without claiming recognition or confirmation.
 - **Data refresh and cache**: checks public data at startup and uses validated cached data offline.
 - **Software updates**: checks stable GitHub Releases, then downloads, verifies, and installs after confirmation.
 
@@ -57,6 +57,14 @@ python launcher.py
 ```
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
+
+## v0.4.7 candidate UI (awaiting Windows validation)
+
+Current source implements the selected light B direction. It is not published; downloads and successful release records above still refer to v0.4.6.
+
+- The dashboard shows the current champion, monitoring state and left/center/right candidates. One primary monitoring action switches between Start and Stop; secondary pages retain a Stop action while monitoring.
+- Settings (“设置”) contains window connection, champion correction and capture-region controls. Check reference (“核对资料”) provides candidate correction, explicit confirmation and full exact-name lookup. About (“关于”) exposes the full source date, data-package and game-data versions, update status and compatibility limits. Back (“返回”) returns to the dashboard. Lookup never confirms or replaces the current monitoring result.
+- The compact overlay shows names and literal tiers with “虎牙公开源” (Huya public source) or “虚构演示” (synthetic demo) attribution, preserving original order, click-through and the half-client-height limit. Visible tier pills (for example `T1`) and accessible source labels (`虎牙公开源评级：T1` or `虚构源评级（演示）：T1`) are separately verified evidence fields. Full source metadata and the statement that these are neither Riot ratings nor Riot approval remain reachable in About.
 
 ## Usage
 
