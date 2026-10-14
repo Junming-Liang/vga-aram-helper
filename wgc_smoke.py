@@ -35,6 +35,26 @@ def require(condition, message):
         raise AssertionError(message)
 
 
+def failure_evidence(error):
+    """Copy only validated helper evidence, including an explicit routed cause.
+
+    Never publish arbitrary stderr or attributes from unrelated exceptions.
+    The short visited chain also handles malformed/cyclic exception causes.
+    """
+    from wgc_capture import WgcError, sanitize_native_diagnostic
+    seen = set()
+    for _ in range(8):
+        if not isinstance(error, BaseException) or id(error) in seen:
+            break
+        seen.add(id(error))
+        if isinstance(error, WgcError):
+            diagnostic = sanitize_native_diagnostic(getattr(error, 'diagnostic', None))
+            if diagnostic is not None:
+                return {'native_diagnostic': diagnostic}
+        error = error.__cause__
+    return {}
+
+
 def pixel_error(image, rect, roi):
     from PIL import Image, ImageDraw, ImageChops, ImageStat
     colors = ((226, 61, 82), (45, 188, 137), (68, 109, 231), (243, 196, 54))
@@ -117,6 +137,8 @@ def execute(result):
         dpr = window.devicePixelRatioF()
         result.update(owned_pid=os.getpid(), owned_hwnd=hwnd, client_rect=vars(rect),
                       measured_qt_scale=dpr, requested_app_scale=float(os.environ.get('QT_SCALE_FACTOR', '1')))
+        windows = sys.getwindowsversion()
+        result['windows_version'] = {name: getattr(windows, name) for name in ('major', 'minor', 'build')}
         require(abs(dpr - result['requested_app_scale']) < .01, 'Requested/measured Qt scale differs')
         require((rect.width, rect.height) == (round(320*dpr), round(240*dpr)),
                 'Owned client did not preserve requested physical DPI dimensions')
@@ -172,7 +194,8 @@ def execute(result):
                 if statuses is not None:
                     require(status in statuses, field + ': unexpected rejection ' + status)
                 result.setdefault('negative_results', {})[field] = {
-                    'status': status, 'elapsed_ms': round((time.monotonic()-started)*1000, 2)}
+                    'status': status, 'elapsed_ms': round((time.monotonic()-started)*1000, 2),
+                    **failure_evidence(exc)}
                 result[field] = True
                 return
             raise AssertionError(field + ': unsafe capture unexpectedly returned pixels')
@@ -344,6 +367,7 @@ def run(report_path):
         code = 0
     except Exception as exc:
         result.update(error_type=type(exc).__name__, error=str(exc)[:2000])
+        result.update(failure_evidence(exc))
     finally:
         path = Path(report_path)
         path.parent.mkdir(parents=True, exist_ok=True)

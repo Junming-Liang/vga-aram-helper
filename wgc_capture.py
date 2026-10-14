@@ -28,11 +28,66 @@ FRAME_WAIT_MS = 800
 PROCESS_TIMEOUT = 2.0
 HELPER_NAME = 'vga-wgc-capture.exe'
 MANIFEST_NAME = 'wgc-capture-build.json'
+MAX_DIAGNOSTIC_BYTES = 1024
+DIAGNOSTIC_PHASES = frozenset(('startup', 'support', 'validate-initial', 'device',
+    'item-create', 'item-size', 'session-create', 'session-start', 'validate-frame-wait',
+    'frame-wait', 'frame-size', 'texture', 'validate-before-copy', 'staging-copy', 'map',
+    'validate-after-map', 'copy-out', 'shutdown', 'validate-final', 'write-output'))
+DIAGNOSTIC_CHECKS = frozenset(('invariant', 'process-open', 'process-times', 'window-visible',
+    'foreground-root', 'window-process', 'process-created', 'window-uncloaked', 'display-affinity',
+    'client-query', 'client-geometry', 'frame-query', 'frame-budget', 'client-in-frame',
+    'geometry-stable', 'client-on-monitor', 'occluder-query', 'occluder-overlap', 'zorder-target',
+    'capture-supported', 'item-dimensions', 'item-open', 'frame-deadline', 'frame-dimensions',
+    'texture-layout', 'texture-roi', 'map-deadline', 'mapped-layout', 'start-gate', 'dpi-context',
+    'hresult', 'exception'))
+
+
+def sanitize_native_diagnostic(value):
+    """Allowlist failure metadata only, never raw stderr, identity or pixel data.
+
+    Geometry arrays are [x, y, width, height]. observed/expected describe the
+    failed guard; window_rect/frame_rect are the last target Win32/DWM bounds.
+    No diagnostic participates in capture permissions or fallback decisions.
+    """
+    scalars = ('hresult', 'style', 'extended_style')
+    rectangles = ('observed', 'expected', 'window_rect', 'frame_rect')
+    keys = {'schema_version', 'code', 'phase', 'check', *scalars, *rectangles}
+    if (type(value) is not dict or set(value) != keys
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or type(value['code']) is not int or not 10 <= value['code'] <= 14
+            or type(value['phase']) is not str or value['phase'] not in DIAGNOSTIC_PHASES
+            or type(value['check']) is not str or value['check'] not in DIAGNOSTIC_CHECKS):
+        return None
+    if any(type(value[name]) is not int or not 0 <= value[name] <= 2**32-1 for name in scalars):
+        return None
+    if any(type(value[name]) is not list or len(value[name]) != 4
+            or any(type(number) is not int or not -(2**32) <= number <= 2**32-1
+                   for number in value[name]) for name in rectangles):
+        return None
+    return {name: list(item) if name in rectangles else item for name, item in value.items()}
+
+
+def decode_native_diagnostic(data, returncode):
+    if type(data) is not bytes or not 0 < len(data) <= MAX_DIAGNOSTIC_BYTES:
+        return None
+    try:
+        def unique_object(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError('Duplicate diagnostic field')
+                value[key] = item
+            return value
+        value = sanitize_native_diagnostic(json.loads(data.decode('ascii'), object_pairs_hook=unique_object))
+    except (ValueError, UnicodeError, RecursionError):
+        return None
+    return value if value is not None and value['code'] == returncode else None
 
 
 class WgcError(RuntimeError):
-    def __init__(self, status, message):
+    def __init__(self, status, message, diagnostic=None):
         self.status = status
+        self.diagnostic = sanitize_native_diagnostic(diagnostic)
         super().__init__(message)
 
 
@@ -184,8 +239,10 @@ class WgcCapture:
                 # A driver may delay OS termination. Do not pile up helpers or
                 # block on a pipe reader that still holds its stream lock.
                 raise WgcError('cleanup-pending', '上一次图形捕获仍在由系统关闭，暂不启动新截图。') from error
-            if pending.stdout:
-                pending.stdout.close()
+            for name in ('stdout', 'stderr'):
+                stream = getattr(pending, name, None)
+                if stream:
+                    stream.close()
             self._pending_cleanup = None
         if os.name != 'nt':
             raise WgcUnavailable('unsupported', 'Windows 图形捕获仅支持 Windows。')
@@ -207,7 +264,7 @@ class WgcCapture:
         try:
             job = _CaptureJob()
             process = subprocess.Popen([str(value) for value in args], stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             job.assign(process)
             # No WGC call can occur before the exact owned child is in the Job.
@@ -222,7 +279,7 @@ class WgcCapture:
                 if remaining <= 0:
                     raise WgcError('timeout', '等待游戏图形画面超时，稍后自动重试。')
                 try:
-                    data, _ = process.communicate(timeout=min(.05, remaining))
+                    data, diagnostic_data = process.communicate(timeout=min(.05, remaining))
                     communicated = True
                     break
                 except subprocess.TimeoutExpired:
@@ -235,7 +292,7 @@ class WgcCapture:
             if process.returncode:
                 status, message = statuses.get(process.returncode, ('backend-error', '系统图形捕获组件未正常完成。'))
                 exception = WgcUnavailable if status == 'unsupported' else WgcError
-                raise exception(status, message)
+                raise exception(status, message, decode_native_diagnostic(diagnostic_data, process.returncode))
             if cancelled():
                 raise WgcError('cancelled', '截图已取消。')
             try:
@@ -271,7 +328,10 @@ class WgcCapture:
                         # close() here could block. Retain this sole exact child
                         # and refuse new helpers until cleanup is confirmed.
                         self._pending_cleanup = process
-                if communicated and process.stdout:
-                    process.stdout.close()
+                if communicated:
+                    for name in ('stdout', 'stderr'):
+                        stream = getattr(process, name, None)
+                        if stream:
+                            stream.close()
             if not job_closed:
                 raise WgcError('cleanup-pending', '系统尚未确认截图任务已关闭，已丢弃本帧。')
