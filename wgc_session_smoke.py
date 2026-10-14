@@ -80,11 +80,87 @@ def pixel_error(image, rect, roi, colors=COLORS):
     return round(error, 4)
 
 
+def overlay_observation(user,dwm,hwnd,expected_style,owner_pid,*,stage,attempt=False):
+    """Bounded own-window metadata; preserve each WinError before other calls.
+
+    Visibility is observed, not treated as an undocumented Windows prerequisite.
+    No titles, paths, pixels, or external HWND details enter this record.
+    """
+    require(stage in ('created-hidden','realized-visible','verified-hidden'), 'Unknown overlay observation stage')
+    exists=bool(user.IsWindow(hwnd));top_level=int(user.GetAncestor(hwnd,2)or 0)==hwnd
+    pid=W.DWORD();ctypes.set_last_error(0)
+    owner_thread=int(user.GetWindowThreadProcessId(hwnd,ctypes.byref(pid)))
+    owner_error=ctypes.get_last_error()
+    style=int(user.GetWindowLongPtrW(hwnd,-16))&0xffffffff
+    extended_style=int(user.GetWindowLongPtrW(hwnd,-20))&0xffffffff
+    composed=W.BOOL();hr=int(dwm.DwmIsCompositionEnabled(ctypes.byref(composed)))
+    row={'stage':stage,'is_window':exists,'top_level':top_level,
+         'visible':bool(user.IsWindowVisible(hwnd)),'owner_query_ok':bool(owner_thread),
+         'owner_is_self':bool(owner_thread and pid.value==owner_pid),'owner_winerror':owner_error,
+         'style':style,'extended_style':extended_style,'expected_extended_style':expected_style,
+         'dwm_hresult':hr&0xffffffff,'dwm_composing':bool(hr>=0 and composed.value),
+         'set_attempted':False,'set_ok':False,'set_winerror':0}
+    # A diagnostic must never change a foreign or replaced window just to learn
+    # why it failed. Only our same valid root HWND can receive the exact setting.
+    if attempt and exists and top_level and row['owner_is_self']:
+        ctypes.set_last_error(0)
+        success=bool(user.SetWindowDisplayAffinity(hwnd,0x11))
+        error=ctypes.get_last_error()
+        row.update(set_attempted=True,set_ok=success,set_winerror=error)
+    affinity=W.DWORD();ctypes.set_last_error(0)
+    success=bool(user.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)))
+    error=ctypes.get_last_error()
+    row.update(affinity_query_ok=success,affinity_winerror=error,affinity=affinity.value)
+    return row
+
+
+def prepare_owned_overlay(widget,user,dwm,hwnd,expected_style,owner_pid,pump,result,*,label):
+    """Realize one original Qt HWND before requiring exact exclusion/readback.
+
+    The hidden call is evidence, not a supported-OS verdict. One bounded retry
+    follows the first show/paint; no capture helper exists yet. Never substitute
+    WDA_MONITOR, remove layered styles, or weaken the hidden-request contract.
+    """
+    require(label in ('registered-overlay','lookalike-occluder'), 'Unknown owned overlay role')
+    rows=result.setdefault('overlay_setup',[])
+    require(len(rows)<=3,'Owned overlay setup observation budget exceeded')
+    def observe(stage,attempt=False):
+        row=overlay_observation(user,dwm,hwnd,expected_style,owner_pid,stage=stage,attempt=attempt)
+        row['role']=label;row['hwnd_unchanged']=int(widget.winId())==hwnd
+        rows.append(row)
+        return row
+    def identity(row):
+        return (row['hwnd_unchanged'] and row['is_window'] and row['top_level']
+                and row['owner_is_self'] and row['extended_style']==expected_style)
+    before=observe('created-hidden',True)
+    require(identity(before),'Owned overlay identity/styles invalid before first show')
+    shown=None
+    try:
+        widget.show();widget.update();pump(.12)
+        # Rebinding to a different Qt-generated HWND would hide the root cause.
+        # Inspect without mutating when the original handle changed.
+        same=int(widget.winId())==hwnd
+        shown=observe('realized-visible',same)
+        require(identity(shown),'Owned overlay identity/styles changed during first show')
+        require(shown['visible'],'Owned overlay was not realized visibly')
+        require(shown['dwm_composing'] and shown['set_ok'] and shown['affinity_query_ok'] and shown['affinity']==0x11,
+                'Owned overlay exact exclusion unavailable after realization; see overlay_setup diagnostics')
+    finally:
+        widget.hide();pump(.04)
+        hidden=observe('verified-hidden')
+    require(identity(hidden) and not hidden['visible'] and hidden['dwm_composing']
+            and hidden['affinity_query_ok'] and hidden['affinity']==0x11,
+            'Owned overlay did not retain exact exclusion while hidden; see overlay_setup diagnostics')
+
+
 class Fixture:
     """Own all windows/processes; pump Qt while capture runs on a worker."""
     def __init__(self, result):
         require(os.name == 'nt' and ctypes.sizeof(ctypes.c_void_p) == 8,
                 'Actual Windows x64 desktop is mandatory; Linux/offscreen is not evidence')
+        version=sys.getwindowsversion()
+        result['windows_version']={key:getattr(version,key)for key in ('major','minor','build')}
+        result['overlay_setup']=[]
         import wgc_session_capture as session
         from screen_capture import Win32Capture
         from PySide6 import QtCore, QtGui, QtWidgets
@@ -97,6 +173,7 @@ class Fixture:
             ('SetForegroundWindow', [W.HWND], W.BOOL),
             ('ShowWindow', [W.HWND, ctypes.c_int], W.BOOL),
             ('SetWindowDisplayAffinity', [W.HWND, W.DWORD], W.BOOL),
+            ('GetWindowDisplayAffinity', [W.HWND, ctypes.POINTER(W.DWORD)], W.BOOL),
             ('GetWindowLongPtrW', [W.HWND, ctypes.c_int], ctypes.c_ssize_t),
             ('SetWindowLongPtrW', [W.HWND, ctypes.c_int, ctypes.c_ssize_t], ctypes.c_ssize_t),
             ('SetWindowPos', [W.HWND, W.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, W.UINT], W.BOOL),
@@ -104,6 +181,9 @@ class Fixture:
             ('RemovePropW', [W.HWND, W.LPCWSTR], W.HANDLE),
             ('IsWindowVisible', [W.HWND], W.BOOL), ('IsWindow', [W.HWND], W.BOOL)):
             function = getattr(self.u, name); function.argtypes = args; function.restype = result_type
+        self.dwm=ctypes.WinDLL('dwmapi',use_last_error=True)
+        self.dwm.DwmIsCompositionEnabled.argtypes=[ctypes.POINTER(W.BOOL)]
+        self.dwm.DwmIsCompositionEnabled.restype=ctypes.c_long
         self.old_dpi = self.u.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
         require(self.old_dpi, 'Cannot establish PMv2 fixture observer coordinates')
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -124,7 +204,16 @@ class Fixture:
                 'Cannot establish exact own overlay extended style')
         require(self.u.SetWindowPos(self.overlay_hwnd, ctypes.c_void_p(-1), 0, 0, 0, 0, 0x13),
                 'Cannot establish owned overlay topmost style')
-        require(self.u.SetWindowDisplayAffinity(self.overlay_hwnd, 0x11), 'Owned overlay exclusion unsupported')
+        try:
+            prepare_owned_overlay(self.overlay,self.u,self.dwm,self.overlay_hwnd,self.overlay_style,
+                                  os.getpid(),self.pump,result,label='registered-overlay')
+        except BaseException:
+            # Initialization has not returned to execute(), so its normal finally
+            # cannot own these windows yet. No helper/session has been started.
+            for widget in self.windows:
+                widget.close();widget.destroy()
+            self.app.processEvents();self.u.SetThreadDpiAwarenessContext(self.old_dpi)
+            raise
         self.overlay.hide(); self.focus(self.window)
         self.refresh_target()
         self.roi = (self.rect.width//4, self.rect.height//4, self.rect.width//2, self.rect.height//2)
@@ -363,7 +452,8 @@ def execute(result):
         cover_hwnd=int(cover.winId())
         cover_style=int(f.u.GetWindowLongPtrW(cover_hwnd,-20))&0xffffffff
         f.u.SetWindowLongPtrW(cover_hwnd,-20,cover_style|f.session.REQUIRED_OVERLAY_STYLE)
-        require(f.u.SetWindowDisplayAffinity(cover_hwnd,0x11),'Cannot set own second-window exclusion')
+        prepare_owned_overlay(cover,f.u,f.dwm,cover_hwnd,cover_style|f.session.REQUIRED_OVERLAY_STYLE,
+                              os.getpid(),f.pump,result,label='lookalike-occluder')
         f.mutate_idle('layered_same_process_occluder_rejected',cover.show,cover.hide,overlay=True)
         other=f.QtWidgets.QWidget(); other.resize(120,80); other.move(700,30); f.windows.append(other)
         f.mutate_idle('focus_loss_rejected',lambda:f.focus(other),lambda:(other.hide(),f.focus(f.window)))

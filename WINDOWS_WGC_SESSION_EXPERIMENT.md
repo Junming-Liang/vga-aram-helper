@@ -14,10 +14,43 @@ of Windows checks passed.
 
 The implementation and portable protocol/build/report-validator tests can be
 checked on Linux. They do not execute WGC, exercise Windows handles, validate the
-SDK compiler, or prove source/frozen Windows behavior. Native compilation and
-all desktop checks below remain required. An unsupported desktop, an offscreen
-Qt backend, a missing helper, and a static-window freshness timeout are failures,
-not skipped passes.
+SDK compiler, or prove source/frozen Windows behavior. Controlled Windows run 29
+passed the 125 regression tests and compiled the native helper, then failed in
+source fixture setup before capture: the initial hidden overlay's
+`SetWindowDisplayAffinity(hwnd, 0x11)` returned false. That run recorded no WinError,
+DWM state or affinity readback, so it does **not** distinguish a platform limitation
+from first-show/Qt realization behavior. Native capture and source/frozen acceptance
+remain unproven. An unsupported desktop, an offscreen Qt backend, a missing helper,
+and a static-window freshness timeout are failures, not skipped passes.
+
+### Overlay setup diagnostics after run 29
+
+Microsoft documents an owned top-level HWND and DWM composition for
+[SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity),
+with exact `WDA_EXCLUDEFROMCAPTURE` support starting in Windows 10 version 2004.
+[GetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowdisplayaffinity)
+also requires a layered window. Visibility is not documented as a prerequisite;
+first-show behavior is a hypothesis to test, not an explanation established by
+the failed run. Qt documents that its Windows translucent QWidget path requires
+a frameless top-level window; the fixture already uses that path.
+
+Before any capture, the fixture now preserves the initial hidden call and its
+immediate WinError, then shows/paints the **same owned synthetic overlay** once,
+performs one bounded same-HWND retry of exact `0x11`, and hides it again. No style
+weakening, unlayered replacement, alternate affinity value, OS setting change or
+capture bypass is allowed. The shown retry must succeed and read back exact
+`0x11`; the hidden window must retain that exact setting. Changed HWND/style,
+non-owned/non-root HWND, unavailable DWM, `WDA_MONITOR` readback or another failure
+still fails the fixture before capture.
+
+`windows_version` is recorded before setup can fail. At most six bounded
+`overlay_setup` records cover the registered overlay and same-process look-alike:
+creation-hidden, realized-visible, and verified-hidden. They record immediate
+set/get WinErrors, DWM HRESULT/composition, actual/full expected styles, visibility,
+valid-root/self-owner observations and whether Qt retained the same HWND. No
+window titles, image paths, screenshots or foreign process/window details are
+included. This diagnostic sequence has portable regression coverage; actual
+Windows results are still required before attributing the original failure.
 
 ## Existing approved Windows build environment only
 
