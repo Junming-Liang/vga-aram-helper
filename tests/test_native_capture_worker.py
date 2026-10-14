@@ -1,5 +1,6 @@
 """Qt thread/state integration with owned fakes; not Windows capture evidence."""
 import copy
+import gc
 import os
 from pathlib import Path
 import tempfile
@@ -10,7 +11,8 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
-    from PySide6 import QtWidgets
+    from PySide6 import QtCore, QtWidgets
+    from shiboken6 import isValid
 except ImportError:
     QtWidgets = None
 
@@ -36,11 +38,14 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         from native_ui import ControlWindow
         from screen_capture import CaptureUnavailable, WindowInfo
         self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self._release_events = []
         with patch('native_ui.Win32Capture', side_effect=CaptureUnavailable('owned portable fixture')):
             self.window = ControlWindow(
                 lambda: {'data': load_data(Path(__file__).resolve().parents[1] / 'fixtures/demo.json')},
                 state_dir=Path(self.directory.name), current_executable=Path('/unused.exe'),
                 current_version='test', frozen=False, enable_updates=False)
+        self.addCleanup(self.dispose_window)
         self.wait(lambda: self.window.data is not None)
         self.window.watchdog.stop()
         self.window.monitor.stop()
@@ -53,15 +58,32 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.window.overlay.hide()
         self.main_thread = threading.get_ident()
 
-    def tearDown(self):
-        self.window.capture = None
-        self.window.close()
+    def dispose_window(self):
+        # Qt's parentless widgets must be destroyed on their owning GUI thread,
+        # not left in Python/Qt cycles for a later arbitrary GC pass. Release
+        # only this fixture's waiting fakes even when an assertion failed.
+        window = self.window
+        if window is None:
+            return
+        for event in self._release_events:
+            event.set()
+        overlay = window.overlay
+        window.capture = None
+        window.close()
+        self.wait(lambda: not window._workers, seconds=3)
+        overlay.deleteLater(); window.deleteLater()
+        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
         self.app.processEvents()
-        self.directory.cleanup()
+        self.assertFalse(isValid(overlay))
+        self.assertFalse(isValid(window))
+        self.window = None
+        gc.collect()
+        self.app.processEvents()
 
     def test_slow_capture_is_off_gui_and_stop_discards_late_result(self):
         from screen_capture import ClientRect
         entered, release = threading.Event(), threading.Event()
+        self._release_events.append(release)
         threads = []
         class Capture:
             def capture(inner, *args, **kwargs):
@@ -83,6 +105,23 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.assertFalse(self.window.state.running)
         self.assertFalse(self.window.state.confirmed)
         self.assertEqual(self.window.state.offered, ())
+
+    def test_owned_cleanup_releases_waiting_fake_and_deletes_both_widgets(self):
+        entered, release = threading.Event(), threading.Event()
+        self._release_events.append(release)
+        def work():
+            entered.set()
+            if not release.wait(2):
+                raise RuntimeError('Owned cleanup fixture did not release worker')
+        control, overlay = self.window, self.window.overlay
+        control.spawn('owned-cleanup', work)
+        self.wait(entered.is_set)
+        self.dispose_window()
+        self.assertTrue(release.is_set())
+        self.assertFalse(control._workers)
+        self.assertFalse(isValid(control))
+        self.assertFalse(isValid(overlay))
+        self.dispose_window()  # Registered cleanup remains safely idempotent.
 
     def test_two_independent_confirmations_before_reuse_and_fresh_capture_each_tick(self):
         from screen_capture import ClientRect
