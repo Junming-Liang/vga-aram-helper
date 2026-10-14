@@ -8,13 +8,15 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT/'tests'))
 from scripts import build_wgc_session_capture as build
 import windows_wgc_session_capture as smoke
 import wgc_session_diagnostic as launcher
+from test_microsoft_runtime import runtime_fixture
 
 
 def manifest():
@@ -166,6 +168,114 @@ class BuildTests(unittest.TestCase):
         spec=(ROOT/'packaging/WGC-Session-Diagnostic.spec').read_text()
         self.assertIn('wgc_session_diagnostic.py',spec)
         self.assertNotIn('launcher.py',spec)
+
+
+class DiagnosticRuntimePackagingTests(unittest.TestCase):
+    """Execute the spec with synthetic Analysis output, never native packaging.
+
+    The real source/archive verifiers inspect synthetic bytes and provenance.
+    These checks establish the recipe contract, not a Windows EXE or WGC pass.
+    """
+    DLLS={'msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll',
+          'vcruntime140.dll','vcruntime140_1.dll'}
+    REQUIRED={'pyside6/'+name for name in DLLS}|{
+        'msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll'}
+
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory();self.addCleanup(self.temporary.cleanup)
+        self.folder=Path(self.temporary.name)
+        self.proof=runtime_fixture()
+        for row in self.proof['files']:
+            # Different synthetic bytes per DLL catch cross-file substitution.
+            data=(row['filename'].encode()*2048)[:2048]
+            (self.folder/row['filename']).write_bytes(data)
+            row.update(size=len(data),sha256=hashlib.sha256(data).hexdigest())
+        self.write_proof()
+        self.analysis=Mock(side_effect=self.analyze);self.exe=Mock();self.discovered=[]
+
+    def write_proof(self):
+        (self.folder/'provenance.json').write_text(json.dumps(self.proof),encoding='utf-8')
+
+    def analyze(self,*_args,**kwargs):
+        entries=[((Path(destination)/Path(source).name).as_posix(),source,'BINARY')
+                 for source,destination in kwargs['binaries']]
+        return SimpleNamespace(binaries=entries+self.discovered,datas=kwargs['datas'],pure=[],scripts=[])
+
+    def execute_spec(self,discovered=()):
+        self.discovered=list(discovered)
+        path=ROOT/'packaging/WGC-Session-Diagnostic.spec'
+        namespace={'SPECPATH':str(path.parent),'Analysis':self.analysis,'PYZ':Mock(),'EXE':self.exe}
+        with patch.object(build,'verify_built_helper')as verify_helper, \
+             patch.object(build.microsoft_runtime,'RUNTIME_ROOT',self.folder), \
+             patch.object(sys,'path',list(sys.path)):
+            exec(compile(path.read_text(),str(path),'exec'),namespace)
+        verify_helper.assert_called_once_with()
+        return self.exe.call_args.args[2]
+
+    def archive(self,entries):
+        # Synthetic CArchive interface only; no DLL execution or PyInstaller.
+        contents={name:Path(source).read_bytes()for name,source,_kind in entries
+                  if name.replace('\\','/').rsplit('/',1)[-1].casefold()in self.DLLS}
+        return SimpleNamespace(toc=contents,extract=contents.__getitem__)
+
+    def test_explicit_exact_licensed_inventory_without_analysis_discovery(self):
+        self.assertEqual(build.microsoft_runtime.RUNTIME_DLLS,self.DLLS)
+        entries=self.execute_spec()
+        requested=self.analysis.call_args.kwargs['binaries']
+        self.assertEqual(requested,[(str(ROOT/'build/native'/build.FILENAME),'native')]+
+            [(str(self.folder/name),'PySide6')for name in sorted(self.DLLS)]+
+            [(str(self.folder/name),'.')for name in
+             ('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')])
+        bundle=build.microsoft_runtime.verify_embedded_runtime(self.archive(entries),self.proof)
+        self.assertEqual({row['path']for row in bundle['embedded_files']},self.REQUIRED)
+        self.assertEqual(len(bundle['embedded_files']),8)
+        self.assertEqual(entries[0],('native/'+build.FILENAME,
+                                    str(ROOT/'build/native'/build.FILENAME),'BINARY'))
+
+    def test_every_discovered_copy_replaced_and_other_binaries_preserved(self):
+        discovered=[('MSVCP140.dll','unlicensed/root.dll','BINARY'),
+                    (r'PySide6\VCRUNTIME140.dll','unlicensed/wheel.dll','BINARY'),
+                    ('shiboken6/msvcp140_2.dll','unlicensed/other.dll','BINARY'),
+                    ('PySide6/Qt6Core.dll','retained/Qt6Core.dll','BINARY')]
+        entries=self.execute_spec(discovered)
+        for name,source,kind in entries:
+            basename=name.replace('\\','/').rsplit('/',1)[-1].casefold()
+            if basename in self.DLLS:
+                self.assertEqual(source,str(self.folder/basename));self.assertEqual(kind,'BINARY')
+        self.assertIn(discovered[-1],entries)
+        for name,_source,kind in discovered[:-1]:
+            basename=name.replace('\\','/').rsplit('/',1)[-1].casefold()
+            self.assertIn((name,str(self.folder/basename),kind),entries)
+        build.microsoft_runtime.verify_embedded_runtime(self.archive(entries),self.proof)
+
+    def test_missing_changed_or_unsigned_runtime_fails_before_analysis(self):
+        path=self.folder/'msvcp140.dll';original=path.read_bytes()
+        for failure in ('missing','changed','unsigned'):
+            with self.subTest(failure=failure):
+                if failure=='missing':path.unlink()
+                elif failure=='changed':path.write_bytes(b'!'+original[1:])
+                else:
+                    self.proof['files'][0]['signature_status']='NotSigned';self.write_proof()
+                with self.assertRaises(RuntimeError):self.execute_spec()
+                self.analysis.assert_not_called();self.exe.assert_not_called()
+                path.write_bytes(original)
+
+    def test_unknown_or_debug_discovered_crt_is_rejected_before_exe(self):
+        for name in ('msvcp140d.dll','vcruntime140d.dll','concrt140.dll','other/msvcp140_3.dll'):
+            with self.subTest(name=name),self.assertRaisesRegex(RuntimeError,'Unexpected or debug'):
+                self.execute_spec([(name,'unreviewed/source.dll','BINARY')])
+            self.exe.assert_not_called()
+
+    def test_every_required_archive_path_and_exact_byte_remain_mandatory(self):
+        archive=self.archive(self.execute_spec())
+        for name in list(archive.toc):
+            data=archive.toc.pop(name)
+            with self.subTest(missing=name),self.assertRaisesRegex(RuntimeError,'paths are missing'):
+                build.microsoft_runtime.verify_embedded_runtime(archive,self.proof)
+            archive.toc[name]=b'!'+data[1:]
+            with self.subTest(changed=name),self.assertRaisesRegex(RuntimeError,'differ from licensed source'):
+                build.microsoft_runtime.verify_embedded_runtime(archive,self.proof)
+            archive.toc[name]=data
 
 
 class OverlaySetupDiagnosticTests(unittest.TestCase):
