@@ -36,7 +36,7 @@ DIAGNOSTIC_PHASES = frozenset(('startup', 'support', 'validate-initial', 'device
 DIAGNOSTIC_CHECKS = frozenset(('invariant', 'process-open', 'process-times', 'window-visible',
     'foreground-root', 'window-process', 'process-created', 'window-uncloaked', 'display-affinity',
     'client-query', 'client-geometry', 'frame-query', 'frame-budget', 'client-in-frame',
-    'window-query', 'window-budget', 'client-in-window', 'capture-origin',
+    'window-query', 'window-budget', 'client-in-window', 'capture-origin', 'content-in-pool', 'content-roi',
     'geometry-stable', 'client-on-monitor', 'occluder-query', 'occluder-overlap', 'zorder-target',
     'capture-supported', 'item-dimensions', 'item-open', 'frame-deadline', 'frame-dimensions',
     'texture-layout', 'texture-roi', 'map-deadline', 'mapped-layout', 'start-gate', 'dpi-context',
