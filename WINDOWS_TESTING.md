@@ -7,7 +7,7 @@
 - 原有三档 frozen 原生叠加检查新增两次独立 OCR 后才复用、复用不增加确认帧数、实际 Qt 捕获工作线程与处理期间自己的叠加隐藏。
 - 发布校验绑定完整源文件、编译配方、辅助程序清单、最终 EXE 和三档结果；缺失、不支持、回退、失败或来源不符均不能发布。
 
-这些是门禁定义。实际通过与否需看对应 Actions 证据，不代表已验证真实游戏。详见 [参考项目优化说明](REFERENCE_OPTIMIZATION.md)。
+[v0.4.6 的 Windows 运行 #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) 已通过上述门禁、重设计叠加的五档源码布局及三档最终 EXE 检查；实际物理叠加不得超过客户区一半高度，文字仍须完整可读。发布证据不代表已验证真实游戏。详见 [参考项目优化说明](REFERENCE_OPTIMIZATION.md)。
 
 
 仓库提供源码验证和单文件 EXE 验收两条手动工作流。测试结果以对应提交的 Actions 日志和报告为准；已有记录见 [验证状态](reports/VALIDATION.md)。

@@ -1,6 +1,8 @@
 # Changelog / 变更日志
 
-## 0.4.6 · 可靠性候选
+## v0.4.6 · 原生界面与截图识别可靠性
+
+- [Windows 发布运行 #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) 通过全部门禁并发布 [v0.4.6 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6)。源码/标签 `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`；EXE **106,553,042 字节（101.62 MiB）**，SHA-256 `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`。保持 prerelease / 非 latest，稳定 OTA 不自动发现。真实 LoL/Vanguard 仍未验证。
 
 - 原生控制台与资料叠加重新设计：保留 VGA 图标，分层深蓝灰界面、固定主操作、左中右三候选核对和可折叠高级设置。窗口按可用工作区适配；叠加紧凑化并限制在客户区一半高度内，无法清晰放入则隐藏。完整效果可在控制台按名称查阅；人工选定英雄后可查看其来源评级与条件。查阅与监测确认状态分离，过期自动结果仍清空。
 

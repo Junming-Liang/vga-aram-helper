@@ -1,7 +1,18 @@
 # Windows package size
 
-v0.4.5 retains the reviewed minimal OpenCV source-build recipe adopted in v0.4.4.
+v0.4.6 retains the reviewed minimal OpenCV source-build recipe adopted in v0.4.4.
 Published tags/assets remain immutable. Earlier release and experimental measurements are preserved separately below.
+
+## Measured final v0.4.6 release
+
+[Windows release run #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) passed every mandatory gate and published [v0.4.6](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6). The native WGC helper and redesigned Qt UI add no separately installed user runtime.
+
+- Source/tag: `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`
+- Final EXE: **106,553,042 bytes (101.62 MiB)**
+- Change from v0.4.5: **+153,045 bytes**
+- Final SHA256: `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`
+
+Source and frozen WGC, all three final-EXE application scales, native OCR/overlay, handoff, same-version OTA, unchanged models, native-library parity, and source/license gates passed. This is a reliability/UI release; historical timings below are not a claim of new end-to-end OCR speed or live-game compatibility.
 
 ## Measured final v0.4.5 release
 
