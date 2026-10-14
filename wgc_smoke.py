@@ -55,6 +55,26 @@ def failure_evidence(error):
     return {}
 
 
+def verify_owned_job_close(job, process):
+    """Prove termination of the exact suspended helper, not an exit-code guess."""
+    kernel = job.kernel
+    kernel.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
+    kernel.WaitForSingleObject.restype = W.DWORD
+    require(process.poll() is None, 'Suspended own helper exited before Job-close test')
+    started = time.monotonic()
+    require(job.close() and job.handle is None, 'Production Job handle did not close')
+    wait_result = kernel.WaitForSingleObject(int(process._handle), 3000)
+    require(type(wait_result) is int and wait_result == 0,
+            'Closing the production Job did not signal its exact helper process')
+    exit_code = process.wait(timeout=0)
+    observed_exit = process.poll()
+    require(type(exit_code) is int and 0 <= exit_code <= 2**32-1
+            and type(observed_exit) is int and observed_exit == exit_code,
+            'Owned helper wait and exit observation disagree')
+    return {'wait_result': wait_result, 'exit_code': exit_code, 'handle_closed': True,
+            'elapsed_ms': round((time.monotonic()-started)*1000, 2)}
+
+
 def pixel_error(image, rect, roi):
     from PIL import Image, ImageDraw, ImageChops, ImageStat
     colors = ((226, 61, 82), (45, 188, 137), (68, 109, 231), (243, 196, 54))
@@ -277,9 +297,7 @@ def execute(result):
                     'Suspended owned helper was not in the exact production lifetime Job')
             rejects(lambda: backend.capture(replace(target, pid=other.pid), rect, roi),
                     'stale_identity_passed', {'stale'})
-            require(other.poll() is None, 'Suspended own helper exited before Job-close test')
-            other_job.close()
-            require(other.wait(timeout=3) != 0, 'Closing the production Job did not terminate its owned helper')
+            result['job_close_observation'] = verify_owned_job_close(other_job, other)
             result['job_close_cleanup_passed'] = True
             result['job_lifetime_scope'] = 'Production kill-on-close Job on suspended own helper; not an app-crash simulation'
         finally:
