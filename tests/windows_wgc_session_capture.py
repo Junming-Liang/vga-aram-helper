@@ -281,6 +281,17 @@ def read_report(path):
     return value
 
 
+def summary_native_diagnostic(value):
+    """Carry only the session parser's bounded allowlisted failure metadata."""
+    from wgc_session_capture import decode_session_diagnostic
+    if type(value)is not dict:return None
+    try:
+        data=json.dumps(value,ensure_ascii=True,allow_nan=False).encode('ascii')
+        return decode_session_diagnostic(data,value.get('code'))
+    except (TypeError,ValueError,RecursionError):
+        return None
+
+
 def summarize(reports):
     """Print and persist bounded metadata even when an earlier Windows step failed."""
     reports=Path(reports);reports.mkdir(parents=True,exist_ok=True)
@@ -342,6 +353,7 @@ def summarize(reports):
             transitions=detail.get('transitions',[])
             result['runs'].append({'frozen':frozen,'scale':scale,'status':detail.get('status'),
                 'error':detail.get('error'),'requests':detail.get('requests',[]),
+                'native_diagnostic':summary_native_diagnostic(detail.get('native_diagnostic')),
                 'windows_version':detail.get('windows_version'),
                 'overlay_rendering':detail.get('overlay_rendering'),
                 'overlay_setup':detail.get('overlay_setup',[]),

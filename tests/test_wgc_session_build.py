@@ -660,6 +660,24 @@ class AcceptanceTests(unittest.TestCase):
                 path=root/'bad.json';path.write_text(text)
                 with self.assertRaises(ValueError):smoke.read_report(path)
 
+    def test_summary_preserves_only_allowlisted_clock_failure_without_success(self):
+        diagnostic={'schema_version':1,'code':12,'phase':'frame-wait','check':'frame-timestamp',
+            'hresult':0,'observed':[0]*4,'expected':[0]*4,'window_rect':[0]*4,'frame_rect':[0]*4,
+            'style':0,'extended_style':0,'clock':{'qpc_counter':123,'qpc_frequency':10000000,
+            'cutoff_100ns':100,'frame_100ns':124,'observed_now_100ns':123,'previous_frame_100ns':0}}
+        with tempfile.TemporaryDirectory()as temporary:
+            root=Path(temporary)
+            for forged in (False,True):
+                detail={'status':'failed','native_diagnostic':copy.deepcopy(diagnostic)}
+                if forged:detail['native_diagnostic']['clock']['window_title']='not allowed'
+                value={'status':'failed','runs':[{'app_scale':1,'detail':detail}]}
+                (root/'windows-wgc-session-source.json').write_text(json.dumps(value))
+                with redirect_stdout(io.StringIO()):self.assertEqual(smoke.summarize(root),1)
+                path=root/'windows-wgc-session-summary.json';report=json.loads(path.read_text())
+                self.assertEqual(report['status'],'failed')
+                self.assertEqual(report['runs'][0]['native_diagnostic'],None if forged else diagnostic)
+                self.assertLess(path.stat().st_size,256*1024)
+
     def test_frozen_environment_has_no_python_compiler_or_foreign_qt(self):
         env=smoke.child_environment({'SystemRoot':r'C:\Windows','PATH':r'C:\Python;C:\VC',
             'PYTHONPATH':'foreign','QT_PLUGIN_PATH':'foreign','QT_QPA_PLATFORM':'offscreen'},Path('work'),1.5,frozen=True)

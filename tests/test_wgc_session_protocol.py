@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -16,11 +17,27 @@ from unittest.mock import Mock, patch
 from session_windows import ProcessMetadata
 from screen_capture import ClientRect, WindowInfo
 import wgc_session_capture as session
-from wgc_capture import WgcError, WgcUnavailable
+from wgc_capture import WgcError, WgcUnavailable, decode_native_diagnostic
 
 ROOT = Path(__file__).resolve().parents[1]
 ROI = (5, 7, 16, 16)
 PIXELS = bytes([17, 23, 29, 255]) * (16 * 16)
+CLOCK_KEYS = {'qpc_counter', 'qpc_frequency', 'cutoff_100ns', 'frame_100ns',
+              'observed_now_100ns', 'previous_frame_100ns'}
+
+
+def clock_diagnostic(**changes):
+    value = dict(schema_version=1, code=12, phase='frame-wait', check='frame-timestamp',
+                 hresult=0, style=0, extended_style=0, observed=[0]*4, expected=[0]*4,
+                 window_rect=[0]*4, frame_rect=[0]*4,
+                 clock=dict(qpc_counter=100, qpc_frequency=10000000, cutoff_100ns=98,
+                            frame_100ns=101, observed_now_100ns=100, previous_frame_100ns=97))
+    value.update(changes)
+    return value
+
+
+def diagnostic_bytes(value):
+    return json.dumps(value, separators=(',', ':')).encode('ascii')
 
 
 def packet(request_id=1, generation=7, cutoff=100, frame=101, entered=102, **changes):
@@ -130,6 +147,95 @@ class ProtocolTests(unittest.TestCase):
                     json.dumps(dict(good, check='arbitrary-text')).encode()):
             self.assertIsNone(session.decode_session_diagnostic(bad, 12))
         self.assertIsNone(session.decode_session_diagnostic(raw, 13))
+
+    def test_session_clock_is_optional_exact_and_never_accepted_by_v1(self):
+        self.assertEqual(session.SESSION_CLOCK_KEYS, CLOCK_KEYS)
+        for phase in ('frame-wait', 'validate-idle'):
+            for with_clock in (False, True):
+                good = clock_diagnostic(phase=phase)
+                if not with_clock:
+                    good.pop('clock')
+                raw = diagnostic_bytes(good)
+                self.assertEqual(session.decode_session_diagnostic(raw, 12), good)
+                self.assertEqual(session.decode_session_diagnostic(bytearray(raw), 12), good)
+        # Use otherwise valid v1 phase/check so the extension alone is rejected.
+        old = clock_diagnostic(phase='startup', check='invariant')
+        self.assertIsNone(decode_native_diagnostic(diagnostic_bytes(old), 12))
+        old.pop('clock')
+        self.assertEqual(decode_native_diagnostic(diagnostic_bytes(old), 12), old)
+
+    def test_session_clock_requires_exact_keys_and_object(self):
+        good = clock_diagnostic()
+        for key in CLOCK_KEYS:
+            bad = dict(good['clock']); bad.pop(key)
+            with self.subTest(missing=key):
+                self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(dict(good, clock=bad)), 12))
+        for bad in (None, [], 0, True, 'private', dict(good['clock'], extra=0),
+                    dict(good['clock'], path='private')):
+            with self.subTest(clock=bad):
+                self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(dict(good, clock=bad)), 12))
+        for key in ('path', 'title', 'pixels', 'raw_stderr'):
+            self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(dict(good, **{key: 'private'})), 12))
+
+    def test_session_clock_exact_signed_int64_values(self):
+        good = clock_diagnostic()
+        for key in CLOCK_KEYS:
+            for number in (-(2**63), -1, 0, 2**63 - 1):
+                value = dict(good, clock=dict(good['clock'], **{key: number}))
+                with self.subTest(key=key, accepted=number):
+                    self.assertEqual(session.decode_session_diagnostic(diagnostic_bytes(value), 12), value)
+            for number in (True, False, 0.0, 1.0, -(2**63)-1, 2**63, '1', None, [], {},
+                           float('nan'), float('inf'), -float('inf')):
+                value = dict(good, clock=dict(good['clock'], **{key: number}))
+                with self.subTest(key=key, rejected=number):
+                    self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(value), 12))
+
+    def test_session_clock_only_matches_timestamp_failure_phase_check_and_code(self):
+        for phase in sorted(session.SESSION_PHASES - {'frame-wait', 'validate-idle'}):
+            self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(clock_diagnostic(phase=phase)), 12))
+        for check in sorted(session.SESSION_CHECKS - {'frame-timestamp'}):
+            self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(clock_diagnostic(check=check)), 12))
+        for code in (0, 10, 11, 13, 14, 15, True, 12.0, '12', None):
+            value = clock_diagnostic(code=code)
+            self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(value), code))
+        raw = diagnostic_bytes(clock_diagnostic())
+        for returncode in (0, 10, 11, 13, 14, -9, 12.0, True, '12', None):
+            self.assertIsNone(session.decode_session_diagnostic(raw, returncode))
+
+    def test_session_clock_duplicate_fields_and_malformed_json_never_exposed(self):
+        raw = diagnostic_bytes(clock_diagnostic())
+        for key in CLOCK_KEYS:
+            token = ('"' + key + '":').encode()
+            duplicate = raw.replace(token, token + b'0,' + token)
+            self.assertIsNone(session.decode_session_diagnostic(duplicate, 12))
+        for bad in (raw[:-1] + b',"clock":{}}', raw[:-1] + b',"code":12}',
+                    raw + b'private stderr', raw + b'\n' + raw, raw[:-1], b'\xff',
+                    b'null', b'[]', b'"private"', raw + b' ' * 1024):
+            self.assertIsNone(session.decode_session_diagnostic(bad, 12))
+        self.assertEqual(session.decode_session_diagnostic(raw + b' ' * (1024 - len(raw)), 12),
+                         clock_diagnostic())
+        self.assertIsNone(session.decode_session_diagnostic(raw + b' ' * (1025 - len(raw)), 12))
+
+    def test_session_clock_does_not_bypass_geometry_sanitizer(self):
+        for changes in ({'observed': [0, 0, 0, 2**32]}, {'expected': [True]*4},
+                        {'window_rect': [0.0]*4}, {'frame_rect': [0]*3},
+                        {'style': -1}, {'extended_style': 2**32}, {'hresult': True},
+                        {'schema_version': True}, {'code': 12.0}):
+            self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(clock_diagnostic(**changes)), 12))
+
+    def test_transport_retains_only_validated_session_clock(self):
+        transport = session._Transport([], 7)
+        transport.process = SimpleNamespace(poll=lambda: 12)
+        good = clock_diagnostic()
+        transport.diagnostic = bytearray(diagnostic_bytes(good))
+        error = transport._native_error(RuntimeError('private stderr'))
+        self.assertEqual(error.status, 'stale')
+        self.assertEqual(error.diagnostic, good)
+        transport.diagnostic.extend(b'private stderr')
+        error = transport._native_error(RuntimeError('private stderr'))
+        self.assertEqual(error.status, 'stale')
+        self.assertIsNone(error.diagnostic)
+        self.assertNotIn('private', str(error))
 
 
 class Pipe:
@@ -534,9 +640,146 @@ class NativeSourceParityTests(unittest.TestCase):
         self.assertIn('validate(p, &geometry);', before)
         self.assertIn('validate(p, &geometry);', after)
         self.assertIn('frame_time > cutoff && frame_time > last_frame_time', self.new)
-        self.assertIn('frame_time <= qpc_100ns()', self.new)
+        self.assertIn('frame_time > 0 && frame_time <= qpc_100ns(false, &diagnostic.clock)', self.new)
+        self.assertIn('require(idle.entered >= frame_time, stale, "frame-timestamp");', self.new)
         self.assertIn('SecureZeroMemory(pixels.data(), pixels.size()); pixels.clear();', self.new)
         self.assertIn('~SensitivePixels()', self.new)
+
+    def test_native_clock_uses_only_existing_samples_and_resets_on_phase_change(self):
+        self.assertEqual(self.new.count('qpc_100ns('), 4)  # Definition, cutoff, frame and idle.
+        self.assertEqual(self.new.count('QueryPerformanceCounter('), 1)
+        self.assertEqual(self.new.count('QueryPerformanceFrequency('), 1)
+        self.assertEqual(self.new.count('frame_clock(cutoff, frame_time, previous_frame_time);'), 2)
+        self.assertIn('int64_t previous_frame_time = last_frame_time;', self.new)
+        phase = self.new[self.new.index('void phase('):self.new.index('void frame_clock(')]
+        self.assertIn('diagnostic.clock = {};', phase)
+        self.assertGreaterEqual(self.new.count('static_assert(qpc_ticks_100ns('), 8)
+
+    def test_actual_cpp_clock_sampling_arithmetic_and_worst_case_failure_size(self):
+        # Execute the actual serializer, phase reset, QPC helper and predicates
+        # with deterministic OS-call stubs. This is not Windows capture proof.
+        compiler = shutil.which('c++')
+        if not compiler:
+            self.skipTest('Portable C++ compiler absent; native build still evaluates arithmetic static_asserts')
+        metadata = self.new[self.new.index('struct ClockDiagnostic {'):self.new.index('struct SensitivePixels')]
+        reporting = self.new[self.new.index('struct Failure {'):self.new.index('struct Handle {')]
+        qpc = self.new[self.new.index('constexpr int64_t qpc_ticks_100ns('):self.new.index('void write_all(')]
+        frame_guard = re.search(r'frame_clock\(cutoff, frame_time, previous_frame_time\);\s*'
+                                r'require\(frame_time > 0[^;]+;', self.new).group()
+        idle_guard = re.search(r'frame_clock\(cutoff, frame_time, previous_frame_time\);\s*'
+                               r'Idle idle[^;]+;\s*require\(idle.entered[^;]+;', self.new).group()
+        idle_start = self.new.index('struct Idle {')
+        idle_struct = self.new[idle_start:self.new.index('};', idle_start) + 2]
+        harness = r'''
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+constexpr int stale = 12, failed = 14, STD_ERROR_HANDLE = -12;
+using DWORD = uint32_t;
+struct LARGE_INTEGER { int64_t QuadPart; };
+int counter_calls = 0, frequency_calls = 0;
+int64_t ticks = 10000002, frequency = 10000000;
+bool QueryPerformanceCounter(LARGE_INTEGER* out) { ++counter_calls; out->QuadPart = ticks; return true; }
+bool QueryPerformanceFrequency(LARGE_INTEGER* out) { ++frequency_calls; out->QuadPart = frequency; return true; }
+int GetStdHandle(int value) { return value; }
+std::string written;
+bool WriteFile(int, void const* data, DWORD size, DWORD* count, void*) {
+    written.assign(static_cast<char const*>(data), size);
+    *count = size;
+    return std::fwrite(data, 1, size, stdout) == size;
+}
+''' + metadata + reporting + qpc + idle_struct + r'''
+int main() {
+#ifdef _WIN32
+    // Match native WriteFile: CRT text-mode LF expansion would distort bounds.
+    assert(_setmode(_fileno(stdout), _O_BINARY) != -1);
+#endif
+    int64_t cutoff = 10000000, frame_time = -1, previous_frame_time = 9999999;
+    phase("frame-wait");
+    try { FRAME_GUARD assert(false); }
+    catch (Failure const& error) {
+        assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
+        assert(counter_calls == 0 && frequency_calls == 0);
+        assert(diagnostic.clock.qpc_counter == 0 && diagnostic.clock.qpc_frequency == 0 &&
+               diagnostic.clock.observed_now_100ns == 0);
+        report_failure(error.code, error.check);
+    }
+    phase("frame-wait");
+    frame_time = 10000003;
+    try { FRAME_GUARD assert(false); }
+    catch (Failure const& error) {
+        assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
+        assert(counter_calls == 1 && frequency_calls == 1);
+        assert(diagnostic.clock.qpc_counter == ticks && diagnostic.clock.qpc_frequency == frequency &&
+               diagnostic.clock.observed_now_100ns == 10000002);
+        report_failure(error.code, error.check);
+    }
+    phase("validate-idle");
+    struct { uint64_t id; } request{1};
+    struct { uint64_t generation; } p{7};
+    try { IDLE_GUARD assert(false); }
+    catch (Failure const& error) {
+        assert(error.code == stale && std::strcmp(error.check, "frame-timestamp") == 0);
+        assert(counter_calls == 2 && frequency_calls == 2);
+        assert(diagnostic.clock.previous_frame_100ns == previous_frame_time);
+        report_failure(error.code, error.check);
+    }
+    phase("validate-idle");
+    assert(!diagnostic.clock.present && diagnostic.clock.qpc_counter == 0 &&
+           diagnostic.clock.qpc_frequency == 0 && diagnostic.clock.cutoff_100ns == 0 &&
+           diagnostic.clock.frame_100ns == 0 && diagnostic.clock.observed_now_100ns == 0 &&
+           diagnostic.clock.previous_frame_100ns == 0);
+    report_failure(stale, "frame-timestamp");
+    diagnostic.clock = {true, INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN};
+    diagnostic.style = diagnostic.extended_style = UINT32_MAX;
+    for (auto rect : {diagnostic.observed, diagnostic.expected, diagnostic.window_rect, diagnostic.frame_rect})
+        std::fill_n(rect, 4, -(int64_t(1) << 32));
+    report_failure(stale, "frame-timestamp", UINT32_MAX);
+    assert(written.size() == 637 && written.size() < 1024);
+    for (auto rect : {diagnostic.observed, diagnostic.expected, diagnostic.window_rect, diagnostic.frame_rect})
+        std::fill_n(rect, 4, INT64_MIN);
+    report_failure(stale, "frame-timestamp", UINT32_MAX);
+    assert(written.size() == 781 && written.size() < 1024);
+    // Clock evidence is never attached to another check, phase or return code.
+    report_failure(failed, "qpc-clock");
+    report_failure(stale, "invariant");
+    report_failure(failed, "frame-timestamp");
+    diagnostic.phase = "startup";
+    report_failure(stale, "frame-timestamp");
+}
+'''
+        harness = harness.replace('FRAME_GUARD', frame_guard).replace('IDLE_GUARD', idle_guard)
+        with tempfile.TemporaryDirectory() as directory:
+            source, binary = Path(directory) / 'clock.cpp', Path(directory) / 'clock.exe'
+            source.write_text(harness)
+            built = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', str(source), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+        rows = ran.stdout.splitlines(keepends=True)
+        self.assertEqual(len(rows), 10)
+        for row in rows:
+            self.assertLess(len(row), 1024)
+        records = [json.loads(row) for row in rows]
+        self.assertEqual(records[0]['clock'], dict(qpc_counter=0, qpc_frequency=0, cutoff_100ns=10000000,
+                         frame_100ns=-1, observed_now_100ns=0, previous_frame_100ns=9999999))
+        self.assertEqual(records[1]['clock'], records[2]['clock'])
+        self.assertEqual(records[1]['clock']['frame_100ns'], 10000003)
+        for index in (0, 1, 2, 3, 4):
+            self.assertEqual(session.decode_session_diagnostic(rows[index], 12), records[index])
+        self.assertEqual(len(rows[4]), 637)  # All allowed numeric fields at longest-width bounds.
+        self.assertEqual(len(rows[5]), 781)  # Even every native int64 slot at its longest width fits.
+        self.assertIsNone(session.decode_session_diagnostic(rows[5], 12))  # Geometry stays v1-bounded.
+        for index in (3, 6, 7, 8, 9):
+            self.assertNotIn('clock', records[index])
 
     def test_no_monitor_item_injection_or_border_suppression(self):
         for forbidden in ('CreateForMonitor(', 'SetWindowsHookEx', 'ReadProcessMemory',
