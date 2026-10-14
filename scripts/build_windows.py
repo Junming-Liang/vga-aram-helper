@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app_version import __version__
 from model_inventory import verify_models
+from scripts.build_wgc_capture import verify_built_helper, verify_archive as verify_wgc_archive
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
 from scripts.windows_package import EXPERIMENT_PROFILE, assert_slim_inventory, measure_archive, package_profile
@@ -45,7 +46,7 @@ def verify_source_checkout(root, expected_commit=None):
     # git --exclude-standard intentionally omits. Generated outputs are outside
     # these trees. Bytecode caches never become source archive inputs.
     inputs = [path for path in root.iterdir() if path.is_file()]
-    for folder in ('static', 'fixtures', 'assets', 'packaging', 'scripts', 'tests', '.github'):
+    for folder in ('static', 'fixtures', 'assets', 'packaging', 'scripts', 'tests', 'native', '.github'):
         inputs.extend(path for path in (root / folder).rglob('*') if path.is_file()
                       and '__pycache__' not in path.parts and path.suffix != '.pyc')
     for path in inputs:
@@ -126,7 +127,7 @@ def assert_archive_inventory(names):
     for name in ('PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx'):
         if 'rapidocr/models/' + name.lower() not in normalized:
             missing.append('rapidocr/models/' + name)
-    for name in ('static/index.html', 'fixtures/ocr-synthetic.png', 'fixtures/ocr-blank.png', 'assets/branding/vga.ico'):
+    for name in ('static/index.html', 'fixtures/ocr-synthetic.png', 'fixtures/ocr-blank.png', 'assets/branding/vga.ico', 'native/vga-wgc-capture.exe', 'native/wgc-capture-build.json'):
         if name not in normalized:
             missing.append(name)
     if missing:
@@ -163,6 +164,7 @@ def main():
     source_commit = verify_source_checkout(ROOT, os.environ.get('GITHUB_SHA'))
     profile = package_profile()
     custom_build = check_build_mode()
+    wgc_build = verify_built_helper()
     models = verify_models()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -184,6 +186,7 @@ def main():
     if custom_build:
         verify_custom_archive(archive, custom_build)
     bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
+    bundled['wgc_helper'] = verify_wgc_archive(archive, wgc_build)
     assert_slim_inventory(archive.toc, profile=profile)
     size_report = measure_archive(archive, executable, profile=profile)
     size_report['source_commit'] = source_commit
@@ -220,7 +223,7 @@ def main():
               'manifest': manifest, 'bundled_models': models, 'archive_inventory': bundled, 'dependencies': inventory,
               'source_access': source_access, 'package_size': size_report,
               'package_profile': profile, 'experimental': profile == EXPERIMENT_PROFILE,
-              'opencv_custom_build': custom_build,
+              'opencv_custom_build': custom_build, 'wgc_helper_build': wgc_build,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
     validate_build_profile(report)
     reports = ROOT / 'reports'

@@ -25,14 +25,14 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.5'
+PREVIEW_VERSION = '0.4.6'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
-NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
                          'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                          'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
 NATIVE_SCALES = ((1.0, 'windows-native'), (1.5, 'windows-native-scale150'), (2.0, 'windows-native-scale200'))
-AUTO_SOURCE_FILES = ('automatic_windows.py','native_ui.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs')
+AUTO_SOURCE_FILES = ('automatic_windows.py','native_ui.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp')
 AUTO_CAPTURE_FIELDS = ('wait_without_window','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
 DPI_SOURCE_FILES = ('native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py')
 # Load only the trusted local pure validator, never Python from a source archive.
@@ -41,6 +41,13 @@ _dpi_spec = importlib.util.spec_from_file_location('release_windows_dpi_matrix',
     Path(__file__).resolve().parents[1] / 'tests' / 'windows_dpi_matrix.py')
 dpi_matrix = importlib.util.module_from_spec(_dpi_spec)
 _dpi_spec.loader.exec_module(dpi_matrix)
+
+_wgc_spec = importlib.util.spec_from_file_location('release_windows_wgc_capture',
+    Path(__file__).resolve().parents[1] / 'tests' / 'windows_wgc_capture.py')
+wgc_fixture = importlib.util.module_from_spec(_wgc_spec)
+_wgc_spec.loader.exec_module(wgc_fixture)
+HERO_GENUINE_FILES = ('hero_recognition.py','hero_portraits.py','local_ocr.py','ocr_privacy.py','model_inventory.py','screen_capture.py','native_state.py','engine.py')
+SELECTION_GENUINE_FILES = ('champion_select.py','local_ocr.py','ocr_privacy.py','model_inventory.py')
 
 SELECTION_FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed', 'champion_select_session_carry_passed', 'champion_select_stale_clear_passed', 'champion_select_window_scope_passed', 'metadata_query_passed')
 
@@ -52,7 +59,7 @@ MODEL_HASHES = {
     'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
     'ch_ppocr_mobile_v2.0_cls_mobile.onnx': 'e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c',
 }
-EVIDENCE_NAMES = ('windows-automatic-capture.json', 'windows-package-size.json', 'windows-ota-smoke.json', 'windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
+EVIDENCE_NAMES = ('windows-wgc-source.json', 'windows-wgc-frozen.json', 'windows-automatic-capture.json', 'windows-package-size.json', 'windows-ota-smoke.json', 'windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
                   'windows-build-environment.txt', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
                   'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json',
@@ -274,7 +281,7 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
+        require({'native/wgc_capture.cpp', 'wgc_capture.py', 'wgc_smoke.py', 'frame_ocr_cache.py', 'scripts/build_wgc_capture.py', 'tests/windows_wgc_capture.py', 'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
                  'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
                  'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
                  'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
@@ -394,7 +401,7 @@ def verify_genuine_report(path, source_archive, version):
             ('small selected public sample', 'Not Windows live-game capture', 'Genuine images are not redistributed')),
             'Genuine screenshot scope/limitations are missing')
     hashes = report.get('implementation_sha256', {})
-    require(set(hashes) == {'hero_recognition.py', 'hero_portraits.py'}, 'Genuine report implementation inventory mismatch')
+    require(set(hashes) == set(HERO_GENUINE_FILES), 'Genuine report implementation inventory mismatch')
     with zipfile.ZipFile(source_archive) as archive:
         for name, checksum in hashes.items():
             require(archive.namelist().count(name) == 1 and hashlib.sha256(archive.read(name)).hexdigest() == checksum,
@@ -463,11 +470,11 @@ def verify_selection_genuine_report(path, source_archive, version):
             ('modified by a third-party plugin', 'two distinct scenes', 'Not current stock-client', 'Images are not redistributed')),
             'Champion-select evidence omits its modified-client/duplicate-scene limitations')
     hashes = report.get('implementation_sha256', {})
-    require(set(hashes) == {'champion_select.py'}, 'Champion-select evaluated module inventory mismatch')
+    require(set(hashes) == set(SELECTION_GENUINE_FILES), 'Champion-select evaluated module inventory mismatch')
     with zipfile.ZipFile(source_archive) as archive:
-        require(archive.namelist().count('champion_select.py') == 1 and
-                hashlib.sha256(archive.read('champion_select.py')).hexdigest() == hashes['champion_select.py'],
-                'Champion-select screenshot evidence evaluated different source')
+        for name, checksum in hashes.items():
+            require(archive.namelist().count(name) == 1 and hashlib.sha256(archive.read(name)).hexdigest() == checksum,
+                    'Champion-select screenshot evidence evaluated different source: ' + name)
     cases = report.get('cases')
     require(isinstance(cases, list) and len(cases) == 4, 'Reviewed champion-select sample is incomplete')
     counts = dict(positive_cases=0, positive_recognized=0, negative_cases=0, negative_abstained=0,
@@ -605,6 +612,59 @@ def verify_automatic_capture(path,source_archive,version,source_sha):
                 'Automatic fixture tested different source bytes: '+name)
     return {'status':'passed','scope':'Actual Windows source UI, owned synthetic processes/pixels; fixture publisher trust injected; not frozen-auto-discovery or live LoL evidence',
             'checks':list(AUTO_CAPTURE_FIELDS)}
+
+
+def verify_frozen_wgc_archive(executable, proof):
+    # Re-read the final distribution bytes, not only the build-time inventory.
+    from PyInstaller.archive.readers import CArchiveReader
+    from scripts.build_wgc_capture import verify_archive
+    try:
+        return verify_archive(CArchiveReader(str(executable)), proof)
+    except (RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+        raise VerificationError('Final frozen WGC helper/manifest differs: ' + str(exc)) from exc
+
+
+def verify_wgc_capture(path, source_archive, version, source_sha, build, *, frozen, checksum, exe_size):
+    report = read_json(path)
+    require(report.get('schema_version') == 1 and report.get('status') == 'passed' and 'error' not in report
+            and report.get('frozen') is frozen and report.get('source_commit') == source_sha
+            and report.get('applicationVersion') == version and report.get('scales') == [1, 1.5, 2],
+            'WGC acceptance identity, source or scale scope differs')
+    if frozen:
+        require(report.get('executable_sha256') == checksum and report.get('executable_size') == exe_size,
+                'Frozen WGC acceptance tested different application bytes')
+    helper = report.get('helper_build')
+    require(isinstance(helper, dict) and helper == build.get('wgc_helper_build')
+            and helper == build.get('archive_inventory', {}).get('wgc_helper')
+            and helper.get('source_commit') == source_sha, 'WGC helper build/bundle identity differs')
+    try:
+        wgc_fixture.validate_manifest(helper)
+    except (RuntimeError, TypeError, KeyError) as exc:
+        raise VerificationError('Invalid WGC helper build proof: ' + str(exc)) from exc
+    hashes = report.get('source_files')
+    require(isinstance(hashes, dict) and set(hashes) == set(wgc_fixture.SOURCE_FILES),
+            'WGC tested-source inventory differs')
+    with zipfile.ZipFile(source_archive) as archive:
+        require(archive.comment == source_sha.encode('ascii'), 'WGC source commit differs')
+        for name, expected in hashes.items():
+            require(archive.namelist().count(name) == 1 and hashlib.sha256(archive.read(name)).hexdigest() == expected,
+                    'WGC tested source bytes differ: ' + name)
+    require(helper['source_sha256'] == hashes['native/wgc_capture.cpp']
+            and helper['build_recipe_sha256'] == hashes['scripts/build_wgc_capture.py'],
+            'WGC compiled native source/recipe differs from tested archive')
+    runs = report.get('runs')
+    require(isinstance(runs, list) and len(runs) == 3, 'WGC acceptance scale runs missing')
+    prefix = 'windows-wgc-frozen' if frozen else 'windows-wgc-source'
+    for row, scale in zip(runs, (1, 1.5, 2)):
+        require(isinstance(row, dict) and row.get('app_scale') == scale
+                and row.get('report') == prefix + '-scale' + str(round(scale * 100)) + '.json',
+                'WGC run scale/report identity differs')
+        try:
+            wgc_fixture.validate_report(row.get('detail'), frozen=frozen, scale=scale, helper_build=helper, version=version)
+        except (RuntimeError, TypeError, KeyError) as exc:
+            raise VerificationError('WGC acceptance check failed: ' + str(exc)) from exc
+    return {'status': 'passed', 'frozen': frozen, 'scales': [1, 1.5, 2],
+            'helper_sha256': helper['sha256'], 'checks': list(wgc_fixture.CHECK_FIELDS)}
 
 
 def verify_adopted_performance(report):
@@ -758,6 +818,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         release_dir / f'vga-aram-helper-{version}-source.zip')
     automatic_capture = verify_automatic_capture(files['windows-automatic-capture.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip',version,source_sha)
+    wgc_summary = [verify_wgc_capture(files['windows-wgc-' + kind + '.json'],
+        release_dir / f'vga-aram-helper-{version}-source.zip', version, source_sha, build,
+        frozen=(kind == 'frozen'), checksum=checksum, exe_size=exe.stat().st_size) for kind in ('source', 'frozen')]
+    verify_frozen_wgc_archive(exe, build['wgc_helper_build'])
     genuine_counts = verify_genuine_report(files['hero-recognition-genuine.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip', version)
     selection_counts = verify_selection_genuine_report(files['champion-select-genuine.json'],
@@ -777,7 +841,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'opencv_distribution_version': CUSTOM_VERSION if profile != OFFICIAL_PROFILE else OFFICIAL_VERSION,
               'opencv_adoption': adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
-              'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
+              'wgc_capture_summary': wgc_summary, 'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
@@ -785,8 +849,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
              'Native overlay PREVIEW with screenshot-only automatic identification of the player’s own bottom-HUD portrait. '
              'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
-             'This patch addresses reproduced portrait-cache write failures and helper-window self-occlusion, adds automatic client/game lifecycle discovery, '
-             'and falls back from blank/failed HWND GDI frames to a strictly bounded visible-client compositor copy. '
+             'This patch adds bounded HWND-only Windows Graphics Capture on supported Windows versions, moves capture off the Qt UI thread, '
+             'fixes Chinese exact-title matching and reuses identical title OCR only after two independent confirmations. '
+             'The isolated helper is killed on cancellation or its hard deadline; only absent/unsupported WGC falls back to the existing guarded GDI path. '
              'Foreign occlusion, changed identities and missing/minimized windows pause safely and retry. '
              'The unchanged OCR models and approved minimal OpenCV package profile are retained. '
              'The confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout fixes remain included. '
@@ -809,6 +874,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'This is limited fixture evidence, not a speed guarantee for every computer. '
               'ORT_DISABLE_TELEMETRY=1 is set before runtime initialization and the API opt-out remains; this is not a general network firewall.\n\n'
               if profile == ADOPTED_PROFILE else '') +
+             'Separate source and exact-frozen-EXE WGC fixtures at application scales 1, 1.5 and 2 require the WGC backend, original owned-window pixel/ROI agreement, stale/closed/resized/focus/protected-window rejection and bounded helper cleanup. '
              'A source-only Windows fixture separately verifies no-HWND automatic discovery, lifecycle recovery, guarded compositor fallback and cleanup; its publisher trust is injected only for exact owned test binaries. Native offline signature API checks use signed/unsigned/tampered files. This is distinct from the packaged-EXE tests. '
              'Machine-verified on a standard Windows runner against an ORIGINAL SYNTHETIC MOCK WINDOW only: '
              'the SAME frozen EXE at controlled QT_SCALE_FACTOR 1, 1.5 and 2 on an unchanged 96-DPI desktop, '

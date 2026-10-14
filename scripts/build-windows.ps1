@@ -12,6 +12,8 @@ if (-not (Test-Path $Python)) {
 }
 & $Python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $Python scripts/build_wgc_capture.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python scripts/build_windows.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe
