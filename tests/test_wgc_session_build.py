@@ -32,11 +32,38 @@ def manifest():
         'toolchain':{'product_id':build.microsoft_runtime.PRODUCT_ID,'compiler':dict(tool),'linker':dict(tool)}}
 
 
+def overlay_report():
+    """Synthetic portable report data; never represents Windows execution."""
+    import wgc_session_smoke as runtime
+    rendering={'active_profile':runtime.OPAQUE_PROFILE,'selection':'preselected-before-probe',
+               'production_translucent_compatibility_proven':False}
+    rows=[]
+    for role,name in (('translucent-probe','translucent_probe'),('registered-overlay','registered_overlay'),
+                      ('lookalike-occluder','lookalike_occluder')):
+        probe=role=='translucent-probe';profile=runtime.TRANSLUCENT_PROFILE if probe else runtime.OPAQUE_PROFILE
+        qt={'qt_translucent_background':probe,'qt_opaque_paint_event':not probe,'qt_surface_has_alpha':probe,
+            'qt_surface_alpha_buffer_size':8 if probe else -1,'qt_opacity':1.0}
+        rendering[name]={'profile':profile,**qt}
+        if probe:rendering[name].update(exclusion_available=False,destroyed_before_registration=True)
+        for index,stage in enumerate(('created-hidden','realized-visible','verified-hidden')):
+            rows.append({'role':role,'profile':profile,'stage':stage,**qt,
+                'is_window':True,'top_level':True,'visible':index==1,'owner_query_ok':True,
+                'owner_is_self':True,'owner_winerror':0,'style':0x80000000|(0x10000000 if index==1 else 0),
+                'extended_style':0x080800a8,'expected_extended_style':0x080800a8,
+                'dwm_hresult':0,'dwm_composing':True,'set_attempted':index<2,'set_ok':not probe and index<2,
+                'set_winerror':8 if probe and index<2 else 0,'affinity_query_ok':True,
+                'affinity_winerror':0,'affinity':0 if probe else 0x11,'hwnd_unchanged':True,
+                'layered_attributes_query_ok':not probe,'layered_attributes_winerror':87 if probe else 0,
+                'layered_color_key':0,'layered_alpha':0 if probe else 255,'layered_flags':0 if probe else 2})
+    return {'overlay_rendering':rendering,'overlay_setup':rows}
+
+
 def passing_report(scale=1,frozen=True):
     proof=manifest();roi=[round(80*scale),round(60*scale),round(160*scale),round(120*scale)]
     result={'schema_version':1,'status':'passed','applicationVersion':smoke.__version__,'frozen':frozen,
         'scope':smoke.SCOPE,'limitations':dict(smoke.LIMITATIONS),'qt_platform':'windows',
         'requested_app_scale':scale,'measured_qt_scale':scale,
+        'windows_version':{'major':10,'minor':0,'build':20348},
         'helper':{'manifest':proof,'sha256':proof['sha256'],'size':proof['size']},
         'client_rect':{'x':20,'y':20,'width':round(320*scale),'height':round(240*scale)},'roi':roi,
         'requests':[],'transitions':[],'negative_results':{},'helper_process_count':30,
@@ -47,6 +74,7 @@ def passing_report(scale=1,frozen=True):
             'scope':'parent-death-eventual-cleanup'},
         'suspended_job_close_observation':{'wait_result':0,'elapsed_ms':12,'helper_pid':789,'exit_code':1,
             'job_closed':True,'never_resumed':True,'start_gate_released':False}}
+    result.update(overlay_report())
     result.update(dict.fromkeys(smoke.CHECK_FIELDS,True))
     for number in range(4):
         result['requests'].append({'helper_pid':123,'helper_created':456,'session_generation':789,
@@ -146,7 +174,10 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
         from types import SimpleNamespace
         state=SimpleNamespace(error=0,visible=False,affinity=0,style=0x080800a8,owner=71,hwnd=123,
                               set_calls=[],hidden_failure=hidden_failure,always_failure=always_failure,
-                              readback=readback,dwm_enabled=dwm_enabled,hide_drops_affinity=False)
+                              readback=readback,dwm_enabled=dwm_enabled,hide_drops_affinity=False,
+                              qt={'qt_translucent_background':False,'qt_opaque_paint_event':True,
+                                  'qt_surface_has_alpha':False,'qt_surface_alpha_buffer_size':-1,'qt_opacity':1.0},
+                              layered_ok=True,layered_alpha=255,layered_flags=2,layered_color=0)
         class User:
             def IsWindow(self,hwnd):return hwnd==state.hwnd
             def GetAncestor(self,hwnd,kind):return state.hwnd
@@ -164,6 +195,10 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
                 # have been preserved, even when this read succeeds.
                 state.error=1400
                 return True
+            def GetLayeredWindowAttributes(self,hwnd,color,alpha,flags):
+                color._obj.value=state.layered_color;alpha._obj.value=state.layered_alpha;flags._obj.value=state.layered_flags
+                state.error=0 if state.layered_ok else 87
+                return state.layered_ok
         class Dwm:
             def DwmIsCompositionEnabled(self,out):out._obj.value=state.dwm_enabled;return 0
         class Widget:
@@ -175,11 +210,12 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
                 if state.hide_drops_affinity:state.affinity=0
         return runtime,state,User(),Dwm(),Widget()
 
-    def run_setup(self,runtime,state,user,dwm,widget,result):
+    def run_setup(self,runtime,state,user,dwm,widget,result,*,label='registered-overlay'):
         with patch.object(runtime.ctypes,'set_last_error',lambda value:setattr(state,'error',value),create=True), \
-             patch.object(runtime.ctypes,'get_last_error',lambda:state.error,create=True):
-            runtime.prepare_owned_overlay(widget,user,dwm,123,0x080800a8,71,lambda _:None,result,
-                                          label='registered-overlay')
+             patch.object(runtime.ctypes,'get_last_error',lambda:state.error,create=True), \
+             patch.object(runtime,'qt_overlay_observation',lambda _:dict(state.qt)):
+            return runtime.prepare_owned_overlay(widget,user,dwm,123,0x080800a8,71,lambda _:None,result,
+                                          label=label)
 
     def test_bounded_hidden_then_realized_retry_keeps_exact_affinity_and_error(self):
         runtime,state,user,dwm,widget=self.fixture(hidden_failure=True);result={}
@@ -192,7 +228,7 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
         self.assertFalse(rows[0]['set_ok']);self.assertTrue(rows[1]['set_ok'])
         self.assertEqual(rows[2]['affinity'],0x11);self.assertFalse(state.visible)
         self.assertTrue(all(row['owner_is_self']and row['top_level']and row['dwm_composing']for row in rows))
-        self.assertLess(len(json.dumps(result)),4096)
+        self.assertLess(len(json.dumps(result)),8192)
         self.assertFalse(any(word in json.dumps(result)for word in ('window_title','pixel_data','image_path')))
 
     def test_realized_failure_dwm_off_and_nonexact_readback_never_pass(self):
@@ -201,7 +237,7 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
             with self.subTest(options=options),self.assertRaises(AssertionError):
                 self.run_setup(runtime,state,user,dwm,widget,result)
             self.assertFalse(state.visible)
-            self.assertEqual(len(result['overlay_setup']),3)
+            self.assertEqual(len(result['overlay_setup']),1 if options.get('dwm_enabled')is False else 3)
             self.assertTrue(all(row[1]==0x11 for row in state.set_calls))
 
     def test_hidden_affinity_loss_fails_and_foreign_owner_is_never_modified(self):
@@ -225,6 +261,266 @@ class OverlaySetupDiagnosticTests(unittest.TestCase):
                 self.run_setup(runtime,state,user,dwm,widget,result)
             self.assertFalse(state.visible)
             if changed=='hwnd':self.assertEqual(len(state.set_calls),1)
+
+
+    def test_translucent_affinity_failure_is_separate_from_active_proof(self):
+        runtime,state,user,dwm,widget=self.fixture(always_failure=True);result={}
+        state.qt.update(qt_translucent_background=True,qt_opaque_paint_event=False,
+                        qt_surface_has_alpha=True,qt_surface_alpha_buffer_size=8)
+        state.layered_ok=False;state.layered_alpha=state.layered_flags=0
+        summary=self.run_setup(runtime,state,user,dwm,widget,result,label='translucent-probe')
+        self.assertFalse(summary['exclusion_available'])
+        self.assertEqual(summary['profile'],runtime.TRANSLUCENT_PROFILE)
+        self.assertEqual([row['set_winerror']for row in result['overlay_setup']],[87,87,0])
+        self.assertEqual([row['layered_attributes_winerror']for row in result['overlay_setup']],[87]*3)
+        self.assertNotIn('registered_overlay',result)
+        self.assertFalse(state.visible)
+        # The very same failed exclusion remains fatal for the active profile.
+        state.qt.update(qt_translucent_background=False,qt_opaque_paint_event=True,
+                        qt_surface_has_alpha=False,qt_surface_alpha_buffer_size=0)
+        state.layered_ok=True;state.layered_alpha=255;state.layered_flags=2
+        with self.assertRaisesRegex(AssertionError,'exact exclusion unavailable'):
+            self.run_setup(runtime,state,user,dwm,widget,{},label='registered-overlay')
+
+    def test_probe_exception_never_waives_identity_dwm_or_actual_translucency(self):
+        for change,value in (('owner',999),('dwm_enabled',False),('hwnd',999)):
+            runtime,state,user,dwm,widget=self.fixture(always_failure=True);result={}
+            state.qt.update(qt_translucent_background=True,qt_opaque_paint_event=False,
+                            qt_surface_has_alpha=True,qt_surface_alpha_buffer_size=8)
+            setattr(state,change,value)
+            with self.subTest(change=change),self.assertRaises(AssertionError):
+                self.run_setup(runtime,state,user,dwm,widget,result,label='translucent-probe')
+            self.assertEqual(state.set_calls,[])
+        runtime,state,user,dwm,widget=self.fixture(always_failure=True)
+        state.qt.update(qt_translucent_background=True,qt_opaque_paint_event=False)
+        with self.assertRaisesRegex(AssertionError,'rendering profile'):
+            self.run_setup(runtime,state,user,dwm,widget,{},label='translucent-probe')
+
+    def test_active_rejects_alpha_opacity_missing_paint_flag_and_layered_mismatch(self):
+        for qt in ({'qt_translucent_background':True},{'qt_opaque_paint_event':False},
+                   {'qt_surface_has_alpha':True,'qt_surface_alpha_buffer_size':8},
+                   {'qt_surface_alpha_buffer_size':1},{'qt_opacity':.9}):
+            runtime,state,user,dwm,widget=self.fixture();state.qt.update(qt)
+            with self.subTest(qt=qt),self.assertRaisesRegex(AssertionError,'rendering profile'):
+                self.run_setup(runtime,state,user,dwm,widget,{})
+            self.assertEqual(state.set_calls,[])
+        for field,value in (('layered_ok',False),('layered_alpha',254),('layered_flags',3),('layered_color',1)):
+            runtime,state,user,dwm,widget=self.fixture();setattr(state,field,value)
+            with self.subTest(field=field),self.assertRaisesRegex(AssertionError,'rendering profile'):
+                self.run_setup(runtime,state,user,dwm,widget,{})
+
+    def test_unknown_role_and_duplicate_role_cannot_bypass_profile(self):
+        runtime,state,user,dwm,widget=self.fixture();result={}
+        with self.assertRaisesRegex(AssertionError,'Unknown'):
+            self.run_setup(runtime,state,user,dwm,widget,result,label='fallback')
+        self.run_setup(runtime,state,user,dwm,widget,result)
+        with self.assertRaisesRegex(AssertionError,'role repeated'):
+            self.run_setup(runtime,state,user,dwm,widget,result)
+
+    def test_alpha_change_after_realization_is_fatal_and_hidden(self):
+        runtime,state,user,dwm,widget=self.fixture();result={}
+        original=widget.show
+        def show():
+            original();state.qt.update(qt_surface_has_alpha=True,qt_surface_alpha_buffer_size=8)
+        widget.show=show
+        with self.assertRaisesRegex(AssertionError,'rendering profile'):
+            self.run_setup(runtime,state,user,dwm,widget,result)
+        self.assertFalse(state.visible)
+        self.assertEqual(len(state.set_calls),1)
+
+
+    def test_factory_uses_separate_actual_alpha_profiles_and_never_sla_on_probe(self):
+        import wgc_session_smoke as runtime
+        from types import SimpleNamespace
+        qt=SimpleNamespace(Tool=1,FramelessWindowHint=2,WindowStaysOnTopHint=4,
+            WindowDoesNotAcceptFocus=8,WindowTransparentForInput=16,
+            WA_ShowWithoutActivating=1,WA_TranslucentBackground=2,WA_OpaquePaintEvent=3)
+        state=SimpleNamespace(style=0x80,error=0,sla=[],fail=False)
+        class Widget:
+            def __init__(self,parent,flags):self.attributes={};self.flags=flags;self.css='';self.opacity=1.0
+            def setAttribute(self,key,value=True):self.attributes[key]=value
+            def testAttribute(self,key):return self.attributes.get(key,False)
+            def setWindowOpacity(self,value):self.opacity=value
+            def windowOpacity(self):return self.opacity
+            def setStyleSheet(self,value):self.css=value
+            def resize(self,*args):pass
+            def move(self,*args):pass
+            def winId(self):return 123
+            def windowHandle(self):
+                alpha=self.testAttribute(qt.WA_TranslucentBackground)
+                return SimpleNamespace(format=lambda:SimpleNamespace(hasAlpha=lambda:alpha,
+                    alphaBufferSize=lambda:8 if alpha else -1))
+        class User:
+            def IsWindow(self,hwnd):return hwnd==123
+            def GetAncestor(self,hwnd,kind):return hwnd
+            def GetWindowThreadProcessId(self,hwnd,out):out._obj.value=runtime.os.getpid();return 91
+            def GetWindowLongPtrW(self,hwnd,index):return state.style
+            def SetWindowLongPtrW(self,hwnd,index,value):state.style=value;return 0x80
+            def SetWindowPos(self,*args):return True
+            def SetLayeredWindowAttributes(self,hwnd,color,alpha,flags):
+                state.sla.append((hwnd,color,alpha,flags));state.error=8 if state.fail else 0
+                return not state.fail
+        f=runtime.Fixture.__new__(runtime.Fixture)
+        f.QtCore=SimpleNamespace(Qt=qt);f.QtWidgets=SimpleNamespace(QWidget=Widget);f.QtGui=object()
+        f.windows=[];f.u=User();f.session=SimpleNamespace(REQUIRED_OVERLAY_STYLE=0x080800a8)
+        with patch.dict(sys.modules,{'PySide6':SimpleNamespace(QtCore=f.QtCore)}), \
+             patch.object(runtime.ctypes,'set_last_error',lambda v:setattr(state,'error',v),create=True), \
+             patch.object(runtime.ctypes,'get_last_error',lambda:state.error,create=True):
+            probe,_,_=f.new_overlay(runtime.TRANSLUCENT_PROFILE)
+            self.assertEqual(state.sla,[])
+            self.assertTrue(runtime.qt_overlay_observation(probe)['qt_surface_has_alpha'])
+            self.assertIn('rgba',probe.css)
+            active,_,_=f.new_overlay(runtime.OPAQUE_PROFILE)
+            actual=runtime.qt_overlay_observation(active)
+            self.assertFalse(actual['qt_translucent_background']);self.assertFalse(actual['qt_surface_has_alpha'])
+            self.assertTrue(actual['qt_opaque_paint_event']);self.assertEqual(actual['qt_opacity'],1.0)
+            self.assertEqual(active.css,'');self.assertIn('paintEvent',type(active).__dict__)
+            self.assertIsNot(probe,active);self.assertEqual(state.sla,[(123,0,255,2)])
+            state.fail=True
+            with self.assertRaisesRegex(AssertionError,'WinError=8'):
+                f.new_overlay(runtime.OPAQUE_PROFILE)
+
+    def test_fixed_opaque_selection_destroys_probe_first_regardless_of_its_outcome(self):
+        import wgc_session_smoke as runtime
+        from types import SimpleNamespace
+        for available in (False,True):
+            events=[];live=set()
+            f=runtime.Fixture.__new__(runtime.Fixture)
+            f.sessions=[];f.windows=[];f.app=SimpleNamespace(processEvents=lambda:events.append('pump'))
+            f.u=SimpleNamespace(IsWindow=lambda hwnd:hwnd in live);f.dwm=object();f.pump=lambda _:None
+            f.new_target=lambda:object()
+            class Widget:
+                def __init__(self,profile):self.profile=profile;self.hwnd=100+len(events);live.add(self.hwnd)
+                def close(self):events.append('close:'+self.profile)
+                def destroy(self):events.append('destroy:'+self.profile);live.remove(self.hwnd)
+                def hide(self):pass
+            def new_overlay(profile):
+                if profile==runtime.OPAQUE_PROFILE:
+                    self.assertFalse(live,'Original probe must be destroyed before opaque construction')
+                events.append('create:'+profile);widget=Widget(profile);f.windows.append(widget)
+                return widget,widget.hwnd,0x080800a8
+            def prepare(widget,*args,label):
+                events.append('prepare:'+label)
+                return {'profile':widget.profile,**({'exclusion_available':available}if label=='translucent-probe'else {})}
+            def stop_after_setup(_):raise StopIteration('end controlled setup')
+            f.new_overlay=new_overlay;f.focus=stop_after_setup
+            result={}
+            with patch.object(runtime,'prepare_owned_overlay',prepare),self.assertRaises(StopIteration):
+                f.initialize_windows(result)
+            self.assertEqual([event for event in events if event.startswith('create:')],
+                             ['create:'+runtime.TRANSLUCENT_PROFILE,'create:'+runtime.OPAQUE_PROFILE])
+            summary=result['overlay_rendering']
+            self.assertEqual(summary['active_profile'],runtime.OPAQUE_PROFILE)
+            self.assertTrue(summary['translucent_probe']['destroyed_before_registration'])
+            self.assertIs(summary['translucent_probe']['exclusion_available'],available)
+            self.assertEqual(len(f.windows),1)
+            self.assertEqual(f.windows[0].profile,runtime.OPAQUE_PROFILE)
+
+    def test_surviving_probe_stops_before_active_profile_or_any_session(self):
+        import wgc_session_smoke as runtime
+        from types import SimpleNamespace
+        f=runtime.Fixture.__new__(runtime.Fixture)
+        f.sessions=[];f.windows=[];f.app=SimpleNamespace(processEvents=lambda:None)
+        f.u=SimpleNamespace(IsWindow=lambda hwnd:True);f.dwm=object();f.pump=lambda _:None
+        f.new_target=lambda:object();calls=[]
+        widget=SimpleNamespace(close=lambda:None,destroy=lambda:None)
+        def new_overlay(profile):calls.append(profile);f.windows.append(widget);return widget,123,0x080800a8
+        f.new_overlay=new_overlay
+        with patch.object(runtime,'prepare_owned_overlay',return_value={'exclusion_available':False}), \
+             self.assertRaisesRegex(AssertionError,'probe survived'):
+            result={};f.initialize_windows(result)
+        self.assertEqual(calls,[runtime.TRANSLUCENT_PROFILE])
+        self.assertFalse(result['overlay_rendering']['translucent_probe']['destroyed_before_registration'])
+        self.assertFalse(f.sessions)
+
+
+class OverlayRenderingAcceptanceTests(unittest.TestCase):
+    def test_failed_probe_is_honest_and_cannot_supply_active_exclusion(self):
+        value=overlay_report();smoke.validate_overlay_rendering(value)
+        value['overlay_rendering']['translucent_probe']['exclusion_available']=True
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_setup'][4]['affinity']=0
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report()
+        for row in value['overlay_setup'][:3]:
+            row.update(set_ok=row['set_attempted'],set_winerror=0,affinity=0x11)
+        value['overlay_rendering']['translucent_probe']['exclusion_available']=True
+        smoke.validate_overlay_rendering(value)
+        self.assertEqual(value['overlay_rendering']['active_profile'],'qt-opaque-redirected-v1')
+        self.assertFalse(value['overlay_rendering']['production_translucent_compatibility_proven'])
+
+    def test_required_schema_and_profile_boundaries(self):
+        for field,new in (('active_profile','qt-translucent-comparison-v1'),('selection','fallback-after-failure'),
+                          ('production_translucent_compatibility_proven',True)):
+            value=overlay_report();value['overlay_rendering'][field]=new
+            with self.subTest(field=field),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        for name in ('translucent_probe','registered_overlay','lookalike_occluder'):
+            value=overlay_report();value['overlay_rendering'][name]['profile']='unknown'
+            with self.subTest(name=name),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_rendering']['translucent_probe']['destroyed_before_registration']=False
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        for field in ('overlay_setup','overlay_rendering'):
+            value=overlay_report();value.pop(field)
+            with self.subTest(field=field),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_setup']=value['overlay_setup'][3:]
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+
+    def test_every_stage_rejects_wrong_identity_native_styles_and_invalid_types(self):
+        edits={'owner_is_self':False,'owner_query_ok':False,'is_window':False,'top_level':False,
+               'hwnd_unchanged':False,'dwm_composing':False,'dwm_hresult':0x80070008,
+               'style':True,'extended_style':float(0x080800a8),'layered_alpha':True,
+               'layered_flags':2.0,'expected_extended_style':0,'affinity':True,
+               'qt_surface_has_alpha':1,'qt_surface_alpha_buffer_size':True,'qt_opacity':True}
+        for index in range(9):
+            for field,new in edits.items():
+                value=overlay_report();value['overlay_setup'][index][field]=new
+                with self.subTest(index=index,field=field),self.assertRaises(RuntimeError):
+                    smoke.validate_overlay_rendering(value)
+        for mask in (0x20,0x8,0x80,0x80000,0x8000000):
+            value=overlay_report()
+            for row in value['overlay_setup'][3:6]:
+                row['extended_style']&=~mask;row['expected_extended_style']&=~mask
+            with self.subTest(mask=mask),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        for base in (0,0xc0000000,0x80c00000,0x80040000):
+            value=overlay_report()
+            for row in value['overlay_setup'][3:6]:
+                row['style']=base|(0x10000000 if row['stage']=='realized-visible'else 0)
+            with self.subTest(base=base),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report()
+        for row in value['overlay_setup'][3:6]:
+            row['extended_style']|=0x200000;row['expected_extended_style']|=0x200000
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+
+    def test_active_no_alpha_opaque_layered_and_exact_affinity_are_mandatory(self):
+        edits={'qt_translucent_background':True,'qt_opaque_paint_event':False,'qt_surface_has_alpha':True,
+               'qt_surface_alpha_buffer_size':8,'qt_opacity':.99,'layered_attributes_query_ok':False,
+               'layered_alpha':254,'layered_flags':3,'layered_color_key':1}
+        for index in range(3,9):
+            for field,new in edits.items():
+                value=overlay_report();value['overlay_setup'][index][field]=new
+                with self.subTest(index=index,field=field),self.assertRaises(RuntimeError):
+                    smoke.validate_overlay_rendering(value)
+        for index in (4,5,7,8):
+            for field,new in (('affinity',0),('affinity',1),('affinity_query_ok',False)):
+                value=overlay_report();value['overlay_setup'][index][field]=new
+                with self.subTest(index=index,field=field,new=new),self.assertRaises(RuntimeError):
+                    smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_setup'][4]['set_ok']=False
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+
+    def test_valid_but_changed_hidden_probe_alpha_size_is_rejected(self):
+        value=overlay_report();value['overlay_setup'][2]['qt_surface_alpha_buffer_size']=16
+        with self.assertRaisesRegex(RuntimeError,'changed between realized and hidden'):
+            smoke.validate_overlay_rendering(value)
+
+    def test_summary_and_stage_order_cannot_be_swapped_or_omitted(self):
+        for field in tuple(overlay_report()['overlay_setup'][0]):
+            value=overlay_report();value['overlay_setup'][0].pop(field)
+            with self.subTest(field=field),self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_setup'][0],value['overlay_setup'][3]=value['overlay_setup'][3],value['overlay_setup'][0]
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
+        value=overlay_report();value['overlay_rendering']['registered_overlay']['qt_opacity']=.5
+        with self.assertRaises(RuntimeError):smoke.validate_overlay_rendering(value)
 
 
 class AcceptanceTests(unittest.TestCase):
@@ -338,6 +634,11 @@ class AcceptanceTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):self.assertEqual(smoke.summarize(root),0)
             summary=json.loads((root/'windows-wgc-session-summary.json').read_text())
             self.assertEqual(summary['status'],'passed');self.assertEqual(len(summary['runs']),6)
+            self.assertLess((root/'windows-wgc-session-summary.json').stat().st_size,256*1024)
+            for row in summary['runs']:
+                expected=passing_report(row['scale'],row['frozen'])
+                for field in ('windows_version','overlay_rendering','overlay_setup'):
+                    self.assertEqual(row[field],expected[field],field)
             values['windows-wgc-session-frozen.json']['executable_sha256']='8'*64
             (root/'windows-wgc-session-frozen.json').write_text(json.dumps(values['windows-wgc-session-frozen.json']))
             with redirect_stdout(io.StringIO()):self.assertEqual(smoke.summarize(root),1)

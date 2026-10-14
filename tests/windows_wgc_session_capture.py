@@ -50,6 +50,98 @@ def strict_roi(value,expected):
     return type(value)is list and len(value)==4 and all(type(item)is int for item in value) and value==expected
 
 
+def validate_overlay_rendering(value):
+    """Bind the explicitly different fixture renderer, without promoting its probe."""
+    from wgc_session_capture import REQUIRED_OVERLAY_STYLE
+    active='qt-opaque-redirected-v1';probe='qt-translucent-comparison-v1'
+    roles=('translucent-probe','registered-overlay','lookalike-occluder')
+    summary_names=('translucent_probe','registered_overlay','lookalike_occluder')
+    stages=('created-hidden','realized-visible','verified-hidden')
+    qt_fields={'qt_translucent_background','qt_opaque_paint_event','qt_surface_has_alpha',
+               'qt_surface_alpha_buffer_size','qt_opacity'}
+    native_fields={'stage','is_window','top_level','visible','owner_query_ok','owner_is_self',
+        'owner_winerror','style','extended_style','expected_extended_style','dwm_hresult',
+        'dwm_composing','set_attempted','set_ok','set_winerror','affinity_query_ok',
+        'affinity_winerror','affinity','role','hwnd_unchanged','profile',
+        'layered_attributes_query_ok','layered_attributes_winerror','layered_color_key',
+        'layered_alpha','layered_flags'}
+    flags={'is_window','top_level','visible','owner_query_ok','owner_is_self','dwm_composing',
+           'set_attempted','set_ok','affinity_query_ok','hwnd_unchanged','layered_attributes_query_ok'}
+    uints={'owner_winerror','style','extended_style','expected_extended_style','dwm_hresult',
+           'set_winerror','affinity_winerror','affinity','layered_attributes_winerror',
+           'layered_color_key','layered_flags'}
+    rendering=value.get('overlay_rendering')
+    if (type(rendering)is not dict or set(rendering)!={'active_profile','selection',
+            'production_translucent_compatibility_proven',*summary_names}
+        or rendering['active_profile']!=active or rendering['selection']!='preselected-before-probe'
+        or rendering['production_translucent_compatibility_proven']is not False):
+        raise RuntimeError('Explicit opaque experiment profile or translucent limitation missing')
+    rows=value.get('overlay_setup')
+    if type(rows)is not list or len(rows)!=9:
+        raise RuntimeError('Complete three-profile overlay setup observations required')
+    for role_index,(role,name) in enumerate(zip(roles,summary_names)):
+        expected_profile=probe if role_index==0 else active
+        summary=rendering[name]
+        extra={'exclusion_available','destroyed_before_registration'}if role_index==0 else set()
+        if (type(summary)is not dict or set(summary)!={'profile',*qt_fields,*extra}
+            or summary.get('profile')!=expected_profile):
+            raise RuntimeError('Overlay renderer summary schema/profile differs')
+        observations=rows[role_index*3:role_index*3+3]
+        expected_style=base_style=None
+        for stage_index,(row,stage) in enumerate(zip(observations,stages)):
+            if (type(row)is not dict or set(row)!=native_fields|qt_fields or row.get('role')!=role
+                or row.get('stage')!=stage or row.get('profile')!=expected_profile):
+                raise RuntimeError('Overlay setup role/order/schema differs')
+            if (any(type(row[key])is not bool for key in flags)
+                or any(type(row[key])is not int or not 0<=row[key]<2**32 for key in uints)
+                or type(row['layered_alpha'])is not int or not 0<=row['layered_alpha']<=255):
+                raise RuntimeError('Overlay setup native metadata types differ')
+            if (any(row[key]is not True for key in ('is_window','top_level','owner_query_ok',
+                   'owner_is_self','dwm_composing','hwnd_unchanged'))
+                or row['dwm_hresult']>=2**31 or row['visible']is not (stage_index==1)
+                or row['set_attempted']is not (stage_index<2)):
+                raise RuntimeError('Overlay identity/composition/lifecycle evidence invalid')
+            if stage_index==2 and (row['set_ok']is not False or row['set_winerror']!=0):
+                raise RuntimeError('Hidden observation unexpectedly modified affinity')
+            style=row['extended_style']
+            if (style!=row['expected_extended_style'] or style & REQUIRED_OVERLAY_STYLE!=REQUIRED_OVERLAY_STYLE
+                or style & 0x00200000):
+                raise RuntimeError('Opaque experiment weakened full overlay native styles')
+            if not row['style'] & 0x80000000 or row['style'] & 0x40c40000:
+                raise RuntimeError('Overlay is not the declared frameless top-level popup')
+            if expected_style is None:expected_style=style;base_style=row['style']&~0x10000000
+            if style!=expected_style or row['style']&~0x10000000!=base_style:
+                raise RuntimeError('Overlay style changed during setup')
+            if (any(type(row[key])is not bool for key in ('qt_translucent_background',
+                    'qt_opaque_paint_event','qt_surface_has_alpha'))
+                or type(row['qt_surface_alpha_buffer_size'])is not int
+                or not -1<=row['qt_surface_alpha_buffer_size']<=64
+                or row['qt_surface_has_alpha']is not (row['qt_surface_alpha_buffer_size']>0)
+                or not finite(row['qt_opacity'],1,1)):
+                raise RuntimeError('Actual Qt renderer observations invalid')
+            if role_index==0:
+                if (row['qt_translucent_background']is not True or row['qt_opaque_paint_event']is not False
+                    or stage_index>0 and row['qt_surface_has_alpha']is not True):
+                    raise RuntimeError('Translucent probe did not test its declared Qt renderer')
+            elif (row['qt_translucent_background']is not False or row['qt_opaque_paint_event']is not True
+                  or row['qt_surface_has_alpha']is not False
+                  or row['layered_attributes_query_ok']is not True or row['layered_alpha']!=255
+                  or row['layered_flags']!=2 or row['layered_color_key']!=0):
+                raise RuntimeError('Active renderer lacks exact opaque redirected attributes')
+        shown,hidden=observations[1:]
+        if any(hidden[key]!=shown[key] or type(hidden[key])is not type(shown[key]) for key in qt_fields):
+            raise RuntimeError('Qt renderer changed between realized and hidden observations')
+        available=(shown['set_ok'] and shown['affinity_query_ok'] and shown['affinity']==0x11
+                   and hidden['affinity_query_ok'] and hidden['affinity']==0x11)
+        if any(summary[key]!=shown[key] or type(summary[key])is not type(shown[key]) for key in qt_fields):
+            raise RuntimeError('Overlay renderer summary differs from realized observations')
+        if role_index==0:
+            if summary['exclusion_available']is not available or summary['destroyed_before_registration']is not True:
+                raise RuntimeError('Translucent probe outcome/destruction evidence differs')
+        elif not available:
+            raise RuntimeError('Active opaque overlay must retain exact capture exclusion')
+
+
 def validate_report(value,*,frozen,scale,helper_build,version=__version__):
     if (not isinstance(value,dict) or value.get('status')!='passed' or 'error'in value
         or type(value.get('schema_version'))is not int or value['schema_version']!=1
@@ -57,6 +149,7 @@ def validate_report(value,*,frozen,scale,helper_build,version=__version__):
         or value.get('qt_platform')!='windows' or value.get('scope')!=SCOPE
         or value.get('limitations')!=LIMITATIONS):
         raise RuntimeError('Missing scoped native Windows session evidence or mandatory limitations')
+    validate_overlay_rendering(value)
     if not positive_int(value.get('helper_process_count')) or value['helper_process_count']<20:
         raise RuntimeError('Owned helper lifecycle inventory incomplete')
     for field in CHECK_FIELDS:
@@ -249,6 +342,9 @@ def summarize(reports):
             transitions=detail.get('transitions',[])
             result['runs'].append({'frozen':frozen,'scale':scale,'status':detail.get('status'),
                 'error':detail.get('error'),'requests':detail.get('requests',[]),
+                'windows_version':detail.get('windows_version'),
+                'overlay_rendering':detail.get('overlay_rendering'),
+                'overlay_setup':detail.get('overlay_setup',[]),
                 'static_requests':detail.get('static_requests',[]),'static_frame_failure':detail.get('static_frame_failure'),
                 'transitions':transitions,'negative_results':detail.get('negative_results',{}),
                 'parent_death_observation':detail.get('parent_death_observation'),
