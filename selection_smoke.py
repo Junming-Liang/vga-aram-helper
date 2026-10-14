@@ -25,6 +25,26 @@ def atomic_report(path,value):
     temporary.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf8');temporary.replace(path)
 
 
+def diagnostic_state(control,started,now=None):
+    """Bounded owned-fixture state; no images, raw OCR lines or unrelated windows."""
+    now=time.monotonic() if now is None else now
+    session=control.selection_session
+    value={'elapsed_seconds':round(max(0,now-started),3),'running':bool(control.state.running),
+        'generation':control.state.generation,'hero':str(control.state.hero)[:80],
+        'confirmed':bool(control.state.confirmed),'ocr_busy':bool(control.ocr_busy),
+        'capture_pending':bool(control.capture_pending),'capture_serial':control._capture_serial,
+        'monitor_active':bool(control.monitor.isActive()),'status':control.status.text()[:400],
+        'capture_backend':str(getattr(control.capture,'last_backend','unknown'))[:64]}
+    if session:
+        age=now-session.last_client_frame if session.last_client_frame else None
+        value['session']={'active':bool(session.active),'generation':session.generation,
+            'stage':session.stage,'candidate_frames':session.candidate_frames,
+            'candidate':session.candidate[:32],'assigned':session.assigned[:32],
+            'last_client_frame_age_seconds':round(age,3) if age is not None else None,
+            'reason':session.reason[:240]}
+    return value
+
+
 def inspect_client_hero(control):
     """Measure actual displayed native widgets; never render or save an image."""
     overlay=control.overlay;session=control.selection_session;u=control.capture.u
@@ -75,10 +95,13 @@ def inspect_client_hero(control):
 
 
 def start_selection_smoke(control,input_path,report_path):
-    app=QtWidgets.QApplication.instance();checks=[];started=time.monotonic();safety={}
+    app=QtWidgets.QApplication.instance();checks=[];started=time.monotonic();safety={};last_saved=0.
     report={'schemaVersion':2,'status':'running','phase':'initializing','backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'scope':'Original synthetic owned client/game processes only. Actual Windows metadata, capture and CPU OCR; no real LoL/Vanguard compatibility claim.','checks':checks,'client_hero_safety':safety}
     control._selection_smoke_timer=QtCore.QTimer(control);timer=control._selection_smoke_timer;timer.setInterval(20)
-    def save():atomic_report(report_path,report)
+    def save():
+        nonlocal last_saved
+        last_saved=time.monotonic();report['diagnostic_state']=diagnostic_state(control,started,last_saved)
+        atomic_report(report_path,report)
     def fail(exc):
         timer.stop();report.update(status='failed',error=str(exc) or type(exc).__name__,error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=5)[-4000:]);save();control.close();app.exit(1)
     def guarded(fn):
@@ -137,6 +160,7 @@ def start_selection_smoke(control,input_path,report_path):
         control.close();app.processEvents();assert not control.isVisible() and not control.overlay.isVisible()
         report.update(status='passed',phase='complete',window_closed=True,elapsed_seconds=round(time.monotonic()-started,3));save();app.exit(0)
     def poll():
+        if time.monotonic()-last_saved>=1:save()
         if time.monotonic()-started>170:raise RuntimeError('Selection handoff timeout: '+control.status.text())
         session=control.selection_session;phase=report['phase']
         if phase=='capturing-client' and session and session.stage=='assigning':
@@ -207,6 +231,7 @@ def start_selection_smoke(control,input_path,report_path):
         hero.update(overallTier='T5',sourceVersion='0.1')
         control.data['metadata'].update(sourceDataDate='2026-01-02',gamePatch='0.2',wikiDataVersion='synthetic-selection-v1')
         from local_ocr import LocalOCR
+        report['phase']='warming-client-ocr';save()
         control.ocr=LocalOCR();control.ocr.recognize((Path(__file__).resolve().parent/'fixtures/champselect-synthetic.png').read_bytes(),[])
         control.window_list.addItem('Original owned client fixture',target);control.window_list.setCurrentIndex(control.window_list.count()-1)
         control.hero_auto.setChecked(True);control.client_follow.setChecked(True);control.start_monitor()
@@ -214,4 +239,4 @@ def start_selection_smoke(control,input_path,report_path):
         assert control.window_policy.permits(target)
         control.hide();control.capture.u.SetForegroundWindow.argtypes=[W.HWND];control.capture.u.SetForegroundWindow.restype=W.BOOL;control.capture.u.SetForegroundWindow(target.hwnd)
         report['phase']='capturing-client';save();timer.timeout.connect(lambda:guarded(poll));timer.start()
-    guarded(prepare)
+    save();guarded(prepare)
