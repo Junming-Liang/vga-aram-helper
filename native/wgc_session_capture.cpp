@@ -40,18 +40,30 @@ namespace {
 constexpr int unsupported = 10, timed_out = 11, stale = 12, protected_content = 13, failed = 14;
 constexpr uint64_t pixel_budget = 16000000;
 // Failure-only metadata protocol on stderr. All strings are static IDs, all
-// values are numeric dimensions/styles; never titles, paths, IDs or pixels.
+// values are numeric dimensions/styles/clocks; never titles, paths, IDs or pixels.
 // stdout remains exclusively the exact ROI pixel protocol on successful capture.
+struct ClockDiagnostic {
+    bool present = false;
+    int64_t qpc_counter = 0, qpc_frequency = 0, cutoff_100ns = 0,
+        frame_100ns = 0, observed_now_100ns = 0, previous_frame_100ns = 0;
+};
 struct Diagnostic {
     char const* phase = "startup";
     int64_t observed[4]{}, expected[4]{}, window_rect[4]{}, frame_rect[4]{};
     uint32_t style = 0, extended_style = 0;
+    ClockDiagnostic clock;
 } diagnostic;
 void phase(char const* value) {
     diagnostic.phase = value;
     std::fill_n(diagnostic.observed, 4, int64_t(0));
     std::fill_n(diagnostic.expected, 4, int64_t(0));
     diagnostic.style = diagnostic.extended_style = 0;
+    diagnostic.clock = {};
+}
+void frame_clock(int64_t cutoff, int64_t frame, int64_t previous_frame) {
+    // A nonpositive frame short-circuits the existing predicate without QPC.
+    // Its raw counter/frequency/observed-now stay zero: unsampled, not a QPC error.
+    diagnostic.clock = {true, 0, 0, cutoff, frame, 0, previous_frame};
 }
 void dimensions(int64_t x, int64_t y, int64_t width, int64_t height,
                 int64_t ex = 0, int64_t ey = 0, int64_t ew = 0, int64_t eh = 0) {
@@ -71,11 +83,24 @@ void report_failure(int code, char const* check, uint32_t hresult = 0) noexcept 
     // One bounded write, no logging dependency, no exception text or system data.
     // The parent drains this pipe concurrently within the same process deadline.
     char data[1024]{};
+    char clock_data[384]{};
+    if (diagnostic.clock.present && code == stale && std::strcmp(check, "frame-timestamp") == 0 &&
+            (std::strcmp(diagnostic.phase, "frame-wait") == 0 ||
+             std::strcmp(diagnostic.phase, "validate-idle") == 0)) {
+        auto const& clock = diagnostic.clock;
+        int clock_count = std::snprintf(clock_data, sizeof(clock_data),
+            ",\"clock\":{\"qpc_counter\":%lld,\"qpc_frequency\":%lld,\"cutoff_100ns\":%lld,"
+            "\"frame_100ns\":%lld,\"observed_now_100ns\":%lld,\"previous_frame_100ns\":%lld}",
+            static_cast<long long>(clock.qpc_counter), static_cast<long long>(clock.qpc_frequency),
+            static_cast<long long>(clock.cutoff_100ns), static_cast<long long>(clock.frame_100ns),
+            static_cast<long long>(clock.observed_now_100ns), static_cast<long long>(clock.previous_frame_100ns));
+        if (clock_count <= 0 || clock_count >= int(sizeof(clock_data))) return;
+    }
     int count = std::snprintf(data, sizeof(data),
         "{\"schema_version\":1,\"code\":%d,\"phase\":\"%s\",\"check\":\"%s\","
         "\"hresult\":%u,\"observed\":[%lld,%lld,%lld,%lld],"
         "\"expected\":[%lld,%lld,%lld,%lld],\"window_rect\":[%lld,%lld,%lld,%lld],"
-        "\"frame_rect\":[%lld,%lld,%lld,%lld],\"style\":%u,\"extended_style\":%u}\n",
+        "\"frame_rect\":[%lld,%lld,%lld,%lld],\"style\":%u,\"extended_style\":%u%s}\n",
         code, diagnostic.phase, check, static_cast<unsigned int>(hresult),
         static_cast<long long>(diagnostic.observed[0]), static_cast<long long>(diagnostic.observed[1]),
         static_cast<long long>(diagnostic.observed[2]), static_cast<long long>(diagnostic.observed[3]),
@@ -85,7 +110,7 @@ void report_failure(int code, char const* check, uint32_t hresult = 0) noexcept 
         static_cast<long long>(diagnostic.window_rect[2]), static_cast<long long>(diagnostic.window_rect[3]),
         static_cast<long long>(diagnostic.frame_rect[0]), static_cast<long long>(diagnostic.frame_rect[1]),
         static_cast<long long>(diagnostic.frame_rect[2]), static_cast<long long>(diagnostic.frame_rect[3]),
-        static_cast<unsigned int>(diagnostic.style), static_cast<unsigned int>(diagnostic.extended_style));
+        static_cast<unsigned int>(diagnostic.style), static_cast<unsigned int>(diagnostic.extended_style), clock_data);
     if (count > 0 && count < int(sizeof(data))) {
         DWORD written = 0;
         WriteFile(GetStdHandle(STD_ERROR_HANDLE), data, DWORD(count), &written, nullptr);
@@ -357,17 +382,36 @@ Geometry validate(Input const& p, Geometry const* expected = nullptr, bool idle 
     require(order.found, stale, "zorder-target");
     return g;
 }
-int64_t qpc_100ns(bool round_up = false) {
+constexpr int64_t qpc_ticks_100ns(int64_t counter, int64_t frequency, bool round_up) {
+    auto whole = counter / frequency;
+    auto fraction = counter % frequency;
+    // Divide before multiplying; remainder is bounded by the checked frequency.
+    return whole * 10000000 + (fraction * 10000000 +
+        (round_up ? frequency - 1 : 0)) / frequency;
+}
+// Exercise the actual conversion during the mandatory native helper build.
+static_assert(qpc_ticks_100ns(1, 1000000000, false) == 0);
+static_assert(qpc_ticks_100ns(1, 1000000000, true) == 1);
+static_assert(qpc_ticks_100ns(10000001, 10000000, false) == 10000001);
+static_assert(qpc_ticks_100ns(10000001, 10000000, true) == 10000001);
+static_assert(qpc_ticks_100ns(10, 3, false) == 33333333);
+static_assert(qpc_ticks_100ns(10, 3, true) == 33333334);
+static_assert(qpc_ticks_100ns(INT64_MAX, 1000000000, false) == 92233720368547758);
+static_assert(qpc_ticks_100ns(INT64_MAX, 1000000000, true) == 92233720368547759);
+int64_t qpc_100ns(bool round_up = false, ClockDiagnostic* clock = nullptr) {
     LARGE_INTEGER counter{}, frequency{};
     require(QueryPerformanceCounter(&counter) && QueryPerformanceFrequency(&frequency) &&
             counter.QuadPart > 0 && frequency.QuadPart > 0 && frequency.QuadPart <= 1000000000,
             failed, "qpc-clock");
     auto whole = counter.QuadPart / frequency.QuadPart;
-    auto fraction = counter.QuadPart % frequency.QuadPart;
     require(whole < INT64_MAX / 10000000 - 1, failed, "qpc-clock");
-    // Divide before multiplying; remainder is bounded by the checked frequency.
-    return whole * 10000000 + (fraction * 10000000 +
-        (round_up ? frequency.QuadPart - 1 : 0)) / frequency.QuadPart;
+    auto now = qpc_ticks_100ns(counter.QuadPart, frequency.QuadPart, round_up);
+    if (clock) {
+        clock->qpc_counter = counter.QuadPart;
+        clock->qpc_frequency = frequency.QuadPart;
+        clock->observed_now_100ns = now;
+    }
+    return now;
 }
 void write_all(void const* data, DWORD size) {
     auto output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -474,6 +518,7 @@ void run(Input const& p) {
         if (request.opcode == 2) break;
         lease = GetTickCount64() + idle_lease_ms; // Renew only a validated request.
         int64_t cutoff = qpc_100ns(true);
+        int64_t previous_frame_time = last_frame_time;
         auto deadline = GetTickCount64() + request.wait_ms;
         Direct3D11CaptureFrame frame{nullptr};
         RECT capture_bounds{};
@@ -486,7 +531,8 @@ void run(Input const& p) {
             frame = pool.TryGetNextFrame();
             if (frame) {
                 frame_time = frame.SystemRelativeTime().count();
-                require(frame_time > 0 && frame_time <= qpc_100ns(), stale, "frame-timestamp");
+                frame_clock(cutoff, frame_time, previous_frame_time);
+                require(frame_time > 0 && frame_time <= qpc_100ns(false, &diagnostic.clock), stale, "frame-timestamp");
                 auto candidate = frame.ContentSize();
                 int selected = content_model(geometry.window, geometry.frame, size.Width, size.Height,
                                              candidate.Width, candidate.Height);
@@ -581,7 +627,8 @@ void run(Input const& p) {
         require(!signal->closed.load(), stale, "item-open");
         phase("validate-idle");
         validate(p, &geometry, true);
-        Idle idle{{'V','G','A','S','I','D','L','2'}, request.id, p.generation, qpc_100ns()};
+        frame_clock(cutoff, frame_time, previous_frame_time);
+        Idle idle{{'V','G','A','S','I','D','L','2'}, request.id, p.generation, qpc_100ns(false, &diagnostic.clock)};
         require(idle.entered >= frame_time, stale, "frame-timestamp");
         // Parent exposes nothing until this matching guarded-idle trailer arrives.
         write_all(&idle, sizeof(idle));
