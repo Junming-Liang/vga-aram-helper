@@ -3,8 +3,8 @@
 <p align="center">
   <img src="assets/branding/vga-icon-128.png" width="112" height="112" alt="VGA乱斗助手图标">
 </p>
-<h1 align="center">VGA乱斗助手</h1>
-<p align="center"><strong>英雄专属三选一 · 本地截图识别 · 公开数据参考</strong></p>
+<h1 align="center">VGA乱斗助手 · 英雄联盟海克斯大乱斗助手</h1>
+<p align="center"><strong>海克斯强化符文推荐 · 英雄专属评级 · 本地截图识别</strong></p>
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
@@ -20,13 +20,15 @@
 </p>
 <!-- project-header:end -->
 
-Windows 原生控制面板与游戏叠加层，为海克斯三选一提供英雄专属评级、机制说明与条件提醒。默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
+VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）**海克斯大乱斗（ARAM: Mayhem）**的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
+
+默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
 
 选人衔接：从客户端本人高亮行与中央英雄名的一致画面确认当前分配，再接续本局新游戏窗口；局内尚未复核时会明确标注“来自本局选人 · HUD未复核”。
 
-## 功能
+## 海克斯大乱斗辅助功能
 
-- **英雄专属评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
+- **英雄专属海克斯评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
 - **自动本人英雄**：只在底部本人 HUD 区域匹配 Riot Data Dragon 头像，连续两帧一致后使用；不会从记分板或全屏人名猜英雄。
 - **本地 OCR**：三个不同候选名称精确匹配、布局和置信度通过且连续两帧一致时自动显示；不确定时人工修正。
 - **透明叠加层**：置顶显示资料卡，支持鼠标穿透和 `Ctrl+Alt+O` 快捷切换。

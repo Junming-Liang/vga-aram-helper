@@ -3,8 +3,8 @@
 <p align="center">
   <img src="assets/branding/vga-icon-128.png" width="112" height="112" alt="VGA ARAM Helper icon">
 </p>
-<h1 align="center">VGA乱斗助手</h1>
-<p align="center"><strong>Champion-specific augment choices · Local screenshot OCR · Public data reference</strong></p>
+<h1 align="center">VGA ARAM Helper · League of Legends ARAM: Mayhem</h1>
+<p align="center"><strong>Augment recommendations · Champion-specific tiers · Local screenshot OCR</strong></p>
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
@@ -20,13 +20,15 @@
 </p>
 <!-- project-header:end -->
 
-A native Windows control panel and game overlay for champion-specific augment tiers, effects, and condition notes. The own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
+VGA ARAM Helper (VGA乱斗助手) is an open-source Windows helper for **League of Legends (LoL) ARAM: Mayhem**, known in Chinese as **英雄联盟海克斯大乱斗**. Its native control panel and game overlay provide champion-specific augment tiers, effects, and condition notes for three-choice augment selections.
+
+The own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
 
 Champion-select handoff: the highlighted own row must agree with the central champion name before carrying this session’s current assignment into its new game window. Unverified HUD identity is explicitly labeled as coming from champion select.
 
-## Features
+## ARAM: Mayhem helper features
 
-- **Champion-specific tiers**: displays Huya's public-source T1–T4 tiers in the original three-choice order. Missing data is labeled “暂无评级” (no rating available).
+- **Champion-specific augment tiers**: displays Huya's public-source T1–T4 tiers in the original three-choice order. Missing data is labeled “暂无评级” (no rating available).
 - **Automatic own champion**: matches only the bottom own-HUD portrait against Riot Data Dragon templates and requires two consistent observations.
 - **Local OCR**: three exact, distinct, spatially aligned, high-confidence card titles automatically display after two consecutive safe observations; uncertainty keeps manual correction available.
 - **Transparent overlay**: always-on-top reference cards with mouse click-through, toggled by `Ctrl+Alt+O`.
