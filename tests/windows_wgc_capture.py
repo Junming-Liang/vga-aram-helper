@@ -62,7 +62,7 @@ def validate_report(value, *, frozen, scale, helper_build, version=__version__):
             or any(type(number) is not int for number in rect.values())
             or (rect['width'], rect['height']) != (round(320*scale), round(240*scale))):
         raise RuntimeError('WGC diagnostic client physical geometry is invalid')
-    for key in ('owned_geometry', 'borderless_geometry'):
+    for key in ('owned_geometry', 'borderless_geometry', 'restored_geometry'):
         geometry = value.get(key)
         if not isinstance(geometry, dict) or set(geometry) != {'client', 'window', 'frame'}:
             raise RuntimeError('Owned WGC geometry evidence is missing: ' + key)
@@ -82,6 +82,8 @@ def validate_report(value, *, frozen, scale, helper_build, version=__version__):
             raise RuntimeError('Decorated WGC client evidence is inconsistent')
         if key == 'borderless_geometry' and not geometry['client'] == geometry['window'] == geometry['frame']:
             raise RuntimeError('Borderless WGC evidence does not prove equal bounds')
+    if value.get('restored_geometry') != value['owned_geometry']:
+        raise RuntimeError('Owned WGC bounds were not exactly restored after resize')
     expected_roi = [rect['width']//4, rect['height']//4, rect['width']//2, rect['height']//2]
     if value.get('roi') != expected_roi:
         raise RuntimeError('WGC diagnostic did not test the required bounded client ROI')

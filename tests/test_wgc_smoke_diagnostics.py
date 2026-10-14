@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 import wgc_smoke
 from wgc_capture import WgcError
@@ -69,6 +70,28 @@ class WgcSmokeDiagnosticTests(unittest.TestCase):
             result = json.loads(path.read_text())
             self.assertEqual(result['status'], 'failed')
             self.assertNotIn('native_diagnostic', result)
+
+
+class OwnedWindowRestorationTests(unittest.TestCase):
+    def test_restores_exact_saved_physical_bounds_without_activation_or_zorder_change(self):
+        api = SimpleNamespace(SetWindowPos=Mock(return_value=True))
+        bounds = [37, 45, 496, 399]
+        wgc_smoke.restore_owned_bounds(api, 123, bounds)
+        api.SetWindowPos.assert_called_once_with(123, None, 37, 45, 496, 399, 0x0014)
+        self.assertEqual(bounds, [37,45,496,399])
+
+    def test_failed_native_restoration_is_not_accepted(self):
+        api = SimpleNamespace(SetWindowPos=Mock(return_value=False))
+        with self.assertRaisesRegex(AssertionError, 'Cannot restore'):
+            wgc_smoke.restore_owned_bounds(api, 123, [37,45,496,399])
+
+    def test_invalid_bounds_never_call_windows(self):
+        api = SimpleNamespace(SetWindowPos=Mock())
+        for bounds in (None, (), [0,0,0,20], [0,0,20,-1], [0,0,True,20],
+                       [0,0,2**31,20], [0,0,5000,5000]):
+            with self.subTest(bounds=bounds),self.assertRaises(AssertionError):
+                wgc_smoke.restore_owned_bounds(api, 123, bounds)
+        api.SetWindowPos.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -46,6 +46,7 @@ def passing_report(scale=1, frozen=True):
     value['owned_geometry']={'client':list(client),'window':[12,0,client[2]+16,client[3]+28],
                              'frame':[19,0,client[2]+2,client[3]+21]}
     value['borderless_geometry']={key:list(client) for key in ('client','window','frame')}
+    value['restored_geometry']=copy.deepcopy(value['owned_geometry'])
     value.update(dict.fromkeys(smoke.CHECK_FIELDS,True))
     for field,status in (('timeout_watchdog_passed','timeout'),('cancel_during_wait_passed','cancelled'),
                         ('cancel_before_launch_passed','cancelled'),('protected_window_passed','protected')):
@@ -173,7 +174,11 @@ class WgcAcceptanceContractTests(unittest.TestCase):
             lambda v:v['owned_geometry'].update(window=[True,20,320,240]),
             lambda v:v['owned_geometry'].update(window=[20,20,2**31,240]),
             lambda v:v['borderless_geometry'].update(frame=[19,20,321,240]),
-            lambda v:v['borderless_geometry'].update(client=[20,20,321,240]))
+            lambda v:v['borderless_geometry'].update(client=[20,20,321,240]),
+            lambda v:v.pop('restored_geometry'),
+            lambda v:v['restored_geometry'].update(client=[20,21,320,240]),
+            lambda v:v['restored_geometry']['client'].__setitem__(0,20.0),
+            lambda v:v['restored_geometry']['frame'].__setitem__(1,False))
         for edit in edits:
             value=passing_report();edit(value)
             with self.assertRaises(RuntimeError):
