@@ -195,6 +195,49 @@ Instrumentation can change race timing. A passing checkpoint run alone would
 mean the crash did not recur in that run, not that its cause was fixed; repeated,
 bounded native Stop/EOF stress remains required before production promotion.
 
+### Process-bound module lifetime and repeated teardown after run 35
+
+[Run 35](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38628691142)
+reproduced the access violation in the source scale-2 native Stop case. Its exact
+checkpoint prefix was 1–6, with no checkpoint 7. Event revocations, session/pool
+Close and the function's local destruction had returned; WinRT uninitialization
+had begun and had not returned before the observed crash. The helper exited
+after 328 ms; complete owned cleanup took 438 ms. This rules out a frozen-only
+explanation, while still not identifying the faulting thread or module.
+
+The next experiment pins only the **already-loaded**
+`GetSystemDirectoryW()\GraphicsCapture.dll` in the helper, after creation of the
+capture session and before StartCapture. Missing/truncated system paths or failed
+pinning fail closed. There is no LoadLibrary call, search-path fallback, new
+binary download, or directory/security setting change.
+[GetModuleHandleExW with PIN](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw)
+retains that exact module until this helper process terminates.
+[RoUninitialize](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-rouninitialize)
+can unload thread-loaded DLLs. Process-lifetime retention is therefore a focused
+test of the observed teardown interval, not proof of an OS defect or a universal
+workaround. All original Close, local destruction and WinRT uninitialization
+operations, checkpoints, capture predicates, cancellation and watchdogs remain.
+
+Each source/frozen scale additionally requires five alternating fresh-helper
+Stop/EOF pairs within a 45-second stress budget, for 60 added helpers across the
+six runs. Every helper must first return a fresh, exact ROI, then exit zero with
+the complete native S1–S7 transcript and fully observed resource cleanup. A
+parent Job/kill attempt while the helper was observed alive invalidates graceful
+proof even if its resulting exit code is zero. A failed status query is recorded
+as unknown and also cannot pass; this observation does not change termination.
+The original single Stop and EOF cases use the same stronger proof.
+
+The compact stress report has a fixed ordered column schema, exact iteration/
+method order, distinct (PID, creation time) pairs, request/frame clocks, pixel
+error, exit, native-completion/parent-attempt evidence and measured timings. Its
+`cleanup_bits` encodes Job closure, IO completion, stderr completion, thread exit
+and pipe closure in bits 0–4; all five actual observations must be true (31).
+The total elapsed time must cover the sequential capture-plus-cleanup durations,
+allowing only each three-decimal measurement's bounded rounding error. Every row
+remains in the rendered summary under the unchanged 256 KiB metadata cap. Passing
+these observed repetitions would not guarantee that a race can never recur or
+establish actual game/fullscreen or production integration readiness.
+
 ## Existing approved Windows build environment only
 
 Use a clean committed Windows x64 checkout and the project's existing pinned

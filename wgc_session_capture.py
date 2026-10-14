@@ -51,7 +51,7 @@ SESSION_PHASES = DIAGNOSTIC_PHASES | {'validate-idle'}
 SESSION_CHECKS = DIAGNOSTIC_CHECKS | {
     'parent-lifetime', 'overlay-support', 'overlay-owner', 'overlay-generation',
     'overlay-style', 'overlay-affinity', 'overlay-hidden', 'qpc-clock', 'pipe-write', 'pipe-read',
-    'request-protocol', 'request-roi', 'idle-lease', 'frame-timestamp'}
+    'request-protocol', 'request-roi', 'idle-lease', 'frame-timestamp', 'capture-module-pin'}
 SESSION_CLOCK_KEYS = frozenset(('qpc_counter', 'qpc_frequency', 'cutoff_100ns',
                               'frame_100ns', 'observed_now_100ns', 'previous_frame_100ns'))
 SESSION_SHUTDOWN_STAGES = ('frame-arrived-revoke', 'item-closed-revoke', 'session-close',
@@ -220,6 +220,17 @@ def decode_session_shutdown_diagnostic(data, returncode):
              last_started_stage=SESSION_SHUTDOWN_STAGES[count - 1]), returncode)
 
 
+def completed_native_shutdown(data, returncode):
+    """Exact completed-checkpoint evidence after exit and full stderr collection.
+
+    This is separate from the failure-only decoder and changes no capture gate
+    or process lifecycle. Callers must independently reject parent termination;
+    a zero process exit alone does not prove voluntary native shutdown.
+    """
+    return (type(returncode) is int and returncode == 0
+            and type(data) in (bytes, bytearray) and data == b''.join(_SHUTDOWN_TOKENS))
+
+
 def _property_name(generation):
     return 'VGA.WGC.SessionV2.Overlay.' + str(generation)
 
@@ -347,6 +358,10 @@ class _Transport:
         self.idle_deadline = time.monotonic() + IDLE_LEASE
         self.failure = None
         self.diagnostic = bytearray()
+        # Sticky evidence only; never changes revoke, kill, reap or replacement.
+        # None means the pre-termination poll failed, so graceful proof must
+        # require exactly False. An observed-alive attempt always sets True.
+        self.termination_requested_while_alive = False
         self.job_closed = False
         self.stderr_started = False
         self._active = None
@@ -493,12 +508,21 @@ class _Transport:
         # Only this watchdog touches close/kill/reap. Never any external PID.
         job, process = self.job, self.process
         if job is not None and not self.job_closed:
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        self.termination_requested_while_alive = True
+                except OSError:
+                    if self.termination_requested_while_alive is not True:
+                        self.termination_requested_while_alive = None
+            # Diagnostic sampling cannot prevent the existing close attempt.
             try:
                 self.job_closed = bool(job.close())
             except OSError:
                 pass
         if process is not None and process.poll() is None:
             try:
+                self.termination_requested_while_alive = True
                 process.kill()
             except OSError:
                 pass

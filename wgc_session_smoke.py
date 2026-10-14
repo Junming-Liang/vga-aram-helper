@@ -30,10 +30,18 @@ CHECK_FIELDS = (
     'overlay_affinity_rejected', 'overlay_registration_rejected', 'overlay_destroy_rejected',
     'native_roi_rejected', 'native_generation_rejected', 'native_duplicate_id_rejected',
     'native_pipeline_rejected', 'cancel_before_launch_passed', 'cancel_during_wait_passed',
-    'stop_passed', 'native_stop_passed', 'pipe_eof_passed', 'idle_lease_passed',
+    'stop_passed', 'native_stop_passed', 'pipe_eof_passed', 'native_shutdown_stress_passed', 'idle_lease_passed',
     'request_deadline_passed', 'job_close_passed', 'suspended_job_close_passed', 'parent_death_passed',
     'helpers_exited_passed', 'pipe_readers_exited_passed', 'job_handles_closed_passed',
     'windows_closed_passed')
+SHUTDOWN_STRESS_PAIRS = 5
+SHUTDOWN_STRESS_SECONDS = 45
+SHUTDOWN_STRESS_COLUMNS = (
+    'iteration', 'method', 'helper_pid', 'helper_created', 'session_generation',
+    'request_id', 'request_cutoff_100ns', 'frame_100ns', 'idle_enter_100ns',
+    'mean_channel_error', 'capture_ms', 'exit_code', 'native_checkpoints_complete',
+    'parent_termination_requested', 'process_exit_ms', 'cleanup_ms', 'cleanup_bits')
+SHUTDOWN_CLEANUP_FIELDS = ('job_closed','io_done','stderr_done','threads_exited','pipes_closed')
 SCOPE = ('DEFAULT-OFF test-only persistent HWND WGC. Original self-owned Qt windows and '
          'synthetic pixels only; source/frozen parity at process-local Qt scales. No real '
          'game, exclusive fullscreen, Vanguard, OCR, or production integration claim.')
@@ -430,7 +438,7 @@ class Fixture:
             self.result['requests'].append(row)
         return row
 
-    def retirement(self, session, label, started=None, *, timeout=3.5):
+    def retirement(self, session, label, started=None, *, timeout=3.5, native_shutdown=False, record=True):
         started = time.monotonic() if started is None else started
         transport = session._transport
         require(transport is not None, 'Retirement needs an exact owned helper transport')
@@ -462,7 +470,11 @@ class Fixture:
             transport.diagnostic, transport.process.returncode)
         if shutdown is not None:
             row['shutdown_diagnostic'] = shutdown
-        self.result['transitions'].append(row)
+        if native_shutdown:
+            row['native_checkpoints_complete'] = self.session.completed_native_shutdown(
+                transport.diagnostic, transport.process.returncode)
+            row['parent_termination_requested'] = transport.termination_requested_while_alive
+        if record:self.result['transitions'].append(row)
         return row
 
     def finish(self, session, label='close'):
@@ -635,10 +647,12 @@ def execute(result):
             ('pipe_eof_passed',lambda s:s._transport.process.stdin.close()),
             ('job_close_passed',lambda s:s._transport.job.close())):
             session=f.new_session();f.positive(session,record=False);started=time.monotonic();action(session)
-            row=f.retirement(session,field,started)
+            row=f.retirement(session,field,started,native_shutdown=field in ('native_stop_passed','pipe_eof_passed'))
             if field in ('native_stop_passed','pipe_eof_passed'):
-                require(row['exit_code']==0,'Native stop/EOF was not graceful')
+                require(row['exit_code']==0 and row['native_checkpoints_complete'] is True
+                        and row['parent_termination_requested'] is False,'Native stop/EOF was not graceful')
             session.close();result[field]=True
+        verify_native_shutdown_stress(f,result)
         session=f.new_session();f.positive(session,record=False);started=time.monotonic()
         row=f.retirement(session,'idle_lease_passed',started,timeout=5.5)
         require(3000 <= row['process_exit_ms'] <= 5500,'Four-second idle lease was not bounded as expected')
@@ -683,6 +697,49 @@ def execute(result):
         verify_parent_death(f,result)
     finally:
         f.close()
+
+
+def verify_native_shutdown_stress(f,result):
+    """Fresh owned helpers, exact native teardown, bounded repeated observations."""
+    rows=[];started=time.monotonic()
+    value={'schema_version':1,'pairs':SHUTDOWN_STRESS_PAIRS,
+           'deadline_ms':SHUTDOWN_STRESS_SECONDS*1000,'columns':list(SHUTDOWN_STRESS_COLUMNS),
+           'cleanup_bit_fields':list(SHUTDOWN_CLEANUP_FIELDS),'roi':list(f.roi),'rows':rows,'elapsed_ms':0.}
+    result['shutdown_stress']=value
+    try:
+        for iteration in range(1,SHUTDOWN_STRESS_PAIRS+1):
+            for method in ('stop','eof'):
+                require(time.monotonic()-started<SHUTDOWN_STRESS_SECONDS,'Native shutdown stress deadline exceeded')
+                session=f.new_session()
+                try:
+                    sample=f.positive(session,record=False)
+                    transport=session._transport
+                    request_started=time.monotonic()
+                    if method=='stop':
+                        transport.process.stdin.write(f.session.encode_request(
+                            session._request_id+1,transport.generation,(0,0,0,0),stop=True))
+                    else:transport.process.stdin.close()
+                    observed=f.retirement(session,'shutdown-stress',request_started,native_shutdown=True,record=False)
+                    require(observed['helper_pid']==sample['helper_pid'],
+                            'Native shutdown stress retirement differs from the captured helper')
+                    require(sample['roi']==list(f.roi),'Native shutdown stress ROI differs')
+                    cleanup_bits=sum(1<<index for index,key in enumerate(SHUTDOWN_CLEANUP_FIELDS)
+                                     if observed[key] is True)
+                    rows.append([iteration,method,sample['helper_pid'],sample['helper_created'],sample['session_generation'],
+                        sample['request_id'],sample['request_cutoff_100ns'],sample['frame_100ns'],sample['idle_enter_100ns'],
+                        sample['mean_channel_error'],sample['elapsed_ms'],observed['exit_code'],
+                        observed['native_checkpoints_complete'],observed['parent_termination_requested'],
+                        observed['process_exit_ms'],observed['cleanup_ms'],cleanup_bits])
+                    if 'shutdown_diagnostic' in observed:
+                        value['failure_diagnostic']=observed['shutdown_diagnostic']
+                    require(observed['exit_code']==0 and observed['native_checkpoints_complete'] is True
+                            and observed['parent_termination_requested'] is False and cleanup_bits==31,
+                            'Repeated native stop/EOF was not graceful')
+                    require(sample['mean_channel_error']==0.,'Repeated shutdown precondition pixels differ')
+                finally:session.close()
+        require(time.monotonic()-started<SHUTDOWN_STRESS_SECONDS,'Native shutdown stress deadline exceeded')
+        result['native_shutdown_stress_passed']=True
+    finally:value['elapsed_ms']=round((time.monotonic()-started)*1000,3)
 
 
 def job_owner(report_path):
