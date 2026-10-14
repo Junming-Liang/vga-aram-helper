@@ -87,8 +87,14 @@ def validate_report(result, version, app_scale=1):
     for field in NATIVE_AUTOMATION_FIELDS:
         if result.get(field) is not True:
             raise RuntimeError('Automatic hero/candidate native proof missing: ' + field)
-    if result.get('source_tier_rendered') != [f'虚构源评级（演示）：T{tier}' for tier in (1, 2, 3)]:
+    if result.get('card_names_rendered') != ['星火共鸣','晶盾回路','风步微光']:
+        raise RuntimeError('Native full visible card names are incomplete or reordered')
+    if result.get('source_tier_rendered') != ['T1','T2','T3']:
         raise RuntimeError('Native literal source-tier rendering evidence is incomplete')
+    if result.get('source_tier_accessible') != [f'虚构源评级（演示）：T{tier}' for tier in (1,2,3)]:
+        raise RuntimeError('Native accessible source-tier evidence is incomplete')
+    if result.get('source_attribution_rendered') != '虚构演示 · 非 Riot 评级/批准' or result.get('source_details_reachable') is not True:
+        raise RuntimeError('Native visible source and reachable source details are incomplete')
     validate_physical_geometry(result, app_scale)
 
 

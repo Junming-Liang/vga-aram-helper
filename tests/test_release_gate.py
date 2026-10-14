@@ -23,7 +23,7 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.4.6'
+VERSION = '0.4.7'
 
 
 def current_provenance():
@@ -59,6 +59,8 @@ def source_matrix_fixture():
                 visible_tier_count=3 if shown else 0,
                 visible_card_names=list(harness.EXPECTED_CARD_NAMES) if shown else [],
                 visible_tier_text=list(harness.EXPECTED_TIERS) if shown else [],
+                visible_source_attribution=harness.EXPECTED_SOURCE if shown else None,
+                tier_accessible_names=list(harness.EXPECTED_ACCESSIBLE_TIERS) if shown else [],
                 error=None if shown else 'Layout does not fit', error_type=None if shown else 'CaptureUnavailable'))
         children.append(dict(qt_scale_factor=scale, status='completed', process_exit_code=0,
             qt_platform='windows', frozen=False, process_pmv2=True, owned_windows_destroyed=True,
@@ -143,7 +145,10 @@ class ReleaseFixture(unittest.TestCase):
                        'screenshot_method': 'Qt QWidget.grab synthetic mock and overlay composite',
                        'source_tier_display_passed': True, 'source_tier_hero_specific': True, 'source_tier_missing_passed': True,
                        'source_tier_screen_order_preserved': True, 'source_tier_no_winrate_display': True,
-                       'source_tier_rendered': ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+                       'card_names_rendered':['星火共鸣','晶盾回路','风步微光'],
+                       'source_tier_rendered': ['T1','T2','T3'],
+                       'source_tier_accessible': ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+                       'source_attribution_rendered':'虚构演示 · 非 Riot 评级/批准', 'source_details_reachable':True,
                        'recognized': ['星火共鸣', '晶盾回路', '风步微光'],
                        'requested_app_scale': 1.0, 'mock_qwindow_dpr': 1.0, 'overlay_qwindow_dpr': 1.0,
                        'desktop_work_area_physical': dict(x=0, y=0, width=1024, height=720),
@@ -348,7 +353,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.4.6')
+        self.assertEqual(result['tag'], 'v0.4.7')
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
@@ -406,7 +411,7 @@ class ReleaseFixture(unittest.TestCase):
                 smoke.clear(); smoke.update(original)
             for field, bad in [('frozen', False), ('qt_platform', 'offscreen'), ('backend', 'browser'),
                                ('applicationVersion', '0.4.1'), ('status', 'failed'), ('error', None),
-                               ('recognized', ['星火共鸣', '晶盾回路']), ('source_tier_rendered', ['T1', 'T2', 'T3'])]:
+                               ('recognized', ['星火共鸣', '晶盾回路']), ('source_tier_rendered', ['T3', 'T1', 'T2'])]:
                 original = copy.deepcopy(native)
                 native[field] = bad
                 self.write_reports()
@@ -892,7 +897,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.6/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.7/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -988,17 +993,23 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('Corresponding sources remain available alongside the binary for as long as required', notes)
 
     def test_source_tier_literal_rendering_and_missing_flags_fail_closed(self):
-        for rendering in ([], ['T1', 'T2', 'T3'], ['虚构源评级（演示）：T3', '虚构源评级（演示）：T1', '虚构源评级（演示）：T2']):
+        for rendering in ([], ['T3', 'T1', 'T2'], ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3']):
             self.native['source_tier_rendered'] = rendering
             self.write_reports()
             with self.subTest(rendering=rendering), self.assertRaises(gate.VerificationError): self.verify()
-        self.native['source_tier_rendered'] = ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3']
+        self.native['source_tier_rendered'] = ['T1','T2','T3']
         for field in ('source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                       'source_tier_screen_order_preserved', 'source_tier_no_winrate_display'):
             saved = self.native.pop(field)
             self.write_reports()
             with self.subTest(missing=field), self.assertRaises(gate.VerificationError): self.verify()
             self.native[field] = saved
+
+    def test_compact_visible_source_names_and_accessibility_are_all_required(self):
+        for field,bad in [('card_names_rendered',[]),('card_names_rendered',['风步微光','晶盾回路','星火共鸣']),('source_attribution_rendered',None),('source_attribution_rendered','虎牙公开源 · 非 Riot 评级/批准'),('source_tier_accessible',['T1','T2','T3']),('source_tier_accessible',['虚构源评级（演示）：T3','虚构源评级（演示）：T1','虚构源评级（演示）：T2']),('source_details_reachable',False),('source_details_reachable',1)]:
+            saved=self.native[field];self.native[field]=bad;self.write_reports()
+            with self.subTest(field=field,bad=bad),self.assertRaises(gate.VerificationError):self.verify()
+            self.native[field]=saved
 
     def test_evidence_only_budget_ignores_release_bytes_but_requires_explicit_scope(self):
         # A source file larger than the evidence allowance does not go to Actions storage.
@@ -1011,11 +1022,11 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.4.6', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.7', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.4.6', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.6',
+        return {'id': 123, 'tag_name': 'v0.4.7', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.7',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
 
@@ -1049,7 +1060,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.6', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.7', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -1060,7 +1071,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.4.6', ' '.join(publish))
+        self.assertNotIn('v0.4.7', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -1127,12 +1138,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.4.6', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.7', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.6'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.7'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.4.6')
+            gate.find_release(gate.REPOSITORY, 'v0.4.7')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -1149,9 +1160,9 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.4.6'])
+                gate.gh_run(['release', 'create', 'v0.4.7'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.6'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.7'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 

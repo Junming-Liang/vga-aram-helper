@@ -30,8 +30,10 @@ CASES = (
     ('too_small', 320, 180, 0, 'hidden'),
     ('recover', 964, 602, 0, 'visible'),
 )
-EXPECTED_CARD_NAMES = [f'选项 {i} · 原创候选{i}' for i in (1, 2, 3)]
-EXPECTED_TIERS = [f'原创测试评级：T{i}' for i in (1, 2, 3)]
+EXPECTED_CARD_NAMES = [f'原创候选{i}' for i in (1, 2, 3)]
+EXPECTED_TIERS = [f'T{i}' for i in (1, 2, 3)]
+EXPECTED_ACCESSIBLE_TIERS = [f'原创测试评级：T{i}' for i in (1,2,3)]
+EXPECTED_SOURCE = '来源待核对 · 非 Riot 评级/批准'
 SCOPE = {
     'execution': 'Python source Overlay on actual Windows Qt platform',
     'scaling': 'Controlled per-process QT_SCALE_FACTOR simulation on unchanged OS desktop',
@@ -129,6 +131,8 @@ def case_issues(row):
             issues.append('three_card_content_missing')
         if row.get('visible_card_names') != EXPECTED_CARD_NAMES or row.get('visible_tier_text') != EXPECTED_TIERS:
             issues.append('original_card_order_or_tiers_changed')
+        if row.get('visible_source_attribution') != EXPECTED_SOURCE or row.get('tier_accessible_names') != EXPECTED_ACCESSIBLE_TIERS:
+            issues.append('source_attribution_or_accessible_tiers_changed')
     elif error and row.get('error_type') not in ('CaptureUnavailable', 'ValueError'):
         issues.append('unexpected_exception_instead_of_safe_rejection')
     return issues
@@ -433,6 +437,8 @@ def run_child(args):
                 visible_card_names=[overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)[0].text()
                     for i in range(overlay.row.count())] if visible else [],
                 visible_tier_text=[w.text() for w in overlay.tier_labels if w.isVisibleTo(overlay)] if visible else [],
+                visible_source_attribution=overlay.footer.text() if visible and overlay.footer.isVisibleTo(overlay) else None,
+                tier_accessible_names=[w.accessibleName() for w in overlay.tier_labels] if visible else [],
                 widgets=widgets, layout_issues=layout_issues,
                 error=str(error) if error else None, error_type=type(error).__name__ if error else None)
             row['candidate_issues'] = case_issues(row)

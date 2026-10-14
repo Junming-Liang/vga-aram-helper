@@ -1,7 +1,7 @@
 """Portable tests of the harness coordinates, environment isolation and gate."""
 import copy
 import unittest
-from windows_dpi_matrix import (CASES, SCALES, SCOPE, EXPECTED_CARD_NAMES, EXPECTED_TIERS, case_issues,
+from windows_dpi_matrix import (EXPECTED_ACCESSIBLE_TIERS, EXPECTED_SOURCE, CASES, SCALES, SCOPE, EXPECTED_CARD_NAMES, EXPECTED_TIERS, case_issues,
     clean_child_environment, contains, expectation_for, rectangle, translation_matches, translation_tolerance_px, validate_matrix)
 
 
@@ -17,6 +17,7 @@ def good_row(case, scale):
         geometry_mapping_matches=True, layout_issues=[], visible_card_count=3 if shown else 0,
         visible_tier_count=3 if shown else 0,
         visible_card_names=list(EXPECTED_CARD_NAMES) if shown else [], visible_tier_text=list(EXPECTED_TIERS) if shown else [],
+        visible_source_attribution=EXPECTED_SOURCE if shown else None, tier_accessible_names=list(EXPECTED_ACCESSIBLE_TIERS) if shown else [],
         error=None if shown else 'Layout does not fit', error_type=None if shown else 'CaptureUnavailable')
     return row
 
@@ -121,6 +122,10 @@ class Gate(unittest.TestCase):
     def test_card_tier_order_cannot_change(self):
         report=good_matrix();report['children'][0]['cases'][2]['visible_tier_text'].reverse()
         self.assertIn('1:moved:original_card_order_or_tiers_changed',validate_matrix(report,'candidate'))
+    def test_shared_source_and_accessible_tiers_fail_closed(self):
+        for field,bad in [('visible_source_attribution',None),('visible_source_attribution','虎牙公开源'),('tier_accessible_names',[]),('tier_accessible_names',['T1','T2','T3'])]:
+            report=good_matrix();report['children'][0]['cases'][0][field]=bad
+            self.assertIn('1:wide:source_attribution_or_accessible_tiers_changed',validate_matrix(report,'candidate'))
     def test_source_scope_cannot_be_overclaimed(self):
         report=good_matrix();report['scope']['real_game_or_vanguard_tested']=True
         self.assertIn('not_actual_windows_source_scope',validate_matrix(report,'candidate'))

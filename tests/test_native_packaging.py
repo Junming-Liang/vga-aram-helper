@@ -105,7 +105,10 @@ class NativePackagingTests(unittest.TestCase):
                  'click_through_passed':True, 'qt_platform':'windows', 'screenshot_method':'win32 desktop capture',
                  'source_tier_display_passed':True, 'source_tier_hero_specific':True, 'source_tier_missing_passed':True,
                  'source_tier_screen_order_preserved':True, 'source_tier_no_winrate_display':True,
-                 'source_tier_rendered':['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']}
+                 'card_names_rendered':['星火共鸣','晶盾回路','风步微光'],
+                       'source_tier_rendered':['T1','T2','T3'],
+                 'source_tier_accessible':['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3'],
+                 'source_attribution_rendered':'虚构演示 · 非 Riot 评级/批准', 'source_details_reachable':True}
         valid.update(dict.fromkeys(native_smoke.NATIVE_AUTOMATION_FIELDS, True))
         valid.update(self.geometry_fixture())
         native_smoke.validate_report(valid, '0.4.2')
@@ -117,7 +120,8 @@ class NativePackagingTests(unittest.TestCase):
                            ('capture_passed',False),('click_through_passed',False),('window_closed',False),('error','failure'),
                            ('source_tier_display_passed',False),('source_tier_hero_specific',False),
                            ('source_tier_missing_passed',False),('source_tier_screen_order_preserved',False),
-                           ('source_tier_no_winrate_display',False),('source_tier_rendered',[])]:
+                           ('source_tier_no_winrate_display',False),('source_tier_rendered',[]),('card_names_rendered',[]),
+                           ('source_attribution_rendered',None),('source_attribution_rendered','虎牙公开源'),('source_tier_accessible',['T1','T2','T3']),('source_details_reachable',False)]:
             result = dict(valid, **{key:value})
             with self.subTest(key=key), self.assertRaises(RuntimeError):
                 native_smoke.validate_report(result, '0.4.2')

@@ -26,13 +26,13 @@ with patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen te
     for edit,name in zip(w.inputs,names):edit.setText(name)
     w.confirm();assert w.state.confirmed;assert len(w.overlay.cards)==3;checks.append('Manual hero+three confirmation creates three screen-ordered source-tier cards')
     labels=' '.join(widget.text() for widget in w.overlay.findChildren(QtWidgets.QLabel))
-    assert all(name in labels for name in names);assert '虚构源评级（演示）：T1' in labels and '源顺位' not in labels and '60.00%' not in labels and 'winRate' not in labels;checks.append('Native overlay shows literal hero-specific source tier without win rates or sorting')
+    assert all(name in labels for name in names);assert 'T1' in labels and '虚构演示' in w.overlay.footer.text() and w.overlay.tier_labels[0].accessibleName()=='虚构源评级（演示）：T1' and '源顺位' not in labels and '60.00%' not in labels and 'winRate' not in labels;checks.append('Native overlay shows literal hero-specific source tier without win rates or sorting')
     assert '来源日期' in labels and '数据包' in labels and '游戏资料' in labels;checks.append('Overlay identifies source date and package/game-data versions')
     assert [card['name'] for card in w.overlay.cards]==names and [card['sourceTier'] for card in w.overlay.cards]==['T1','T2','T3']
     w.hero_box.setCurrentText('磐石守卫（演示）');assert not w.state.confirmed and not w.overlay.isVisible();checks.append('Hero change hides stale overlay')
     w.target_allowed=lambda:True;w.state.start((1,1,'synthetic'));w.confirm();assert [card['name'] for card in w.overlay.cards]==names and [card['sourceTier'] for card in w.overlay.cards]==['T3','T1','T2'];checks.append('Hero change clears old view, then recomputes that hero’s literal tiers in the same screen order')
     rows=w.data['heroAugmentStats']['磐石守卫（演示）'];saved=rows[0]['tier'];rows[0]['tier']=None;w.confirm();labels=' '.join(widget.text() for widget in w.overlay.findChildren(QtWidgets.QLabel));assert '暂无评级' in labels;rows[0]['tier']=saved;checks.append('Missing hero source tier is visibly ungraded rather than inferred')
-    w.inputs[0].setFocus();QtTest.QTest.keyClicks(w.inputs[0],'x');assert not w.state.confirmed;checks.append('Actual Qt input editing invalidates confirmed candidates')
+    w.show_page('correction');w.inputs[0].setFocus();QtTest.QTest.keyClicks(w.inputs[0],'x');assert not w.state.confirmed;checks.append('Actual Qt input editing invalidates confirmed candidates')
     class FakeCapture:
         def rect(self,target):return ClientRect(0,0,1000,700)
         def foreground(self,target):return True

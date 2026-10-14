@@ -32,7 +32,7 @@ class NativeDesignTests(unittest.TestCase):
             self.window = ControlWindow(
                 lambda: {'data': load_data(Path(__file__).resolve().parents[1] / 'fixtures/demo.json')},
                 state_dir=Path(self.directory.name), current_executable=Path('/unused.exe'),
-                current_version='0.4.6', frozen=False, enable_updates=False)
+                current_version='0.4.7', frozen=False, enable_updates=False)
         self.addCleanup(self.dispose)
         self.pump(lambda: self.window.data is not None)
         self.window.watchdog.stop(); self.window.monitor.stop()
@@ -104,16 +104,16 @@ class NativeDesignTests(unittest.TestCase):
         w.fit_control_to_screen(); self.app.processEvents()
         self.assertTrue(w.screen().availableGeometry().contains(w.frameGeometry()),
                         (w.screen().availableGeometry(), w.frameGeometry()))
-        for widget in (w.start_button, w.stop_button, w.toggle_button, w.status):
+        for widget in (w.start_button, w.toggle_button, w.hero_title):
             bounds = QtCore.QRect(widget.mapTo(w, QtCore.QPoint()), widget.size())
             self.assertTrue(w.rect().contains(bounds), (widget.objectName(), bounds, w.rect()))
             self.assertTrue(widget.isVisibleTo(w))
-        self.assertLessEqual(w.width(), 720)
-        self.assertLessEqual(w.height(), 680)
+        self.assertLessEqual(w.width(), 900)
+        self.assertLessEqual(w.height(), 490)
 
     def test_candidate_keyboard_order_and_long_status_do_not_change_state(self):
         w = self.window
-        w.inputs[0].setFocus(); self.app.processEvents()
+        w.show_page('correction');w.inputs[0].setFocus(); self.app.processEvents()
         QtTest.QTest.keyClick(w.inputs[0], QtCore.Qt.Key.Key_Tab)
         self.assertIs(self.app.focusWidget(), w.inputs[1])
         QtTest.QTest.keyClick(w.inputs[1], QtCore.Qt.Key.Key_Tab)
@@ -206,7 +206,7 @@ class NativeDesignTests(unittest.TestCase):
         self.assertLessEqual(height,301)
         self.assertIn('HUD未复核',overlay.heading.text())
         self.assertEqual([label.text() for label in overlay.tier_labels],
-                         ['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3'])
+                         ['T1','T2','T3'])
 
     def test_over_half_client_height_is_suppressed_without_clipping(self):
         from screen_capture import ClientRect, CaptureUnavailable
@@ -233,6 +233,158 @@ class NativeDesignTests(unittest.TestCase):
             labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
             self.assertIn(card['name'], labels[0].text())
             self.assertIn('暂无评级', overlay.tier_labels[i].text())
+
+    def test_compact_visible_source_and_accessible_identity_fail_closed(self):
+        from native_state import display_cards
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3];overlay=w.overlay
+        overlay.set_cards(hero,display_cards(w.data,hero,names));overlay._fit_layout(ClientRect(0,0,1920,1080),1);overlay.show();self.app.processEvents()
+        inspect_smoke_layout(overlay)
+        overlay.footer.hide()
+        with self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
+        overlay.footer.show()
+        for widget,method,bad in ((overlay.footer,'setText','虎牙公开源 · 非 Riot 评级/批准'),(overlay._title_labels[0],'setText',names[2]),(overlay.tier_labels[0],'setText','T4'),(overlay.tier_labels[0],'setAccessibleName','虎牙公开源评级：T1')):
+            original=widget.accessibleName() if method=='setAccessibleName' else widget.text()
+            getattr(widget,method)(bad)
+            with self.subTest(method=method,bad=bad),self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
+            getattr(widget,method)(original)
+        inspect_smoke_layout(overlay)
+
+    def test_startup_failure_is_immediately_visible_on_main_without_guessing_text(self):
+        w=self.window;w.data=None;w.startup_error=''
+        w.task_error('load','Original fixture data error',0)
+        self.assertEqual(w.pages.currentIndex(),0);self.assertFalse(w.start_button.isEnabled())
+        self.assertEqual(w.status_chip.property('state'),'error');self.assertIn('资料加载失败',w.status_chip.text())
+        w.show_page('about');self.assertTrue(w.source.isVisibleTo(w));self.assertIn('Original fixture data error',w.source.text())
+
+    def test_narrow_settings_controls_remain_reachable_inside_viewport(self):
+        w=self.window;w.setMinimumSize(0,0);w.resize(368,336);w.show_page('settings');self.app.processEvents()
+        for widget in (w.window_list,w.refresh,w.client_follow,w.hero_box,*w.roi):
+            w.scroll.ensureWidgetVisible(widget);self.app.processEvents()
+            bounds=QtCore.QRect(widget.mapTo(w.scroll.viewport(),QtCore.QPoint()),widget.size())
+            self.assertTrue(w.scroll.viewport().rect().contains(bounds),(widget.accessibleName(),bounds,w.scroll.viewport().rect()))
+        self.assertEqual(w.roi_layout.getItemPosition(w.roi_layout.indexOf(w.roi_fields[-1]))[:2],(1,1))
+
+    def test_slim_strip_keeps_existing_minimum_client_height_budget(self):
+        from screen_capture import ClientRect,CaptureUnavailable
+        overlay=self.window.overlay
+        cards=[dict(slot=i,name=f'原创候选{i}',sourceTier=f'T{i}',sourceTierLabel='原创测试评级',description='',notes=[]) for i in (1,2,3)]
+        overlay.set_cards('原创英雄',cards)
+        for scale in (1,1.25,1.5,2,2.5):
+            with self.subTest(scale=scale),self.assertRaises((CaptureUnavailable,ValueError)):
+                overlay._fit_layout(ClientRect(0,0,320,180),scale)
+            self.assertFalse(overlay.isVisible())
+        with self.assertRaisesRegex(CaptureUnavailable,'200逻辑像素'):
+            overlay._fit_layout(ClientRect(0,0,964,199),1)
+        self.assertLessEqual(overlay._fit_layout(ClientRect(0,0,964,200),1)[3],100)
+
+    def test_exact_windows_matrix_cases_keep_required_visible_and_hidden_contract(self):
+        from screen_capture import ClientRect,CaptureUnavailable
+        from native_smoke import inspect_smoke_layout
+        from windows_dpi_matrix import CASES,SCALES,expectation_for
+        overlay=self.window.overlay
+        overlay.set_cards('原创测试英雄',[dict(slot=i,name=f'原创候选{i}',sourceTier=f'T{i}',sourceTierLabel='原创测试评级',description='原创尺寸测试说明，验证三项文字是否完整显示。'*3,notes=['原创条件提醒，仅用于布局检查。']) for i in (1,2,3)],'2026-10-12','合成布局测试')
+        for scale in SCALES:
+            for case in CASES:
+                name,width,height,offset,_=case;expected=expectation_for(case,scale);overlay.hide()
+                with self.subTest(scale=scale,case=name):
+                    try:physical=overlay._fit_layout(ClientRect(10+offset,10+offset,width,height),float(scale))
+                    except (CaptureUnavailable,ValueError):
+                        self.assertNotEqual(expected,'visible');self.assertFalse(overlay.isVisible());continue
+                    self.assertNotEqual(expected,'hidden');self.assertLessEqual(physical[3]*2,height)
+                    overlay.show();self.app.processEvents();inspect_smoke_layout(overlay)
+
+    def test_main_is_read_only_and_typed_names_never_become_live_cards(self):
+        w=self.window
+        self.assertEqual(w.pages.currentIndex(),0)
+        self.assertFalse(any(edit.isVisibleTo(w) for edit in w.inputs))
+        self.assertFalse(w.source.isVisibleTo(w));self.assertFalse(w.roi[0].isVisibleTo(w))
+        for edit,name in zip(w.inputs,list(w.data['augments'])[:3]):edit.setText(name)
+        w.refresh_status_badge()
+        self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
+        self.assertEqual([v['tier'].text() for v in w.candidate_views],['—']*3)
+        self.assertFalse(w.state.confirmed)
+
+    def test_main_confirmed_slots_are_literal_ordered_and_unknown_is_explicit(self):
+        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
+        w.data['heroAugmentStats'][hero][2]['tier']=None
+        w.state.start((1,1,'owned'));w.state.hero=hero;w.state.confirm(names,w.data['augments']);w.refresh_status_badge()
+        self.assertEqual([v['name'].text() for v in w.candidate_views],names)
+        self.assertEqual([v['tier'].text() for v in w.candidate_views],['T1','T2','—'])
+        self.assertIn('暂无评级',w.candidate_views[2]['detail'].text())
+        self.assertIn('虚构源评级',w.candidate_views[0]['tier'].accessibleName())
+        self.assertTrue(w.stop_button.isVisibleTo(w));self.assertTrue(w.stop_button.isEnabled())
+        self.assertFalse(w.start_button.isVisibleTo(w))
+
+    def test_main_clears_synchronously_on_stale_scene_edit_hero_change_and_stop(self):
+        w=self.window;w.capture=object();hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
+        def confirmed():
+            w.state.start((1,1,'owned'));w.state.hero=hero;w.state.confirm(names,w.data['augments']);w.refresh_status_badge()
+            self.assertEqual(w.candidate_views[0]['name'].text(),names[0]);self.assertIn('资料已确认',w.status_chip.text())
+        for change in (lambda:w.invalidate_scene('stale scene'),w.edit_changed,lambda:w.hero_changed(''),w.stop_monitor):
+            confirmed();change()
+            self.assertFalse(w.state.confirmed)
+            self.assertNotIn('资料已确认',w.status_chip.text())
+            self.assertNotEqual(w.status_chip.property('state'),'confirmed')
+            self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
+            self.assertEqual([v['tier'].text() for v in w.candidate_views],['—']*3)
+        self.assertEqual(w.hero_title.text(),'等待识别')
+
+    def test_provisional_and_manual_identity_are_visible_in_main_provenance(self):
+        w=self.window;w.capture=object();hero=next(iter(w.data['heroes']))
+        w.state.start((1,1,'owned'));w.state.hero=hero;w.hero_origin='client-provisional';w.refresh_status_badge()
+        self.assertIn('HUD未复核',w.status_chip.text());self.assertEqual(w.status_chip.property('state'),'provisional')
+        w.hero_origin='client-verified';w.refresh_status_badge();self.assertIn('HUD复核',w.status_chip.text())
+        w.hero_auto.blockSignals(True);w.hero_auto.setChecked(False);w.hero_auto.blockSignals(False);w.refresh_status_badge()
+        self.assertIn('人工选择',w.status_chip.text());self.assertNotIn('连续确认',w.status_chip.text())
+
+    def test_client_selection_handler_never_claims_hud_provenance(self):
+        from screen_capture import WindowInfo
+        from selection_session import SelectionSession
+        w=self.window;hero=next(iter(w.data['heroes']));w.data['heroes'][hero]['championId']='9001'
+        w.capture=object();w.target=WindowInfo(1,10,'owned client','Chrome_WidgetWin_1');w.state.start(w.target.identity)
+        w.selection_session=SelectionSession();w.selection_session.start(w.target.identity)
+        # Handler/presentation-only owned fixture; no OS authorization claim.
+        w.target_allowed=lambda:True;w.captured_frame_current=lambda value:True
+        def deliver(scene='assigned-selection'):
+            value=dict(scene=scene,assigned=scene=='assigned-selection',championId='9001',_capturedAt=time.monotonic(),_sessionGeneration=w.selection_session.generation,_windowIdentity=w.target.identity)
+            with patch.object(w,'check_target'):w.task_result('selection',value,w.state.generation)
+        deliver();self.assertEqual(w.hero_title.text(),'等待识别')
+        deliver();self.assertEqual(w.state.hero,hero);self.assertEqual(w.hero_title.text(),hero)
+        self.assertIn('仍可交换',w.status_chip.text());self.assertIn('HUD未复核',w.status_chip.text());self.assertNotIn('HUD 连续确认',w.status_chip.text())
+        self.assertEqual(w.status_chip.property('state'),'provisional');self.assertFalse(w.state.confirmed)
+        self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
+        deliver('unknown');self.assertEqual(w.hero_title.text(),'等待识别');self.assertNotIn('HUD 连续确认',w.status_chip.text())
+
+    def test_secondary_navigation_preserves_state_and_keeps_stop_reachable(self):
+        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
+        w.state.start((1,1,'owned'));w.state.hero=hero;w.state.confirm(names,w.data['augments']);w.refresh_status_badge()
+        before=(w.state.generation,w.state.confirmed,w.state.offered,w.ocr_busy,w.capture_pending,w.overlay.isVisible())
+        for page in ('settings','correction','about','main'):
+            w.show_page(page);self.app.processEvents()
+            self.assertEqual((w.state.generation,w.state.confirmed,w.state.offered,w.ocr_busy,w.capture_pending,w.overlay.isVisible()),before)
+            action=w.stop_button if page=='main' else w.secondary_stop
+            self.assertTrue(action.isVisibleTo(w));self.assertTrue(action.isEnabled())
+        w.show_page('about');QtTest.QTest.mouseClick(w.secondary_stop,QtCore.Qt.MouseButton.LeftButton)
+        self.assertFalse(w.state.running);self.assertFalse(w.state.confirmed)
+        self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
+
+    def test_accessible_switches_keep_real_checkbox_keyboard_and_single_signal(self):
+        w=self.window
+        self.assertIsInstance(w.hero_auto,QtWidgets.QCheckBox)
+        self.assertIsInstance(w.toggle_button,QtWidgets.QCheckBox)
+        w.hero_auto.setFocus();QtTest.QTest.keyClick(w.hero_auto,QtCore.Qt.Key.Key_Tab)
+        self.assertIs(self.app.focusWidget(),w.toggle_button);self.assertTrue(w.toggle_button.keyboard_focus_visible())
+        with patch.object(w.state,'clear_hero',wraps=w.state.clear_hero) as clear:
+            w.hero_auto.setFocus();QtTest.QTest.keyClick(w.hero_auto,QtCore.Qt.Key.Key_Space)
+            self.assertFalse(w.hero_auto.isChecked());self.assertEqual(clear.call_count,1)
+        w.show_page('main');w.toggle_button.setFocus();before=w.overlay.click_through
+        QtTest.QTest.keyClick(w.toggle_button,QtCore.Qt.Key.Key_Space)
+        self.assertEqual(w.toggle_button.isChecked(),not before)
+        self.assertEqual(w.overlay.click_through,not before)
+        w.toggle_clickthrough();self.assertEqual(w.toggle_button.isChecked(),before)
+
 
 
 if __name__ == '__main__':
