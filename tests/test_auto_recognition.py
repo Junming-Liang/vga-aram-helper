@@ -69,7 +69,7 @@ class PortraitCacheTests(unittest.TestCase):
             if url.endswith('champion.json'):return roster()
             return b'synthetic-icon'
         with tempfile.TemporaryDirectory() as temp:
-            bank,status=load_portraits(temp,fetcher=fetch);self.assertEqual(len(bank),100);self.assertEqual(status['state'],'fresh')
+            bank,status=load_portraits(temp,fetcher=fetch);self.assertEqual(len(bank),100);self.assertEqual(status['state'],'fresh',status)
             calls.clear();bank,status=load_portraits(temp,fetcher=fetch);self.assertEqual(status['state'],'current');self.assertEqual(len(calls),1)
             bank,status=load_portraits(temp,allow_download=False,fetcher=lambda *a,**k:self.fail('Offline called network'));self.assertEqual(len(bank),100)
             (Path(temp)/'16.20.1/Hero0.png').write_bytes(b'tampered')

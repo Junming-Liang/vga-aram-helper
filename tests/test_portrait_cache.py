@@ -5,6 +5,7 @@ No game images, live network calls, administrator rights or ACL changes.
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import errno
+import gc
 import importlib.util
 import json
 import os
@@ -14,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+import weakref
 from unittest.mock import patch
 import zlib
 
@@ -125,11 +127,48 @@ class CacheWriteTests(unittest.TestCase):
     def test_contended_cache_lock_has_a_bounded_wait(self):
         with tempfile.TemporaryDirectory() as temp:
             lock = threading.Lock()
-            with lock, patch.object(portraits, '_CACHE_LOCKS', (lock,)), \
+            with lock, patch.object(portraits, '_cache_lock', return_value=lock), \
                  patch.object(portraits, '_CACHE_LOCK_TIMEOUT', 0.01):
                 with self.assertRaisesRegex(OSError, 'busy'):
                     self.write(Path(temp)/'Briar.png')
             self.assertFalse(list(Path(temp).iterdir()))
+
+    def test_unrelated_paths_do_not_share_a_contended_lock(self):
+        # Find a pair that the old 32-stripe implementation conflated. No slow
+        # disks, Windows-only timing assumptions or weakened timeout required.
+        with tempfile.TemporaryDirectory() as temp:
+            buckets={};pair=None
+            for index in range(33):
+                path=Path(temp)/f'Hero{index}.png'
+                stripe=hash(os.path.normcase(str(path.resolve())))%32
+                if stripe in buckets:
+                    pair=(buckets[stripe],path);break
+                buckets[stripe]=path
+            self.assertIsNotNone(pair)
+            first,second=pair
+            held=portraits._cache_lock(first)
+            self.assertIsNot(held,portraits._cache_lock(second))
+            self.assertIs(held,portraits._cache_lock(first.parent/'nested'/'..'/first.name))
+            with held:
+                self.write(second)
+            self.assertEqual(second.read_bytes(),b'new')
+            self.assertFalse(first.exists())
+
+    def test_exact_path_registry_is_atomic_and_releases_historical_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'Hero0.png';barrier=threading.Barrier(6)
+            def obtain(_):
+                lock=portraits._cache_lock(path)
+                barrier.wait(timeout=5)
+                return lock
+            with ThreadPoolExecutor(max_workers=6) as pool:locks=list(pool.map(obtain,range(6)))
+            self.assertTrue(all(lock is locks[0] for lock in locks))
+            reference=weakref.ref(locks[0]);key=os.path.normcase(str(path.resolve()))
+            self.assertIn(key,portraits._CACHE_LOCKS)
+            del locks
+            gc.collect()
+            self.assertIsNone(reference())
+            self.assertNotIn(key,portraits._CACHE_LOCKS)
 
     def test_same_key_concurrent_writers_publish_only_once(self):
         with tempfile.TemporaryDirectory() as temp:

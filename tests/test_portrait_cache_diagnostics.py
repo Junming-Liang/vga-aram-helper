@@ -130,7 +130,9 @@ class PortraitCacheDiagnosticTests(unittest.TestCase):
             replace_started=threading.Event();contention_recorded=threading.Event()
             # Six workers report in completion order. Force a real bounded
             # in-process lock timeout (which has no WinError) before Hero0's
-            # injected replacement error. Never assume the first record is it.
+            # injected replacement error. The accessor deliberately maps all
+            # test paths to one lock; production exact-path locks do not. Never
+            # assume the first record is the injected replacement failure.
             def ordered_write(path,payload,**kwargs):
                 if Path(path).name!='Hero0.png':self.assertTrue(replace_started.wait(5))
                 return write(path,payload,**kwargs)
@@ -147,7 +149,7 @@ class PortraitCacheDiagnosticTests(unittest.TestCase):
                 return {'state':'test-controlled-probe'}
             with patch.object(portraits.os,'replace',side_effect=denied), \
                  patch.object(portraits,'_write_cache',side_effect=ordered_write), \
-                 patch.object(portraits,'_CACHE_LOCKS',(threading.Lock(),)), \
+                 patch.object(portraits,'_cache_lock',return_value=threading.Lock()), \
                  patch.object(portraits,'_CACHE_LOCK_TIMEOUT',0.05), \
                  patch.object(portraits,'_CACHE_RETRY_DELAYS',(0,0,0)), \
                  patch.object(diagnostics,'sharing_probe',side_effect=controlled_probe), \
