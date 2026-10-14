@@ -6,7 +6,7 @@
   "platform": "Linux",
   "implementation_sha256": {
     "hero_recognition.py": "8a953d83454388767d24daaaf777f219802efc2376806621b6170d7951948ee0",
-    "hero_portraits.py": "22e8834d4cbff5f0abd9c7abda80252ad0425ff843bc6624256fee5196aea300",
+    "hero_portraits.py": "a6d320b8cc8f586e74b2e5fecb266f1fecbfe5f706844c89f19714356f1a97a3",
     "local_ocr.py": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
     "model_inventory.py": "c847e69c04ffb84fb2af6eb7acf781b1146f06005cd336a19125093f91c67032",
@@ -63,7 +63,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.648,
+      "elapsed_seconds": 0.643,
       "image_redistributed": false
     },
     {
@@ -127,7 +127,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.611,
+      "elapsed_seconds": 0.575,
       "image_redistributed": false
     },
     {
@@ -163,7 +163,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.631,
+      "elapsed_seconds": 0.581,
       "image_redistributed": false
     },
     {
@@ -199,7 +199,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.646,
+      "elapsed_seconds": 0.641,
       "image_redistributed": false
     },
     {
@@ -236,7 +236,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.686,
+      "elapsed_seconds": 0.64,
       "image_redistributed": false
     }
   ],
