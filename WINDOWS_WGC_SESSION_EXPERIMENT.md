@@ -68,6 +68,39 @@ The comparison does not prove fullscreen visibility or authorize production
 integration. Numeric setup records contain only bounded self-owned metadata,
 not screenshots, window titles or external process details.
 
+### Failure-only clock evidence after run 31
+
+Run 31 passed the 143 focused regression checks and native compilation. At source
+scale 1, the fixed opaque profile obtained exact affinity `0x11` and retained it
+while hidden; the independent translucent probe still returned WinError 8 with
+readback zero. The first native request then failed closed at
+`frame-wait` / `frame-timestamp` before any ROI pixels were returned. Helper,
+pipe, Job and owned-window cleanup completed. No successful pixel/static-frame
+or frozen result was established.
+
+The next diagnostic preserves every timestamp/freshness predicate and deadline.
+Its failure-only optional `clock` object records the raw QPC counter/frequency,
+request cutoff, frame timestamp, the exact converted QPC sample used by the
+predicate, and the prior accepted frame timestamp. All values have exact signed
+64-bit bounds. A nonpositive frame retains zero sample fields because the
+original short-circuit predicate never samples QPC in that branch. Phase changes
+clear the record. No extra clock sample is substituted after rejection, and no
+tolerance, offset correction, frame reuse or changed timeout is introduced.
+
+Only the isolated session parser accepts this exact optional field set at the
+two timestamp-failure sites. The production v1 parser remains unchanged. Native
+stderr stays capped at 1024 bytes; the always-printed bounded summary retains the
+sanitized numeric failure so the next run can distinguish a zero, future, or
+scale-inconsistent timestamp. Microsoft documents
+[SystemRelativeTime as compositor QPC time](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframe.systemrelativetime?view=winrt-26100);
+that alone does not explain the observed failure. Actual numeric Windows evidence
+is required before changing the capture predicate. A portable test compiles the
+actual serializer and timestamp predicates with deterministic OS-call stubs when
+a local `c++` compiler exists; it is explicitly skipped where that tool is absent.
+This is arithmetic/serialization evidence, not Windows capture evidence. The
+mandatory Windows helper compilation independently evaluates eight native QPC
+arithmetic `static_assert` cases.
+
 ## Existing approved Windows build environment only
 
 Use a clean committed Windows x64 checkout and the project's existing pinned

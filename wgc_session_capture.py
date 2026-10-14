@@ -52,6 +52,8 @@ SESSION_CHECKS = DIAGNOSTIC_CHECKS | {
     'parent-lifetime', 'overlay-support', 'overlay-owner', 'overlay-generation',
     'overlay-style', 'overlay-affinity', 'overlay-hidden', 'qpc-clock', 'pipe-write', 'pipe-read',
     'request-protocol', 'request-roi', 'idle-lease', 'frame-timestamp'}
+SESSION_CLOCK_KEYS = frozenset(('qpc_counter', 'qpc_frequency', 'cutoff_100ns',
+                              'frame_100ns', 'observed_now_100ns', 'previous_frame_100ns'))
 
 
 def _invalid_reply():
@@ -113,7 +115,8 @@ def decode_response(data, pixel_roi, request_id, generation, *, previous_frame=0
 
 
 def decode_session_diagnostic(data, returncode):
-    if type(data) not in (bytes, bytearray) or not 0 < len(data) <= MAX_DIAGNOSTIC_BYTES:
+    if (type(data) not in (bytes, bytearray) or not 0 < len(data) <= MAX_DIAGNOSTIC_BYTES
+            or type(returncode) is not int or not 10 <= returncode <= 14):
         return None
     try:
         def unique(pairs):
@@ -128,10 +131,24 @@ def decode_session_diagnostic(data, returncode):
                 or value['phase'] not in SESSION_PHASES or type(value.get('check')) is not str
                 or value['check'] not in SESSION_CHECKS or value.get('code') != returncode):
             return None
-        # Reuse v1's strict numeric/field allowlist without broadening v1 itself.
+        # Session-only optional failure evidence, never an input to capture gates.
+        # Nonpositive frames short-circuit QPC, so their raw/now fields are zero.
+        clock = None
+        if 'clock' in value:
+            clock = value.pop('clock')
+            if (value['code'] != 12 or value['check'] != 'frame-timestamp'
+                    or value['phase'] not in ('frame-wait', 'validate-idle')
+                    or type(clock) is not dict or set(clock) != SESSION_CLOCK_KEYS
+                    or any(type(number) is not int or not -(2**63) <= number <= 2**63 - 1
+                           for number in clock.values())):
+                return None
+        # Strip only the validated session extension before reusing v1's strict
+        # numeric/field allowlist; production v1 still rejects the extra field.
         clean = sanitize_native_diagnostic(dict(value, phase='startup', check='invariant'))
         if clean is not None:
             clean.update(phase=value['phase'], check=value['check'])
+            if clock is not None:
+                clean['clock'] = dict(clock)
         return clean
     except (ValueError, UnicodeError, TypeError, RecursionError):
         return None
