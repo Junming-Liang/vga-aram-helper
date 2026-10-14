@@ -4,8 +4,10 @@ Run BEFORE freezing: python tests/windows_automatic_capture.py --reports reports
 Only publisher trust for two freshly compiled, hash-checked owned executables is
 injected. Discovery, HWND/PID/path/creation-time queries, Qt Start/minimization,
 window recreation, z-order guards, and returned pixels use the real Windows OS.
-The first HWND pixel copy is deliberately made blank to exercise the unmodified
-bounded compositor fallback. It then must match an original generated PNG.
+During the explicit legacy-backend check, WGC is source-only disabled and the
+first HWND pixel copy is made blank to exercise the unmodified bounded compositor
+fallback. It then must match an original generated PNG. Independent WGC source
+and frozen-EXE acceptance must pass separately; this is never WGC evidence.
 
 OCR's timer is slowed; stale-result payloads are explicitly synthetic. This test
 proves neither real League signatures nor OCR/game/Vanguard compatibility. It
@@ -39,12 +41,14 @@ from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, vali
 
 MAX_SECONDS = 240
 SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'screen_capture.py', 'session_windows.py',
+                'wgc_capture.py', 'native/wgc_capture.cpp',
                 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs')
 WM_RECREATE_OWNED = 0x8000 + 73
 SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process metadata, '
          'Qt lifecycle, z-order guards and bounded OS pixels. Publisher verification '
          'is injected only for exact freshly compiled owned fixture paths/hashes. '
-         'First HWND copy is forced blank; compositor pixels are real. Stale OCR '
+         'Legacy check explicitly disables WGC in source and forces first HWND copy blank; '
+         'compositor pixels are real. Separate WGC source/frozen gates required. Stale OCR '
          'payloads/state are synthetic. No real League signature, real game, live-match '
          'accuracy or Vanguard compatibility claim. No private screenshots saved.')
 
@@ -110,7 +114,7 @@ def assert_pixels(encoded, expected):
 
 @contextmanager
 def force_first_copy_blank(capture):
-    """Only blank the HWND attempt; second call must execute actual OS BitBlt."""
+    """Explicit GDI-only test: blank HWND attempt, then execute actual OS BitBlt."""
     from PIL import Image
     original = capture._copy_pixels
     calls = []
@@ -121,7 +125,8 @@ def force_first_copy_blank(capture):
             return Image.new('RGB', (width, height), 'black')
         return original(source, width, height, left, top)
 
-    with patch.object(capture, '_copy_pixels', side_effect=copy):
+    with patch.object(capture, '_wgc', None, create=True), \
+         patch.object(capture, '_copy_pixels', side_effect=copy):
         yield calls
 
 

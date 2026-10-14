@@ -95,7 +95,7 @@ class QtLicensesTests(unittest.TestCase):
         names = ['python312.dll','vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll',
                  'PySide6/Qt6Core.dll','PySide6/Qt6Gui.dll','PySide6/Qt6Widgets.dll',
                  'PySide6/plugins/platforms/qwindows.dll','static/index.html',
-                 'fixtures/ocr-synthetic.png','fixtures/ocr-blank.png','assets/branding/vga.ico']
+                 'fixtures/ocr-synthetic.png','fixtures/ocr-blank.png','assets/branding/vga.ico', 'native/vga-wgc-capture.exe', 'native/wgc-capture-build.json']
         names += ['rapidocr/models/'+name for name in ('PP-OCRv6_det_small.onnx','PP-OCRv6_rec_small.onnx','ch_ppocr_mobile_v2.0_cls_mobile.onnx')]
         result = assert_archive_inventory(names)
         self.assertIn('pyside6/qt6widgets.dll',result['qt_binaries'])

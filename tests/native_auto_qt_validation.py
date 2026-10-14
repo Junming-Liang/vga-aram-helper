@@ -21,6 +21,7 @@ for invalid in [(999,728),(1024,639),(True,728),(1024,728.0)]:
     else:raise AssertionError('Unsupported physical work area accepted')
 with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen: no Windows capture')):
     w=ControlWindow(lambda:{'data':load_data(ROOT/'fixtures/demo.json'),'status':{}},state_dir=Path(temp),current_executable=Path('/unused.exe'),current_version='test',frozen=False,enable_updates=False)
+    w.captured_frame_current=lambda value:True # Explicit synthetic handler-only fixture.
     for _ in range(40):
         app.processEvents();QtTest.QTest.qWait(10)
         if w.data:break

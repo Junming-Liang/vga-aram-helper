@@ -23,7 +23,7 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.4.5'
+VERSION = '0.4.6'
 
 
 def current_provenance():
@@ -203,6 +203,8 @@ class ReleaseFixture(unittest.TestCase):
              'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
              'scripts/probe_opencv_parity.py', 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt',
              'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md')}
+        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, 'frame_ocr_cache.py'):
+            self.source_entries.setdefault(name, b'Unit-test source fixture')
         for name in gate.DPI_SOURCE_FILES:
             self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
         with zipfile.ZipFile(source, 'w') as archive:
@@ -214,15 +216,34 @@ class ReleaseFixture(unittest.TestCase):
         self.build['source_access'] = copy.deepcopy(self.access)
         self.write_json(self.release / 'source-access.json', self.access)
         self.selection_genuine = json.loads((ROOT / 'reports/champion-select-genuine.json').read_text(encoding='utf-8'))
-        self.selection_genuine['implementation_sha256'] = {'champion_select.py': hashlib.sha256(b'Unit-test source fixture').hexdigest()}
+        self.selection_genuine['implementation_sha256'] = {name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.SELECTION_GENUINE_FILES}
         self.genuine = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
-        self.genuine['implementation_sha256'] = dict.fromkeys(('hero_recognition.py', 'hero_portraits.py'), hashlib.sha256(b'Unit-test source fixture').hexdigest())
+        self.genuine['implementation_sha256'] = {name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.HERO_GENUINE_FILES}
         self.dpi_report = source_matrix_fixture()
         self.dpi_report['source_metadata'] = [dict(path='D:\\a\\vga-aram-helper\\vga-aram-helper\\' + name,
             sha256=hashlib.sha256(self.source_entries[name]).hexdigest()) for name in gate.DPI_SOURCE_FILES]
         self.automatic_capture = dict(schema_version=1,status='passed',platform='win32',backend='qtwidgets',frozen=False,checks_use_real_windows=True,application_version=VERSION,source_commit=SHA,
             trust_injection=dict(source_only=True,exact_paths_and_sha256_only=True,real_process_metadata_unchanged=True,calls=2),
             source_sha256={name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.AUTO_SOURCE_FILES},**dict.fromkeys(gate.AUTO_CAPTURE_FIELDS,True))
+        from test_wgc_build import manifest as wgc_manifest, passing_report as wgc_report
+        helper = wgc_manifest()
+        helper.update(source_commit=SHA, source_sha256=hashlib.sha256(self.source_entries['native/wgc_capture.cpp']).hexdigest(),
+                      build_recipe_sha256=hashlib.sha256(self.source_entries['scripts/build_wgc_capture.py']).hexdigest())
+        archive_patch=patch.object(gate,'verify_frozen_wgc_archive',return_value=helper)
+        archive_patch.start();self.addCleanup(archive_patch.stop)
+        self.build['wgc_helper_build'] = helper
+        self.build['archive_inventory']['wgc_helper'] = helper
+        self.wgc_reports = {}
+        for frozen, kind in ((False,'source'), (True,'frozen')):
+            report = dict(schema_version=1, status='passed', frozen=frozen, source_commit=SHA,
+                applicationVersion=VERSION, scales=[1,1.5,2], helper_build=helper,
+                source_files={name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.wgc_fixture.SOURCE_FILES}, runs=[])
+            if frozen:report.update(executable_sha256=self.hash, executable_size=self.exe.stat().st_size)
+            for scale in (1,1.5,2):
+                detail=wgc_report(scale=scale,frozen=frozen)
+                detail['helper']={'manifest':helper,'sha256':helper['sha256'],'size':helper['size']}
+                report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-{kind}-scale{round(scale*100)}.json', detail=detail))
+            self.wgc_reports[kind]=report
         self.write_reports()
         for number, name in enumerate(name for name in gate.EVIDENCE_NAMES if name.endswith('.png')):
             (self.evidence / name).write_bytes(self.make_png(pixels=(b'\x00' + bytes([number, 34, 51]) * 2) * 2))
@@ -249,6 +270,8 @@ class ReleaseFixture(unittest.TestCase):
         path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
     def write_reports(self):
+        for kind, report in self.wgc_reports.items():
+            self.write_json(self.evidence / f'windows-wgc-{kind}.json', report)
         self.write_json(self.evidence / 'windows-automatic-capture.json', self.automatic_capture)
         self.write_json(self.evidence / 'windows-package-size.json', self.package_size)
         self.write_json(self.evidence / 'windows-ota-smoke.json', self.ota)
@@ -278,6 +301,33 @@ class ReleaseFixture(unittest.TestCase):
             (scale, prefix, self.extra_scale_smokes[prefix], self.extra_natives[prefix])
             for scale, prefix in gate.NATIVE_SCALES[1:]]
 
+    def test_wgc_requires_source_and_frozen_acceptance(self):
+        for kind in ('source','frozen'):
+            self.write_reports();(self.evidence/f'windows-wgc-{kind}.json').unlink()
+            with self.subTest(kind=kind),self.assertRaises(gate.VerificationError):self.verify()
+
+    def test_wgc_rejects_fallback_missing_negative_and_wrong_exe(self):
+        original=copy.deepcopy(self.wgc_reports)
+        edits=[lambda r:r['frozen'].update(executable_sha256='0'*64),
+               lambda r:r['source']['runs'][0]['detail'].update(last_backend='hwnd-gdi'),
+               lambda r:r['frozen']['runs'][1]['detail'].update(timeout_watchdog_passed=False),
+               lambda r:r['source']['runs'][2]['detail'].update(frozen=True),
+               lambda r:r['source'].update(scales=[1,2])]
+        for edit in edits:
+            self.wgc_reports=copy.deepcopy(original);edit(self.wgc_reports);self.write_reports()
+            with self.assertRaises(gate.VerificationError):self.verify()
+
+    def test_wgc_rejects_wrong_source_or_helper_binding(self):
+        original=copy.deepcopy(self.wgc_reports)
+        for kind in ('source','frozen'):
+            for field in ('native/wgc_capture.cpp','wgc_capture.py','scripts/build_wgc_capture.py'):
+                self.wgc_reports=copy.deepcopy(original)
+                self.wgc_reports[kind]['source_files'][field]='0'*64;self.write_reports()
+                with self.subTest(kind=kind,field=field),self.assertRaises(gate.VerificationError):self.verify()
+        self.wgc_reports=copy.deepcopy(original)
+        self.wgc_reports['frozen']['runs'][0]['detail']['helper']['sha256']='0'*64;self.write_reports()
+        with self.assertRaises(gate.VerificationError):self.verify()
+
     def test_automatic_source_capture_evidence_required(self):
         (self.evidence/'windows-automatic-capture.json').unlink()
         with self.assertRaises(gate.VerificationError):self.verify()
@@ -298,7 +348,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.4.5')
+        self.assertEqual(result['tag'], 'v0.4.6')
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
@@ -571,7 +621,7 @@ class ReleaseFixture(unittest.TestCase):
         for change in ('wrong_hero', 'hidden_abstention', 'negative_prediction', 'low_title_confidence'):
             with self.subTest(change=change):
                 self.genuine = json.loads((ROOT / 'reports/hero-recognition-genuine.json').read_text(encoding='utf-8'))
-                self.genuine['implementation_sha256'] = dict.fromkeys(('hero_recognition.py', 'hero_portraits.py'), hashlib.sha256(b'Unit-test source fixture').hexdigest())
+                self.genuine['implementation_sha256'] = {name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.HERO_GENUINE_FILES}
                 if change == 'wrong_hero':
                     row = next(row for row in self.genuine['cases'] if row['observed']['confident'])
                     row['observed']['championId'] = '999999'
@@ -836,7 +886,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.5/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.6/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -955,11 +1005,11 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.4.5', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.6', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.4.5', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.5',
+        return {'id': 123, 'tag_name': 'v0.4.6', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.6',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
 
@@ -993,7 +1043,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.5', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.6', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -1004,7 +1054,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.4.5', ' '.join(publish))
+        self.assertNotIn('v0.4.6', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -1071,12 +1121,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.4.5', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.6', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.5'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.6'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.4.5')
+            gate.find_release(gate.REPOSITORY, 'v0.4.6')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -1093,9 +1143,9 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.4.5'])
+                gate.gh_run(['release', 'create', 'v0.4.6'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.5'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.6'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 
@@ -1175,7 +1225,7 @@ class WorkflowSafetyTests(unittest.TestCase):
                 for row in report['source_metadata']:
                     name = Path(row['path']).name
                     checkout = (root / name).read_bytes()
-                    if name in gate.AUTO_SOURCE_FILES:self.assertNotIn(b'\r\n',checkout)
+                    if name in gate.AUTO_SOURCE_FILES or name in gate.HERO_GENUINE_FILES:self.assertNotIn(b'\r\n',checkout)
                     else:self.assertIn(b'\r\n',checkout)
                     self.assertEqual(archive.read(name), checkout)
                     self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), row['sha256'])

@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_e
  def show(rect,target):placements.append(rect);w.overlay.show()
  w.overlay.show_at=show
  def fresh():
-  w.state.start(target.identity);w.state.confirm(names,w.data['augments']);w.last_observation=time.monotonic();w.last_rect=cap.bounds;w.was_target_foreground=True
+  w.target_allowed=lambda:True;w.state.start(target.identity);w.state.confirm(names,w.data['augments']);w.last_observation=time.monotonic();w.last_rect=cap.bounds;w.was_target_foreground=True
  fresh();token=w.state.generation;cap.bounds=ClientRect(-1920,0,1920,1080);w.check_target()
  assert w.state.confirmed and w.state.generation==token and w.state.hero=='星火术士（演示）' and list(w.state.offered)==names and placements[-1]==cap.bounds
  checks.append('Same-size negative-origin translation preserves still-fresh confirmed hero/offers and requests new bounded placement')

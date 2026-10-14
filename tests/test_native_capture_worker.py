@@ -1,0 +1,175 @@
+"""Qt thread/state integration with owned fakes; not Windows capture evidence."""
+import copy
+import os
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+try:
+    from PySide6 import QtWidgets
+except ImportError:
+    QtWidgets = None
+
+
+@unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
+class NativeCaptureWorkerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def wait(self, predicate, seconds=4):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            self.app.processEvents()
+            if predicate():
+                return
+            time.sleep(.005)
+        self.fail('Qt worker did not reach the expected state')
+
+    def setUp(self):
+        from engine import load_data
+        from native_ui import ControlWindow
+        from screen_capture import CaptureUnavailable, WindowInfo
+        self.directory = tempfile.TemporaryDirectory()
+        with patch('native_ui.Win32Capture', side_effect=CaptureUnavailable('owned portable fixture')):
+            self.window = ControlWindow(
+                lambda: {'data': load_data(Path(__file__).resolve().parents[1] / 'fixtures/demo.json')},
+                state_dir=Path(self.directory.name), current_executable=Path('/unused.exe'),
+                current_version='test', frozen=False, enable_updates=False)
+        self.wait(lambda: self.window.data is not None)
+        self.window.watchdog.stop()
+        self.window.monitor.stop()
+        self.window.check_target = lambda: None
+        self.window.target_allowed = lambda: True
+        self.window.capture_metadata = lambda: None
+        self.window.captured_frame_current = lambda value: True
+        self.window.target = WindowInfo(123, 456, 'Owned mock', 'OwnedClass')
+        self.window.state.start(self.window.target.identity)
+        self.window.overlay.hide()
+        self.main_thread = threading.get_ident()
+
+    def tearDown(self):
+        self.window.capture = None
+        self.window.close()
+        self.app.processEvents()
+        self.directory.cleanup()
+
+    def test_slow_capture_is_off_gui_and_stop_discards_late_result(self):
+        from screen_capture import ClientRect
+        entered, release = threading.Event(), threading.Event()
+        threads = []
+        class Capture:
+            def capture(inner, *args, **kwargs):
+                threads.append(threading.get_ident())
+                entered.set()
+                if not release.wait(2):
+                    raise RuntimeError('owned timeout')
+                return b'owned-image', ClientRect(0, 0, 900, 600)
+        self.window.capture = Capture()
+        with patch('hero_recognition.recognize_frame', return_value={'automatic_candidates': [], 'candidates': []}):
+            start = time.monotonic()
+            self.window.capture_hidden(self.window.state.generation)
+            self.assertLess(time.monotonic() - start, .25)
+            self.wait(entered.is_set)
+            self.assertNotEqual(threads[0], self.main_thread)
+            self.window.stop_monitor()
+            release.set()
+            self.wait(lambda: not self.window.ocr_busy)
+        self.assertFalse(self.window.state.running)
+        self.assertFalse(self.window.state.confirmed)
+        self.assertEqual(self.window.state.offered, ())
+
+    def test_two_independent_confirmations_before_reuse_and_fresh_capture_each_tick(self):
+        from screen_capture import ClientRect
+        names = list(self.window.data['augments'])[:3]
+        hero = next(iter(self.window.data['heroes']))
+        candidates = [{'name': name, 'recognized_text': name, 'match_method': 'exact',
+                       'ocr_confidence': .99, 'box': [[x-40, 150], [x+40, 150],
+                                                    [x+40, 180], [x-40, 180]]}
+                      for x, name in zip((150, 450, 750), names)]
+        capture_calls, infer_calls, hero_calls = [], [], []
+        class Capture:
+            def capture(inner, *args, **kwargs):
+                capture_calls.append(time.monotonic())
+                return b'owned-image', ClientRect(0, 0, 900, 600)
+        class OCR:
+            def recognize(inner, image, vocabulary):
+                infer_calls.append(image)
+                return {'automatic_candidates': copy.deepcopy(candidates),
+                        'candidates': copy.deepcopy(candidates),
+                        'image_size': {'width': 900, 'height': 400}}
+        def recognize(image, roi, ocr, vocabulary, matcher):
+            hero_calls.append(image)
+            result = ocr.recognize(b'exact-title-crop', vocabulary)
+            result['hero_observation'] = {'hero': hero, 'confident': True}
+            return result
+        self.window.capture = Capture()
+        self.window.ocr = OCR()
+        with patch('hero_recognition.recognize_frame', side_effect=recognize):
+            for expected in (False, True, True):
+                self.window.capture_hidden(self.window.state.generation)
+                self.wait(lambda: not self.window.ocr_busy)
+                self.assertEqual(self.window.state.confirmed, expected)
+            self.assertEqual(len(capture_calls), 3)
+            self.assertEqual(len(hero_calls), 3)
+            self.assertEqual(len(infer_calls), 2)
+            self.assertEqual(self.window.state.automatic_frames, 2)
+            self.assertGreaterEqual(self.window.last_observation, capture_calls[-1] - .01)
+            self.window.invalidate_scene('owned ROI/scene reset')
+            self.window.capture_hidden(self.window.state.generation)
+            self.wait(lambda: not self.window.ocr_busy)
+            self.assertFalse(self.window.state.confirmed)
+            self.assertEqual(len(infer_calls), 3)
+
+    def test_watchdog_never_restores_overlay_while_capture_worker_is_busy(self):
+        from native_ui import ControlWindow
+        from screen_capture import ClientRect
+        rect = ClientRect(0, 0, 900, 600)
+        class Capture:
+            def rect(inner, target):return rect
+            def foreground(inner, target):return True
+        self.window.capture = Capture()
+        self.window.state.hero = next(iter(self.window.data['heroes']))
+        self.window.state.confirm(list(self.window.data['augments'])[:3], self.window.data['augments'])
+        self.window.last_observation = time.monotonic()
+        self.window.last_rect = rect
+        self.window.overlay.cards = [{'name': 'owned synthetic card'}]
+        self.window.overlay.hide()
+        self.window.ocr_busy = True
+        self.window.ocr_started = time.monotonic()
+        ControlWindow.check_target(self.window)
+        self.assertFalse(self.window.overlay.isVisible())
+        self.window.ocr_busy = False
+        ControlWindow.check_target(self.window)
+        self.assertTrue(self.window.overlay.isVisible())
+
+    def test_manual_process_binding_and_post_inference_geometry_fail_closed(self):
+        from native_ui import ControlWindow
+        from screen_capture import ClientRect
+        from session_windows import ProcessMetadata
+        rect = ClientRect(0, 0, 900, 600)
+        current = [rect]
+        class Capture:
+            def rect(inner, target):return current[0]
+            def foreground(inner, target):return True
+        self.window.capture = Capture()
+        self.window.manual_identity = self.window.target.identity
+        self.window.manual_metadata = ProcessMetadata('c:\\owned\\fixture.exe', 111)
+        with patch('session_windows.process_metadata', return_value=self.window.manual_metadata):
+            self.assertTrue(ControlWindow.target_allowed(self.window))
+        with patch('session_windows.process_metadata', return_value=ProcessMetadata('c:\\owned\\fixture.exe', 222)):
+            self.assertFalse(ControlWindow.target_allowed(self.window))
+        proof = {'_captureRect': rect, '_windowIdentity': self.window.target.identity}
+        self.assertTrue(ControlWindow.captured_frame_current(self.window, proof))
+        current[0] = ClientRect(1, 0, 900, 600)
+        self.assertFalse(ControlWindow.captured_frame_current(self.window, proof))
+        self.assertFalse(ControlWindow.captured_frame_current(self.window, {}))
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -21,8 +21,9 @@ class FakeCapture:
     def windows(self):return [client,game]
     def rect(self,target):return ClientRect(0,0,964,602)
     def foreground(self,target):return target==self.focused
-with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen: no Windows capture')):
+with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen: no Windows capture')),patch('session_windows.process_metadata',side_effect=lambda pid:meta[pid]):
     w=ControlWindow(lambda:{'data':load_data(ROOT/'fixtures/demo.json'),'status':{}},state_dir=Path(temp),current_executable=Path('/unused.exe'),current_version='test',frozen=False,enable_updates=False)
+    w.captured_frame_current=lambda value:True # Explicit synthetic handler-only fixture.
     for _ in range(40):
         app.processEvents();QtTest.QTest.qWait(10)
         if w.data:break
