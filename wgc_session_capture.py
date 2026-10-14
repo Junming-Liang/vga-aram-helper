@@ -54,6 +54,10 @@ SESSION_CHECKS = DIAGNOSTIC_CHECKS | {
     'request-protocol', 'request-roi', 'idle-lease', 'frame-timestamp'}
 SESSION_CLOCK_KEYS = frozenset(('qpc_counter', 'qpc_frequency', 'cutoff_100ns',
                               'frame_100ns', 'observed_now_100ns', 'previous_frame_100ns'))
+SESSION_SHUTDOWN_STAGES = ('frame-arrived-revoke', 'item-closed-revoke', 'session-close',
+                           'pool-close', 'local-release', 'apartment-uninit', 'process-return')
+_SHUTDOWN_TOKENS = tuple(f'S{index}\n'.encode('ascii')
+                         for index in range(1, len(SESSION_SHUTDOWN_STAGES) + 1))
 
 
 def _invalid_reply():
@@ -114,7 +118,7 @@ def decode_response(data, pixel_roi, request_id, generation, *, previous_frame=0
                    'request_id': request_id, 'session_generation': generation}
 
 
-def decode_session_diagnostic(data, returncode):
+def _decode_session_failure(data, returncode):
     if (type(data) not in (bytes, bytearray) or not 0 < len(data) <= MAX_DIAGNOSTIC_BYTES
             or type(returncode) is not int or not 10 <= returncode <= 14):
         return None
@@ -152,6 +156,68 @@ def decode_session_diagnostic(data, returncode):
         return clean
     except (ValueError, UnicodeError, TypeError, RecursionError):
         return None
+
+
+def _decode_session_stderr(data, returncode):
+    """Validate the complete bounded transcript before exposing either record."""
+    if (type(data) not in (bytes, bytearray) or not 0 < len(data) <= MAX_DIAGNOSTIC_BYTES
+            or type(returncode) is not int or not -(2**31) <= returncode <= 2**32 - 1
+            or returncode == 0):
+        return None
+    data = bytes(data)
+    count = offset = 0
+    for token in _SHUTDOWN_TOKENS:
+        if not data.startswith(token, offset):
+            break
+        count += 1
+        offset += len(token)
+    tail = data[offset:]
+    failure = _decode_session_failure(tail, returncode) if tail else None
+    # A truncated/unknown/repeated token or arbitrary tail invalidates everything,
+    # including a valid earlier prefix. Optional JSON remains the exact old schema.
+    if ((tail and failure is None) or (not count and failure is None)
+            or (count and failure is not None and failure['phase'] != 'shutdown')):
+        return None
+    return count, failure
+
+
+def decode_session_diagnostic(data, returncode):
+    parsed = _decode_session_stderr(data, returncode)
+    return parsed[1] if parsed is not None else None
+
+
+def sanitize_session_shutdown_diagnostic(value, returncode):
+    """The same strict allowlist is used by capture, reports and summaries."""
+    keys = {'schema_version', 'exit_code', 'checkpoints', 'last_started_stage'}
+    if (type(returncode) is not int or not -(2**31) <= returncode <= 2**32 - 1
+            or returncode == 0 or type(value) is not dict or set(value) != keys
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or type(value['exit_code']) is not int or value['exit_code'] != returncode
+            or type(value['checkpoints']) is not list
+            or not 1 <= len(value['checkpoints']) <= len(SESSION_SHUTDOWN_STAGES)
+            or any(type(index) is not int or index != expected
+                   for expected, index in enumerate(value['checkpoints'], 1))
+            or type(value['last_started_stage']) is not str
+            or value['last_started_stage'] != SESSION_SHUTDOWN_STAGES[len(value['checkpoints']) - 1]):
+        return None
+    return dict(schema_version=1, exit_code=returncode, checkpoints=list(value['checkpoints']),
+                last_started_stage=value['last_started_stage'])
+
+
+def decode_session_shutdown_diagnostic(data, returncode):
+    """Failure-only checkpoint evidence; never used for capture or exit decisions.
+
+    Call after process exit and complete stderr collection. A checkpoint is
+    written immediately before its operation, not evidence that it caused an
+    exception or that the remaining teardown completed. Exit zero exposes none.
+    """
+    parsed = _decode_session_stderr(data, returncode)
+    if parsed is None or not parsed[0]:
+        return None
+    count = parsed[0]
+    return sanitize_session_shutdown_diagnostic(
+        dict(schema_version=1, exit_code=returncode, checkpoints=list(range(1, count + 1)),
+             last_started_stage=SESSION_SHUTDOWN_STAGES[count - 1]), returncode)
 
 
 def _property_name(generation):

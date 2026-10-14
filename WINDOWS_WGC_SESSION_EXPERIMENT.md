@@ -168,6 +168,33 @@ adds those paths from the existing verified licensed runtime source, retaining
 the exact-byte verifier and all source/frozen checks. There is no new runtime
 source, download, license exception, production integration or release claim.
 
+### Native shutdown failure in run 34
+
+[Run 34](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38625953942)
+again passed all three source scales. Its licensed archive verification also
+passed, allowing the standalone frozen diagnostic to execute for the first time.
+At frozen scale 1, four repeated requests returned exact synthetic ROI pixels
+from the same helper/session. Later, the native Stop case exited with
+`0xC0000005` (access violation), rather than the required zero exit. Observed
+process exit took 328 ms and full helper/pipe/Job cleanup 360 ms. The EOF case,
+remaining frozen lifecycle/static checks and later frozen scales were not
+reached. The gate remains failed; cleanup does not make a native crash graceful.
+
+The existing failure record did not locate the crash within teardown. An
+upstream [WGC cleanup issue](https://github.com/robmikh/Win32CaptureSample/issues/99)
+describes internal callback/unload races, but that does not identify this crash's
+cause. The next diagnostic writes a bounded, fixed sequence of seven checkpoint
+tokens before event revocation, session/pool Close, implicit local destruction,
+WinRT uninitialization and return. Only an abnormal exit exposes the validated
+sequence and its last-started stage, alongside the original process exit code.
+The stage is a localization hint, not proof of the faulting operation, module or
+thread. Teardown order, exception behavior, exit requirements, all capture gates
+and the 1024-byte stderr budget are unchanged. No exception recovery, arbitrary
+sleep, memory dump, pixel data or raw address is introduced.
+Instrumentation can change race timing. A passing checkpoint run alone would
+mean the crash did not recur in that run, not that its cause was fixed; repeated,
+bounded native Stop/EOF stress remains required before production promotion.
+
 ## Existing approved Windows build environment only
 
 Use a clean committed Windows x64 checkout and the project's existing pinned

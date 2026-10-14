@@ -455,6 +455,13 @@ class Fixture:
                'cleanup_ms': round((time.monotonic()-started)*1000,3), 'job_closed':True,
                'io_done':True, 'stderr_done':True, 'threads_exited':True, 'pipes_closed':True}
         row['observed_exit_within_50ms'] = row['process_exit_ms'] <= 50
+        # Read only after exact process exit and both pipe readers have finished.
+        # A last-started teardown checkpoint localizes an abnormal exit; it never
+        # changes that exit code or makes a crash satisfy graceful Stop/EOF.
+        shutdown = self.session.decode_session_shutdown_diagnostic(
+            transport.diagnostic, transport.process.returncode)
+        if shutdown is not None:
+            row['shutdown_diagnostic'] = shutdown
         self.result['transitions'].append(row)
         return row
 
