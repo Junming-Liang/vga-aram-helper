@@ -40,6 +40,17 @@ def diagnostic_bytes(value):
     return json.dumps(value, separators=(',', ':')).encode('ascii')
 
 
+def shutdown_trace(count=7):
+    return b''.join(f'S{index}\n'.encode('ascii') for index in range(1, count + 1))
+
+
+def shutdown_failure(**changes):
+    value = clock_diagnostic(code=14, phase='shutdown', check='hresult')
+    value.pop('clock')
+    value.update(changes)
+    return value
+
+
 def packet(request_id=1, generation=7, cutoff=100, frame=101, entered=102, **changes):
     fields = dict(magic=session.RESPONSE_MAGIC, status=0, phase=1, request_id=request_id,
                   generation=generation, width=16, height=16, length=len(PIXELS), reserved=0,
@@ -148,6 +159,94 @@ class ProtocolTests(unittest.TestCase):
             self.assertIsNone(session.decode_session_diagnostic(bad, 12))
         self.assertIsNone(session.decode_session_diagnostic(raw, 13))
 
+    def test_shutdown_checkpoints_preserve_exact_abnormal_exit_and_are_failure_only(self):
+        stages = ('frame-arrived-revoke', 'item-closed-revoke', 'session-close', 'pool-close',
+                  'local-release', 'apartment-uninit', 'process-return')
+        self.assertEqual(session.SESSION_SHUTDOWN_STAGES, stages)
+        for count, stage in enumerate(stages, 1):
+            for code in (-(2**31), -1073741819, -9, 1, 10, 14, 3221225477, 2**32 - 1):
+                expected = dict(schema_version=1, exit_code=code, checkpoints=list(range(1, count + 1)),
+                                last_started_stage=stage)
+                for raw in (shutdown_trace(count), bytearray(shutdown_trace(count))):
+                    self.assertEqual(session.decode_session_shutdown_diagnostic(raw, code), expected)
+                    self.assertIsNone(session.decode_session_diagnostic(raw, code))
+                    self.assertIsNone(decode_native_diagnostic(bytes(raw), code))
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(shutdown_trace(count), 0))
+        for code in (None, True, False, 1.0, 3221225477.0, '3221225477', -(2**31)-1, 2**32):
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(shutdown_trace(), code))
+
+    def test_shutdown_json_tail_retains_existing_failure_and_requires_shutdown(self):
+        good = shutdown_failure()
+        raw = diagnostic_bytes(good)
+        self.assertEqual(session.decode_session_diagnostic(raw, 14), good)
+        self.assertIsNone(session.decode_session_shutdown_diagnostic(raw, 14))
+        for count in range(1, 8):
+            transcript = shutdown_trace(count) + raw + b'\n'
+            self.assertEqual(session.decode_session_diagnostic(transcript, 14), good)
+            self.assertEqual(session.decode_session_shutdown_diagnostic(transcript, 14)['checkpoints'],
+                             list(range(1, count + 1)))
+            self.assertIsNone(decode_native_diagnostic(transcript, 14))
+            for code in (0, 13, 3221225477):
+                self.assertIsNone(session.decode_session_diagnostic(transcript, code))
+                self.assertIsNone(session.decode_session_shutdown_diagnostic(transcript, code))
+        for bad in (clock_diagnostic(), shutdown_failure(phase='startup'),
+                    shutdown_failure(clock=clock_diagnostic()['clock'])):
+            transcript = shutdown_trace(3) + diagnostic_bytes(bad)
+            self.assertIsNone(session.decode_session_diagnostic(transcript, bad['code']))
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(transcript, bad['code']))
+
+    def test_shutdown_whole_transcript_rejects_partial_reordered_duplicate_or_private_data(self):
+        raw = diagnostic_bytes(shutdown_failure())
+        malformed = (b'', b'S', b'S1', b'S1\r\n', b'S0\n', b'S2\n', b'S8\n', b'S1\nS1\n',
+                     b'S1\nS3\n', b'S1\nS2', b'S1\nS2\nS1\n', shutdown_trace() + b'S8\n',
+                     shutdown_trace() + b'S7\n', b' ' + shutdown_trace(), shutdown_trace() + b' ',
+                     b'private\n' + shutdown_trace(), shutdown_trace() + b'private',
+                     raw + shutdown_trace(), shutdown_trace() + raw + raw,
+                     shutdown_trace() + raw[:-1], shutdown_trace() + b'\xff',
+                     shutdown_trace() + raw[:-1] + b',"code":14}',
+                     shutdown_trace() + diagnostic_bytes(shutdown_failure(path='private')))
+        for data in malformed:
+            for code in (14, 3221225477):
+                with self.subTest(data=data, code=code):
+                    self.assertIsNone(session.decode_session_diagnostic(data, code))
+                    self.assertIsNone(session.decode_session_shutdown_diagnostic(data, code))
+        for data in (None, 'S1\n', memoryview(shutdown_trace()), [83, 49, 10]):
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(data, 3221225477))
+
+    def test_shutdown_combined_transcript_has_same_total_byte_cap(self):
+        raw = shutdown_trace() + diagnostic_bytes(shutdown_failure())
+        padded = raw + b' ' * (session.MAX_DIAGNOSTIC_BYTES - len(raw))
+        self.assertEqual(session.decode_session_diagnostic(padded, 14), shutdown_failure())
+        self.assertEqual(session.decode_session_shutdown_diagnostic(padded, 14)['checkpoints'], list(range(1, 8)))
+        for data in (padded + b' ', shutdown_trace() + b'x' * 1024):
+            self.assertIsNone(session.decode_session_diagnostic(data, 14))
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(data, 14))
+
+    def test_shutdown_record_sanitizer_requires_exact_types_keys_prefix_stage_and_exit(self):
+        code = 3221225477
+        good = dict(schema_version=1, exit_code=code, checkpoints=[1, 2, 3, 4, 5, 6],
+                    last_started_stage='apartment-uninit')
+        clean = session.sanitize_session_shutdown_diagnostic(good, code)
+        self.assertEqual(clean, good)
+        self.assertIsNot(clean, good)
+        self.assertIsNot(clean['checkpoints'], good['checkpoints'])
+        for key in good:
+            missing = dict(good); missing.pop(key)
+            self.assertIsNone(session.sanitize_session_shutdown_diagnostic(missing, code))
+        changes = ({'schema_version': True}, {'schema_version': 1.0}, {'schema_version': 2},
+                   {'exit_code': True}, {'exit_code': float(code)}, {'exit_code': 14},
+                   {'checkpoints': []}, {'checkpoints': [1, 3]}, {'checkpoints': [True]},
+                   {'checkpoints': [1.0, 2, 3, 4, 5, 6]}, {'checkpoints': list(range(1, 9))},
+                   {'checkpoints': (1, 2, 3, 4, 5, 6)}, {'checkpoints': None},
+                   {'last_started_stage': 'pool-close'}, {'last_started_stage': 'private'},
+                   {'last_started_stage': None}, {'raw_stderr': 'private'}, {'path': 'private'})
+        for changed in changes:
+            self.assertIsNone(session.sanitize_session_shutdown_diagnostic(dict(good, **changed), code))
+        for bad in (None, [], 'private', True):
+            self.assertIsNone(session.sanitize_session_shutdown_diagnostic(bad, code))
+        for invalid in (0, True, False, 1.0, str(code), -(2**31)-1, 2**32, None):
+            self.assertIsNone(session.sanitize_session_shutdown_diagnostic(dict(good, exit_code=invalid), invalid))
+
     def test_session_clock_is_optional_exact_and_never_accepted_by_v1(self):
         self.assertEqual(session.SESSION_CLOCK_KEYS, CLOCK_KEYS)
         for phase in ('frame-wait', 'validate-idle'):
@@ -224,7 +323,9 @@ class ProtocolTests(unittest.TestCase):
             self.assertIsNone(session.decode_session_diagnostic(diagnostic_bytes(clock_diagnostic(**changes)), 12))
 
     def test_transport_retains_only_validated_session_clock(self):
-        transport = session._Transport([], 7)
+        # Exercise only the decoder adapter; do not start real lifetime threads
+        # against an intentionally incomplete process double.
+        transport = object.__new__(session._Transport)
         transport.process = SimpleNamespace(poll=lambda: 12)
         good = clock_diagnostic()
         transport.diagnostic = bytearray(diagnostic_bytes(good))
@@ -661,6 +762,107 @@ class NativeSourceParityTests(unittest.TestCase):
         self.assertIn('diagnostic.clock = {};', phase)
         self.assertGreaterEqual(self.new.count('static_assert(qpc_ticks_100ns('), 8)
 
+    def test_actual_cpp_shutdown_checkpoints_preserve_teardown_order_and_failure_exit(self):
+        compiler = shutil.which('c++')
+        if not compiler:
+            self.skipTest('Portable C++ compiler absent; Windows shutdown evidence still required')
+        checkpoint = self.new[self.new.index('enum class ShutdownStage :'):self.new.index('struct Handle {')]
+        teardown = self.new[self.new.index('    phase("shutdown");'):self.new.index('\n}\n}\n\nint wmain(')]
+        start = self.new.index('        run(p);')
+        ending = self.new[start:self.new.index('        return 0;', start) + len('        return 0;')]
+        for forbidden in ('Sleep(', 'SetUnhandledExceptionFilter', 'AddVectoredExceptionHandler',
+                          '__try', '__except', 'ExitProcess(', 'TerminateProcess(', 'LoadLibrary'):
+            self.assertNotIn(forbidden, checkpoint + teardown + ending)
+        harness = r'''
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+using DWORD = uint32_t;
+constexpr int STD_ERROR_HANDLE = -12;
+int fail_at = 0, short_at = 0, writes = 0, operations = 0;
+std::string written;
+int GetStdHandle(int value) { assert(value == STD_ERROR_HANDLE); return value; }
+bool WriteFile(int handle, void const* data, DWORD size, DWORD* count, void* overlapped) {
+    assert(handle == STD_ERROR_HANDLE && size == 3 && overlapped == nullptr);
+    assert(++writes <= 7);
+    char const expected[]{'S', char('0' + writes), '\n'};
+    assert(std::memcmp(data, expected, 3) == 0);
+    *count = short_at == writes ? 1 : size;
+    written.append(static_cast<char const*>(data), *count);
+    return short_at != writes;
+}
+void phase(char const* value) { assert(std::strcmp(value, "shutdown") == 0); }
+void operation(int index) {
+    assert(writes == index && ++operations == index);
+    if (fail_at == index) throw index;
+}
+struct LocalRelease {
+    ~LocalRelease() noexcept(false) {
+        // Early exception unwinding stays unchanged and emits no invented stage.
+        if (!fail_at || fail_at >= 5) operation(5);
+    }
+};
+struct Pool { void FrameArrived(int token) { assert(token == 11); operation(1); }
+              void Close() { operation(4); } };
+struct Item { void Closed(int token) { assert(token == 22); operation(2); } };
+struct Session { void Close() { operation(3); } };
+void uninit_apartment() { operation(6); }
+''' + checkpoint + r'''
+void run(int) {
+    LocalRelease locals;
+    Pool pool; Item item; Session session;
+    int arrived = 11, closed = 22;
+ACTUAL_TEARDOWN
+}
+int entry() {
+    int p = 0;
+ACTUAL_ENDING
+}
+int main(int argc, char** argv) {
+#ifdef _WIN32
+    assert(_setmode(_fileno(stdout), _O_BINARY) != -1);
+#endif
+    assert(argc == 3); fail_at = std::atoi(argv[1]); short_at = std::atoi(argv[2]);
+    int result = 0;
+    try { result = entry(); assert(fail_at == 0 && writes == 7 && operations == 6); }
+    catch (int failure) {
+        assert(failure == fail_at && writes == fail_at && operations == fail_at);
+        result = 14;
+    }
+    assert(std::fwrite(written.data(), 1, written.size(), stdout) == written.size());
+    return result;
+}
+'''
+        harness = harness.replace('ACTUAL_TEARDOWN', teardown).replace('ACTUAL_ENDING', ending)
+        with tempfile.TemporaryDirectory() as directory:
+            source, binary = Path(directory) / 'shutdown.cpp', Path(directory) / 'shutdown.exe'
+            source.write_text(harness)
+            built = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', str(source), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            for failure in range(7):
+                ran = subprocess.run([str(binary), str(failure), '0'], capture_output=True, timeout=10)
+                self.assertEqual(ran.returncode, 14 if failure else 0, ran.stderr)
+                self.assertEqual(ran.stdout, shutdown_trace(failure or 7))
+                record = session.decode_session_shutdown_diagnostic(ran.stdout, ran.returncode)
+                if failure:
+                    self.assertEqual(record['checkpoints'], list(range(1, failure + 1)))
+                    self.assertEqual(record['exit_code'], 14)
+                else:
+                    self.assertIsNone(record)
+            for short in range(1, 8):
+                ran = subprocess.run([str(binary), '0', str(short)], capture_output=True, timeout=10)
+                self.assertEqual(ran.returncode, 0, ran.stderr)  # Write failure never changes native success.
+                self.assertEqual(len(ran.stdout), 19)
+                self.assertIsNone(session.decode_session_shutdown_diagnostic(ran.stdout, 3221225477))
+
     def test_actual_cpp_clock_sampling_arithmetic_and_worst_case_failure_size(self):
         # Execute the actual serializer, phase reset, QPC helper and predicates
         # with deterministic OS-call stubs. This is not Windows capture proof.
@@ -786,6 +988,8 @@ int main() {
             self.assertEqual(session.decode_session_diagnostic(rows[index], 12), records[index])
         self.assertEqual(len(rows[3]), 637)  # All allowed numeric fields at longest-width bounds.
         self.assertEqual(len(rows[4]), 781)  # Even every native int64 slot at its longest width fits.
+        self.assertEqual(len(rows[4]) + len(shutdown_trace()), 802)
+        self.assertLessEqual(len(rows[4]) + len(shutdown_trace()), session.MAX_DIAGNOSTIC_BYTES)
         self.assertIsNone(session.decode_session_diagnostic(rows[4], 12))  # Geometry stays v1-bounded.
         for index in (2, 5, 6, 7, 8):
             self.assertNotIn('clock', records[index])

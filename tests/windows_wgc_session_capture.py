@@ -221,6 +221,11 @@ def validate_report(value,*,frozen,scale,helper_build,version=__version__):
             or row.get('observed_exit_within_50ms')is not (row['process_exit_ms']<=50)
             or row['cleanup_ms']<max(row['revoked_ms'],row['process_exit_ms'])):
             raise RuntimeError('Malformed cleanup observation, leaked ownership, or invented latency claim')
+        if 'shutdown_diagnostic' in row:
+            from wgc_session_capture import sanitize_session_shutdown_diagnostic
+            diagnostic=sanitize_session_shutdown_diagnostic(row['shutdown_diagnostic'],row['exit_code'])
+            if diagnostic is None or diagnostic!=row['shutdown_diagnostic']:
+                raise RuntimeError('Malformed or exit-mismatched shutdown diagnostic')
         by_case.setdefault(row['case'],[]).append(row)
     for name in TRANSITIONS:
         if len(by_case.get(name,()))!=1:raise RuntimeError('Exact retirement case missing/duplicated: '+name)
@@ -292,6 +297,21 @@ def summary_native_diagnostic(value):
         return None
 
 
+def summary_transitions(value):
+    """Do not forward unvalidated shutdown metadata from a failed report."""
+    from wgc_session_capture import sanitize_session_shutdown_diagnostic
+    if type(value)is not list:return []
+    rows=[]
+    for row in value[:80]:
+        if type(row)is not dict:continue
+        clean=dict(row)
+        raw=clean.pop('shutdown_diagnostic',None)
+        diagnostic=sanitize_session_shutdown_diagnostic(raw,row.get('exit_code'))
+        if diagnostic is not None:clean['shutdown_diagnostic']=diagnostic
+        rows.append(clean)
+    return rows
+
+
 def summarize(reports):
     """Print and persist bounded metadata even when an earlier Windows step failed."""
     reports=Path(reports);reports.mkdir(parents=True,exist_ok=True)
@@ -350,7 +370,7 @@ def summarize(reports):
                 if row.get('app_scale')!=scale:raise RuntimeError('Scale order differs')
                 validate_report(detail,frozen=frozen,scale=scale,helper_build=proof)
             except Exception as error:result['errors'].append(name+' scale '+str(scale)+': '+str(error)[:500])
-            transitions=detail.get('transitions',[])
+            transitions=summary_transitions(detail.get('transitions',[]))
             result['runs'].append({'frozen':frozen,'scale':scale,'status':detail.get('status'),
                 'error':detail.get('error'),'requests':detail.get('requests',[]),
                 'native_diagnostic':summary_native_diagnostic(detail.get('native_diagnostic')),

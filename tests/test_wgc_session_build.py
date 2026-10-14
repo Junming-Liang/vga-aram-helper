@@ -700,6 +700,57 @@ class AcceptanceTests(unittest.TestCase):
         value=passing_report();value['transitions'].append(dict(value['transitions'][0]))
         with self.assertRaises(RuntimeError):smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
 
+    def test_shutdown_record_is_strict_and_bound_to_actual_nonzero_exit(self):
+        record={'schema_version':1,'exit_code':12,'checkpoints':[1,2,3,4,5,6],
+                'last_started_stage':'apartment-uninit'}
+        value=passing_report();value['transitions'][0]['shutdown_diagnostic']=record
+        smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+        mutations=[None,dict(record,exit_code=14),dict(record,exit_code=True),
+            dict(record,schema_version=True),dict(record,checkpoints=[True]),
+            dict(record,checkpoints=[1,2,2]),dict(record,checkpoints=[2]),
+            dict(record,checkpoints=[1.,2,3,4,5,6]),dict(record,last_started_stage='process-return'),
+            dict(record,address='forbidden'),dict(record,checkpoints=list(range(1,9)))]
+        for bad in mutations:
+            value=passing_report();value['transitions'][0]['shutdown_diagnostic']=bad
+            with self.subTest(bad=bad),self.assertRaisesRegex(RuntimeError,'shutdown diagnostic'):
+                smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+        for case in ('native_stop_passed','pipe_eof_passed'):
+            value=passing_report();row=next(x for x in value['transitions']if x['case']==case)
+            row['exit_code']=0xc0000005
+            row['shutdown_diagnostic']=dict(record,exit_code=0xc0000005)
+            with self.subTest(case=case),self.assertRaisesRegex(RuntimeError,'graceful shutdown'):
+                smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+            row['exit_code']=0
+            with self.subTest(case=case,forged_zero=True),self.assertRaisesRegex(RuntimeError,'shutdown diagnostic'):
+                smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+
+    def test_retirement_forwards_only_completed_pipe_checkpoint_evidence(self):
+        import threading,time
+        import wgc_session_smoke as runtime
+        import wgc_session_capture as session_module
+        def event():
+            value=threading.Event();value.set();return value
+        for code,data,wanted in ((0xc0000005,b'S1\nS2\nS3\nS4\nS5\nS6\n',True),
+                                 (0,b'S1\nS2\nS3\nS4\nS5\nS6\nS7\n',False),
+                                 (0xc0000005,b'S1\nS3\nprivate data',False)):
+            with self.subTest(code=code,data=data):
+                thread=SimpleNamespace(join=Mock(),is_alive=lambda:False)
+                process=SimpleNamespace(pid=42,returncode=code,poll=lambda:code,
+                    stdin=SimpleNamespace(closed=True),stdout=SimpleNamespace(closed=True),
+                    stderr=SimpleNamespace(closed=True))
+                transport=SimpleNamespace(process=process,diagnostic=bytearray(data),revoked=event(),
+                    ready_for_replacement=event(),worker=thread,watchdog=thread,stderr_done=event(),
+                    io_done=event(),job_closed=True,job=SimpleNamespace(handle=None))
+                fixture=SimpleNamespace(session=session_module,result={'transitions':[]},pump=Mock())
+                row=runtime.Fixture.retirement(fixture,SimpleNamespace(_transport=transport),
+                                              'native_stop_passed',time.monotonic())
+                self.assertEqual(row['exit_code'],code)
+                self.assertEqual('shutdown_diagnostic'in row,wanted)
+                if wanted:
+                    self.assertEqual(row['shutdown_diagnostic']['last_started_stage'],'apartment-uninit')
+                    self.assertEqual(row['shutdown_diagnostic']['exit_code'],code)
+                self.assertEqual(fixture.result['transitions'],[row])
+
     def test_parent_death_requires_exact_handle_and_signaled_exit(self):
         for key,new in (('wait_result',258),('wait_result',False),('elapsed_ms',3501),('exact_handle_observed',False),
                         ('helper_created',0),('helper_sha256','f'*64),('owner_ancestry_verified',False),('helper_ancestry_verified',False)):
@@ -786,6 +837,27 @@ class AcceptanceTests(unittest.TestCase):
                 path=root/'windows-wgc-session-summary.json';report=json.loads(path.read_text())
                 self.assertEqual(report['status'],'failed')
                 self.assertEqual(report['runs'][0]['native_diagnostic'],None if forged else diagnostic)
+                self.assertLess(path.stat().st_size,256*1024)
+
+    def test_summary_preserves_abnormal_shutdown_and_never_promotes_crash(self):
+        diagnostic={'schema_version':1,'exit_code':0xc0000005,'checkpoints':[1,2,3,4,5,6],
+                    'last_started_stage':'apartment-uninit'}
+        with tempfile.TemporaryDirectory()as temporary:
+            root=Path(temporary)
+            for forged in (False,True):
+                row={'case':'native_stop_passed','exit_code':0xc0000005,
+                     'shutdown_diagnostic':copy.deepcopy(diagnostic)}
+                if forged:row['shutdown_diagnostic']['address']='not allowed'
+                original=copy.deepcopy(row)
+                detail={'status':'failed','error':'Native stop/EOF was not graceful','transitions':[row]}
+                value={'status':'failed','runs':[{'app_scale':1,'detail':detail}]}
+                (root/'windows-wgc-session-frozen.json').write_text(json.dumps(value))
+                with redirect_stdout(io.StringIO()):self.assertEqual(smoke.summarize(root),1)
+                path=root/'windows-wgc-session-summary.json';report=json.loads(path.read_text())
+                self.assertEqual(report['status'],'failed');self.assertEqual(row,original)
+                actual=report['runs'][0]['transitions'][0]
+                self.assertEqual(actual['exit_code'],0xc0000005)
+                self.assertEqual(actual.get('shutdown_diagnostic'),None if forged else diagnostic)
                 self.assertLess(path.stat().st_size,256*1024)
 
     def test_frozen_environment_has_no_python_compiler_or_foreign_qt(self):
