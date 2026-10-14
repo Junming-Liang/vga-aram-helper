@@ -246,6 +246,32 @@ class SelectionHarnessTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, 'bound'):
                 smoke.collect_logs(work, reports)
 
+    def test_failed_native_report_is_preserved_exactly_in_rendered_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json';result={}
+            smoke.preserve_native_report(path,reports,result)
+            self.assertEqual(result,{'native_report_present':False})
+            value={'status':'running','phase':'recovering-foreground','checks':['owned pixels'],
+                   'diagnostic_state':{'ocr_busy':True,'capture_pending':True,'status':'fixture state'}}
+            payload=(json.dumps(value,ensure_ascii=False)+'\n').encode('utf-8');path.write_bytes(payload)
+            smoke.preserve_native_report(path,reports,result)
+            self.assertTrue(result['native_report_present'])
+            self.assertEqual(result['native_report_snapshot'],value)
+            self.assertEqual(result['native_report_snapshot_sha256'],smoke.sha256(path))
+            self.assertEqual((reports/path.name).read_bytes(),payload)
+            self.assertNotIn('detail',result)
+            self.assertNotIn('status',result)  # Diagnostic retention never turns a failed run into a pass.
+
+    def test_native_diagnostic_rejects_oversized_invalid_and_nonobject_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json'
+            for payload,error in ((b'x'*(smoke.MAX_LOG_BYTES+1),AssertionError),
+                                  (b'{',json.JSONDecodeError),(b'[]',AssertionError)):
+                with self.subTest(payload_size=len(payload)):
+                    path.write_bytes(payload)
+                    with self.assertRaises(error):smoke.preserve_native_report(path,reports,{})
+                    self.assertFalse((reports/path.name).exists())
+
     def test_lifecycle_contract_launches_new_game_only_after_app_request(self):
         source = Path(smoke.__file__).read_text()
         self.assertLess(source.index("Deadline.wait(awaiting_game"), source.index("game = native.spawn"))

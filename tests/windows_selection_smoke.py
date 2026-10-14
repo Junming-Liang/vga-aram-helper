@@ -358,6 +358,25 @@ def collect_logs(work, reports, prefix='windows-selection-'):
     return names
 
 
+def preserve_native_report(path,reports,result):
+    """Retain the exact owned diagnostic JSON on success OR failure for CI logs."""
+    path=Path(path)
+    result['native_report_present']=path.is_file()
+    if not result['native_report_present']:return
+    if path.stat().st_size>MAX_LOG_BYTES:
+        raise AssertionError('Selection handoff report exceeds 64 KiB')
+    payload=path.read_bytes()
+    if len(payload)>MAX_LOG_BYTES:
+        raise AssertionError('Selection handoff report exceeds 64 KiB')
+    value=json.loads(payload)
+    if type(value) is not dict:
+        raise AssertionError('Selection diagnostic report is not an object')
+    target=Path(reports)/path.name
+    target.write_bytes(payload)
+    result['native_report_snapshot']=value
+    result['native_report_snapshot_sha256']=sha256(target)
+
+
 def execute_run(original, reports, result, *, frozen=True, scale=1):
     # Reserve existing NativeJob failure-cleanup time inside the 240-second bound.
     budget = Deadline(MAX_SECONDS - JOB_CLEANUP_SECONDS)
@@ -462,10 +481,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                         raise RuntimeError('Observer thread DPI context restoration failed')
                 # Read only the current run's unique temporary report; preserve it as small evidence.
                 current_handoff = work / native_report_name(frozen, scale)
-                if current_handoff.is_file():
-                    if current_handoff.stat().st_size > MAX_LOG_BYTES:
-                        raise AssertionError('Selection handoff report exceeds 64 KiB')
-                    shutil.copyfile(current_handoff, reports / current_handoff.name)
+                preserve_native_report(current_handoff,reports,result)
                 result['logs'] = collect_logs(work, reports, artifact_prefix)
 
 

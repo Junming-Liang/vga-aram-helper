@@ -489,6 +489,27 @@ class NativeDesignTests(unittest.TestCase):
         self.assertFalse(w.state.running);self.assertFalse(w.state.confirmed)
         self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
 
+    def test_selection_diagnostic_snapshot_is_bounded_read_only_metadata(self):
+        from selection_session import SelectionSession
+        from selection_smoke import diagnostic_state
+        import json
+        w=self.window;w.state.start((1,10,'owned'));w.state.hero='示例'*100
+        w.selection_session=SelectionSession();session=w.selection_session
+        session.start((1,10,'owned'));session.candidate='9001';session.candidate_frames=1
+        session.stage='assigning';session.last_client_frame=101.;session.reason='r'*1000
+        w.status.setText('s'*1000)
+        before=(w.state.generation,w.state.hero,w.state.confirmed,session.generation,session.candidate_frames)
+        value=diagnostic_state(w,100.,now=102.)
+        self.assertEqual(value['elapsed_seconds'],2.)
+        self.assertEqual(value['session']['last_client_frame_age_seconds'],1.)
+        self.assertEqual(value['session']['candidate_frames'],1)
+        self.assertEqual(value['session']['stage'],'assigning')
+        self.assertEqual(len(value['hero']),80);self.assertEqual(len(value['status']),400)
+        self.assertEqual(len(value['session']['reason']),240)
+        self.assertLess(len(json.dumps(value).encode()),4000)
+        self.assertEqual(before,(w.state.generation,w.state.hero,w.state.confirmed,session.generation,session.candidate_frames))
+        self.assertFalse(set(value)&{'image','screenshot','ocr_lines','window_title','path'})
+
     def test_accessible_switches_keep_real_checkbox_keyboard_and_single_signal(self):
         w=self.window
         self.assertIsInstance(w.hero_auto,QtWidgets.QCheckBox)
