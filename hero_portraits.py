@@ -13,6 +13,7 @@ import re
 import tempfile
 import threading
 import time
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from update_network import fetch_bytes, strict_json, json_bytes, UpdateError
 
@@ -20,11 +21,23 @@ HOSTS=frozenset({'ddragon.leagueoflegends.com'})
 BASE='https://ddragon.leagueoflegends.com'
 VERSION_URL=BASE+'/api/versions.json'
 MAX_PORTRAITS=400
-# Keep cache contention and Windows sharing-lock recovery bounded. Stripes avoid
-# retaining a lock for every historical cache path/version in a long-lived app.
-_CACHE_LOCKS=tuple(threading.Lock() for _ in range(32))
+# Only writers of the exact same resolved path contend. Hash stripes can make
+# an unrelated image's slow fsync exhaust another image's bounded lock wait.
+# Weak entries disappear after their last active/waiting writer drops its
+# strong reference, so old versions/paths do not accumulate in a running app.
+_CACHE_LOCKS=weakref.WeakValueDictionary()
+_CACHE_REGISTRY_LOCK=threading.Lock()
 _CACHE_RETRY_DELAYS=(0.05,0.15,0.3)
 _CACHE_LOCK_TIMEOUT=0.5
+
+
+def _cache_lock(path):
+    key=os.path.normcase(str(Path(path).resolve()))
+    with _CACHE_REGISTRY_LOCK:
+        lock=_CACHE_LOCKS.get(key)
+        if lock is None:
+            lock=threading.Lock();_CACHE_LOCKS[key]=lock
+        return lock
 
 
 def _check_active(cancelled,deadline):
@@ -41,7 +54,7 @@ def _write_cache(path,payload,*,cancelled,deadline):
     """
     path=Path(path)
     from portrait_cache_diagnostics import capture_failure,error_codes
-    lock=_CACHE_LOCKS[hash(os.path.normcase(str(path.resolve())))%len(_CACHE_LOCKS)]
+    lock=_cache_lock(path)
     lock_deadline=min(deadline,time.monotonic()+_CACHE_LOCK_TIMEOUT)
     while True:
         _check_active(cancelled,deadline)
