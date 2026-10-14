@@ -40,7 +40,8 @@ def passing_report(scale=1, frozen=True):
         'helper':{'manifest':proof,'sha256':proof['sha256'],'size':proof['size']},
         'client_rect':{'x':20,'y':20,'width':round(320*scale),'height':round(240*scale)},
         'roi':[round(80*scale),round(60*scale),round(160*scale),round(120*scale)],
-        'helper_process_count':12, 'negative_results':{}}
+        'helper_process_count':12, 'negative_results':{},
+        'job_close_observation':{'wait_result':0,'exit_code':0,'handle_closed':True,'elapsed_ms':10}}
     client=[20,20,round(320*scale),round(240*scale)]
     value['owned_geometry']={'client':list(client),'window':[12,0,client[2]+16,client[3]+28],
                              'frame':[19,0,client[2]+2,client[3]+21]}
@@ -177,6 +178,20 @@ class WgcAcceptanceContractTests(unittest.TestCase):
             value=passing_report();edit(value)
             with self.assertRaises(RuntimeError):
                 smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+
+    def test_job_close_proof_accepts_zero_exit_but_requires_signaled_process(self):
+        for code in (0, 1, 0xFFFFFFFF):
+            value=passing_report();value['job_close_observation']['exit_code']=code
+            smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+        for field, bad in (('wait_result',258),('wait_result',False),('handle_closed',False),
+                           ('exit_code',None),('exit_code',True),('exit_code',-1),
+                           ('elapsed_ms',float('nan')),('elapsed_ms',3501)):
+            value=passing_report();value['job_close_observation'][field]=bad
+            with self.subTest(field=field,bad=bad),self.assertRaises(RuntimeError):
+                smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+        value=passing_report();del value['job_close_observation']
+        with self.assertRaises(RuntimeError):
+            smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
 
     def test_helper_input_is_not_a_user_chosen_target(self):
         module=types.ModuleType('wgc_smoke');module.run=lambda path: 0 if path==Path('wgc.json') else 1

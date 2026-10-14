@@ -27,6 +27,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 from unittest.mock import patch
 
@@ -110,6 +111,20 @@ def assert_pixels(encoded, expected):
     error = max(ImageStat.Stat(ImageChops.difference(actual, expected)).mean)
     require(error <= 2.0, f'OS capture did not match the owned PNG (mean-channel error {error:.3f})')
     return round(error, 4)
+
+
+def make_hidden_capture_observer(real_capture, window_exists, window_visible, overlay_hwnd,
+                                 expected, captured, gui_thread):
+    """Observe the real worker using only GUI-snapshotted native references."""
+    def observe(target, roi, **capture_options):
+        require(threading.get_ident() != gui_thread, 'Normal capture did not run on a worker')
+        require(window_exists(overlay_hwnd) and not window_visible(overlay_hwnd),
+                'GUI capture started without a valid hidden overlay HWND')
+        value = real_capture(target, roi, **capture_options)
+        assert_pixels(value[0], expected)
+        captured.append(True)
+        return value
+    return observe
 
 
 @contextmanager
@@ -360,14 +375,11 @@ def execute(reports, result):
                 captured = []
                 real_capture = control.capture.capture
 
-                def observe_hidden_capture(target, roi):
-                    require(not control.overlay.isVisible() and
-                            not control.capture.u.IsWindowVisible(int(control.overlay.winId())),
-                            'GUI capture started while its own overlay HWND was visible')
-                    value = real_capture(target, roi)
-                    assert_pixels(value[0], expected)
-                    captured.append(True)
-                    return value
+                # Snapshot Qt-derived state on the GUI thread. The observation
+                # executes in the real worker and forwards cancellation/identity.
+                observe_hidden_capture = make_hidden_capture_observer(
+                    real_capture, control.capture.u.IsWindow, control.capture.u.IsWindowVisible,
+                    int(control.overlay.winId()), expected, captured, threading.get_ident())
 
                 with patch.object(control.capture, 'capture', side_effect=observe_hidden_capture), \
                      force_first_copy_blank(control.capture) as ui_calls:

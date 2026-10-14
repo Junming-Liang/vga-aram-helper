@@ -87,6 +87,13 @@ def validate_report(value, *, frozen, scale, helper_build, version=__version__):
         raise RuntimeError('WGC diagnostic did not test the required bounded client ROI')
     if type(value.get('helper_process_count')) is not int or value['helper_process_count'] < 8:
         raise RuntimeError('WGC diagnostic helper lifecycle evidence is missing')
+    closed = value.get('job_close_observation', {})
+    if (type(closed) is not dict or closed.get('handle_closed') is not True
+            or type(closed.get('wait_result')) is not int or closed['wait_result'] != 0
+            or type(closed.get('exit_code')) is not int or not 0 <= closed['exit_code'] <= 2**32-1
+            or type(closed.get('elapsed_ms')) not in (int, float)
+            or not math.isfinite(closed['elapsed_ms']) or not 0 <= closed['elapsed_ms'] <= 3500):
+        raise RuntimeError('Exact owned helper Job-close termination evidence is missing')
     negatives = value.get('negative_results', {})
     for field, status in (('timeout_watchdog_passed','timeout'), ('cancel_during_wait_passed','cancelled'),
                           ('cancel_before_launch_passed','cancelled'), ('protected_window_passed','protected')):
