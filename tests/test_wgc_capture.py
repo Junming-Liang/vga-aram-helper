@@ -279,6 +279,21 @@ class WgcDiagnosticTests(unittest.TestCase):
         identifiers |= {'invariant', 'hresult', 'exception', 'occluder-query', 'occluder-overlap'}
         self.assertEqual(identifiers, DIAGNOSTIC_CHECKS)
 
+    def test_native_mapping_keeps_one_origin_and_all_geometry_snapshots_bound(self):
+        source = (Path(__file__).resolve().parents[1] / 'native/wgc_capture.cpp').read_text()
+        self.assertIn('capture_model(geometry.window, geometry.frame, size.Width, size.Height)', source)
+        self.assertIn('require(model != -1, stale, "capture-origin")', source)
+        self.assertIn('RECT capture_bounds = model == 1 ? geometry.window : geometry.frame;', source)
+        self.assertIn('same(g.window, expected->window)', source)
+        self.assertIn('same(g.frame, expected->frame)', source)
+        self.assertIn('same(g.client, expected->client)', source)
+        self.assertIn('UINT(int64_t(p.x) - capture_bounds.left + p.left)', source)
+        self.assertIn('UINT(int64_t(p.y) - capture_bounds.top + p.top)', source)
+        self.assertIn('require(content.Width == size.Width && content.Height == size.Height', source)
+        self.assertIn('last_content_width, last_content_height, 0, 0, size.Width, size.Height', source)
+        # These evaluate in the mandatory native compiler gate, not just Python.
+        self.assertGreaterEqual(source.count('static_assert(capture_model('), 9)
+
     def test_native_failure_attaches_only_sanitized_evidence_and_closes_both_pipes(self):
         harness = WgcTests(); harness.setUp()
         process = harness.process(12)

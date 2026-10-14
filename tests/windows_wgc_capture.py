@@ -48,7 +48,7 @@ def validate_report(value, *, frozen, scale, helper_build, version=__version__):
         number = value.get(field)
         if type(number) not in (int, float) or not math.isfinite(number) or abs(number-scale) > .01:
             raise RuntimeError('WGC diagnostic DPI evidence differs: ' + field)
-    for field in ('mean_channel_error', 'routed_mean_channel_error'):
+    for field in ('mean_channel_error', 'routed_mean_channel_error', 'borderless_mean_channel_error'):
         number = value.get(field)
         if type(number) not in (int, float) or not math.isfinite(number) or not 0 <= number <= 2.0:
             raise RuntimeError('Native WGC pixel comparison is missing or failed')
@@ -62,6 +62,26 @@ def validate_report(value, *, frozen, scale, helper_build, version=__version__):
             or any(type(number) is not int for number in rect.values())
             or (rect['width'], rect['height']) != (round(320*scale), round(240*scale))):
         raise RuntimeError('WGC diagnostic client physical geometry is invalid')
+    for key in ('owned_geometry', 'borderless_geometry'):
+        geometry = value.get(key)
+        if not isinstance(geometry, dict) or set(geometry) != {'client', 'window', 'frame'}:
+            raise RuntimeError('Owned WGC geometry evidence is missing: ' + key)
+        for bounds in geometry.values():
+            if (type(bounds) is not list or len(bounds) != 4
+                    or any(type(number) is not int or not -(2**31) <= number < 2**31 for number in bounds)
+                    or bounds[2] <= 0 or bounds[3] <= 0 or bounds[2]*bounds[3] > 16_000_000):
+                raise RuntimeError('Owned WGC geometry evidence is malformed: ' + key)
+        x, y, width, height = geometry['client']
+        if (width, height) != (rect['width'], rect['height']):
+            raise RuntimeError('Owned WGC client dimensions differ: ' + key)
+        for outer in (geometry['window'], geometry['frame']):
+            if not (outer[0] <= x and outer[1] <= y and x+width <= outer[0]+outer[2]
+                    and y+height <= outer[1]+outer[3]):
+                raise RuntimeError('Owned WGC bounds do not contain the client: ' + key)
+        if key == 'owned_geometry' and geometry['client'] != [rect['x'], rect['y'], rect['width'], rect['height']]:
+            raise RuntimeError('Decorated WGC client evidence is inconsistent')
+        if key == 'borderless_geometry' and not geometry['client'] == geometry['window'] == geometry['frame']:
+            raise RuntimeError('Borderless WGC evidence does not prove equal bounds')
     expected_roi = [rect['width']//4, rect['height']//4, rect['width']//2, rect['height']//2]
     if value.get('roi') != expected_roi:
         raise RuntimeError('WGC diagnostic did not test the required bounded client ROI')

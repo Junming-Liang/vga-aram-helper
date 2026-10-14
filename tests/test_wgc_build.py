@@ -36,10 +36,15 @@ def passing_report(scale=1, frozen=True):
     value={'schema_version':1, 'status':'passed', 'applicationVersion':smoke.__version__, 'frozen':frozen,
         'qt_platform':'windows', 'last_backend':'windows-graphics-capture', 'requested_app_scale':scale,
         'measured_qt_scale':scale, 'mean_channel_error':0., 'routed_mean_channel_error':0.,
+        'borderless_mean_channel_error':0.,
         'helper':{'manifest':proof,'sha256':proof['sha256'],'size':proof['size']},
         'client_rect':{'x':20,'y':20,'width':round(320*scale),'height':round(240*scale)},
         'roi':[round(80*scale),round(60*scale),round(160*scale),round(120*scale)],
         'helper_process_count':12, 'negative_results':{}}
+    client=[20,20,round(320*scale),round(240*scale)]
+    value['owned_geometry']={'client':list(client),'window':[12,0,client[2]+16,client[3]+28],
+                             'frame':[19,0,client[2]+2,client[3]+21]}
+    value['borderless_geometry']={key:list(client) for key in ('client','window','frame')}
     value.update(dict.fromkeys(smoke.CHECK_FIELDS,True))
     for field,status in (('timeout_watchdog_passed','timeout'),('cancel_during_wait_passed','cancelled'),
                         ('cancel_before_launch_passed','cancelled'),('protected_window_passed','protected')):
@@ -149,6 +154,7 @@ class WgcAcceptanceContractTests(unittest.TestCase):
         for key,new in [('status','unsupported'),('qt_platform','offscreen'),('last_backend','bounded-compositor'),
                         ('frozen',False),('mean_channel_error',20),('routed_mean_channel_error',float('nan')),
                         ('requested_app_scale',2),('helper_process_count',0),('roi',[0,0,320,240]),
+                        ('borderless_mean_channel_error',2.01),('owned_geometry',{}),('borderless_geometry',{}),
                         ('helper',{}),('negative_results',{})]:
             value=passing_report();value[key]=new
             with self.subTest(key=key),self.assertRaises(RuntimeError):
@@ -156,6 +162,20 @@ class WgcAcceptanceContractTests(unittest.TestCase):
         for field in smoke.CHECK_FIELDS:
             value=passing_report();value[field]=False
             with self.subTest(field=field),self.assertRaises(RuntimeError):
+                smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+
+    def test_rejects_malformed_or_inconsistent_owned_geometry(self):
+        edits = (
+            lambda v:v['owned_geometry'].update(client=[21,20,320,240]),
+            lambda v:v['owned_geometry'].update(window=[21,20,320,240]),
+            lambda v:v['owned_geometry'].update(frame=[20,20,319,240]),
+            lambda v:v['owned_geometry'].update(window=[True,20,320,240]),
+            lambda v:v['owned_geometry'].update(window=[20,20,2**31,240]),
+            lambda v:v['borderless_geometry'].update(frame=[19,20,321,240]),
+            lambda v:v['borderless_geometry'].update(client=[20,20,321,240]))
+        for edit in edits:
+            value=passing_report();edit(value)
+            with self.assertRaises(RuntimeError):
                 smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
 
     def test_helper_input_is_not_a_user_chosen_target(self):
