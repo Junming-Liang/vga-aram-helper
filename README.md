@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.5-0891b2" alt="源码版本 v0.4.5"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.6-0891b2" alt="源码版本 v0.4.6"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.5 预览版"></a>
 </p>
 <p align="center">
@@ -81,6 +81,8 @@ v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，�
 
 ## 预览版与兼容性
 
+v0.4.6 源码候选加入明确 HWND 的 Windows Graphics Capture、异步截图、中文精确匹配修正与有界重复 OCR 复用，详见[本轮实现与测试门禁](REFERENCE_OPTIMIZATION.md)。下列 v0.4.5 下载和 Windows 验证为已发布历史版本，不能代替候选版的 Windows 门禁。
+
 [v0.4.5 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079)已通过全部门禁并发布预览版。EXE 为 **106,399,997 字节（101.47 MiB）**；保留既有离线模型和最小 OpenCV 构建配方。下载后请核对同版 SHA-256，完整身份见[体积与哈希记录](WINDOWS_PACKAGE_SIZE.md)。
 
 新增的真实 Windows 源码测试通过自动等待、客户端/游戏接续、已有游戏、重启、窗口重建、最小化恢复、空白回退和遮挡拦截；捕获与原创测试图的平均通道误差均为 0.0。发行商信任仅对测试自产文件注入，不能据此证明真实游戏签名或兼容性。同次构建还通过七项原生缓存共享锁/诊断测试，以及最终 EXE 的 100%/150%/200% 应用缩放、OCR、选人衔接和本地更新事务验收。历史 WinError 5 的具体占用者/原因仍未确定；新增“头像缓存诊断”只提供本机诊断，不自动上传。
@@ -91,7 +93,7 @@ v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以�
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
 
-v0.4.5 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+v0.4.6 候选源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 
 以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 

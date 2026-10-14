@@ -1,5 +1,13 @@
 # Changelog / 变更日志
 
+## 0.4.6 · 可靠性候选
+
+- 原创、明确 HWND 的 Windows Graphics Capture 一次性辅助程序；严格客户区 ROI、绑定身份、取消与超时清理。缺失/不支持时才回退，拒绝/保护/空白不绕过。
+- 截图与 OCR 移出 Qt 控制线程；处理期间隐藏自己的叠加，回传后复核几何与进程身份。
+- 修正中文长标题被短包含词抢先匹配；有界精确索引及 2.5 秒完全相同裁剪复用，首次确认仍需两次独立 OCR。
+- 新增源码/最终 EXE 三档 WGC 门禁，保留旧 GDI、OCR、布局、选人及更新事务门禁。验证范围与设计来源见 [本轮说明](REFERENCE_OPTIMIZATION.md)。
+
+
 ## v0.4.5 — Automatic windows and capture reliability / 自动窗口与捕获修复
 
 ### 简体中文

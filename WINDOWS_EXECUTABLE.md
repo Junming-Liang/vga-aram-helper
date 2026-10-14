@@ -1,5 +1,12 @@
 # Windows 便携版
 
+## v0.4.6 源码候选
+
+本次增加随应用打包的原创 Windows Graphics Capture 辅助程序。在支持的 Windows 上使用明确 HWND 捕获；没有另行安装驱动/运行库的用户步骤。源码直接启动时若尚未编译辅助程序，则使用已有严格客户区 GDI 路径。
+
+维护者应先按本文既有流程准备已同意条款的 Community 工具链，再运行 `python scripts/build_wgc_capture.py`，随后执行原有构建。脚本固定 Windows SDK 10.0.26100.0，验证微软签名编译器与辅助程序/源文件对应关系，并记录编译器和 SDK 头文件哈希；缺失、签名不符或来源不一致会停止构建，不自动安装其他工具。最终发布必须通过 `tests/windows_wgc_capture.py` 源码检查和 `--exe dist/VGA-Aram-Helper.exe` 同字节检查。见[实现、隐私边界与门禁](REFERENCE_OPTIMIZATION.md)。以下 v0.4.5 发布身份是历史记录，不是 v0.4.6 Windows 测试结果。
+
+
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
 **Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.5](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5)，并核对同版 SHA-256；该版本构建结果见 [Windows 发布运行 #14](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079)。

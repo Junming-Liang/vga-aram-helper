@@ -19,3 +19,20 @@ screen_capture.py text eol=lf
 session_windows.py text eol=lf
 tests/windows_automatic_capture.py text eol=lf
 tests/SessionWindowFixture.cs text eol=lf
+
+# Exact-source WGC, OCR and cache evidence must survive Windows checkout.
+local_ocr.py text eol=lf
+ocr_privacy.py text eol=lf
+model_inventory.py text eol=lf
+native_state.py text eol=lf
+engine.py text eol=lf
+frame_ocr_cache.py text eol=lf
+native/wgc_capture.cpp text eol=lf
+wgc_capture.py text eol=lf
+wgc_smoke.py text eol=lf
+launcher.py text eol=lf
+native_smoke.py text eol=lf
+scripts/build_wgc_capture.py text eol=lf
+scripts/build_windows.py text eol=lf
+packaging/VGA-Aram-Helper.spec text eol=lf
+tests/windows_wgc_capture.py text eol=lf

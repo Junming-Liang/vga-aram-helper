@@ -80,6 +80,7 @@ def main(argv=None) -> int:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--version-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--licenses-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--wgc-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--native-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-input", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-report", type=Path, help=argparse.SUPPRESS)
@@ -94,6 +95,13 @@ def main(argv=None) -> int:
     parser.add_argument("--apply-update", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--update-health", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.wgc_smoke_report:
+        if any((args.headless, args.native_smoke_report, args.selection_smoke_input, args.selection_smoke_report,
+                args.apply_update, args.update_health, args.ready_file, args.self_test, args.version_file,
+                args.licenses, args.licenses_file, args.report)):
+            parser.error("WGC diagnostic cannot be combined with another launch mode")
+        from wgc_smoke import run
+        return run(args.wgc_smoke_report)
     if bool(args.selection_smoke_input) != bool(args.selection_smoke_report):
         parser.error("Selection diagnostic input and report must be provided together")
     if args.selection_smoke_input and (args.headless or args.native_smoke_report or args.apply_update or args.update_health or args.ready_file):

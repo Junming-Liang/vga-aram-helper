@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.5-0891b2" alt="Source version v0.4.5"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.6-0891b2" alt="Source version v0.4.6"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.5"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.5 preview"></a>
 </p>
 <p align="center">
@@ -81,6 +81,8 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
+The v0.4.6 source candidate adds explicit-HWND Windows Graphics Capture, asynchronous capture, exact-first Chinese matching and bounded unchanged-crop OCR reuse. See [implementation and mandatory gates](REFERENCE_OPTIMIZATION.md). The v0.4.5 downloads and Windows evidence below remain historical released artifacts; they do not validate this candidate.
+
 [v0.4.5 Windows release validation](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38447380079) passed every gate and published the preview. The EXE is **106,399,997 bytes (101.47 MiB)**, retaining the existing offline models and minimal OpenCV recipe. Verify the matching SHA-256 after downloading; see the [size and hash record](WINDOWS_PACKAGE_SIZE.md).
 
 The new real-Windows source fixture passed waiting, client/game transitions, pre-existing games, restart, HWND recreation, minimize/restore, blank-frame fallback and occlusion rejection. Every capture reported mean-channel error 0.0 against original test images. Publisher trust is injected only for the test-owned executables, so this does not verify real League signatures or compatibility. The same run passed seven native cache sharing-lock/diagnostic tests and final-EXE acceptance at 100%/150%/200% application scale, OCR, selection handoff and local update transactions. The exact owner/cause of the historical WinError 5 remains unknown; the new portrait-cache diagnostics are local and never uploaded automatically.
@@ -91,7 +93,7 @@ v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rig
 
 The [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029) passed at controlled 100%, 150% and 200% application process scaling using the same EXE and a fixed 960×600-pixel original mock window. Checks cover capture/OCR, automatic champion and three-choice display, card bounds and text layout, stale-state clearing and shutdown cleanup. Champion-select recognition and session handoff also passed. The same build’s source matrix passed 35 window cases at 100%–250% scaling, including small-window hiding and recovery. Actual OS DPI, mixed-monitor transitions, fully visible 4K layouts and the cause of the reported user error remain unconfirmed.
 
-In the small public screenshot sample actually rerun with v0.4.5 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
+In the small public screenshot sample actually rerun with v0.4.6 candidate source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 
 The following are **historical v0.3.0 baseline checks**, not proof of the new automatic champion feature:
 

@@ -1,5 +1,15 @@
 # Windows 测试
 
+## v0.4.6 新增发布门禁
+
+- `python tests/windows_wgc_capture.py --reports reports`：真实 Windows 源码、100%/150%/200% 应用缩放，必须使用 WGC，不能以 GDI 或 offscreen 通过。
+- `python tests/windows_wgc_capture.py --exe dist/VGA-Aram-Helper.exe --reports reports`：同一最终 EXE、同辅助程序哈希复验。
+- 原有三档 frozen 原生叠加检查新增两次独立 OCR 后才复用、复用不增加确认帧数、实际 Qt 捕获工作线程与处理期间自己的叠加隐藏。
+- 发布校验绑定完整源文件、编译配方、辅助程序清单、最终 EXE 和三档结果；缺失、不支持、回退、失败或来源不符均不能发布。
+
+这些是门禁定义。实际通过与否需看对应 Actions 证据，不代表已验证真实游戏。详见 [参考项目优化说明](REFERENCE_OPTIMIZATION.md)。
+
+
 仓库提供源码验证和单文件 EXE 验收两条手动工作流。测试结果以对应提交的 Actions 日志和报告为准；已有记录见 [验证状态](reports/VALIDATION.md)。
 
 另有手动只读工作流 `Test native Windows OTA transactions`，复用固定 SHA-256 的已发布 EXE，专门测试同版本原生更新事务、并发互斥和版本不符回滚。它不重新发布软件，也不上传大型二进制产物。范围与尚未覆盖的两版本升级/完整下载交接见 [更新说明](UPDATES.md#原生事务专项验证)；实际结果以该次运行报告为准。

@@ -6,6 +6,7 @@ OCR confidence, name similarity and game win rate are distinct quantities.
 from __future__ import annotations
 import argparse
 from difflib import SequenceMatcher
+from functools import lru_cache
 import io
 import json
 import math
@@ -25,9 +26,51 @@ def normalized_name(text):
     return ''.join(c for c in text.casefold() if c.isalnum())
 
 
+def literal_name(text):
+    """Whitespace/NFKC only, so punctuation-distinct dictionary names stay distinct."""
+    return ''.join(unicodedata.normalize('NFKC', str(text)).split())
+
+
+@lru_cache(maxsize=4)
+def _name_index(names):
+    """Cache dictionary work only, never observations or recommendations.
+
+    The immutable name tuple is the key: replacing or mutating a vocabulary
+    cannot leave removed names active. Four entries bound retained snapshots.
+    """
+    rows=[];exact={}
+    for name in sorted(set(names)):
+        cleaned=normalized_name(name)
+        if not cleaned:continue
+        rows.append((name,cleaned))
+        exact.setdefault(cleaned,[]).append(name)
+    return tuple(rows),{key:tuple(value) for key,value in exact.items()}
+
+
+def _match_name(text, cleaned, dictionary, exact):
+    """Exact first, then unique containment, then conservative review-only fuzzy."""
+    names=exact.get(cleaned,())
+    if names:
+        if len(names)>1:
+            # Normalization may erase meaningful punctuation. Prefer only a
+            # unique literal spelling, otherwise abstain rather than sort a tie.
+            names=tuple(name for name in names if literal_name(name)==literal_name(text))
+        return (1.0,names[0],'exact') if len(names)==1 else None
+    contained=[name for name,normalized in dictionary
+               if len(normalized)>=3 and normalized in cleaned and len(cleaned)<=len(normalized)+8]
+    if contained:
+        return (1.0,contained[0],'contained-name') if len(contained)==1 else None
+    ranked=[(SequenceMatcher(None,cleaned,normalized).ratio(),name,'fuzzy-suggestion')
+            for name,normalized in dictionary]
+    ranked.sort(key=lambda row:(-row[0],row[1]))
+    if not ranked or ranked[0][0]<0.78:return None
+    if len(ranked)>1 and ranked[0][0]-ranked[1][0]<0.1:return None
+    return ranked[0]
+
+
 def candidate_matches(lines, augment_names, min_ocr_confidence=0.55):
     """No invented names: returns dictionary matches, always for user review."""
-    dictionary = [(name, normalized_name(name)) for name in augment_names if isinstance(name,str)]
+    dictionary,exact=_name_index(tuple(name for name in augment_names if isinstance(name,str)))
     output = {}
     for line in lines[:MAX_LINES]:
         text = str(line.get('text',''))[:500]
@@ -35,24 +78,9 @@ def candidate_matches(lines, augment_names, min_ocr_confidence=0.55):
         confidence = line.get('confidence')
         if not isinstance(confidence,(int,float)) or isinstance(confidence,bool) or not math.isfinite(confidence) or not 0 <= confidence <= 1 or confidence < min_ocr_confidence or not cleaned:
             continue
-        ranked = []
-        for name, normalized in dictionary:
-            if not normalized:
-                continue
-            if cleaned == normalized:
-                similarity, method = 1.0, 'exact'
-            elif len(normalized) >= 3 and normalized in cleaned and len(cleaned) <= len(normalized) + 8:
-                similarity, method = 1.0, 'contained-name'
-            else:
-                similarity, method = SequenceMatcher(None,cleaned,normalized).ratio(), 'fuzzy-suggestion'
-            ranked.append((similarity, name, method))
-        ranked.sort(key=lambda row:(-row[0],row[1]))
-        if not ranked or ranked[0][0] < 0.78:
-            continue
-        similarity,name,method=ranked[0]
-        # Ambiguous fuzzy OCR remains unselected; never guess between near ties.
-        if method == 'fuzzy-suggestion' and len(ranked)>1 and similarity-ranked[1][0]<0.1:
-            continue
+        match=_match_name(text,cleaned,dictionary,exact)
+        if match is None:continue
+        similarity,name,method=match
         current = {'name':name, 'recognized_text':text, 'ocr_confidence':round(float(confidence),4),
                    'name_similarity':round(similarity,4), 'match_method':method, 'box':line.get('box'),
                    'requires_confirmation':True}

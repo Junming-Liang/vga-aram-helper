@@ -1,7 +1,9 @@
-"""Ordinary Windows window metadata + GDI client-area pixel capture.
+"""Ordinary Windows window metadata + bounded client-area pixel capture.
 
-No process opening/memory reading, DLL injection, input hooks, game API or input
+No process-memory reading, DLL injection, input hooks, game API or input
 simulation. Only explicitly authorized visible foreground window pixels are copied.
+WGC uses a project-owned one-shot helper, with metadata-only process queries and
+ROI-only GPU readback. Unsupported systems retain the ordinary GDI backend.
 The compositor fallback allocates only the verified client rectangle, never a
 whole-desktop image; every intersecting higher window makes it abstain.
 """
@@ -35,6 +37,11 @@ class Win32Capture:
         if os.name!='nt':raise CaptureUnavailable('窗口像素监测目前仅支持 Windows 10/11。')
         self.u=ctypes.WinDLL('user32',use_last_error=True);self.g=ctypes.WinDLL('gdi32',use_last_error=True)
         self._declare()
+        self._wgc=None;self._wgc_error=None
+        from wgc_capture import WgcCapture,WgcError,WgcUnavailable
+        try:self._wgc=WgcCapture()
+        except WgcUnavailable:pass
+        except WgcError as exc:self._wgc_error=exc
     def _declare(self):
         def sig(dll,name,args,restype):
             fn=getattr(dll,name);fn.argtypes=args;fn.restype=restype
@@ -46,6 +53,7 @@ class Win32Capture:
             ('MonitorFromRect',[ctypes.POINTER(W.RECT),W.DWORD],W.HANDLE),('GetMonitorInfoW',[W.HANDLE,ctypes.c_void_p],W.BOOL),
             ('GetForegroundWindow',[],W.HWND),('GetAncestor',[W.HWND,W.UINT],W.HWND),('GetDC',[W.HWND],W.HDC),('ReleaseDC',[W.HWND,W.HDC],ctypes.c_int),
             ('WindowFromPoint',[W.POINT],W.HWND),('SetWindowDisplayAffinity',[W.HWND,W.DWORD],W.BOOL),
+            ('GetWindowDisplayAffinity',[W.HWND,ctypes.POINTER(W.DWORD)],W.BOOL),
             ('RegisterHotKey',[W.HWND,ctypes.c_int,W.UINT,W.UINT],W.BOOL),('UnregisterHotKey',[W.HWND,ctypes.c_int],W.BOOL),
             ('SetWindowPos',[W.HWND,W.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,W.UINT],W.BOOL)]:sig(self.u,name,args,result)
         try:
@@ -87,6 +95,9 @@ class Win32Capture:
     def validate(self,target,*,check_occlusion=True):
         rect=self.rect(target)
         if not self.foreground(target):raise CapturePaused('等待切回英雄联盟；旧资料已隐藏。')
+        affinity=W.DWORD();query=getattr(self.u,'GetWindowDisplayAffinity',None)
+        if query and query(target.hwnd,ctypes.byref(affinity)) and affinity.value:
+            raise CapturePaused('目标窗口已设置画面保护，本帧不进行截图。')
         if check_occlusion:
             for fx in (.1,.5,.9):
                 for fy in (.1,.5,.9):
@@ -142,10 +153,35 @@ class Win32Capture:
             if old and dc:self.g.SelectObject(dc,old)
             if bitmap:self.g.DeleteObject(bitmap)
             if dc:self.g.DeleteDC(dc)
-    def capture(self,target,roi=(0.,0.,1.,1.)):
-        """HWND first; GPU blank fallback copies ONLY the guarded client ROI."""
+    def capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None):
+        """Capture on a worker; WGC denial/blank frames never trigger GDI."""
+        is_cancelled=(cancelled if callable(cancelled) else cancelled.is_set) if cancelled is not None else lambda:False
+        def check_binding():
+            if expected_metadata is not None:
+                from session_windows import process_metadata
+                try:current=process_metadata(target.pid)
+                except (OSError,ValueError) as exc:raise CapturePaused('截图窗口进程身份无法验证，已跳过本帧。') from exc
+                if current!=expected_metadata:raise CapturePaused('原授权窗口进程已经变化，本帧未进行截图。')
+        if is_cancelled():raise CapturePaused('截图已取消。')
+        check_binding()
         rect=self.validate(target);self.validate_compositor(target,rect)
         left,top,width,height=bounded_roi(rect.width,rect.height,roi)
+        if getattr(self,'_wgc_error',None):raise CapturePaused(str(self._wgc_error))
+        if getattr(self,'_wgc',None) is not None:
+            from wgc_capture import WgcError,WgcUnavailable
+            try:
+                image=self._wgc.capture(target,rect,(left,top,width,height),cancelled=is_cancelled,expected_metadata=expected_metadata)
+                self.validate_compositor(target,rect)
+                check_binding()
+                if is_cancelled():raise CapturePaused('截图已取消。')
+                if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
+                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。')
+                self.last_backend='windows-graphics-capture';self._blank_frames=(None,0)
+                out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+            except WgcUnavailable:self._wgc=None # Unsupported API only; exact GDI bounds remain below.
+            except WgcError as exc:raise CapturePaused(str(exc)) from exc
+        if is_cancelled():raise CapturePaused('截图已取消。')
+        check_binding()
         source=self.u.GetDC(target.hwnd)
         image=None
         if source:
@@ -153,19 +189,23 @@ class Win32Capture:
             except CaptureUnavailable:pass # Pixel backend failure only; authorization is never bypassed.
             finally:self.u.ReleaseDC(target.hwnd,source)
         self.validate_compositor(target,rect)
+        check_binding()
         if image is None or blank_image(image):
             self.validate_compositor(target,rect)
+            check_binding()
             source=self.u.GetDC(None)
             if not source:raise CaptureUnavailable('系统未提供可见窗口画面。')
             try:image=self._copy_pixels(source,width,height,rect.x+left,rect.y+top)
             finally:self.u.ReleaseDC(None,source)
             self.validate_compositor(target,rect)
+            check_binding()
             self.last_backend='bounded-compositor'
         else:self.last_backend='window-dc'
         if blank_image(image):
             key=tuple(target.identity);previous,count=getattr(self,'_blank_frames',(None,0));count=count+1 if previous==key else 1;self._blank_frames=(key,count)
             raise CapturePaused('游戏画面持续为空；仍会重试，独占全屏可尝试无边框模式。' if count>=5 else '等待游戏画面；当前帧为空白，稍后自动重试。')
         self._blank_frames=(None,0)
+        if is_cancelled():raise CapturePaused('截图已取消。')
         out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
     def configure_overlay(self,hwnd,click_through=True):
         style=int(self.get_long(hwnd,-20))|0x00080000|0x08000000|0x00000080 # LAYERED,NOACTIVATE,TOOLWINDOW

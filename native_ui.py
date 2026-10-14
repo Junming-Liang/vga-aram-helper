@@ -15,6 +15,7 @@ import traceback
 import time
 from PySide6 import QtCore,QtGui,QtWidgets
 from native_state import RecognitionState,display_cards,automatic_candidates
+from frame_ocr_cache import FrameOCRCache
 from screen_capture import Win32Capture,CaptureUnavailable,CapturePaused
 
 ROOT=Path(__file__).resolve().parent
@@ -133,7 +134,7 @@ class Overlay(QtWidgets.QWidget):
 class ControlWindow(QtWidgets.QWidget):
     def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None):
         super().__init__();self.state=RecognitionState();self.data=None;self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
-        self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set()
+        self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
         self.signals=TaskSignals(self);self.signals.result.connect(self.task_result);self.signals.error.connect(self.task_error)
@@ -208,7 +209,18 @@ class ControlWindow(QtWidgets.QWidget):
     def target_allowed(self):
         if not self.target:return False
         if self.automatic_policy:return self.automatic_policy.permits(self.target,windows=self.capture.windows())
-        return not self.window_policy or self.window_policy.permits(self.target)
+        if self.window_policy:return self.window_policy.permits(self.target)
+        try:
+            from session_windows import process_metadata
+            return self.target.identity==self.manual_identity and self.manual_metadata is not None and process_metadata(self.target.pid)==self.manual_metadata
+        except (OSError,ValueError):return False
+    def capture_metadata(self):
+        if self.automatic_policy and self.automatic_policy.bound:
+            return self.automatic_policy.bound.metadata
+        if self.window_policy:
+            return self.window_policy.client_meta if self.target.identity==self.window_policy.client_identity else self.window_policy.game_meta
+        if self.manual_metadata is None:raise CapturePaused('目标进程身份尚未确认，请重新开始监测。')
+        return self.manual_metadata
     def client_phase(self):
         if self.automatic_policy:return bool(self.automatic_policy.bound and self.automatic_policy.bound.role=='client')
         return bool(self.window_policy and self.target and self.target.identity==self.window_policy.client_identity)
@@ -283,6 +295,7 @@ class ControlWindow(QtWidgets.QWidget):
         hero=text if self.data and text in self.data.get('heroes',{}) else getattr(self,'hero_aliases',{}).get(text,'')
         self.hero_origin='manual';self.state.select_hero(hero);self.overlay.hide();self.status.setText(self.state.reason)
     def invalidate_scene(self,reason):
+        self._capture_cancel.set();self.ocr_reuse.clear()
         if self.hero_auto.isChecked():
             self.state.clear_hero();self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
         self.state.invalidate(reason)
@@ -302,6 +315,10 @@ class ControlWindow(QtWidgets.QWidget):
             self.automatic_policy=AutomaticWindowPolicy(follow_roles=self.client_follow.isChecked())
             self.state.running=True;self.state.target=None;self.state.invalidate('正在自动寻找英雄联盟；无需选择窗口。')
         else:
+            try:
+                from session_windows import process_metadata
+                self.manual_metadata=process_metadata(self.target.pid);self.manual_identity=self.target.identity
+            except (OSError,ValueError) as exc:return self.status.setText('无法核验所选窗口的进程身份，未开始监测：'+str(exc))
             if self.client_follow.isChecked() and self.target.class_name in ('Chrome_WidgetWin_1','CEFCLIENT'):
                 try:
                     from session_windows import SessionWindowPolicy
@@ -317,6 +334,7 @@ class ControlWindow(QtWidgets.QWidget):
         # different app and never restore/activate the game on the user's behalf.
         if not self.smoke_report and not self.selection_smoke_input:self.showMinimized()
     def stop_monitor(self):
+        self._capture_cancel.set();self.ocr_reuse.clear();self.manual_metadata=None;self.manual_identity=None
         self.discovery_scope+=1;self.discovery_busy=False
         if self.automatic_policy:self.automatic_policy.stop()
         self.automatic_policy=None;self.unverified_candidate=None;self.trust_button.hide()
@@ -364,7 +382,7 @@ class ControlWindow(QtWidgets.QWidget):
                 if self.was_target_foreground:self.invalidate_scene('离开目标窗口，旧资料已隐藏；重新确认后再显示')
                 self.was_target_foreground=False;self.overlay.hide();self.status.setText('等待切回游戏；恢复前台后自动继续。');return
             self.was_target_foreground=True
-            if self.state.confirmed and not self.capture_pending:self.overlay.show_at(rect,self.target)
+            if self.state.confirmed and not self.capture_pending and not self.ocr_busy:self.overlay.show_at(rect,self.target)
         except CapturePaused as exc:
             if self.state.reason!=str(exc):self.invalidate_scene(str(exc))
             self.overlay.hide();self.status.setText(str(exc))
@@ -382,9 +400,8 @@ class ControlWindow(QtWidgets.QWidget):
         try:
             if not self.target_allowed():raise CapturePaused('窗口连接正在更新，稍后自动继续。')
             if self.overlay.isVisible() or (self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId()))):raise CaptureUnavailable('自己的叠加尚未隐藏，已跳过本帧以避免识别反馈。')
-            roi=tuple(spin.value()/100 for spin in self.roi);captured_at=time.monotonic();image,rect=self.capture.capture(self.target,(0.,0.,1.,1.))
-            if not self.target_allowed():raise CapturePaused('截图期间窗口身份变化，已丢弃本帧。')
-            self.last_rect=rect;self.ocr_busy=True;self.ocr_started=time.monotonic();self.ocr_timed_out=False;self.status.setText('正在本机处理所选窗口截图，图片不保存、不上传…')
+            roi=tuple(spin.value()/100 for spin in self.roi)
+            self.ocr_busy=True;self.ocr_started=time.monotonic();self.ocr_timed_out=False;self.status.setText('正在本机处理所选窗口截图，图片不保存、不上传…')
             from local_ocr import LocalOCR
             if not hasattr(self,'ocr'):self.ocr=LocalOCR()
             matcher=self.hero_matcher if self.hero_auto.isChecked() else None
@@ -405,10 +422,21 @@ class ControlWindow(QtWidgets.QWidget):
                     for row in roster.get('data',{}).values():aliases.setdefault(str(row.get('key')),[]).extend([row.get('name',''),row.get('title','')])
                 except (OSError,ValueError,KeyError,TypeError):pass
                 self.selection_detector=ChampionSelectDetector(aliases,self.ocr)
+            # Capture and inference share the serialized worker. WGC's native
+            # wait must never block the Qt message loop or Stop/Close controls.
+            # Snapshot all Qt-derived choices here; no worker reads widgets.
+            capture=self.capture;vocabulary=tuple(self.data['augments']);expected_metadata=self.capture_metadata()
+            self._capture_cancel=threading.Event();cancelled=self._capture_cancel
+            detector=self.selection_detector
+            reuse_allowed=self.state.confirmed and self.state.confirmation_mode=='automatic'
+            scoped_ocr=self.ocr_reuse.scoped(self.ocr,(frame_window.identity,roi,'game'),allow_reuse=reuse_allowed)
             def infer():
                 from hero_recognition import recognize_frame
-                result=self.selection_detector.recognize(image) if client_phase else recognize_frame(image,roi,self.ocr,self.data['augments'],matcher)
-                result['_capturedAt']=captured_at;result['_sessionGeneration']=session_generation;result['_windowIdentity']=frame_window.identity;return result
+                if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
+                captured_at=time.monotonic();image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata)
+                if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
+                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,scoped_ocr,vocabulary,matcher)
+                result['_capturedAt']=captured_at;result['_sessionGeneration']=session_generation;result['_windowIdentity']=frame_window.identity;result['_captureRect']=rect;return result
             self.spawn('selection' if client_phase else 'ocr',infer,generation)
         except CapturePaused as exc:
             self.ocr_busy=False
@@ -416,6 +444,22 @@ class ControlWindow(QtWidgets.QWidget):
             self.status.setText(str(exc));self.overlay.hide()
         except Exception as exc:
             self.ocr_busy=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc));self.status.setText(self.state.reason);self.overlay.hide()
+    def captured_frame_current(self,value):
+        # Production workers always attach capture geometry. Validate on the Qt
+        # thread again after inference, including advanced manual targets.
+        rect=value.get('_captureRect')
+        if rect is None:
+            # Only explicit self-owned diagnostic launch modes inject synthetic
+            # handler results. Ordinary monitoring requires capture provenance.
+            if self.smoke_report or self.selection_smoke_input:return True
+            self.invalidate_scene('截图来源信息缺失，已丢弃识别结果。');self.overlay.hide();return False
+        try:
+            if not self.target or tuple(value.get('_windowIdentity',()))!=self.target.identity or not self.target_allowed() or not self.capture.foreground(self.target) or self.capture.rect(self.target)!=rect:
+                raise CapturePaused('识别期间窗口身份、位置或大小变化，已丢弃旧画面。')
+            self.last_rect=rect
+            return True
+        except (CapturePaused,CaptureUnavailable) as exc:
+            self.invalidate_scene(str(exc));self.overlay.hide();self.status.setText(str(exc));return False
     def confirm(self, *, automatic=False, captured_at=None):
         try:
             self.state.confirm([edit.text() for edit in self.inputs],self.data['augments'],automatic=automatic);self.last_observation=captured_at if captured_at is not None else time.monotonic()
@@ -460,6 +504,7 @@ class ControlWindow(QtWidgets.QWidget):
         elif kind=='selection':
             self.ocr_busy=False
             if not self.state.running or generation!=self.state.generation or not self.selection_session:return
+            if not self.captured_frame_current(value):return
             if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                 self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
             now=time.monotonic();stable=self.selection_session.observe_client(value,self.target.identity,value.get('_capturedAt'),now,generation=value.get('_sessionGeneration'))
@@ -472,6 +517,7 @@ class ControlWindow(QtWidgets.QWidget):
         elif kind=='ocr':
             self.ocr_busy=False
             if not self.state.running or generation!=self.state.generation:return
+            if not self.captured_frame_current(value):return
             if (self.window_policy or self.automatic_policy) and (not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity):
                 if self.selection_session:self.selection_session.clear('Game permission changed during inference')
                 self.invalidate_scene('游戏窗口身份变化，旧资料已清空');self.overlay.hide();return
@@ -499,8 +545,12 @@ class ControlWindow(QtWidgets.QWidget):
                 self.hero_box.blockSignals(True);self.hero_box.setCurrentText(self.state.hero);self.hero_box.blockSignals(False)
                 self.hero_status.setText((self.state.hero+' · '+observation.get('reason','')) if hero_stable else observation.get('reason','本人头像尚不确定')+'；等待新画面或人工纠正')
             safe_candidates=automatic_candidates(auto_candidates,value.get('image_size'))
+            if value.get('ocr_reused') is True and not self.state.confirmed:
+                self.ocr_reuse.clear();self.overlay.hide();return
             if self.state.confirmed and self.state.confirmation_mode=='automatic' and not safe_candidates:self.state.invalidate('候选置信度或三卡布局不足，旧资料已隐藏')
-            stable=self.state.observe(names,generation=self.state.generation);automatic_stable=self.state.observe_automatic_candidates(names,safe_candidates);self.last_observation=captured_at
+            stable=self.state.observe(names,generation=self.state.generation)
+            automatic_stable=(self.state.confirmed and self.state.confirmation_mode=='automatic') if value.get('ocr_reused') is True else self.state.observe_automatic_candidates(names,safe_candidates)
+            self.last_observation=captured_at
             if not self.state.confirmed:self.overlay.hide()
             if stable and not self.state.confirmed and not self.manual_editing:
                 for edit,name in zip(self.inputs,names):edit.setText(name)
@@ -579,6 +629,7 @@ class ControlWindow(QtWidgets.QWidget):
             if msg.message==0x0312 and msg.wParam==0x5647:self.toggle_clickthrough();return True,0
         return super().nativeEvent(event_type,message)
     def closeEvent(self,event):
+        self._capture_cancel.set();self.ocr_reuse.clear()
         with self._worker_lock:self.closed=True;self._cancel_workers.set();jobs=list(self._workers)
         if self.selection_session:self.selection_session.stop()
         if self.window_policy:self.window_policy.stop()

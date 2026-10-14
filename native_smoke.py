@@ -131,9 +131,11 @@ def start_smoke(control,report_path,screenshot_path):
         QtCore.QTimer.singleShot(700,lambda:run(capture))
     def capture():
         target=control.capture.info(int(mock.winId()));control.target=target
+        from session_windows import process_metadata
+        control.manual_metadata=process_metadata(target.pid);control.manual_identity=target.identity
         control.overlay.hide();captured_at=time.monotonic();bytes_,rect=control.capture.capture(target)
         report['capture_passed']=True;report['captureBytes']=len(bytes_);report['clientRect']={'x':rect.x,'y':rect.y,'width':rect.width,'height':rect.height}
-        checks.append('GDI captured only selected mock client area into an in-memory PNG')
+        checks.append('Windows capture returned only selected mock client area into an in-memory PNG')
         from local_ocr import LocalOCR
         engine=LocalOCR();control.ocr=engine
         expected=['星火共鸣','晶盾回路','风步微光']
@@ -143,7 +145,8 @@ def start_smoke(control,report_path,screenshot_path):
             control.overlay.hide();assert not control.overlay.isVisible()
             assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
             captured_at=time.monotonic();pixels,_=control.capture.capture(target)
-            value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
+            scoped=control.ocr_reuse.scoped(engine,(target.identity,(.15,.25,.7,.35),'game'),allow_reuse=control.state.confirmed and control.state.confirmation_mode=='automatic')
+            value=recognize_frame(pixels,(.15,.25,.7,.35),scoped,control.data['augments'],control.hero_matcher)
             if time.monotonic()-captured_at>3:
                 captured_at=time.monotonic();pixels,_=control.capture.capture(target);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
             value['_capturedAt']=captured_at
@@ -156,6 +159,12 @@ def start_smoke(control,report_path,screenshot_path):
         assert control.hero_auto.isChecked() and not control.hero_box.isEnabled()
         report.update(automatic_hero_passed=True,automatic_choices_passed=True,auto_without_manual_hero_selection=True,own_overlay_hidden_capture_passed=True)
         report['ocr_passed']=True;report['recognized']=names;checks.append('Actual OS capture + original synthetic portrait matcher + OCR feed production handlers; two frames auto-confirm hero and three cards without hero selection or confirm click')
+        independent_misses=control.ocr_reuse.misses;independent_frames=control.state.automatic_frames
+        reused=observe_current()
+        assert reused.get('ocr_reused') is True and control.ocr_reuse.misses==independent_misses
+        assert control.state.confirmed and control.state.automatic_frames==independent_frames
+        report['unchanged_frame_ocr_reuse_passed']=True
+        checks.append('A third fresh owned-window capture reuses byte-identical title OCR only after two independent confirmations; reused OCR does not increase confirmation counters')
         report['targetForegroundBefore']=int(control.capture.u.GetForegroundWindow() or 0)
         unknown={**result,'hero_observation':{'hero':None,'confident':False,'reason':'Synthetic unknown portrait'},'_capturedAt':time.monotonic()}
         control.task_result('ocr',unknown,control.state.generation);assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True
@@ -182,7 +191,23 @@ def start_smoke(control,report_path,screenshot_path):
         report.update(source_tier_display_passed=True,source_tier_screen_order_preserved=True,source_tier_no_winrate_display=True,
                       source_tier_rendered=[widget.text() for widget in control.overlay.tier_labels])
         checks.append('Actual native source-tier labels are hero-specific literals; null/unknown remain ungraded; screen order preserved with no win-rate/rank/best-choice fields')
-        QtCore.QTimer.singleShot(250,lambda:run(verify_overlay))
+        QtCore.QTimer.singleShot(50,lambda:run(verify_async_capture))
+    def verify_async_capture():
+        before=control.last_observation;deadline=time.monotonic()+8;busy_ticks=[]
+        control.capture_tick()
+        def poll():
+            assert time.monotonic()<deadline,'Production asynchronous capture/OCR did not finish within its stale limit'
+            if control.ocr_busy:
+                busy_ticks.append(time.monotonic())
+                control.check_target()
+                assert not control.overlay.isVisible(),'Watchdog restored own overlay during capture/inference'
+            if control.capture_pending or control.ocr_busy:
+                QtCore.QTimer.singleShot(20,lambda:run(poll));return
+            assert busy_ticks and control.last_observation>before and control.state.confirmed
+            report['async_capture_ui_passed']=True
+            checks.append('Actual frozen production capture worker completed while Qt timers ran; watchdog kept own overlay hidden until the accepted fresh result')
+            QtCore.QTimer.singleShot(250,lambda:run(verify_overlay))
+        QtCore.QTimer.singleShot(20,lambda:run(poll))
     def verify_overlay():
         names=report['recognized'];overlay=control.overlay;u=control.capture.u;hwnd=int(overlay.winId());style=int(control.capture.get_long(hwnd,-20))
         assert style&0x80000 and style&0x08000000 and style&0x20 and style&0x8,hex(style)
