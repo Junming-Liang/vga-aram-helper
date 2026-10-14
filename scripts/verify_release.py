@@ -380,6 +380,7 @@ def verify_native_scale(files, checksum, version, scale, prefix):
     require((client['width'], client['height']) == (960, 600), 'Native mock client must remain physical 960x600: ' + prefix)
     require(contains_rectangle(work, mock) and contains_rectangle(mock, client) and
             contains_rectangle(client, overlay, strict=True), 'Native physical windows escaped their required bounds: ' + prefix)
+    require(overlay['height']*2<=client['height'], 'Native overlay exceeds the half-client-height budget: ' + prefix)
     verify_png(files[prefix + '-overlay.png'])
     return {key: native[key] for key in ('requested_app_scale', 'mock_qwindow_dpr', 'overlay_qwindow_dpr',
         'desktop_work_area_physical', 'mock_window_physical', 'clientRect', 'overlay_window_physical',
