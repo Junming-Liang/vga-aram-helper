@@ -13,44 +13,60 @@ of Windows checks passed.
 ## What has and has not been run
 
 The implementation and portable protocol/build/report-validator tests can be
-checked on Linux. They do not execute WGC, exercise Windows handles, validate the
-SDK compiler, or prove source/frozen Windows behavior. Controlled Windows run 29
-passed the 125 regression tests and compiled the native helper, then failed in
-source fixture setup before capture: the initial hidden overlay's
-`SetWindowDisplayAffinity(hwnd, 0x11)` returned false. That run recorded no WinError,
-DWM state or affinity readback, so it does **not** distinguish a platform limitation
-from first-show/Qt realization behavior. Native capture and source/frozen acceptance
-remain unproven. An unsupported desktop, an offscreen Qt backend, a missing helper,
-and a static-window freshness timeout are failures, not skipped passes.
+checked on Linux. They do not execute WGC or prove source/frozen Windows behavior.
+Controlled Windows run 29 passed 125 regression tests and compiled the native
+helper, then failed before capture when the hidden translucent Qt overlay could
+not acquire exact `WDA_EXCLUDEFROMCAPTURE` (`0x11`).
 
-### Overlay setup diagnostics after run 29
+Run 30 passed 129 regression tests and again compiled the helper. Its more
+specific evidence on Windows build 20348 showed `SetWindowDisplayAffinity`
+returning false with WinError 8 both before and after first show/paint. The same
+HWND remained self-owned, top-level, layered and style-identical, with DWM
+composition enabled. Affinity readback succeeded but remained zero, including
+after hiding. First-show realization therefore did not resolve that failure.
+The numeric error does not by itself establish actual memory exhaustion, a broad
+OS limitation, or a cause inside Qt. No session pixels or frozen result passed in
+those runs. Source/frozen acceptance remains unproven; unsupported setups and
+static-window freshness timeouts are failures, not skipped passes.
+
+### Explicit rendering-profile comparison after run 30
 
 Microsoft documents an owned top-level HWND and DWM composition for
 [SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity),
-with exact `WDA_EXCLUDEFROMCAPTURE` support starting in Windows 10 version 2004.
+with exact `0x11` support starting in Windows 10 version 2004.
 [GetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowdisplayaffinity)
-also requires a layered window. Visibility is not documented as a prerequisite;
-first-show behavior is a hypothesis to test, not an explanation established by
-the failed run. Qt documents that its Windows translucent QWidget path requires
-a frameless top-level window; the fixture already uses that path.
+also requires a layered window. Visibility is not documented as a prerequisite.
+The matching upstream [Qt 6.11.2 backing-store source](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/windows/qwindowsbackingstore.cpp)
+uses the per-pixel layered-window update path for alpha-capable frameless raster
+windows. Its [window implementation](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/windows/qwindowswindow.cpp)
+uses the separate layered-attributes path for non-alpha windows. These sources
+motivate a controlled renderer comparison; they do not establish the cause of
+WinError 8. No upstream implementation is copied.
 
-Before any capture, the fixture now preserves the initial hidden call and its
-immediate WinError, then shows/paints the **same owned synthetic overlay** once,
-performs one bounded same-HWND retry of exact `0x11`, and hides it again. No style
-weakening, unlayered replacement, alternate affinity value, OS setting change or
-capture bypass is allowed. The shown retry must succeed and read back exact
-`0x11`; the hidden window must retain that exact setting. Changed HWND/style,
-non-owned/non-root HWND, unavailable DWM, `WDA_MONITOR` readback or another failure
-still fails the fixture before capture.
+The next experiment preselects an **opaque redirected Qt fixture profile** before
+attempting either profile. It first records a separate translucent compatibility
+probe, including the original hidden call, one same-HWND shown retry, immediate
+WinErrors, exact readback and hidden retention. That probe is destroyed and its
+native destruction verified before any session or overlay registration. A failed
+translucent affinity attempt remains a recorded failure for that profile; it
+cannot be represented as passing production-overlay evidence.
 
-`windows_version` is recorded before setup can fail. At most six bounded
-`overlay_setup` records cover the registered overlay and same-process look-alike:
-creation-hidden, realized-visible, and verified-hidden. They record immediate
-set/get WinErrors, DWM HRESULT/composition, actual/full expected styles, visibility,
-valid-root/self-owner observations and whether Qt retained the same HWND. No
-window titles, image paths, screenshots or foreign process/window details are
-included. This diagnostic sequence has portable regression coverage; actual
-Windows results are still required before attributing the original failure.
+The fixed active profile and the later same-process look-alike are non-alpha,
+opaque Qt windows. They retain the same required layered, topmost, tool,
+nonactivating and click-through native styles. Both must obtain and retain exact
+`0x11`; no alternate affinity, style relaxation, OS setting change, capture
+fallback or success-dependent renderer switch is allowed. Full actual Qt
+alpha/opacity and native style observations are bound into the source/frozen
+reports. Wrong owner/root/HWND/style or unavailable DWM fails the comparison,
+even for the nonblocking translucent affinity probe.
+
+Any success applies only to the explicitly named opaque fixture profile. The
+production translucent overlay is unchanged and its compatibility remains
+unproven. All existing pixel, fresh-request, static-window, idle-occlusion,
+hidden-only CPU-request, cancellation and lifetime gates still apply unchanged.
+The comparison does not prove fullscreen visibility or authorize production
+integration. Numeric setup records contain only bounded self-owned metadata,
+not screenshots, window titles or external process details.
 
 ## Existing approved Windows build environment only
 

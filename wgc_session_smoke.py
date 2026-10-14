@@ -45,9 +45,17 @@ LIMITATIONS = {
     'teardown_50ms_guaranteed': False,
     'dpi_scope': 'Process-local Qt scale, measured physical dimensions; no system display/DPI changes.',
     'production_enabled': False,
+    'production_translucent_compatibility_proven': False,
     'parent_death_scope': 'Eventual exact helper cleanup; parent death also destroys the owned target. Separate suspended Job-close evidence isolates the kernel lifetime mechanism.',
     'focus_race': 'Guards run before and after each readback; a concurrent focus/identity change can overlap a GPU copy. Changed results are discarded. No atomic zero CPU activity after the exact focus-loss instant is claimed.',
 }
+OPAQUE_PROFILE = 'qt-opaque-redirected-v1'
+TRANSLUCENT_PROFILE = 'qt-translucent-comparison-v1'
+OVERLAY_REQUIRED_STYLE = 0x080800a8
+QT_OVERLAY_FIELDS = ('qt_translucent_background','qt_opaque_paint_event',
+                     'qt_surface_has_alpha','qt_surface_alpha_buffer_size','qt_opacity')
+OVERLAY_PROFILE_ROLES = {'translucent-probe': TRANSLUCENT_PROFILE,
+                         'registered-overlay': OPAQUE_PROFILE, 'lookalike-occluder': OPAQUE_PROFILE}
 COLORS = ((226, 61, 82), (45, 188, 137), (68, 109, 231), (243, 196, 54))
 
 
@@ -80,6 +88,32 @@ def pixel_error(image, rect, roi, colors=COLORS):
     return round(error, 4)
 
 
+def qt_overlay_observation(widget):
+    """Read the Qt window's actual reported surface format, without changing it."""
+    from PySide6 import QtCore
+    handle=widget.windowHandle()
+    require(handle is not None,'Owned overlay has no Qt native window handle')
+    surface=handle.format()
+    return {'qt_translucent_background':bool(widget.testAttribute(QtCore.Qt.WA_TranslucentBackground)),
+            'qt_opaque_paint_event':bool(widget.testAttribute(QtCore.Qt.WA_OpaquePaintEvent)),
+            'qt_surface_has_alpha':bool(surface.hasAlpha()),
+            'qt_surface_alpha_buffer_size':int(surface.alphaBufferSize()),
+            'qt_opacity':float(widget.windowOpacity())}
+
+
+def overlay_profile_matches(row,profile,stage):
+    if (row['qt_opacity']!=1.0 or not -1<=row['qt_surface_alpha_buffer_size']<=64
+            or row['qt_surface_has_alpha']!=(row['qt_surface_alpha_buffer_size']>0)):return False
+    if profile==OPAQUE_PROFILE:
+        return (not row['qt_translucent_background'] and row['qt_opaque_paint_event']
+                and not row['qt_surface_has_alpha'] and row['qt_surface_alpha_buffer_size'] in (-1,0))
+    if profile==TRANSLUCENT_PROFILE:
+        return (row['qt_translucent_background'] and not row['qt_opaque_paint_event']
+                and (stage=='created-hidden' or (row['qt_surface_has_alpha']
+                     and row['qt_surface_alpha_buffer_size']>0)))
+    return False
+
+
 def overlay_observation(user,dwm,hwnd,expected_style,owner_pid,*,stage,attempt=False):
     """Bounded own-window metadata; preserve each WinError before other calls.
 
@@ -100,9 +134,12 @@ def overlay_observation(user,dwm,hwnd,expected_style,owner_pid,*,stage,attempt=F
          'style':style,'extended_style':extended_style,'expected_extended_style':expected_style,
          'dwm_hresult':hr&0xffffffff,'dwm_composing':bool(hr>=0 and composed.value),
          'set_attempted':False,'set_ok':False,'set_winerror':0}
-    # A diagnostic must never change a foreign or replaced window just to learn
-    # why it failed. Only our same valid root HWND can receive the exact setting.
-    if attempt and exists and top_level and row['owner_is_self']:
+    # A diagnostic never modifies a foreign, replaced, structurally wrong, or
+    # noncomposed window just to learn why it failed.
+    if (attempt and exists and top_level and row['owner_is_self'] and row['dwm_composing']
+            and extended_style==expected_style
+            and extended_style&OVERLAY_REQUIRED_STYLE==OVERLAY_REQUIRED_STYLE
+            and not extended_style&0x00200000 and style&0x80000000 and not style&0x40c40000):
         ctypes.set_last_error(0)
         success=bool(user.SetWindowDisplayAffinity(hwnd,0x11))
         error=ctypes.get_last_error()
@@ -111,46 +148,71 @@ def overlay_observation(user,dwm,hwnd,expected_style,owner_pid,*,stage,attempt=F
     success=bool(user.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)))
     error=ctypes.get_last_error()
     row.update(affinity_query_ok=success,affinity_winerror=error,affinity=affinity.value)
+    color=W.DWORD();alpha=W.BYTE();flags=W.DWORD();ctypes.set_last_error(0)
+    success=bool(user.GetLayeredWindowAttributes(hwnd,ctypes.byref(color),ctypes.byref(alpha),ctypes.byref(flags)))
+    error=ctypes.get_last_error()
+    row.update(layered_attributes_query_ok=success,layered_attributes_winerror=error,
+               layered_color_key=color.value,layered_alpha=alpha.value,layered_flags=flags.value)
     return row
 
 
 def prepare_owned_overlay(widget,user,dwm,hwnd,expected_style,owner_pid,pump,result,*,label):
-    """Realize one original Qt HWND before requiring exact exclusion/readback.
+    """Compare separately constructed profiles; only the named probe may fail WDA.
 
-    The hidden call is evidence, not a supported-OS verdict. One bounded retry
-    follows the first show/paint; no capture helper exists yet. Never substitute
-    WDA_MONITOR, remove layered styles, or weaken the hidden-request contract.
+    The opaque profile is preselected, never a success-dependent fallback. The
+    hidden affinity call is evidence; one bounded retry follows first show/paint.
+    Never substitute WDA_MONITOR, alter the original translucent renderer with
+    SetLayeredWindowAttributes, or weaken the hidden-request contract.
     """
-    require(label in ('registered-overlay','lookalike-occluder'), 'Unknown owned overlay role')
+    require(label in OVERLAY_PROFILE_ROLES,'Unknown owned overlay role')
+    profile=OVERLAY_PROFILE_ROLES[label]
     rows=result.setdefault('overlay_setup',[])
-    require(len(rows)<=3,'Owned overlay setup observation budget exceeded')
+    require(len(rows)<=6 and not any(row['role']==label for row in rows),
+            'Owned overlay setup observation budget exceeded or role repeated')
     def observe(stage,attempt=False):
-        row=overlay_observation(user,dwm,hwnd,expected_style,owner_pid,stage=stage,attempt=attempt)
-        row['role']=label;row['hwnd_unchanged']=int(widget.winId())==hwnd
+        qt=qt_overlay_observation(widget);same=int(widget.winId())==hwnd
+        row=overlay_observation(user,dwm,hwnd,expected_style,owner_pid,stage=stage,
+                                attempt=attempt and same and overlay_profile_matches(qt,profile,stage))
+        row.update(qt,role=label,profile=profile,hwnd_unchanged=same)
         rows.append(row)
         return row
     def identity(row):
         return (row['hwnd_unchanged'] and row['is_window'] and row['top_level']
-                and row['owner_is_self'] and row['extended_style']==expected_style)
+                and row['owner_is_self'] and row['extended_style']==expected_style
+                and row['extended_style']&OVERLAY_REQUIRED_STYLE==OVERLAY_REQUIRED_STYLE
+                and not row['extended_style']&0x00200000
+                and row['style']&0x80000000 and not row['style']&0x40c40000
+                and (row['style']&~0x10000000)==(before['style']&~0x10000000))
+    def rendering(row):
+        valid=overlay_profile_matches(row,profile,row['stage'])
+        if profile==OPAQUE_PROFILE:
+            valid=valid and row['layered_attributes_query_ok'] and row['layered_color_key']==0 \
+                  and row['layered_alpha']==255 and row['layered_flags']==2
+        return valid
     before=observe('created-hidden',True)
-    require(identity(before),'Owned overlay identity/styles invalid before first show')
-    shown=None
+    require(identity(before) and not before['visible'],'Owned overlay identity/styles invalid before first show')
+    require(before['dwm_composing'],'Owned overlay requires DWM before first show')
+    require(rendering(before),'Owned overlay rendering profile invalid before first show')
     try:
         widget.show();widget.update();pump(.12)
-        # Rebinding to a different Qt-generated HWND would hide the root cause.
-        # Inspect without mutating when the original handle changed.
-        same=int(widget.winId())==hwnd
-        shown=observe('realized-visible',same)
+        shown=observe('realized-visible',True)
         require(identity(shown),'Owned overlay identity/styles changed during first show')
-        require(shown['visible'],'Owned overlay was not realized visibly')
-        require(shown['dwm_composing'] and shown['set_ok'] and shown['affinity_query_ok'] and shown['affinity']==0x11,
-                'Owned overlay exact exclusion unavailable after realization; see overlay_setup diagnostics')
+        require(shown['visible'] and shown['dwm_composing'],'Owned overlay was not realized visibly with DWM')
+        require(rendering(shown),'Owned overlay rendering profile changed during first show')
     finally:
         widget.hide();pump(.04)
         hidden=observe('verified-hidden')
-    require(identity(hidden) and not hidden['visible'] and hidden['dwm_composing']
-            and hidden['affinity_query_ok'] and hidden['affinity']==0x11,
-            'Owned overlay did not retain exact exclusion while hidden; see overlay_setup diagnostics')
+    require(identity(hidden) and not hidden['visible'] and hidden['dwm_composing'],
+            'Owned overlay identity/styles invalid after hiding')
+    require(rendering(hidden) and all(shown[key]==hidden[key] for key in QT_OVERLAY_FIELDS),
+            'Owned overlay rendering profile changed while hidden')
+    shown_excluded=shown['set_ok'] and shown['affinity_query_ok'] and shown['affinity']==0x11
+    hidden_excluded=hidden['affinity_query_ok'] and hidden['affinity']==0x11
+    if profile==OPAQUE_PROFILE:
+        require(shown_excluded,'Owned overlay exact exclusion unavailable after realization; see overlay_setup diagnostics')
+        require(hidden_excluded,'Owned overlay did not retain exact exclusion while hidden; see overlay_setup diagnostics')
+    return {'profile':profile,**{key:shown[key]for key in QT_OVERLAY_FIELDS},
+            **({'exclusion_available':bool(shown_excluded and hidden_excluded)}if profile==TRANSLUCENT_PROFILE else {})}
 
 
 class Fixture:
@@ -174,6 +236,8 @@ class Fixture:
             ('ShowWindow', [W.HWND, ctypes.c_int], W.BOOL),
             ('SetWindowDisplayAffinity', [W.HWND, W.DWORD], W.BOOL),
             ('GetWindowDisplayAffinity', [W.HWND, ctypes.POINTER(W.DWORD)], W.BOOL),
+            ('SetLayeredWindowAttributes', [W.HWND, W.DWORD, W.BYTE, W.DWORD], W.BOOL),
+            ('GetLayeredWindowAttributes', [W.HWND, ctypes.POINTER(W.DWORD), ctypes.POINTER(W.BYTE), ctypes.POINTER(W.DWORD)], W.BOOL),
             ('GetWindowLongPtrW', [W.HWND, ctypes.c_int], ctypes.c_ssize_t),
             ('SetWindowLongPtrW', [W.HWND, ctypes.c_int, ctypes.c_ssize_t], ctypes.c_ssize_t),
             ('SetWindowPos', [W.HWND, W.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, W.UINT], W.BOOL),
@@ -186,34 +250,46 @@ class Fixture:
         self.dwm.DwmIsCompositionEnabled.restype=ctypes.c_long
         self.old_dpi = self.u.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
         require(self.old_dpi, 'Cannot establish PMv2 fixture observer coordinates')
-        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        require(self.app.platformName().lower() == 'windows', 'Actual Windows Qt platform required')
-        result['qt_platform'] = self.app.platformName()
-        self.window = self.new_target()
-        self.overlay = QtWidgets.QWidget(None, QtCore.Qt.Tool | QtCore.Qt.FramelessWindowHint |
-            QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.WindowDoesNotAcceptFocus | QtCore.Qt.WindowTransparentForInput)
-        self.overlay.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
-        self.overlay.setAttribute(QtCore.Qt.WA_TranslucentBackground)
-        self.overlay.setStyleSheet('background-color: rgba(90, 70, 210, 180);')
-        self.overlay.resize(80, 60); self.overlay.move(100, 100)
-        self.overlay_hwnd = int(self.overlay.winId()); self.windows.append(self.overlay)
-        style = int(self.u.GetWindowLongPtrW(self.overlay_hwnd, -20)) & 0xffffffff
-        self.overlay_style = style | session.REQUIRED_OVERLAY_STYLE
-        self.u.SetWindowLongPtrW(self.overlay_hwnd, -20, self.overlay_style)
-        require((int(self.u.GetWindowLongPtrW(self.overlay_hwnd, -20)) & 0xffffffff) == self.overlay_style,
-                'Cannot establish exact own overlay extended style')
-        require(self.u.SetWindowPos(self.overlay_hwnd, ctypes.c_void_p(-1), 0, 0, 0, 0, 0x13),
-                'Cannot establish owned overlay topmost style')
         try:
-            prepare_owned_overlay(self.overlay,self.u,self.dwm,self.overlay_hwnd,self.overlay_style,
-                                  os.getpid(),self.pump,result,label='registered-overlay')
+            self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            require(self.app.platformName().lower() == 'windows', 'Actual Windows Qt platform required')
+            result['qt_platform'] = self.app.platformName()
+            self.initialize_windows(result)
         except BaseException:
-            # Initialization has not returned to execute(), so its normal finally
-            # cannot own these windows yet. No helper/session has been started.
-            for widget in self.windows:
-                widget.close();widget.destroy()
-            self.app.processEvents();self.u.SetThreadDpiAwarenessContext(self.old_dpi)
+            # No helper/session exists until construction returns. Do not leave
+            # visible windows or changed thread DPI after any setup failure.
+            try:
+                for widget in self.windows:
+                    try:
+                        try:widget.close()
+                        finally:widget.destroy()
+                    except Exception:pass
+                if hasattr(self,'app'):self.app.processEvents()
+            finally:
+                self.u.SetThreadDpiAwarenessContext(self.old_dpi)
             raise
+
+    def initialize_windows(self,result):
+        result['overlay_rendering']={'active_profile':OPAQUE_PROFILE,
+            'selection':'preselected-before-probe','production_translucent_compatibility_proven':False}
+        self.window = self.new_target()
+        probe,probe_hwnd,probe_style=self.new_overlay(TRANSLUCENT_PROFILE)
+        try:
+            result['overlay_rendering']['translucent_probe']=prepare_owned_overlay(
+                probe,self.u,self.dwm,probe_hwnd,probe_style,os.getpid(),self.pump,result,label='translucent-probe')
+        finally:
+            try:probe.close()
+            finally:probe.destroy()
+            self.app.processEvents()
+            destroyed=not bool(self.u.IsWindow(probe_hwnd))
+            if 'translucent_probe'in result['overlay_rendering']:
+                result['overlay_rendering']['translucent_probe']['destroyed_before_registration']=bool(destroyed and not self.sessions)
+            require(destroyed and not self.sessions,'Original translucent probe survived before registration')
+            self.windows.remove(probe)
+        self.overlay,self.overlay_hwnd,self.overlay_style=self.new_overlay(OPAQUE_PROFILE)
+        result['overlay_rendering']['registered_overlay']=prepare_owned_overlay(
+            self.overlay,self.u,self.dwm,self.overlay_hwnd,self.overlay_style,
+            os.getpid(),self.pump,result,label='registered-overlay')
         self.overlay.hide(); self.focus(self.window)
         self.refresh_target()
         self.roi = (self.rect.width//4, self.rect.height//4, self.rect.width//2, self.rect.height//2)
@@ -227,9 +303,49 @@ class Fixture:
                       requests=[], transitions=[], negative_results={})
         # Animate only a corner OUTSIDE the tested ROI so fresh WGC frames keep
         # arriving even when the main quadrants deliberately remain unchanged.
-        self.timer = QtCore.QTimer()
+        self.timer = self.QtCore.QTimer()
         self.timer.timeout.connect(self.tick)
         self.timer.start(25)
+
+
+    def new_overlay(self,profile):
+        require(profile in (OPAQUE_PROFILE,TRANSLUCENT_PROFILE),'Unknown owned overlay rendering profile')
+        QtCore,QtGui,QtWidgets=self.QtCore,self.QtGui,self.QtWidgets
+        class OpaqueOverlay(QtWidgets.QWidget):
+            def paintEvent(self,event):
+                painter=QtGui.QPainter(self)
+                painter.fillRect(self.rect(),QtGui.QColor(90,70,210))
+        widget_type=OpaqueOverlay if profile==OPAQUE_PROFILE else QtWidgets.QWidget
+        widget=widget_type(None,QtCore.Qt.Tool|QtCore.Qt.FramelessWindowHint|
+            QtCore.Qt.WindowStaysOnTopHint|QtCore.Qt.WindowDoesNotAcceptFocus|QtCore.Qt.WindowTransparentForInput)
+        self.windows.append(widget)
+        widget.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
+        widget.setAttribute(QtCore.Qt.WA_TranslucentBackground,profile==TRANSLUCENT_PROFILE)
+        widget.setAttribute(QtCore.Qt.WA_OpaquePaintEvent,profile==OPAQUE_PROFILE)
+        widget.setWindowOpacity(1.0)
+        if profile==TRANSLUCENT_PROFILE:
+            widget.setStyleSheet('background-color: rgba(90, 70, 210, 180);')
+        widget.resize(80,60);widget.move(100,100)
+        hwnd=int(widget.winId())
+        # Check ownership before configuring a native window, not just before WDA.
+        pid=W.DWORD();owner_thread=self.u.GetWindowThreadProcessId(hwnd,ctypes.byref(pid))
+        require(self.u.IsWindow(hwnd) and int(self.u.GetAncestor(hwnd,2)or 0)==hwnd
+                and owner_thread and pid.value==os.getpid(),'Refuse to configure a non-owned root overlay')
+        style=(int(self.u.GetWindowLongPtrW(hwnd,-20))&0xffffffff)|self.session.REQUIRED_OVERLAY_STYLE
+        self.u.SetWindowLongPtrW(hwnd,-20,style)
+        require((int(self.u.GetWindowLongPtrW(hwnd,-20))&0xffffffff)==style,
+                'Cannot establish exact own overlay extended style')
+        require(self.u.SetWindowPos(hwnd,ctypes.c_void_p(-1),0,0,0,0,0x13),
+                'Cannot establish owned overlay topmost style')
+        if profile==OPAQUE_PROFILE:
+            qt=qt_overlay_observation(widget)
+            require(overlay_profile_matches(qt,profile,'created-hidden'),
+                    'Opaque fixture Qt rendering profile mismatch: '+json.dumps(qt,sort_keys=True))
+            ctypes.set_last_error(0)
+            success=bool(self.u.SetLayeredWindowAttributes(hwnd,0,255,2))
+            error=ctypes.get_last_error()
+            require(success,'Cannot establish opaque redirected layered attributes; WinError='+str(error))
+        return widget,hwnd,style
 
     def new_target(self):
         QtCore, QtGui, QtWidgets = self.QtCore, self.QtGui, self.QtWidgets
@@ -270,6 +386,8 @@ class Fixture:
         require(self.target.pid == os.getpid(), 'Fixture may capture only its own target')
 
     def new_session(self, overlay=False):
+        require(self.result['overlay_rendering']['translucent_probe']['destroyed_before_registration'],
+                'Translucent compatibility probe must be destroyed before any session')
         self.overlay.hide(); self.pump(.02); self.focus(self.window)
         session = self.session.WgcSessionCapture(experimental=True)
         self.sessions.append(session)
@@ -449,12 +567,11 @@ def execute(result):
         cover.setAttribute(f.QtCore.Qt.WA_ShowWithoutActivating)
         cover.resize(70,60); cover.move(120,120); f.windows.append(cover)
         f.mutate_idle('other_same_process_occluder_rejected',cover.show,cover.hide)
-        cover_hwnd=int(cover.winId())
-        cover_style=int(f.u.GetWindowLongPtrW(cover_hwnd,-20))&0xffffffff
-        f.u.SetWindowLongPtrW(cover_hwnd,-20,cover_style|f.session.REQUIRED_OVERLAY_STYLE)
-        prepare_owned_overlay(cover,f.u,f.dwm,cover_hwnd,cover_style|f.session.REQUIRED_OVERLAY_STYLE,
-                              os.getpid(),f.pump,result,label='lookalike-occluder')
-        f.mutate_idle('layered_same_process_occluder_rejected',cover.show,cover.hide,overlay=True)
+        lookalike,lookalike_hwnd,lookalike_style=f.new_overlay(OPAQUE_PROFILE)
+        result['overlay_rendering']['lookalike_occluder']=prepare_owned_overlay(
+            lookalike,f.u,f.dwm,lookalike_hwnd,lookalike_style,
+            os.getpid(),f.pump,result,label='lookalike-occluder')
+        f.mutate_idle('layered_same_process_occluder_rejected',lookalike.show,lookalike.hide,overlay=True)
         other=f.QtWidgets.QWidget(); other.resize(120,80); other.move(700,30); f.windows.append(other)
         f.mutate_idle('focus_loss_rejected',lambda:f.focus(other),lambda:(other.hide(),f.focus(f.window)))
         old=f.window.pos()
