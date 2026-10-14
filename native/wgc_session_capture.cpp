@@ -39,7 +39,7 @@ using winrt::Windows::Foundation::Metadata::ApiInformation;
 namespace {
 constexpr int unsupported = 10, timed_out = 11, stale = 12, protected_content = 13, failed = 14;
 constexpr uint64_t pixel_budget = 16000000;
-// Failure-only metadata protocol on stderr. All strings are static IDs, all
+// Failure metadata protocol on stderr. All strings are static IDs, all
 // values are numeric dimensions/styles/clocks; never titles, paths, IDs or pixels.
 // stdout remains exclusively the exact ROI pixel protocol on successful capture.
 struct ClockDiagnostic {
@@ -115,6 +115,20 @@ void report_failure(int code, char const* check, uint32_t hresult = 0) noexcept 
         DWORD written = 0;
         WriteFile(GetStdHandle(STD_ERROR_HANDLE), data, DWORD(count), &written, nullptr);
     }
+}
+// Seven fixed 3-byte checkpoints, surfaced only for nonzero process exit after
+// complete pipe cleanup. They identify the last reached main-thread checkpoint,
+// not the faulting thread/operation or a crash cause. No exception handling,
+// retries, teardown reordering or success conversion. The existing parent cap
+// covers the entire transcript: 21 bytes plus the bounded failure JSON.
+enum class ShutdownStage : char {
+    frame_arrived_revoke = '1', item_closed_revoke = '2', session_close = '3',
+    pool_close = '4', local_release = '5', apartment_uninit = '6', process_return = '7'
+};
+void shutdown_checkpoint(ShutdownStage stage) noexcept {
+    char const data[]{'S', static_cast<char>(stage), '\n'};
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), data, DWORD(sizeof(data)), &written, nullptr);
 }
 struct Handle {
     HANDLE value = nullptr;
@@ -645,10 +659,15 @@ void run(Input const& p) {
         write_all(&idle, sizeof(idle));
     }
     phase("shutdown");
+    shutdown_checkpoint(ShutdownStage::frame_arrived_revoke);
     pool.FrameArrived(arrived);
+    shutdown_checkpoint(ShutdownStage::item_closed_revoke);
     item.Closed(closed);
+    shutdown_checkpoint(ShutdownStage::session_close);
     session.Close();
+    shutdown_checkpoint(ShutdownStage::pool_close);
     pool.Close();
+    shutdown_checkpoint(ShutdownStage::local_release);
     // Native driver Close can block. Parent Job kill/request deadline is separate
     // from this thread. The 25 ms schedule is NOT a 50 ms teardown guarantee.
 }
@@ -668,7 +687,9 @@ int wmain(int argc, wchar_t** argv) {
             AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2), failed, "dpi-context");
         init_apartment(apartment_type::multi_threaded);
         run(p);
+        shutdown_checkpoint(ShutdownStage::apartment_uninit);
         uninit_apartment();
+        shutdown_checkpoint(ShutdownStage::process_return);
         return 0;
     } catch (Failure const& error) { report_failure(error.code, error.check); return error.code; }
       catch (hresult_error const& error) {
