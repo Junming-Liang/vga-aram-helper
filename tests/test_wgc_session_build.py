@@ -288,11 +288,16 @@ class AcceptanceTests(unittest.TestCase):
 
     def test_linux_diagnostic_is_failure_not_skipped_pass(self):
         import wgc_session_smoke
-        with tempfile.TemporaryDirectory()as temporary,patch.object(wgc_session_smoke.os,'name','posix'):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory()as temporary:
             path=Path(temporary)/'report.json'
-            self.assertEqual(wgc_session_smoke.run(path),1)
+            # Replace only this module's platform observation. Mutating the
+            # shared os.name also changes pathlib's host path implementation.
+            with patch.object(wgc_session_smoke,'os',SimpleNamespace(name='posix')):
+                self.assertEqual(wgc_session_smoke.run(path),1)
             value=json.loads(path.read_text())
             self.assertEqual(value['status'],'failed');self.assertNotIn('owned_pixels_passed',value)
+            self.assertIn('Actual Windows x64 desktop is mandatory',value['error'])
 
 
 if __name__=='__main__':unittest.main()

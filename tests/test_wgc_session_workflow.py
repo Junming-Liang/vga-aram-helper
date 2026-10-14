@@ -61,9 +61,11 @@ class ExperimentWorkflowTests(unittest.TestCase):
         self.assertEqual(upload['with']['retention-days'], '1')
 
     def test_every_exact_manifest_input_has_lf_checkout_bytes(self):
-        result = subprocess.check_output(['git', 'check-attr', 'eol', '--stdin'], cwd=ROOT,
-                                         input='\n'.join(SOURCE_FILES) + '\n', text=True)
-        self.assertEqual(result.splitlines(), [name + ': eol: lf' for name in SOURCE_FILES])
+        # Binary NUL input/output avoids Windows text-mode CRLF translation.
+        result = subprocess.check_output(['git', 'check-attr', '-z', 'eol', '--stdin'], cwd=ROOT,
+                                         input=b'\0'.join(name.encode('utf-8') for name in SOURCE_FILES) + b'\0')
+        self.assertEqual(result.split(b'\0')[:-1],
+                         [part for name in SOURCE_FILES for part in (name.encode('utf-8'), b'eol', b'lf')])
 
 
 if __name__ == '__main__':
