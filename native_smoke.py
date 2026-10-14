@@ -7,9 +7,11 @@ from pathlib import Path
 import ctypes
 from ctypes import wintypes as W
 import json
+import hashlib
 import math
 import os
 import sys
+import threading
 import time
 import traceback
 from PySide6 import QtCore,QtGui,QtWidgets
@@ -21,7 +23,7 @@ def smoke_dimensions(width,height):
         raise ValueError('Physical desktop work area cannot fit the fixed960x600 own-HUD mock with20px margins')
     return 960,600
 
-def smoke_pixmap(portrait,cards_path,width,height,dpr):
+def smoke_pixmap(portrait,cards_path,width,height,dpr,*,changed_roi=False):
     """Original fixed-physical diagnostic artwork, never a user screenshot."""
     from PIL import Image
     from synthetic_vision import frame,encoded
@@ -29,6 +31,10 @@ def smoke_pixmap(portrait,cards_path,width,height,dpr):
     canvas=frame(portrait,width=width,height=height)
     cards=Image.open(cards_path).convert('RGB').resize((width,height),Image.Resampling.LANCZOS)
     canvas.paste(cards.crop((0,0,width,round(height*.8))),(0,0))
+    if changed_roi:
+        # Original non-text animation analogue: inside the candidate crop but
+        # entirely above the .32h+ title band and outside the own-HUD input.
+        left,top=round(width*.20),round(height*.27);canvas.paste((75,60,85),(left,top,left+12,top+12))
     pixmap=QtGui.QPixmap()
     if not pixmap.loadFromData(encoded(canvas)):raise RuntimeError('Original mock artwork could not be decoded')
     pixmap.setDevicePixelRatio(dpr)
@@ -75,13 +81,268 @@ def inspect_smoke_layout(overlay):
     return rows
 
 
+class OverlayDutyTrace:
+    """Diagnostic sampled HWND duty cycle; never a production speed claim.
+
+    Native visibility is sampled at capture boundaries, phase dispatch and Qt
+    timer ticks. Durations use the preceding sample, so the maximum sample gap
+    is reported alongside them. The old hide-until-final policy is an explicit
+    same-run counterfactual, not a measurement of another executable.
+    """
+    def __init__(self,name,*,clock=time.monotonic):
+        self.name=name;self.clock=clock;self.started=clock();self.events={}
+        self.samples=[];self.phases=[];self.helpers=[];self.holds={};self.hold_started={};self.hold_elapsed={}
+        self.held_state_samples=0;self.qt_show_events_during_capture=0;self.capture_active=False;self.capture_count=0;self.capture_concurrency=0;self.max_capture_concurrency=0;self.finished=False;self.stopped=False;self.error=None
+        self.lock=threading.Lock()
+    def mark(self,name):
+        with self.lock:self.events[name]=(self.clock()-self.started)*1000
+    def sample(self,visible,*,capturing=False):
+        with self.lock:self.samples.append(((self.clock()-self.started)*1000,bool(visible),bool(capturing)))
+    def summary(self):
+        total=self.events['final']
+        points=sorted((min(stamp,total),shown,capturing) for stamp,shown,capturing in self.samples);hidden=visible=inference_visible=gap=0.;capture_samples=capture_visible=0
+        for index,(stamp,shown,capturing) in enumerate(points):
+            if capturing:capture_samples+=1;capture_visible+=int(shown)
+            if index+1<len(points):
+                elapsed=points[index+1][0]-stamp;gap=max(gap,elapsed)
+                if shown:
+                    visible+=elapsed
+                    inference_visible+=max(0.,points[index+1][0]-max(stamp,self.events.get('capture_return',float('inf'))))
+                else:hidden+=elapsed
+        return {'name':self.name,'status':'passed','timings_ms':{key:round(value,3) for key,value in self.events.items()},
+                'total_ms':round(total,3),'sampled_hidden_ms':round(hidden,3),'sampled_visible_ms':round(visible,3),
+                'sampled_inference_visible_ms':round(inference_visible,3),'max_sample_gap_ms':round(gap,3),'native_visibility_samples':len(points),
+                'capture_samples':capture_samples,'capture_visible_samples':capture_visible,
+                'capture_count':self.capture_count,'max_capture_concurrency':self.max_capture_concurrency,'held_state_unchanged_samples':self.held_state_samples,
+                'qt_show_events_during_capture':self.qt_show_events_during_capture,
+                'sampled_visibility_transitions':[{'at_ms':round(stamp,3),'visible':shown} for index,(stamp,shown,_) in enumerate(points) if index==0 or shown!=points[index-1][1]],
+                'artificial_holds_ms':{key:round(value,3) for key,value in self.hold_elapsed.items()},
+                'old_hide_until_final_policy_counterfactual_ms':round(total,3),
+                'comparison_scope':'Counterfactual whole-cycle hidden duration on this same instrumented run; not a measured baseline executable',
+                'phases':self.phases}
+
+
+def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,done):
+    """Actual owned-window acquisition and handlers, with explicit phase holds.
+
+    Only diagnostics wrap production recognize_frame and Popen, forwarding
+    all arguments and results unchanged. No recognition result is mocked.
+    The concrete PortraitMatcher remains installed so its exact early HUD
+    input signature is exercised before expensive matching and real OCR.
+    """
+    from hero_recognition import PortraitMatcher
+    import hero_recognition
+    import wgc_capture
+    from session_windows import process_metadata
+    overlay=control.overlay;hwnd=int(overlay.winId());capture_adapter=control.capture
+    original_recognize=hero_recognition.recognize_frame;original_capture=capture_adapter.capture
+    original_compositor=capture_adapter.validate_compositor;original_popen=wgc_capture.subprocess.Popen
+    original_schedule=control.schedule_capture;active=[None];rows=[];main_thread=threading.get_ident()
+    control.monitor.stop();control.schedule_capture=lambda delay=None:None
+    control.hero_auto.setChecked(True);control.state.clear_hero();control.ocr_reuse.clear()
+    control._accepted_frame=None;control.overlay.hide()
+    report['overlay_duty_cycle']={'schema_version':1,'scope':'Original synthetic native Windows HWND + real capture/PortraitMatcher/OCR; controlled diagnostic holds, not live-game or user-machine latency',
+        'artificial_hold_target_ms':350,'cases':rows}
+    def snapshot():
+        return {'last_observation':control.last_observation,'automatic_frames':control.state.automatic_frames,
+                'hero_stable_frames':control.state.hero_stable_frames,'stable_frames':control.state.stable_frames,
+                'generation':control.state.generation,'accepted_observed_at':control._accepted_frame['observed_at'] if control._accepted_frame else None}
+    def native_visible():return bool(u.IsWindowVisible(hwnd))
+    def helper_cleanup(trace):
+        helper=getattr(capture_adapter,'_wgc',None)
+        return all(process.poll() is not None for process in trace.helpers) and not getattr(helper,'_pending_cleanup',None) and not getattr(helper,'_pending_job',None)
+    class VisibilityGuard(QtCore.QObject):
+        def eventFilter(self,watched,event):
+            trace=active[0]
+            if trace is not None and trace.capture_active and event.type()==QtCore.QEvent.Type.Show:
+                trace.qt_show_events_during_capture+=1;trace.error=AssertionError('Own overlay Show event during native capture/helper lifetime')
+            return False
+    visibility_guard=VisibilityGuard(overlay);overlay.installEventFilter(visibility_guard)
+    def watched_popen(args,*arguments,**keywords):
+        process=original_popen(args,*arguments,**keywords);trace=active[0]
+        helper=getattr(capture_adapter,'_wgc',None)
+        if trace is not None and helper is not None and args and str(args[0])==str(helper.helper_path):trace.helpers.append(process)
+        return process
+    def watched_compositor(*arguments,**keywords):
+        value=original_compositor(*arguments,**keywords);trace=active[0]
+        if trace is not None and threading.get_ident()==main_thread:trace.mark('gui_compositor_validated')
+        return value
+    def watched_capture(*arguments,**keywords):
+        trace=active[0]
+        if trace is None:return original_capture(*arguments,**keywords)
+        trace.capture_active=True;trace.capture_count+=1;trace.capture_concurrency+=1;trace.max_capture_concurrency=max(trace.max_capture_concurrency,trace.capture_concurrency)
+        trace.mark('capture_start');trace.sample(native_visible(),capturing=True)
+        assert not native_visible(),'Own native overlay visible at pixel acquisition entry'
+        try:
+            value=original_capture(*arguments,**keywords)
+            assert not native_visible(),'Own native overlay visible before capture/helper return'
+            assert helper_cleanup(trace),'Capture helper has not fully exited/cleaned up'
+            trace.sample(native_visible(),capturing=True);trace.mark('capture_return')
+            trace.backend=capture_adapter.last_backend;return value
+        finally:trace.capture_active=False;trace.capture_concurrency-=1
+    def watched_recognize(*arguments,before_match=None,before_ocr=None,**keywords):
+        trace=active[0]
+        assert type(arguments[4]) is PortraitMatcher,'Duty probe must exercise the concrete production matcher'
+        def phase(name,callback,*values):
+            assert trace is not None and 'capture_return' in trace.events and helper_cleanup(trace),'Phase preceded completed native capture/helper cleanup'
+            trace.mark(name+'_emitted')
+            if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+                trace.holds[name]=threading.Event();trace.hold_started[name]=time.monotonic()
+            callback(*values)
+            if name in trace.holds:
+                assert trace.holds[name].wait(4),'GUI did not release diagnostic phase hold'
+                trace.hold_elapsed[name]=(time.monotonic()-trace.hold_started[name])*1000
+        return original_recognize(*arguments,before_match=lambda *values:phase('before_match',before_match,*values),
+            before_ocr=lambda *values:phase('before_ocr',before_ocr,*values),**keywords)
+    def observed(kind,value,generation):
+        trace=active[0]
+        if trace is None or kind not in ('capture-proof','ocr'):return
+        try:
+            if kind=='capture-proof':
+                name='before_ocr' if 'hero_observation' in value else 'before_match';trace.mark(name+'_applied')
+                current_rect=capture_adapter.rect(control.target);accepted=trace.accepted or {}
+                def rectangle(rect):return {key:getattr(rect,key) for key in ('x','y','width','height')}
+                scope=value['_frameScope']
+                current=(tuple(value['_windowIdentity'])==control.target.identity and capture_adapter.rect(control.target)==value['_captureRect']
+                    and capture_adapter.foreground(control.target) and control.target_allowed())
+                phase={'name':name,'emitted_ms':round(trace.events[name+'_emitted'],3),'applied_ms':round(trace.events[name+'_applied'],3),
+                    'compositor_validated_ms':round(trace.events.get('gui_compositor_validated',-1),3),'restored':bool(control._restore_while_ocr),'qt_visible':overlay.isVisible(),'native_visible':native_visible(),
+                    'state_unchanged':snapshot()==trace.before,'state_before':trace.before,'state_at_phase':snapshot(),
+                    'current_identity_geometry_focus':bool(current),'helper_cleanup_complete':bool(helper_cleanup(trace)),
+                    'window_identity':list(value['_windowIdentity']),'current_window_identity':list(control.target.identity),
+                    'capture_rect':rectangle(value['_captureRect']),'current_rect':rectangle(current_rect),
+                    'candidate_roi_sha256':value.get('_roiDigest'),'accepted_candidate_roi_sha256':accepted.get('digest'),
+                    'hud_input_sha256':value.get('_hudInputDigest'),'accepted_hud_input_sha256':accepted.get('hud_digest'),
+                    'scope_matches_accepted':scope==accepted.get('scope'),'roi':list(scope[3]),
+                    'vocabulary_sha256':hashlib.sha256(json.dumps(scope[4],ensure_ascii=False).encode()).hexdigest(),
+                    'source_metadata_sha256':hashlib.sha256(scope[5][1].encode()).hexdigest(),
+                    'matcher_type':type(control.hero_matcher).__name__,'matcher_instance_matches_accepted':bool(accepted and scope[6][0] is accepted['scope'][6][0] is control.hero_matcher),
+                    'matcher_configuration':[control.hero_matcher.minimum_score,control.hero_matcher.minimum_margin],
+                    'capture_serial':value['_captureSerial'],'captured_at':value['_capturedAt'],
+                    'compositor_checked_after_capture':trace.events.get('gui_compositor_validated',-1)>=trace.events['capture_return']}
+                trace.phases.append(phase)
+                assert helper_cleanup(trace) and current,'Native capture proof is no longer current'
+                if trace.name in ('unchanged','stop_late'):
+                    assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
+                elif trace.name in ('changed_roi','changed_hud','unknown_hud'):
+                    assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
+                    assert phase['state_unchanged'],'Intermediate proof must not refresh TTL or confirmation counters'
+            else:
+                trace.mark('final');trace.sample(native_visible());trace.finished=True
+                trace.final_generation=generation;trace.final_value=value
+        except Exception as exc:trace.error=AssertionError(trace.name+': '+str(exc));trace.finished=True
+    def observed_error(kind,error,generation):
+        trace=active[0]
+        if trace is not None and kind=='ocr':trace.error=AssertionError('Production duty capture '+trace.name+' failed: '+error);trace.finished=True
+    capture_adapter.capture=watched_capture;capture_adapter.validate_compositor=watched_compositor
+    hero_recognition.recognize_frame=watched_recognize;wgc_capture.subprocess.Popen=watched_popen
+    control.signals.result.connect(observed);control.signals.error.connect(observed_error)
+    def cleanup():
+        trace=active[0]
+        if trace:
+            for release in trace.holds.values():release.set()
+        overlay.removeEventFilter(visibility_guard);visibility_guard.deleteLater()
+        capture_adapter.capture=original_capture;capture_adapter.validate_compositor=original_compositor
+        hero_recognition.recognize_frame=original_recognize;wgc_capture.subprocess.Popen=original_popen
+        control.signals.result.disconnect(observed);control.signals.error.disconnect(observed_error)
+        control.schedule_capture=original_schedule;control.monitor.stop();active[0]=None;control._smoke_duty_cleanup=None
+    # Failures release only our diagnostic holds before ordinary shutdown.
+    control._smoke_duty_cleanup=cleanup
+    def begin(name,done):
+        assert not control.ocr_busy and not control.capture_pending
+        trace=OverlayDutyTrace(name);trace.before=snapshot();trace.accepted=control._accepted_frame;active[0]=trace
+        report['overlay_duty_cycle']['active_case']={'name':name,'timings_ms':trace.events,'phases':trace.phases}
+        trace.sample(native_visible());control.capture_tick();trace.sample(native_visible())
+        deadline=time.monotonic()+8
+        def poll():
+            try:
+                assert time.monotonic()<deadline,'Production duty capture exceeded its existing timeout'
+                if trace.error:raise trace.error
+                if trace.capture_active:assert not native_visible() and not overlay.isVisible(),'Own overlay visible during native pixel acquisition'
+                if not trace.finished:
+                    control.check_target();trace.sample(native_visible(),capturing=trace.capture_active)
+                    for name,release in list(trace.holds.items()):
+                        if release.is_set() or name+'_applied' not in trace.events:continue
+                        assert snapshot()==trace.before,'TTL or confirmation counters changed during diagnostic inference hold'
+                        trace.held_state_samples+=1
+                        if time.monotonic()-trace.hold_started[name]<.35:continue
+                        if trace.name=='stop_late' and name=='before_ocr':
+                            trace.mark('stop');started=time.monotonic();control.stop_monitor();trace.stop_ms=(time.monotonic()-started)*1000;trace.stopped=True
+                            assert not native_visible() and not overlay.isVisible() and not control.state.running and not control.state.confirmed
+                            trace.sample(native_visible())
+                        release.set()
+                    QtCore.QTimer.singleShot(10,lambda:run(poll));return
+                assert not control.ocr_busy and not control.capture_pending
+                if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+                    value=trace.summary();value.update(capture_backend=trace.backend,helper_count=len(trace.helpers),helper_exit_codes=[process.poll() for process in trace.helpers],
+                        helper_cleanup_complete_before_phase=all(phase['helper_cleanup_complete'] for phase in trace.phases),
+                        final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=overlay.isVisible(),final_native_visible=native_visible(),
+                        final_state_generation=control.state.generation,final_result_generation=trace.final_generation,final_captured_at=trace.final_value['_capturedAt'],
+                        final_last_observation=control.last_observation,final_candidate_names=[item['name'] for item in trace.final_value.get('automatic_candidates',[])],final_hero_observation={key:trace.final_value['hero_observation'].get(key) for key in ('hero','confident')})
+                    assert value['capture_samples']>=2 and value['capture_visible_samples']==0 and value['qt_show_events_during_capture']==0
+                    assert [phase['name'] for phase in value['phases']]==['before_match','before_ocr']
+                    assert all(phase['state_unchanged'] for phase in value['phases'])
+                    if trace.name=='unchanged':
+                        assert control.state.confirmed and control.state.confirmation_mode=='automatic' and value['sampled_inference_visible_ms']>=500
+                        assert trace.final_value['hero_observation']['hero']=='星火术士（演示）'
+                    elif trace.name=='changed_roi':
+                        value['fixture_change']='Original 12x12 non-text patch inside candidate ROI, above title band; synthetic animation analogue, not actual gameplay measurement'
+                        assert control.state.confirmed and overlay.isVisible() and native_visible() and value['sampled_inference_visible_ms']==0
+                        assert value['final_candidate_names']==['星火共鸣','晶盾回路','风步微光']
+                        assert all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in value['phases'])
+                    elif trace.name in ('changed_hud','unknown_hud'):
+                        assert not control.state.confirmed and not native_visible() and value['sampled_inference_visible_ms']==0
+                        hero=trace.final_value['hero_observation']
+                        assert (hero.get('hero')=='磐石守卫（演示）' and hero.get('confident') is True) if trace.name=='changed_hud' else hero.get('confident') is not True
+                    else:
+                        value.update(stop_return_ms=round(trace.stop_ms,3),late_final_discarded=bool(trace.stopped and trace.events['final']>trace.events['stop']
+                            and trace.final_generation!=control.state.generation and not control.state.running and not control.state.confirmed and not native_visible() and control._accepted_frame is None))
+                        assert value['late_final_discarded'] and trace.stop_ms<250
+                    rows.append(value)
+                active[0]=None;done()
+            except Exception:
+                cleanup();raise
+        QtCore.QTimer.singleShot(10,lambda:run(poll))
+    def assert_first_then(second):
+        assert not control.state.confirmed and control.state.automatic_frames==1,'First actual fresh frame must not confirm'
+        begin('independent_second',second)
+    def established(next_step):
+        assert control.state.confirmed and control.state.confirmation_mode=='automatic' and control.state.automatic_frames==2
+        assert control._accepted_frame and control._accepted_frame['hud_digest'],'Actual automatic result did not establish exact HUD proof'
+        next_step()
+    def recover(next_step,*,restart=False,reset=False):
+        if reset:control.invalidate_scene('Original diagnostic ROI reset; re-establish independent frame proof')
+        paint_mock();app.processEvents();control.ocr_reuse.clear()
+        if restart:
+            control.manual_metadata=process_metadata(control.target.pid);control.manual_identity=control.target.identity;control.state.start(control.target.identity);control.state.clear_hero()
+        begin('independent_first',lambda:assert_first_then(lambda:established(next_step)))
+    def changed_roi():
+        paint_mock(changed_roi=True);app.processEvents();begin('changed_roi',lambda:recover(changed,reset=True))
+    def changed():
+        paint_mock('9002');app.processEvents();begin('changed_hud',lambda:recover(unknown))
+    def unknown():
+        paint_mock(gray=True);app.processEvents();begin('unknown_hud',lambda:recover(stop_late))
+    def stop_late():begin('stop_late',lambda:recover(finish,restart=True))
+    def finish():
+        assert [row['name'] for row in rows]==['unchanged','changed_roi','changed_hud','unknown_hud','stop_late']
+        cleanup();report['overlay_duty_cycle'].pop('active_case',None);report['overlay_duty_cycle_passed']=True
+        checks.append('Actual Windows capture stays hidden until helper exit; identical accepted ROI/HUD restores during two controlled 350 ms inference holds without refreshing TTL/counters; changed candidate ROI and changed/unknown HUD veto; Stop discards late actual OCR')
+        save();QtCore.QTimer.singleShot(100,lambda:run(done))
+    begin('independent_first',lambda:assert_first_then(lambda:established(lambda:begin('unchanged',changed_roi))))
+
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
-    report={'status':'running','backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
+    report={'status':'running','executable_sha256':hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest() if getattr(sys,'frozen',False) else None,'backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
     control._smoke_objects=[]
     def save():
         report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
     def fail(exc):
+        cleanup=getattr(control,'_smoke_duty_cleanup',None)
+        if cleanup:
+            control._smoke_duty_cleanup=None
+            try:cleanup()
+            except Exception:pass
         report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
         for widget in control._smoke_objects:widget.close()
         control.close();app.exit(1)
@@ -118,8 +379,9 @@ def start_smoke(control,report_path,screenshot_path):
     bank=portraits()
     configure_data(control.data)
     control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
-    def paint_mock(key='9001'):
-        image.setPixmap(smoke_pixmap(bank[key],root/'fixtures/auto-scene.png',mock_width,mock_height,float(mock.windowHandle().devicePixelRatio())))
+    def paint_mock(key='9001',*,gray=False,changed_roi=False):
+        portrait=bank[key].convert('L').convert('RGB') if gray else bank[key]
+        image.setPixmap(smoke_pixmap(portrait,root/'fixtures/auto-scene.png',mock_width,mock_height,float(mock.windowHandle().devicePixelRatio()),changed_roi=changed_roi))
     paint_mock();layout.addWidget(image)
     control._smoke_objects.append(mock)
     def prepare():
@@ -241,9 +503,11 @@ def start_smoke(control,report_path,screenshot_path):
                 QtCore.QTimer.singleShot(20,lambda:run(poll));return
             assert busy_ticks and control.last_observation>before and control.state.confirmed
             report['async_capture_ui_passed']=True
-            checks.append('Actual frozen production capture worker completed while Qt timers ran; watchdog kept own overlay hidden until the accepted fresh result')
-            QtCore.QTimer.singleShot(250,lambda:run(verify_overlay))
+            checks.append('Actual frozen production capture worker completed while Qt timers ran; manual-mode watchdog kept own overlay hidden until the accepted fresh result')
+            QtCore.QTimer.singleShot(50,lambda:run(verify_duty_cycle))
         QtCore.QTimer.singleShot(20,lambda:run(poll))
+    def verify_duty_cycle():
+        start_overlay_duty_probe(control,app=app,u=u,paint_mock=paint_mock,report=report,checks=checks,save=save,run=run,done=verify_overlay)
     def verify_overlay():
         names=report['recognized'];overlay=control.overlay;u=control.capture.u;hwnd=int(overlay.winId());style=int(control.capture.get_long(hwnd,-20))
         assert style&0x80000 and style&0x08000000 and style&0x20 and style&0x8,hex(style)

@@ -208,12 +208,20 @@ class Win32Capture:
         if is_cancelled():raise CapturePaused('截图已取消。')
         out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
     def configure_overlay(self,hwnd,click_through=True):
-        style=int(self.get_long(hwnd,-20))|0x00080000|0x08000000|0x00000080 # LAYERED,NOACTIVATE,TOOLWINDOW
-        style=(style|0x20) if click_through else (style&~0x20)
         ctypes.set_last_error(0)
-        previous=self.set_long(hwnd,-20,style)
-        if not previous and ctypes.get_last_error():raise CaptureUnavailable('无法设置安全叠加窗口样式，叠加已停用。')
-        if not self.u.SetWindowPos(hwnd,W.HWND(-1),0,0,0,0,0x0001|0x0002|0x0010|0x0020):raise CaptureUnavailable('无法设置非激活置顶叠加，叠加已停用。')
+        current=int(self.get_long(hwnd,-20))
+        if not current and ctypes.get_last_error():raise CaptureUnavailable('无法读取叠加窗口样式，叠加已停用。')
+        style=current|0x00080000|0x08000000|0x00000080 # LAYERED,NOACTIVATE,TOOLWINDOW
+        style=(style|0x20) if click_through else (style&~0x20)
+        flags=0x0001|0x0002|0x0010 # NOSIZE,NOMOVE,NOACTIVATE
+        # Read live HWND state every time; ordinary placement refreshes do not
+        # need to rewrite styles or force another nonclient-frame recalculation.
+        if style!=current:
+            ctypes.set_last_error(0)
+            previous=self.set_long(hwnd,-20,style)
+            if not previous and ctypes.get_last_error():raise CaptureUnavailable('无法设置安全叠加窗口样式，叠加已停用。')
+            flags|=0x0020 # FRAMECHANGED only after an extended-style change.
+        if not self.u.SetWindowPos(hwnd,W.HWND(-1),0,0,0,0,flags):raise CaptureUnavailable('无法设置非激活置顶叠加，叠加已停用。')
         actual=int(self.get_long(hwnd,-20));required=0x00080000|0x08000000|0x80|0x8
         if actual&required!=required or bool(actual&0x20)!=bool(click_through):raise CaptureUnavailable('系统未确认鼠标穿透/非激活样式，叠加已停用。')
         # Exclusion is best effort; the UI ALWAYS hides this window before capture.

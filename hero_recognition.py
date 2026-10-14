@@ -6,7 +6,22 @@ letterboxing, skins/transform portraits, or low confidence must abstain.
 """
 from __future__ import annotations
 import io
+import hashlib
 import math
+import struct
+from dataclasses import dataclass
+from types import MappingProxyType
+
+
+@dataclass(frozen=True)
+class _PortraitInput:
+    """Per-call normalized HUD pixels; never retained on the matcher."""
+    rgb: object
+    gray: object
+    scale: float
+    x0: int
+    y0: int
+    signature: str
 
 
 class PortraitMatcher:
@@ -15,24 +30,50 @@ class PortraitMatcher:
         import numpy as np
         cv2.setNumThreads(2)
         self.cv=cv2;self.np=np;self.minimum_score=minimum_score;self.minimum_margin=minimum_margin
-        self.names={str(row.get('championId')):name for name,row in heroes.items() if isinstance(row,dict) and str(row.get('championId','')).isdigit()}
-        self.templates={}
+        self._names=MappingProxyType({str(row.get('championId')):name for name,row in heroes.items() if isinstance(row,dict) and str(row.get('championId','')).isdigit()})
+        templates={};scales={}
         for key,image in portraits.items():
             rgb=np.asarray(image.convert('RGB'))
             # Center core excludes circular HUD frame and Data Dragon border.
             h,w=rgb.shape[:2];crop=rgb[round(h*.22):round(h*.78),round(w*.22):round(w*.78)]
-            self.templates[str(key)]=(crop,cv2.cvtColor(crop,cv2.COLOR_RGB2GRAY))
+            gray=cv2.cvtColor(crop,cv2.COLOR_RGB2GRAY);crop.setflags(write=False);gray.setflags(write=False)
+            templates[str(key)]=(crop,gray)
+            # The exact same 15 grayscale scales are immutable model inputs,
+            # independent of captured pixels. Prepare once; still search every
+            # template/scale on every fresh frame with unchanged scoring.
+            variants=[]
+            for size in range(20,49,2):
+                pixels=cv2.resize(gray,(size,size),interpolation=cv2.INTER_AREA);pixels.setflags(write=False);variants.append((size,pixels))
+            scales[str(key)]=tuple(variants)
+        self._templates=MappingProxyType(templates);self._template_scales=MappingProxyType(scales);self._model_token=object()
+    @property
+    def names(self):return self._names
+    @property
+    def templates(self):return self._templates
+    @property
+    def _scaled_templates(self):return self._template_scales
+    def proof_identity(self):
+        """Bind immutable per-instance models/names and current thresholds."""
+        return self._model_token,self.minimum_score,self.minimum_margin
     def recognize(self, image_bytes):
+        return self._recognize_prepared(self._prepare_image(image_bytes))
+    def _prepare_image(self,image_bytes,*,decoded_rgb=None):
         from PIL import Image
         if not isinstance(image_bytes,bytes) or len(image_bytes)>16*1024*1024:return self.unknown('无效截图')
+        if decoded_rgb is not None:
+            h,w=decoded_rgb.shape[:2]
+            if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证')
+            return self._prepare_array(decoded_rgb)
         with Image.open(io.BytesIO(image_bytes)) as image:
             w,h=image.size
             if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证')
             image.load();rgb=self.np.asarray(image.convert('RGB'))
-        return self.recognize_array(rgb)
+        return self._prepare_array(rgb)
     @staticmethod
     def unknown(reason, **extra):return {'hero':None,'championId':None,'confident':False,'method':'own-hud-portrait','reason':reason,**extra}
     def recognize_array(self,rgb):
+        return self._recognize_prepared(self._prepare_array(rgb))
+    def _prepare_array(self,rgb):
         cv=self.cv;np=self.np;h,w=rgb.shape[:2]
         if h<600 or not 1.55<=w/h<=2.45 or not self.templates:return self.unknown('模板或画面比例不可用')
         # Reject hard letterboxes: do not move the ROI to arbitrary champion art.
@@ -42,11 +83,22 @@ class PortraitMatcher:
         # minimap and scoreboard. Never search the rest of the screenshot.
         x0=max(0,round(sw/2-720*.36));x1=min(sw,round(sw/2-720*.12));y0=round(720*.86);y1=round(720*.995)
         roi=small[y0:y1,x0:x1];gray=cv.cvtColor(roi,cv.COLOR_RGB2GRAY)
+        # All frame-dependent matcher inputs: validated layout, source and
+        # normalized dimensions, coordinates/scale, and the ENTIRE RGB search
+        # ROI (including color gates). Template/threshold identity is bound by
+        # the caller. Changed edge pixels matter only if a layout gate changes.
+        signature=hashlib.sha256(b'vga-own-hud-input-v1\0layout-valid\0')
+        signature.update(struct.pack('<8Id',w,h,sw,720,x0,x1,y0,y1,scale))
+        signature.update(roi.dtype.str.encode('ascii')+b'\0');signature.update(roi.tobytes())
+        return _PortraitInput(roi,gray,scale,x0,y0,signature.hexdigest())
+    def _recognize_prepared(self,prepared):
+        if isinstance(prepared,dict):return prepared
+        cv=self.cv;np=self.np;roi=prepared.rgb;gray=prepared.gray
+        scale,x0,y0=prepared.scale,prepared.x0,prepared.y0
         found=[]
         for key,(color,template) in self.templates.items():
             best=(-1,None,None)
-            for size in range(20,49,2):
-                scaled=cv.resize(template,(size,size),interpolation=cv.INTER_AREA)
+            for size,scaled in self._scaled_templates[key]:
                 scores=cv.matchTemplate(gray,scaled,cv.TM_CCOEFF_NORMED);_,value,_,location=cv.minMaxLoc(scores)
                 if math.isfinite(value) and value>best[0]:best=(value,location,size)
             value,location,size=best
@@ -68,16 +120,26 @@ class PortraitMatcher:
         return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验',**evidence}
 
 
-def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None):
+def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None):
     """Split one same-time selected-window frame in memory. Never persist images."""
     from PIL import Image
     from screen_capture import bounded_roi
     with Image.open(io.BytesIO(image_bytes)) as image:
         if image.width*image.height>16_000_000:raise ValueError('截图尺寸过大')
         image.load();frame_height=image.height;left,top,width,height=bounded_roi(image.width,image.height,roi)
-        crop=image.convert('RGB').crop((left,top,left+width,top+height));out=io.BytesIO();crop.save(out,format='PNG')
-    hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好')
-    result=ocr.recognize(out.getvalue(),vocabulary);result['hero_observation']=hero
+        rgb=image.convert('RGB');crop=rgb.crop((left,top,left+width,top+height));out=io.BytesIO();crop.save(out,format='PNG')
+    crop_bytes=out.getvalue()
+    # Only the concrete matcher uses our exact preparation contract. Custom
+    # matchers retain their original recognize API and cannot supply a proof.
+    if type(matcher) is PortraitMatcher:
+        prepared=matcher._prepare_image(image_bytes,decoded_rgb=matcher.np.asarray(rgb))
+        if before_match is not None:before_match(prepared.signature if isinstance(prepared,_PortraitInput) else None,crop_bytes)
+        hero=matcher._recognize_prepared(prepared)
+    else:
+        if before_match is not None:before_match(None,crop_bytes)
+        hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好')
+    if before_ocr is not None:before_ocr(hero,crop_bytes)
+    result=ocr.recognize(crop_bytes,vocabulary);result['hero_observation']=hero
     # Automatic titles are constrained to the actual centered card-title band,
     # separate from review suggestions and any unrelated overlay/chat text.
     from local_ocr import candidate_matches
