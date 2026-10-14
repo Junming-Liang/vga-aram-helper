@@ -347,15 +347,23 @@ class NativeDesignTests(unittest.TestCase):
         w.selection_session=SelectionSession();w.selection_session.start(w.target.identity)
         # Handler/presentation-only owned fixture; no OS authorization claim.
         w.target_allowed=lambda:True;w.captured_frame_current=lambda value:True
-        def deliver(scene='assigned-selection'):
-            value=dict(scene=scene,assigned=scene=='assigned-selection',championId='9001',_capturedAt=time.monotonic(),_sessionGeneration=w.selection_session.generation,_windowIdentity=w.target.identity)
-            with patch.object(w,'check_target'):w.task_result('selection',value,w.state.generation)
-        deliver();self.assertEqual(w.hero_title.text(),'等待识别')
-        deliver();self.assertEqual(w.state.hero,hero);self.assertEqual(w.hero_title.text(),hero)
+        def deliver(captured_at,scene='assigned-selection'):
+            # Distinct observations must not depend on host clock resolution or
+            # scheduler timing. Keep the real freshness and duplicate guards.
+            value=dict(scene=scene,assigned=scene=='assigned-selection',championId='9001',_capturedAt=captured_at,_sessionGeneration=w.selection_session.generation,_windowIdentity=w.target.identity)
+            with patch('native_ui.time.monotonic',return_value=captured_at+.01),patch.object(w,'check_target'):
+                w.task_result('selection',value,w.state.generation)
+        deliver(100.);self.assertEqual(w.hero_title.text(),'等待识别')
+        self.assertEqual(w.selection_session.candidate_frames,1)
+        deliver(100.);self.assertEqual(w.state.hero,'');self.assertEqual(w.hero_title.text(),'等待识别')
+        self.assertEqual(w.selection_session.candidate_frames,1);self.assertEqual(w.selection_session.assigned,'')
+        self.assertFalse(w.state.confirmed);self.assertNotIn('HUD 连续确认',w.status_chip.text())
+        deliver(101.);self.assertEqual(w.state.hero,hero);self.assertEqual(w.hero_title.text(),hero)
+        self.assertEqual(w.selection_session.candidate_frames,2)
         self.assertIn('仍可交换',w.status_chip.text());self.assertIn('HUD未复核',w.status_chip.text());self.assertNotIn('HUD 连续确认',w.status_chip.text())
         self.assertEqual(w.status_chip.property('state'),'provisional');self.assertFalse(w.state.confirmed)
         self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
-        deliver('unknown');self.assertEqual(w.hero_title.text(),'等待识别');self.assertNotIn('HUD 连续确认',w.status_chip.text())
+        deliver(102.,'unknown');self.assertEqual(w.hero_title.text(),'等待识别');self.assertNotIn('HUD 连续确认',w.status_chip.text())
 
     def test_secondary_navigation_preserves_state_and_keeps_stop_reachable(self):
         w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
