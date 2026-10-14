@@ -1,6 +1,7 @@
 name: Build and publish native preview
 
-# Manual preview only. EXE/source files go directly to Releases; only small evidence is stored in Actions.
+# Manual validation by default. Publication is a separate explicit final-step choice.
+# EXE/source files go directly to Releases; only small evidence is stored in Actions.
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +19,7 @@ concurrency:
 jobs:
   native-preview:
     # Standard GitHub-hosted runner only; this workflow targets the public repo.
-    if: ${{ inputs.publish_preview && github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
     runs-on: windows-2022
     timeout-minutes: 60
     permissions:
@@ -71,6 +72,8 @@ jobs:
         run: python scripts/build_wgc_capture.py
       - name: Require real Windows WGC source acceptance at three app scales
         run: python tests/windows_wgc_capture.py --reports reports
+      - name: Require source client hero-reference and handoff at three app scales
+        run: python tests/windows_selection_smoke.py --report-dir reports
       - name: Test automatic window lifecycle and bounded capture on owned Windows fixtures
         run: python tests/windows_automatic_capture.py --reports reports
       - name: Verify exact-source overlay geometry at five app scales
@@ -163,7 +166,7 @@ jobs:
             'Native overlay verification did not complete; do not treat this build as verified.' >> $env:GITHUB_STEP_SUMMARY
           }
       - name: Create verified draft and publish its ID only as a non-latest prerelease
-        if: ${{ success() }}
+        if: ${{ success() && inputs.publish_preview }}
         # Only the final publishing step maps the ephemeral token into an environment.
         env:
           GH_TOKEN: ${{ github.token }}
