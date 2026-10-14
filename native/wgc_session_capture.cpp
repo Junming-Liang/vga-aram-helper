@@ -523,16 +523,18 @@ void run(Input const& p) {
         Direct3D11CaptureFrame frame{nullptr};
         RECT capture_bounds{};
         int64_t frame_time = 0;
+        bool frame_ready = false;
         while (GetTickCount64() < deadline) {
             phase("validate-frame-wait");
             require(!signal->closed.load(), stale, "item-open");
             validate(p, &geometry); // STRICT, including our overlay.
             phase("frame-wait");
-            frame = pool.TryGetNextFrame();
+            if (!frame) frame = pool.TryGetNextFrame();
             if (frame) {
                 frame_time = frame.SystemRelativeTime().count();
                 frame_clock(cutoff, frame_time, previous_frame_time);
-                require(frame_time > 0 && frame_time <= qpc_100ns(false, &diagnostic.clock), stale, "frame-timestamp");
+                require(frame_time > 0, stale, "frame-timestamp");
+                bool timestamp_ready = frame_time <= qpc_100ns(false, &diagnostic.clock);
                 auto candidate = frame.ContentSize();
                 int selected = content_model(geometry.window, geometry.frame, size.Width, size.Height,
                                              candidate.Width, candidate.Height);
@@ -541,14 +543,23 @@ void run(Input const& p) {
                 // Drop every pre-request/previous frame. No queued pixels can
                 // become a successful response merely because ROI is unchanged.
                 if (selected > 0 && frame_time > cutoff && frame_time > last_frame_time) {
-                    capture_bounds = selected == 1 ? geometry.window : geometry.frame;
-                    break;
+                    if (timestamp_ready) {
+                        capture_bounds = selected == 1 ? geometry.window : geometry.frame;
+                        frame_ready = true;
+                        break;
+                    }
+                    // Retain at most this GPU frame until its unchanged strict
+                    // timestamp bound holds. Revalidate all guards each cycle;
+                    // never copy/map it or renew the original request deadline.
+                } else {
+                    frame.Close(); frame = nullptr;
                 }
-                frame.Close(); frame = nullptr;
             }
-            WaitForSingleObject(signal->event.value, watchdog_ms);
+            auto now = GetTickCount64();
+            if (now >= deadline) break;
+            WaitForSingleObject(signal->event.value, DWORD(std::min<uint64_t>(watchdog_ms, deadline - now)));
         }
-        require(bool(frame), timed_out, "frame-deadline");
+        require(frame_ready && GetTickCount64() < deadline, timed_out, "frame-deadline");
         phase("frame-size");
         auto content = frame.ContentSize();
         // Bind the one selected content origin for this frame. All original window,
