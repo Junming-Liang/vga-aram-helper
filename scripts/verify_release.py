@@ -25,7 +25,7 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.6'
+PREVIEW_VERSION = '0.4.7'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -360,8 +360,14 @@ def verify_native_scale(files, checksum, version, scale, prefix):
             'Automatic hero/candidate native lifecycle proof missing: ' + prefix)
     require(native.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光'],
             'Actual native OCR did not recognize the three original mock choices: ' + prefix)
-    require(native.get('source_tier_rendered') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+    require(native.get('card_names_rendered') == ['星火共鸣','晶盾回路','风步微光'],
+            'Native full visible ordered card names missing: ' + prefix)
+    require(native.get('source_tier_rendered') == ['T1', 'T2', 'T3'],
             'Actual native literal source-tier rendering evidence is missing or changed: ' + prefix)
+    require(native.get('source_tier_accessible') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+            'Native exact accessible source-tier evidence missing: ' + prefix)
+    require(native.get('source_attribution_rendered') == '虚构演示 · 非 Riot 评级/批准' and native.get('source_details_reachable') is True,
+            'Native visible source or reachable full source details missing: ' + prefix)
     require(isinstance(native.get('screenshot_method'), str) and native['screenshot_method'].strip(),
             'Native screenshot method missing: ' + prefix)
     for report in (smoke, native):
