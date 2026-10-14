@@ -140,6 +140,93 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn('launcher.py',spec)
 
 
+class OverlaySetupDiagnosticTests(unittest.TestCase):
+    def fixture(self,*,hidden_failure=False,always_failure=False,readback=0x11,dwm_enabled=True):
+        import wgc_session_smoke as runtime
+        from types import SimpleNamespace
+        state=SimpleNamespace(error=0,visible=False,affinity=0,style=0x080800a8,owner=71,hwnd=123,
+                              set_calls=[],hidden_failure=hidden_failure,always_failure=always_failure,
+                              readback=readback,dwm_enabled=dwm_enabled,hide_drops_affinity=False)
+        class User:
+            def IsWindow(self,hwnd):return hwnd==state.hwnd
+            def GetAncestor(self,hwnd,kind):return state.hwnd
+            def GetWindowThreadProcessId(self,hwnd,out):out._obj.value=state.owner;return 91
+            def GetWindowLongPtrW(self,hwnd,index):return state.style if index==-20 else 0x80000000
+            def IsWindowVisible(self,hwnd):return state.visible
+            def SetWindowDisplayAffinity(self,hwnd,affinity):
+                state.set_calls.append((hwnd,affinity,state.visible))
+                if state.always_failure or state.hidden_failure and not state.visible:
+                    state.error=87;return False
+                state.affinity=state.readback;return True
+            def GetWindowDisplayAffinity(self,hwnd,out):
+                out._obj.value=state.affinity
+                # Deliberately change last-error so set's WinError must already
+                # have been preserved, even when this read succeeds.
+                state.error=1400
+                return True
+        class Dwm:
+            def DwmIsCompositionEnabled(self,out):out._obj.value=state.dwm_enabled;return 0
+        class Widget:
+            def winId(self):return state.hwnd
+            def show(self):state.visible=True
+            def update(self):pass
+            def hide(self):
+                state.visible=False
+                if state.hide_drops_affinity:state.affinity=0
+        return runtime,state,User(),Dwm(),Widget()
+
+    def run_setup(self,runtime,state,user,dwm,widget,result):
+        with patch.object(runtime.ctypes,'set_last_error',lambda value:setattr(state,'error',value),create=True), \
+             patch.object(runtime.ctypes,'get_last_error',lambda:state.error,create=True):
+            runtime.prepare_owned_overlay(widget,user,dwm,123,0x080800a8,71,lambda _:None,result,
+                                          label='registered-overlay')
+
+    def test_bounded_hidden_then_realized_retry_keeps_exact_affinity_and_error(self):
+        runtime,state,user,dwm,widget=self.fixture(hidden_failure=True);result={}
+        self.run_setup(runtime,state,user,dwm,widget,result)
+        rows=result['overlay_setup']
+        self.assertEqual([row['stage']for row in rows],['created-hidden','realized-visible','verified-hidden'])
+        self.assertEqual(state.set_calls,[(123,0x11,False),(123,0x11,True)])
+        self.assertEqual(rows[0]['set_winerror'],87)
+        self.assertEqual(rows[0]['affinity_winerror'],1400)
+        self.assertFalse(rows[0]['set_ok']);self.assertTrue(rows[1]['set_ok'])
+        self.assertEqual(rows[2]['affinity'],0x11);self.assertFalse(state.visible)
+        self.assertTrue(all(row['owner_is_self']and row['top_level']and row['dwm_composing']for row in rows))
+        self.assertLess(len(json.dumps(result)),4096)
+        self.assertFalse(any(word in json.dumps(result)for word in ('window_title','pixel_data','image_path')))
+
+    def test_realized_failure_dwm_off_and_nonexact_readback_never_pass(self):
+        for options in ({'always_failure':True},{'readback':1},{'readback':0},{'dwm_enabled':False}):
+            runtime,state,user,dwm,widget=self.fixture(**options);result={}
+            with self.subTest(options=options),self.assertRaises(AssertionError):
+                self.run_setup(runtime,state,user,dwm,widget,result)
+            self.assertFalse(state.visible)
+            self.assertEqual(len(result['overlay_setup']),3)
+            self.assertTrue(all(row[1]==0x11 for row in state.set_calls))
+
+    def test_hidden_affinity_loss_fails_and_foreign_owner_is_never_modified(self):
+        runtime,state,user,dwm,widget=self.fixture();state.hide_drops_affinity=True;result={}
+        with self.assertRaisesRegex(AssertionError,'retain exact exclusion'):
+            self.run_setup(runtime,state,user,dwm,widget,result)
+        runtime,state,user,dwm,widget=self.fixture();state.owner=999;result={}
+        with self.assertRaisesRegex(AssertionError,'identity/styles'):
+            self.run_setup(runtime,state,user,dwm,widget,result)
+        self.assertEqual(state.set_calls,[])
+        self.assertFalse(result['overlay_setup'][0]['owner_is_self'])
+
+    def test_show_cannot_replace_window_or_weaken_exact_styles(self):
+        for changed in ('hwnd','style'):
+            runtime,state,user,dwm,widget=self.fixture();result={}
+            original=widget.show
+            def show():
+                original();setattr(state,changed,getattr(state,changed)+1)
+            widget.show=show
+            with self.subTest(changed=changed),self.assertRaisesRegex(AssertionError,'identity/styles'):
+                self.run_setup(runtime,state,user,dwm,widget,result)
+            self.assertFalse(state.visible)
+            if changed=='hwnd':self.assertEqual(len(state.set_calls),1)
+
+
 class AcceptanceTests(unittest.TestCase):
     def test_validates_source_frozen_and_three_scales(self):
         for scale in smoke.SCALES:
