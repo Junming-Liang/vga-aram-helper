@@ -26,7 +26,7 @@ composition enabled. Affinity readback succeeded but remained zero, including
 after hiding. First-show realization therefore did not resolve that failure.
 The numeric error does not by itself establish actual memory exhaustion, a broad
 OS limitation, or a cause inside Qt. No session pixels or frozen result passed in
-those runs. Source/frozen acceptance remains unproven; unsupported setups and
+those runs. Source/frozen acceptance was unproven at that checkpoint; unsupported setups and
 static-window freshness timeouts are failures, not skipped passes.
 
 ### Explicit rendering-profile comparison after run 30
@@ -137,6 +137,36 @@ three-request truly static-window test remain unchanged. The freshness evidence
 is the compositor's timestamp, not independent instrumentation proving the wall
 clock arrival time of the target's pixels. Full source/frozen Windows acceptance
 is still required for this repair, and production remains disabled.
+
+### Source acceptance and frozen packaging failure in run 33
+
+[Run 33](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38623358268)
+tested commit `921b8aac620ed0a5034dae3b734a47eb71c98f20`, tree
+`89493e66ff030294d6d0e1dc3aec82928a0092eb`. The source diagnostic passed all
+39 required checks at each of the three process-local scales. Each scale
+returned four repeated ROI requests from one helper/session and three requests
+from a separate truly static target session. All 21 recorded pixel comparisons
+had mean channel error 0.0, with strictly increasing request/frame identities.
+The active renderer was the preselected opaque profile; the separate production-
+like translucent probe still could not obtain exclusion. This is not evidence
+that the production translucent overlay can retain the session.
+
+On that runner, the first repeated request took 125–500 ms and the following
+requests took 62–94 ms. Static requests took 62–125 ms. These small synthetic
+acquisition samples exclude OCR, production UI cadence and gameplay. They are
+not a same-run comparison against the production one-shot backend. Observed
+focus-loss helper exit was 93–94 ms, beyond 50 ms; cancellation cleanup was
+203–235 ms, request-deadline cleanup 2109–2140 ms, and idle-lease cleanup
+4015–4047 ms. These actual observations preserve the scheduling/teardown limits
+described below. All owned helper, pipe, Job and window cleanup checks passed.
+
+The frozen diagnostic did **not** run. PyInstaller completed its EXE, then the
+unchanged licensed Microsoft runtime verifier rejected missing required archive
+paths. The isolated spec had replaced discovered runtime entries without
+explicitly supplying every required root/PySide6 path. The packaging repair
+adds those paths from the existing verified licensed runtime source, retaining
+the exact-byte verifier and all source/frozen checks. There is no new runtime
+source, download, license exception, production integration or release claim.
 
 ## Existing approved Windows build environment only
 
