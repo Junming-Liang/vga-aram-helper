@@ -46,6 +46,17 @@ _wgc_spec = importlib.util.spec_from_file_location('release_windows_wgc_capture'
     Path(__file__).resolve().parents[1] / 'tests' / 'windows_wgc_capture.py')
 wgc_fixture = importlib.util.module_from_spec(_wgc_spec)
 _wgc_spec.loader.exec_module(wgc_fixture)
+
+_selection_spec = importlib.util.spec_from_file_location('release_windows_selection_smoke',
+    Path(__file__).resolve().parents[1] / 'tests' / 'windows_selection_smoke.py')
+selection_fixture = importlib.util.module_from_spec(_selection_spec)
+_selection_spec.loader.exec_module(selection_fixture)
+
+_duty_spec = importlib.util.spec_from_file_location('release_overlay_duty_contract',
+    Path(__file__).resolve().parents[1] / 'tests' / 'overlay_duty_contract.py')
+duty_contract = importlib.util.module_from_spec(_duty_spec)
+_duty_spec.loader.exec_module(duty_contract)
+
 HERO_GENUINE_FILES = ('hero_recognition.py','hero_portraits.py','local_ocr.py','ocr_privacy.py','model_inventory.py','screen_capture.py','native_state.py','engine.py')
 SELECTION_GENUINE_FILES = ('champion_select.py','local_ocr.py','ocr_privacy.py','model_inventory.py')
 
@@ -63,7 +74,10 @@ EVIDENCE_NAMES = ('windows-wgc-source.json', 'windows-wgc-frozen.json', 'windows
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
                   'windows-build-environment.txt', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
                   'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json',
-                  'windows-dpi-candidate-matrix.json') + tuple(
+                  'windows-dpi-candidate-matrix.json', 'windows-selection-source.json') + tuple(
+                      selection_fixture.native_report_name(frozen, scale)
+                      for frozen in (False, True) for scale in selection_fixture.SCALES
+                      if not (frozen and scale == 1)) + tuple(
                       prefix + '-' + suffix for _, prefix in NATIVE_SCALES
                       for suffix in ('smoke.json', 'overlay.json', 'overlay.png', 'process.log'))
 QT_VERSION = '6.11.2'
@@ -343,17 +357,18 @@ def contains_rectangle(outer, inner, strict=False):
             inner['y'] + inner['height'] <= outer['y'] + outer['height'] - margin)
 
 
-def verify_native_scale(files, checksum, version, scale, prefix):
+def verify_native_scale(files, checksum, version, scale, prefix, source_archive, source_commit, exe_size):
     smoke = read_json(files[prefix + '-smoke.json'])
     native = read_json(files[prefix + '-overlay.json'])
     require(smoke.get('status') == 'passed' and 'error' not in smoke and
             smoke.get('executable_sha256') == checksum and smoke.get('applicationVersion') == version and
-            smoke.get('process_exited') is True, 'Native smoke failed, did not exit, or tested different EXE/version: ' + prefix)
+            smoke.get('process_exited') is True and smoke.get('executable_size') == exe_size and
+            type(smoke.get('executable_size')) is int, 'Native smoke failed, did not exit, or tested different EXE/version: ' + prefix)
     require(smoke.get('native_report') == prefix + '-overlay.json' and
             smoke.get('native_screenshot') == prefix + '-overlay.png', 'Native smoke references unexpected evidence: ' + prefix)
     require(native.get('status') == 'passed' and 'error' not in native and native.get('backend') == 'qtwidgets' and
             native.get('frozen') is True and native.get('qt_platform') == 'windows' and
-            native.get('applicationVersion') == version, 'Native evidence is not passing frozen QtWidgets on Windows: ' + prefix)
+            native.get('applicationVersion') == version and native.get('executable_sha256') == checksum, 'Native evidence is not passing frozen QtWidgets on Windows: ' + prefix)
     require(all(native.get(field) is True for field in NATIVE_REQUIRED_FIELDS),
             'Required native window/capture/OCR/click-through/close/source-tier proof missing: ' + prefix)
     require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
@@ -388,9 +403,68 @@ def verify_native_scale(files, checksum, version, scale, prefix):
             contains_rectangle(client, overlay, strict=True), 'Native physical windows escaped their required bounds: ' + prefix)
     require(overlay['height']*2<=client['height'], 'Native overlay exceeds the half-client-height budget: ' + prefix)
     verify_png(files[prefix + '-overlay.png'])
-    return {key: native[key] for key in ('requested_app_scale', 'mock_qwindow_dpr', 'overlay_qwindow_dpr',
+    require(smoke.get('native_report_sha256') == digest(files[prefix + '-overlay.json']) and
+            smoke.get('native_screenshot_sha256') == digest(files[prefix + '-overlay.png']),
+            'Native wrapper does not bind exact report and screenshot bytes: ' + prefix)
+    require(smoke.get('source_commit') == source_commit, 'Native source commit differs: ' + prefix)
+    verify_source_inventory(smoke.get('source_files'), duty_contract.SOURCE_FILES, source_archive, 'Native duty')
+    try:
+        duty = duty_contract.validate_overlay_duty(native)
+    except (AssertionError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+        raise VerificationError('Native duty-cycle evidence failed: ' + prefix + ': ' + str(exc)) from exc
+    summary = {key: native[key] for key in ('requested_app_scale', 'mock_qwindow_dpr', 'overlay_qwindow_dpr',
         'desktop_work_area_physical', 'mock_window_physical', 'clientRect', 'overlay_window_physical',
         'overlay_compact', 'physical_mock_geometry_passed', 'overlay_layout_passed')}
+    summary.update(overlay_duty_cycle=duty, overlay_duty_scope=duty_contract.SCOPE, native_report_sha256=smoke['native_report_sha256'],
+                   native_screenshot_sha256=smoke['native_screenshot_sha256'])
+    return summary
+
+
+def verify_source_inventory(hashes, expected, source_archive, label):
+    require(type(hashes) is dict and set(hashes) == set(expected) and
+            all(type(value) is str and re.fullmatch(r'[0-9a-f]{64}', value) for value in hashes.values()),
+            label + ' exact source inventory is missing or changed')
+    with zipfile.ZipFile(source_archive) as archive:
+        for name, checksum in hashes.items():
+            require(archive.namelist().count(name) == 1 and
+                    hashlib.sha256(archive.read(name)).hexdigest() == checksum,
+                    label + ' tested different source bytes: ' + name)
+
+
+def verify_selection_bundle(files, source_archive, version, source_commit, checksum, exe_size):
+    summaries = []
+    for frozen, kind in ((False, 'source'), (True, 'frozen')):
+        filename = 'windows-selection-smoke.json' if frozen else 'windows-selection-source.json'
+        report = read_json(files[filename])
+        try:
+            selection_fixture.validate_aggregate(report, version, frozen=frozen,
+                source_commit=source_commit, executable_sha256=checksum if frozen else None,
+                executable_size=exe_size if frozen else None)
+        except (AssertionError, RuntimeError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise VerificationError('Selection ' + kind + ' evidence failed: ' + str(exc)) from exc
+        if frozen:
+            require(type(report.get('executable_size')) is int and report['executable_size'] == exe_size,
+                    'Selection frozen EXE size differs')
+        verify_source_inventory(report.get('source_files'), selection_fixture.SOURCE_FILES,
+                                source_archive, 'Selection ' + kind)
+        runs = []
+        for row in report['runs']:
+            path = files[row['native_report']]
+            native = read_json(path)
+            require(native == row['detail'] and row.get('native_report_sha256') == digest(path),
+                    'Selection aggregate does not bind exact native report bytes: ' + row['native_report'])
+            if frozen:
+                require(native.get('executable_sha256') == checksum,
+                        'Selection native report tested different frozen EXE bytes')
+            detail = native['client_hero_reference']
+            runs.append({'app_scale': row['app_scale'], 'native_report_sha256': row['native_report_sha256'],
+                         'hero': detail['reference']['hero'], 'sourceTier': detail['reference']['sourceTier'],
+                         'visible': detail['visible'], 'native_visible': detail['native_visible'],
+                         'confirmed': detail['confirmed'], 'augment_card_count': detail['augment_card_count'],
+                         'client_rect': detail['client_rect'], 'overlay_rect': detail['overlay_rect'],
+                         'safety': native['client_hero_safety'], 'completed_fields': row['completed_fields']})
+        summaries.append({'kind': kind, 'source_commit': source_commit, 'runs': runs})
+    return summaries
 
 
 def verify_genuine_report(path, source_archive, version):
@@ -787,21 +861,6 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     models = selftest.get('bundled_models', [])
     require(len(models) == 3 and {m.get('name'): m.get('sha256') for m in models} == MODEL_HASHES, 'Bundled model identity mismatch')
     verify_png(files['windows-exe-ui.png'])
-    native_scales = [verify_native_scale(files, checksum, version, scale, prefix) for scale, prefix in NATIVE_SCALES]
-    require(len({digest(files[prefix + '-overlay.png']) for _, prefix in NATIVE_SCALES}) == len(NATIVE_SCALES),
-            'Native scale screenshots must be distinct original evidence')
-    selection_smoke = read_json(files['windows-selection-smoke.json'])
-    selection = read_json(files['windows-selection-handoff.json'])
-    require(selection_smoke.get('status') == 'passed' and 'error' not in selection_smoke and
-            selection_smoke.get('executable_sha256') == checksum and selection_smoke.get('applicationVersion') == version and
-            selection_smoke.get('process_exited') is True and selection_smoke.get('owned_processes_exited') is True and
-            selection_smoke.get('game_launched_after_selection_request') is True and
-            selection_smoke.get('native_report') == 'windows-selection-handoff.json',
-            'Owned client/game EXE handoff failed, tested different bytes, or did not close')
-    require(selection.get('status') == 'passed' and 'error' not in selection and selection.get('backend') == 'qtwidgets' and
-            selection.get('frozen') is True and selection.get('qt_platform') == 'windows' and
-            selection.get('applicationVersion') == version and all(selection.get(field) is True for field in SELECTION_FIELDS),
-            'Required champion selection/session/owned Windows metadata evidence missing')
     budget = read_json(files['windows-artifact-budget.json'])
     verify_budget(budget, release_dir, files)
     assets = [exe, release_dir / 'update-manifest.json', release_dir / 'SHA256SUMS.txt']
@@ -821,6 +880,12 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
             verify_custom_source_archive(release_dir/f'vga-aram-helper-{version}-source.zip', evidence_dir, build)
         except (RuntimeError, KeyError, ValueError, TypeError) as exc:
             raise VerificationError('Custom OpenCV downloadable source/license proof failed: '+str(exc)) from exc
+    source_archive = release_dir / f'vga-aram-helper-{version}-source.zip'
+    native_scales = [verify_native_scale(files, checksum, version, scale, prefix,
+        source_archive, source_sha, exe.stat().st_size) for scale, prefix in NATIVE_SCALES]
+    require(len({digest(files[prefix + '-overlay.png']) for _, prefix in NATIVE_SCALES}) == len(NATIVE_SCALES),
+            'Native scale screenshots must be distinct original evidence')
+    selection_summary = verify_selection_bundle(files, source_archive, version, source_sha, checksum, exe.stat().st_size)
     verify_dpi_matrix(files['windows-dpi-candidate-matrix.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip')
     automatic_capture = verify_automatic_capture(files['windows-automatic-capture.json'],
@@ -848,7 +913,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'opencv_distribution_version': CUSTOM_VERSION if profile != OFFICIAL_PROFILE else OFFICIAL_VERSION,
               'opencv_adoption': adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
-              'wgc_capture_summary': wgc_summary, 'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
+              'wgc_capture_summary': wgc_summary, 'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'selection_summary': selection_summary, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
@@ -1089,7 +1154,7 @@ def main():
     result = verify(args.release_dir, args.evidence_dir, args.repository, args.source_sha, args.output_dir, args.run_id, args.run_attempt)
     require(result['version'] == PREVIEW_VERSION, f'This manual preview approval covers v{PREVIEW_VERSION} only')
     summary = {key: result[key] for key in ('repository', 'run_id', 'run_attempt', 'source_sha', 'version', 'tag',
-                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'native_scale_summary', 'package_size', 'native_ota_summary', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
+                                          'exe_sha256', 'exe_size', 'artifact_budget', 'qt_binaries', 'native_scale_summary', 'selection_summary', 'package_size', 'native_ota_summary', 'genuine_screenshot_summary', 'champion_select_screenshot_summary')}
     summary.update(prerelease=True, release_asset_count=len(result['assets']),
                    evidence_file_count=len(result['evidence_sha256']), evidence_sha256=result['evidence_sha256'])
     print(json.dumps(summary, indent=2), flush=True)
