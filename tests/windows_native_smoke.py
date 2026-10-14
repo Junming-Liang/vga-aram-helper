@@ -14,9 +14,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace, terminate_tree
+from overlay_duty_contract import SOURCE_FILES, SCOPE as DUTY_SCOPE, validate_overlay_duty
 
 
-NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed')
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
 
 APP_SCALES = ('1', '1.5', '2')
 
@@ -68,7 +69,9 @@ def validate_physical_geometry(result, app_scale):
         raise RuntimeError('Native compact layout state is missing')
 
 
-def validate_report(result, version, app_scale=1):
+def validate_report(result, version, app_scale=1, *, executable_sha256=None):
+    if type(result) is not dict:
+        raise RuntimeError('Native report must be an object')
     if result.get('status') != 'passed' or 'error' in result:
         raise RuntimeError('Native overlay self-test did not pass')
     if result.get('backend') != 'qtwidgets' or result.get('frozen') is not True:
@@ -96,6 +99,9 @@ def validate_report(result, version, app_scale=1):
     if result.get('source_attribution_rendered') != '虚构演示 · 非 Riot 评级/批准' or result.get('source_details_reachable') is not True:
         raise RuntimeError('Native visible source and reachable source details are incomplete')
     validate_physical_geometry(result, app_scale)
+    if executable_sha256 is not None and result.get('executable_sha256') != executable_sha256:
+        raise RuntimeError('Native report tested different executable bytes')
+    validate_overlay_duty(result)
 
 
 def native_failure_summary(path):
@@ -112,7 +118,7 @@ def native_failure_summary(path):
         value = json.loads(path.read_text(encoding='utf-8'))
         if not isinstance(value, dict):
             raise ValueError('Native JSON was not an object')
-        result = {'report_present': True}
+        result = {'report_present': True, 'native_report_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
         for name, limit in (('status', 40), ('error_type', 120), ('error', 2000),
                             ('error_traceback', 4000), ('qt_platform', 80), ('applicationVersion', 40)):
             if isinstance(value.get(name), str):
@@ -123,6 +129,28 @@ def native_failure_summary(path):
                      'overlay_layout_passed', 'click_through_passed', 'window_closed'):
             if type(value.get(name)) is bool:
                 result[name] = value[name]
+        duty = value.get('overlay_duty_cycle')
+        if type(duty) is dict:
+            rows = duty.get('cases')
+            if type(rows) is list:
+                result['duty_case_count'] = len(rows)
+                result['duty_cases'] = []
+                for row in rows[:5]:
+                    if type(row) is not dict:
+                        continue
+                    detail = {}
+                    for key in ('name', 'status', 'capture_backend'):
+                        if type(row.get(key)) is str:
+                            detail[key] = row[key][:80]
+                    for key in ('total_ms', 'sampled_hidden_ms', 'sampled_inference_visible_ms',
+                                'max_sample_gap_ms', 'capture_count', 'max_capture_concurrency',
+                                'qt_show_events_during_capture', 'helper_count', 'stop_return_ms'):
+                        if type(row.get(key)) in (int, float) and math.isfinite(row[key]):
+                            detail[key] = row[key]
+                    for key in ('final_confirmed', 'final_running', 'late_final_discarded'):
+                        if type(row.get(key)) is bool:
+                            detail[key] = row[key]
+                    result['duty_cases'].append(detail)
         return result
     except (OSError, ValueError, UnicodeError) as exc:
         return {'diagnostic_error': type(exc).__name__ + ': native JSON could not be read'}
@@ -140,12 +168,18 @@ def main():
     reports = args.report_dir.resolve()
     reports.mkdir(parents=True, exist_ok=True)
     prefix = evidence_prefix(args.app_scale)
+    report_path = reports / (prefix + '-overlay.json')
     result = {'status': 'failed', 'requested_app_scale': float(args.app_scale), 'executable_sha256': hashlib.sha256(original.read_bytes()).hexdigest(),
               'scope': 'Original synthetic mock window only; no real game, Vanguard or exclusive-fullscreen compatibility claim.'}
     try:
         with smoke_workspace() as work, ExitStack() as cleanup:
+            result.update(executable_size=original.stat().st_size,
+                source_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=30).strip(),
+                source_files={name: hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in SOURCE_FILES})
             exe = work / 'VGA-Aram-Helper.exe'
             shutil.copyfile(original, exe)
+            if hashlib.sha256(exe.read_bytes()).hexdigest() != result['executable_sha256']:
+                raise RuntimeError('Native executable copy changed bytes')
             env = native_environment(os.environ, work, args.app_scale)
             version_file = work / 'version.json'
             subprocess.run([str(exe), '--version-file', str(version_file)], env=env, cwd=work, timeout=90, check=True)
@@ -170,11 +204,14 @@ def main():
                     result['native_failure'] = native_failure_summary(report_path)
                     raise RuntimeError(f'Native EXE exited with code {code}')
                 native = json.loads(report_path.read_text(encoding='utf-8'))
-                validate_report(native, version, float(args.app_scale))
+                validate_report(native, version, float(args.app_scale), executable_sha256=result['executable_sha256'])
                 if not screenshot.is_file() or not screenshot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
                     raise RuntimeError('Native overlay PNG evidence is missing')
                 result.update(applicationVersion=version, native_report=report_path.name,
                               native_screenshot=screenshot.name, process_exited=True,
+                              native_report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest(),
+                              native_screenshot_sha256=hashlib.sha256(screenshot.read_bytes()).hexdigest(),
+                              overlay_duty_cycle=validate_overlay_duty(native), overlay_duty_scope=DUTY_SCOPE,
                               physical_geometry={key:native[key] for key in ('requested_app_scale','mock_qwindow_dpr',
                                   'overlay_qwindow_dpr','desktop_work_area_physical','mock_window_physical',
                                   'clientRect','overlay_window_physical','overlay_compact')})
@@ -183,6 +220,8 @@ def main():
         result['error'] = repr(exc)
         raise
     finally:
+        if result['status'] != 'passed':
+            result['native_failure'] = native_failure_summary(report_path)
         (reports / (prefix + '-smoke.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(result, ensure_ascii=False, indent=2))
 

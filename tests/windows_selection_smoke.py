@@ -9,6 +9,9 @@ import argparse
 import ctypes
 from ctypes import wintypes as W
 import json
+import math
+import re
+import subprocess
 import os
 from pathlib import Path
 import shutil
@@ -31,21 +34,41 @@ MAX_LOG_BYTES = 64 * 1024
 MAX_TOTAL_LOG_BYTES = 256 * 1024
 FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed',
           'champion_select_session_carry_passed', 'champion_select_stale_clear_passed',
-          'champion_select_window_scope_passed', 'metadata_query_passed')
+          'champion_select_window_scope_passed', 'metadata_query_passed',
+          'client_hero_reference_passed', 'client_hero_no_confirmation_passed',
+          'client_hero_geometry_passed', 'client_hero_safety_passed')
+SCALES = (1, 1.5, 2)
+SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
+    'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
+    'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
+SOURCE_FILES = ('native_ui.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
+    'hero_strength.py', 'champion_select.py', 'selection_session.py', 'session_windows.py',
+    'selection_smoke.py', 'synthetic_vision.py', 'launcher.py', 'tests/windows_selection_smoke.py',
+    'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs',
+    'fixtures/demo.json', 'fixtures/champselect-synthetic.png', 'fixtures/auto-scene.png')
+EXPECTED_REFERENCE = {'hero': '星火术士（演示）', 'championId': '9001', 'sourceTier': 'T5',
+    'sourceTierLabel': '虚构英雄评级（演示）', 'sourceLabel': '虚构演示 · 不能用于对局',
+    'sourceUrl': None, 'sourceDataDate': '2026-01-02', 'sourceVersion': '0.1',
+    'gamePatch': '0.2', 'wikiDataVersion': 'synthetic-selection-v1', 'isDemo': True}
+EXPECTED_TEXT = {'hero': '星火术士（演示）', 'tier': '英雄整体强度：T5',
+    'heading': '当前分配 · 仍可交换 · HUD未复核', 'footer': '虚构演示 · 非 Riot 评级/批准',
+    'metadata': '英雄评级快照 2026-01-02 · 英雄资料 0.1 · 游戏资料 0.2 · 数据包 synthetic-selection-v1'}
 SCOPE = ('Owned original synthetic windows only. Primary client-to-new-game carry uses actual '
          'Windows pixels and real executable metadata; ambiguity/expiry are separate synthetic '
          'policy checks. No real game, Vanguard, live-match accuracy or compatibility claim.')
 
 
-def child_environment(environ, work):
-    env = isolated_windows_environment(environ, work)
+def child_environment(environ, work, scale=1, *, frozen=True):
+    env = isolated_windows_environment(environ, work) if frozen else {key.upper(): value for key, value in environ.items()}
+    if type(scale) not in (int, float) or scale not in SCALES:
+        raise ValueError("Unsupported selection app scale")
     for key in tuple(env):
         if key.startswith(('_PYI_', 'QT_', 'PYSIDE_', 'VGA_')):
             env.pop(key)
     temporary = Path(work) / 'temporary'
     temporary.mkdir()
     env.update(TEMP=str(temporary), TMP=str(temporary), VGA_STATE_DIR=str(Path(work) / 'state'),
-               PYINSTALLER_RESET_ENVIRONMENT='1')
+               PYINSTALLER_RESET_ENVIRONMENT='1', QT_SCALE_FACTOR=str(scale))
     return env
 
 
@@ -136,20 +159,187 @@ def report_when(path, phase=None, *, terminal=False):
     return value if value.get('phase') == phase else None
 
 
-def validate_report(value, version):
-    if not isinstance(value, dict) or value.get('status') != 'passed' or 'error' in value:
-        raise AssertionError('Selection handoff did not pass')
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def rectangle(value, label):
+    require(type(value) is dict and set(value) == {'x', 'y', 'width', 'height'}
+            and all(type(number) is int and -(2**31) <= number < 2**31 for number in value.values())
+            and value['width'] > 0 and value['height'] > 0
+            and value['width'] * value['height'] <= 16_000_000, 'Invalid rectangle: ' + label)
+    return value
+
+
+def contains(outer, inner):
+    return (inner['x'] >= outer['x'] and inner['y'] >= outer['y']
+            and inner['x'] + inner['width'] <= outer['x'] + outer['width']
+            and inner['y'] + inner['height'] <= outer['y'] + outer['height'])
+
+
+def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=None):
+    require(type(value) is dict and value.get('status') == 'passed' and 'error' not in value,
+            'Selection handoff did not pass')
+    require(type(value.get('schemaVersion')) is int and value['schemaVersion'] == 2,
+            'Selection native schema differs')
     for name, expected in (('backend', 'qtwidgets'), ('qt_platform', 'windows'), ('applicationVersion', version)):
-        if value.get(name) != expected:
-            raise AssertionError('Selection handoff identity mismatch: ' + name)
-    if value.get('frozen') is not True:
-        raise AssertionError('Selection handoff is not from the actual frozen executable')
+        require(value.get(name) == expected, 'Selection handoff identity mismatch: ' + name)
+    require(value.get('frozen') is frozen, 'Selection source/frozen identity differs')
+    if frozen:
+        require(type(value.get('executable_sha256')) is str
+                and re.fullmatch(r'[0-9a-f]{64}', value['executable_sha256'])
+                and (executable_sha256 is None or value['executable_sha256'] == executable_sha256),
+                'Selection native executable bytes differ')
+    else:
+        require('executable_sha256' not in value, 'Source native report claims frozen EXE bytes')
     for name in FIELDS:
-        if value.get(name) is not True:
-            raise AssertionError('Selection handoff evidence missing: ' + name)
+        require(value.get(name) is True, 'Selection handoff evidence missing: ' + name)
+    requested = value.get('requested_app_scale')
+    require(type(requested) in (int, float) and math.isfinite(requested) and requested == scale,
+            'Selection requested app scale differs')
+    require(value.get('window_closed') is True and value.get('phase') == 'complete',
+            'Selection native window did not close')
+    require(value.get('recognizedHero') == EXPECTED_REFERENCE['hero']
+            and value.get('assignedHero') == EXPECTED_REFERENCE['hero']
+            and value.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光']
+            and value.get('provenance') == 'client-provisional'
+            and value.get('renderedHeading') == EXPECTED_REFERENCE['hero'] + ' · 来自本局选人 · HUD未复核',
+            'Selection handoff hero, augment order or provenance differs')
+    for key in ('clientHwnd', 'clientPid', 'gameHwnd', 'gamePid', 'clientGeneration'):
+        require(type(value.get(key)) is int and value[key] > 0, 'Selection identity missing: ' + key)
+    require(value['clientHwnd'] != value['gameHwnd'] and value['clientPid'] != value['gamePid'],
+            'Client and game identities must differ')
+    detail = value.get('client_hero_reference')
+    require(type(detail) is dict, 'Hero reference measurements missing')
+    require(detail.get('reference') == EXPECTED_REFERENCE
+            and type(detail['reference'].get('isDemo')) is bool,
+            'Hero reference canonical tier/source/date/patch binding differs')
+    require(detail.get('assigned') == '9001' and detail.get('stage') == 'assigned'
+            and detail.get('state_hero') == EXPECTED_REFERENCE['hero']
+            and type(detail.get('observation_count')) is int and detail['observation_count'] >= 2,
+            'Hero reference requires two exact current client observations')
+    require(detail.get('confirmed') is False and type(detail.get('offered')) is list and detail['offered'] == []
+            and type(detail.get('augment_card_count')) is int and detail['augment_card_count'] == 0,
+            'Hero-only reference fabricated augment confirmation')
+    for key in ('visible', 'native_visible', 'foreground_preserved'):
+        require(detail.get(key) is True, 'Actual visible hero reference missing: ' + key)
+    require(type(detail.get('overlay_hwnd')) is int and detail['overlay_hwnd'] > 0
+            and detail['overlay_hwnd'] not in (value['clientHwnd'], value['gameHwnd'])
+            and type(detail.get('click_through_hit_hwnd')) is int
+            and detail['click_through_hit_hwnd'] == value['clientHwnd'], 'Hero reference click-through identity differs')
+    style = detail.get('window_style')
+    require(type(style) is int and 0 <= style <= 2**32-1
+            and all(style & flag for flag in (0x80000, 0x08000000, 0x20, 0x8, 0x80)),
+            'Hero reference native overlay style differs')
+    dpr = detail.get('qt_dpr')
+    require(type(dpr) in (int, float) and math.isfinite(dpr) and abs(dpr-scale) <= .01,
+            'Hero reference measured Qt scale differs')
+    client = rectangle(detail.get('client_rect'), 'client')
+    overlay = rectangle(detail.get('overlay_rect'), 'overlay')
+    require((client['width'], client['height']) == (964, 602)
+            and contains(client, overlay) and overlay['height'] <= client['height']//2,
+            'Hero reference escaped original client/half-height bounds')
+    logical = detail.get('logical_size')
+    require(type(logical) is dict and set(logical) == {'width', 'height'}
+            and all(type(number) is int and number > 0 for number in logical.values()),
+            'Hero reference logical size missing')
+    require(abs(overlay['width']-logical['width']*dpr) <= 2
+            and abs(overlay['height']-logical['height']*dpr) <= 2, 'Hero native/logical bounds disagree')
+    labels = detail.get('labels')
+    require(type(labels) is dict and set(labels) == set(EXPECTED_TEXT), 'Hero visible label set differs')
+    for role, expected in EXPECTED_TEXT.items():
+        row = labels[role]
+        require(type(row) is dict and row.get('text') == expected and row.get('visible') is True,
+                'Hero displayed text missing or changed: ' + role)
+        rect = rectangle(row.get('logical_rect'), role)
+        require(contains(dict(x=0, y=0, **logical), rect), 'Hero label escaped overlay: ' + role)
+        minimum, height = row.get('minimum_width'), row.get('required_height_at_width')
+        require(type(minimum) is int and 0 <= minimum <= rect['width']+1
+                and type(height) is int and -1 <= height <= rect['height']+1,
+                'Hero label is clipped or lacks text measurements: ' + role)
+        expected_accessible = ('当前分配英雄：' + EXPECTED_REFERENCE['hero'] if role == 'hero'
+                               else '虚构英雄评级（演示）：T5' if role == 'tier' else '')
+        require(row.get('accessible_name') == expected_accessible, 'Hero accessible text differs: ' + role)
+    rects = [row['logical_rect'] for row in labels.values()]
+    for index, left in enumerate(rects):
+        for right in rects[index+1:]:
+            require(not (left['x'] < right['x']+right['width'] and right['x'] < left['x']+left['width']
+                         and left['y'] < right['y']+right['height'] and right['y'] < left['y']+left['height']),
+                    'Visible hero labels overlap')
+    require(type(value.get('foreground_recovery_start_count')) is int and value['foreground_recovery_start_count'] >= 2
+            and type(value.get('foreground_recovery_observations')) is int and value['foreground_recovery_observations'] >= 2,
+            'Two measured post-foreground client observations missing')
+    safety = value.get('client_hero_safety')
+    require(type(safety) is dict and all(safety.get(key) is True for key in SAFETY_FIELDS),
+            'Hero reference revocation/recovery evidence missing')
+    return value
 
 
-def collect_logs(work, reports):
+def native_report_name(frozen, scale):
+    prefix = 'windows-selection-handoff' if frozen else 'windows-selection-source-handoff'
+    return prefix + ('' if scale == 1 else '-scale' + str(round(scale*100))) + '.json'
+
+
+def validate_aggregate(value, version, *, frozen, source_commit=None, executable_sha256=None, executable_size=None):
+    require(type(value) is dict and value.get('status') == 'passed' and 'error' not in value
+            and type(value.get('schemaVersion')) is int and value['schemaVersion'] == 2
+            and value.get('frozen') is frozen and value.get('applicationVersion') == version,
+            'Selection aggregate identity/status differs')
+    require(type(value.get('source_commit')) is str and re.fullmatch(r'[0-9a-f]{40}', value['source_commit'])
+            and (source_commit is None or value['source_commit'] == source_commit), 'Selection source commit differs')
+    files = value.get('source_files')
+    require(type(files) is dict and set(files) == set(SOURCE_FILES)
+            and all(type(digest) is str and re.fullmatch(r'[0-9a-f]{64}', digest) for digest in files.values()),
+            'Selection source byte identities missing')
+    if frozen:
+        require(type(value.get('executable_sha256')) is str and re.fullmatch(r'[0-9a-f]{64}', value['executable_sha256'])
+                and (executable_sha256 is None or value['executable_sha256'] == executable_sha256),
+                'Selection tested different EXE bytes')
+        require(type(value.get('executable_size')) is int and value['executable_size'] > 0
+                and (executable_size is None or value['executable_size'] == executable_size),
+                'Selection tested different EXE size')
+    else:
+        require('executable_sha256' not in value and 'executable_size' not in value,
+                'Source selection evidence cannot claim frozen EXE bytes')
+    scales = value.get('scales')
+    require(type(scales) is list and len(scales) == 3 and all(type(s) in (int, float) for s in scales)
+            and scales == list(SCALES), 'Selection aggregate scale set differs')
+    runs = value.get('runs')
+    require(type(runs) is list and len(runs) == 3, 'Selection aggregate requires all three runs')
+    for row, scale in zip(runs, SCALES):
+        require(type(row) is dict and type(row.get('app_scale')) in (int, float) and row['app_scale'] == scale
+                and row.get('native_report') == native_report_name(frozen, scale), 'Selection scale/report identity differs')
+        require(type(row.get('native_report_sha256')) is str
+                and re.fullmatch(r'[0-9a-f]{64}', row['native_report_sha256']),
+                'Selection native report byte hash missing')
+        validate_report(row.get('detail'), version, frozen=frozen, scale=scale,
+                        executable_sha256=value.get('executable_sha256'))
+        require(row.get('applicationVersion') == version
+                and row.get('fixture_source_sha256') == files['tests/SessionWindowFixture.cs'],
+                'Selection run version/fixture source differs')
+        if frozen:
+            require(row.get('executable_sha256') == value['executable_sha256'], 'Selection run EXE bytes differ')
+        for key in ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request'):
+            require(row.get(key) is True, 'Selection owned lifecycle missing: ' + key)
+        require(row.get('completed_fields') == list(FIELDS), 'Selection completed field list differs')
+        for role in ('client', 'game'):
+            observed = row.get(role)
+            require(type(observed) is dict and observed.get('class_name') == CLASSES[role]
+                    and type(observed.get('client_size')) is list and observed['client_size'] == [964, 602]
+                    and all(type(number) is int for number in observed['client_size'])
+                    and type(observed.get('hwnd')) is int and observed['hwnd'] == row['detail'][role+'Hwnd']
+                    and type(observed.get('pid')) is int and observed['pid'] == row['detail'][role+'Pid'],
+                    'Selection owned process/window evidence differs: ' + role)
+    for key in ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request'):
+        require(value.get(key) is True, 'Legacy selection lifecycle missing: ' + key)
+    for key in ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request',
+                'native_report', 'native_report_sha256', 'fixture_source_sha256', 'completed_fields', 'client', 'game'):
+        require(json.dumps(value.get(key), sort_keys=True) == json.dumps(runs[0].get(key), sort_keys=True), 'Legacy selection evidence differs from scale100: ' + key)
+    return value
+
+
+def collect_logs(work, reports, prefix='windows-selection-'):
     sources = list(sorted((Path(work) / 'state' / 'logs').glob('*.txt')))
     sources += list(sorted(Path(work).glob('*.error.txt')))
     if len(sources) > 12:
@@ -160,7 +350,7 @@ def collect_logs(work, reports):
         total += size
         if size > MAX_LOG_BYTES or total > MAX_TOTAL_LOG_BYTES:
             raise AssertionError('Selection logs exceed their small-evidence bound')
-        target = Path(reports) / ('windows-selection-' + path.name)
+        target = Path(reports) / (prefix + path.name)
         if target.name in names:
             raise AssertionError('Selection log names collide')
         shutil.copyfile(path, target)
@@ -168,19 +358,22 @@ def collect_logs(work, reports):
     return names
 
 
-def execute(original, reports, result):
+def execute_run(original, reports, result, *, frozen=True, scale=1):
     # Reserve existing NativeJob failure-cleanup time inside the 240-second bound.
     budget = Deadline(MAX_SECONDS - JOB_CLEANUP_SECONDS)
     with smoke_workspace() as work:
         work = work.resolve()  # Canonicalize Windows short-name TEMP aliases before identity checks.
-        target = work / 'VGA-Aram-Helper.exe'
-        shutil.copyfile(original, target)
-        if sha256(target) != result['executable_sha256']:
-            raise AssertionError('Target executable copy changed bytes')
-        env = child_environment(os.environ, work)
+        target = work / 'VGA-Aram-Helper.exe' if frozen else Path(sys.executable).resolve()
+        app_args = [] if frozen else [str(ROOT / 'launcher.py')]
+        if frozen:
+            shutil.copyfile(original, target)
+            if sha256(target) != result['executable_sha256']:
+                raise AssertionError('Target executable copy changed bytes')
+        env = child_environment(os.environ, work, scale, frozen=frozen)
+        artifact_prefix = ('windows-selection-' if frozen else 'windows-selection-source-') + 'scale' + str(round(scale*100)) + '-'
         fixture = compile_fixture(work / 'fixture-root', timeout=max(.1, min(45, budget.end - time.monotonic())))
         result['fixture_source_sha256'] = fixture['source_sha256']
-        (reports / 'windows-selection-compiler.log').write_text(fixture['compiler_log'], encoding='utf-8')
+        (reports / (artifact_prefix + 'compiler.log')).write_text(fixture['compiler_log'], encoding='utf-8')
         native = NativeJob()
         old_context = None
         try:
@@ -191,13 +384,13 @@ def execute(original, reports, result):
             sizes = fixture_dimensions(work_area.right - work_area.left, work_area.bottom - work_area.top)
             x, y = max(0, work_area.left) + 20, max(0, work_area.top) + 20
             version_file = work / 'version.json'
-            version_process = native.spawn(target, ['--version-file', str(version_file)], env, work)
+            version_process = native.spawn(target, app_args + ['--version-file', str(version_file)], env, work)
             if native.wait_exit(version_process, budget.until(60)) != 0:
-                raise AssertionError('Frozen executable version command failed')
+                raise AssertionError('Application version command failed')
             version_info = read_json(version_file)
             version = version_info.get('applicationVersion')
-            if not isinstance(version, str) or not version or version_info.get('frozen') is not True:
-                raise AssertionError('Frozen executable version evidence is invalid')
+            if not isinstance(version, str) or not version or version_info.get('frozen') is not frozen:
+                raise AssertionError('Application source/frozen version evidence is invalid')
             result['applicationVersion'] = version
             client_ready = work / 'client-ready.json'
             argv = fixture_argv(fixture['client_exe'], 'client', CLIENT_PNG, client_ready,
@@ -206,10 +399,10 @@ def execute(original, reports, result):
             client_window = wait_fixture(native, client, fixture['client_exe'], 'client', client_ready, sizes['client'], budget)
             input_path = work / 'selection-input.json'
             write_json(input_path, {'schemaVersion': 1, 'scope': 'owned-synthetic-only', 'client': client_window})
-            handoff_path = work / 'windows-selection-handoff.json'
+            handoff_path = work / native_report_name(frozen, scale)
             if handoff_path.exists():
                 raise AssertionError('Selection handoff report must be fresh for this exact run')
-            app = native.spawn(target, ['--selection-smoke-input', str(input_path),
+            app = native.spawn(target, app_args + ['--selection-smoke-input', str(input_path),
                                         '--selection-smoke-report', str(handoff_path)], env, work)
 
             def awaiting_game():
@@ -218,10 +411,12 @@ def execute(original, reports, result):
                 value = report_when(handoff_path, 'await-game-window')
                 if value:
                     return value
-                foreground_owned(native, client, fixture['client_exe'], 'client', client_window, sizes['client'])
+                current = read_json(handoff_path) if handoff_path.is_file() else {}
+                if current.get('phase') != 'testing-client-foreground-loss':
+                    foreground_owned(native, client, fixture['client_exe'], 'client', client_window, sizes['client'])
                 return None
 
-            Deadline.wait(awaiting_game, budget.until(95), 'Application did not confirm selection before game launch')
+            Deadline.wait(awaiting_game, budget.until(135), 'Application did not confirm selection before game launch')
             result['game_launched_after_selection_request'] = True
             result['client'] = dict(client_window, class_name=CLASSES['client'], client_size=list(sizes['client']))
             # The real game fixture process does not exist until the app's explicit session has started.
@@ -243,7 +438,9 @@ def execute(original, reports, result):
                 return None
 
             handoff = Deadline.wait(completed, budget.until(90), 'Real selection handoff did not finish before its deadline')
-            validate_report(handoff, version)
+            validate_report(handoff, version, frozen=frozen, scale=scale)
+            result['detail'] = handoff
+            result['native_report_sha256'] = sha256(handoff_path)
             if native.wait_exit(app, budget.until(20)) != 0:
                 raise AssertionError('Selection diagnostic executable did not exit with code zero')
             result['process_exited'] = True
@@ -264,36 +461,62 @@ def execute(original, reports, result):
                     if not native.u.SetThreadDpiAwarenessContext(old_context):
                         raise RuntimeError('Observer thread DPI context restoration failed')
                 # Read only the current run's unique temporary report; preserve it as small evidence.
-                current_handoff = work / 'windows-selection-handoff.json'
+                current_handoff = work / native_report_name(frozen, scale)
                 if current_handoff.is_file():
                     if current_handoff.stat().st_size > MAX_LOG_BYTES:
                         raise AssertionError('Selection handoff report exceeds 64 KiB')
                     shutil.copyfile(current_handoff, reports / current_handoff.name)
-                result['logs'] = collect_logs(work, reports)
+                result['logs'] = collect_logs(work, reports, artifact_prefix)
 
 
-def main():
+def execute(original, reports, result):
+    for scale in SCALES:
+        row = {'app_scale': scale, 'process_exited': False, 'owned_processes_exited': False}
+        if original:
+            row['executable_sha256'] = result['executable_sha256']
+        result['runs'].append(row)
+        execute_run(original, reports, row, frozen=result['frozen'], scale=scale)
+        if scale == 1:
+            for key, value in row.items():
+                if key not in ('app_scale', 'detail'):
+                    result[key] = value
+        require(row['applicationVersion'] == result['applicationVersion'], 'Selection scale versions differ')
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exe', required=True, type=Path)
-    parser.add_argument('--report-dir', type=Path, default=ROOT / 'reports')
-    args = parser.parse_args()
+    parser.add_argument('--exe', type=Path, help='Omit only for separate actual Windows source acceptance')
+    parser.add_argument('--report-dir', '--reports', type=Path, default=ROOT / 'reports')
+    args = parser.parse_args(argv)
     if os.name != 'nt':
-        raise SystemExit('Selection smoke requires the real Windows executable and interactive Windows desktop')
-    original, reports = args.exe.resolve(strict=True), args.report_dir.resolve()
-    if original.suffix.lower() != '.exe':
+        raise SystemExit('Selection smoke requires actual native Windows and an interactive desktop')
+    frozen = args.exe is not None
+    original = args.exe.resolve(strict=True) if frozen else None
+    if original and original.suffix.lower() != '.exe':
         raise SystemExit('Selection smoke requires a Windows .exe')
-    reports.mkdir(parents=True, exist_ok=True)
-    result = {'status': 'failed', 'scope': SCOPE, 'executable_sha256': sha256(original),
-              'process_exited': False, 'owned_processes_exited': False}
+    reports = args.report_dir.resolve(); reports.mkdir(parents=True, exist_ok=True)
+    result = {'schemaVersion': 2, 'status': 'failed', 'scope': SCOPE, 'frozen': frozen,
+              'scales': list(SCALES), 'runs': [], 'process_exited': False, 'owned_processes_exited': False}
     try:
+        sys.path.insert(0, str(ROOT))
+        from app_version import __version__
+        result.update(applicationVersion=__version__, source_commit=subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=30).strip(),
+            source_files={name: sha256(ROOT/name) for name in SOURCE_FILES})
+        if frozen:
+            result['executable_sha256'] = sha256(original)
+            result['executable_size'] = original.stat().st_size
         execute(original, reports, result)
         result['status'] = 'passed'
+        validate_aggregate(result, __version__, frozen=frozen)
     except Exception as error:
-        result['error'] = repr(error)[:2000]
+        result.update(status='failed', error=repr(error)[:2000])
         raise
     finally:
-        write_json(reports / 'windows-selection-smoke.json', result)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        write_json(reports / ('windows-selection-smoke.json' if frozen else 'windows-selection-source.json'), result)
+        # Full bounded JSON stays in rendered CI logs for independently readable
+        # label/geometry/source evidence even where artifact download is denied.
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
 
 
 if __name__ == '__main__':

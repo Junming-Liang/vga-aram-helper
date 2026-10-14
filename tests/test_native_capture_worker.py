@@ -1,6 +1,8 @@
 """Qt thread/state integration with owned fakes; not Windows capture evidence."""
 import copy
 import gc
+import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -49,6 +51,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.wait(lambda: self.window.data is not None)
         self.window.watchdog.stop()
         self.window.monitor.stop()
+        self.window.schedule_capture = lambda delay=None: None  # Tests drive exact owned observations.
         self.window.check_target = lambda: None
         self.window.target_allowed = lambda: True
         self.window.capture_metadata = lambda: None
@@ -142,8 +145,9 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None):
             hero_calls.append(image)
+            if before_ocr:before_ocr({'hero': hero, 'confident': True},b'exact-title-crop')
             result = ocr.recognize(b'exact-title-crop', vocabulary)
             result['hero_observation'] = {'hero': hero, 'confident': True}
             return result
@@ -185,7 +189,8 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None):
+            if before_ocr:before_ocr({'hero': selected[0], 'confident': True},b'unchanged-owned-titles')
             result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
             result['hero_observation'] = {'hero': selected[0], 'confident': True}
             return result
@@ -263,6 +268,108 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         current[0] = ClientRect(1, 0, 900, 600)
         self.assertFalse(ControlWindow.captured_frame_current(self.window, proof))
         self.assertFalse(ControlWindow.captured_frame_current(self.window, {}))
+
+    def accepted_proof_fixture(self):
+        from native_ui import ControlWindow
+        from native_state import display_cards
+        from screen_capture import ClientRect
+        w=self.window;rect=ClientRect(0,0,900,600);names=tuple(w.data['augments'])[:3];hero=next(iter(w.data['heroes']))
+        class Matcher:
+            def __init__(inner):inner.token=object();inner.minimum_score=.88
+            def proof_identity(inner):return (inner.token,inner.minimum_score,.07)
+        class Capture:
+            def rect(inner,target):return rect
+            def foreground(inner,target):return True
+        w.hero_matcher=Matcher();w.capture=Capture();w.state.hero=hero;w.state.hero_observed=hero;w.state.hero_stable_frames=2;w.state.confirm(names,w.data['augments'],automatic=True)
+        w.overlay.set_cards(hero,display_cards(w.data,hero,names));w.overlay.hide()
+        w.last_observation=time.monotonic()-.1;w.last_rect=rect;w.ocr_started=time.monotonic()
+        scope=(w.target.identity,None,rect,tuple(s.value()/100 for s in w.roi),tuple(w.data['augments']),
+            (id(w.data),json.dumps(w.data['metadata'],sort_keys=True,ensure_ascii=False)),(w.hero_matcher,w.hero_matcher.proof_identity()))
+        value={'_windowIdentity':w.target.identity,'_captureRect':rect,'_frameScope':scope,'_roiDigest':hashlib.sha256(b'owned-crop').hexdigest(),
+            '_hudInputDigest':'a'*64,'_capturedAt':w.last_observation,'hero_observation':{'hero':hero,'confident':True}}
+        w.remember_accepted_frame(value)
+        w.check_target=lambda:ControlWindow.check_target(w)
+        fresh=dict(value,_capturedAt=time.monotonic(),_captureSerial=w._capture_serial)
+        fresh.pop('hero_observation')
+        return fresh,hero,names
+
+    def test_early_exact_input_proof_restores_only_previous_result_without_refreshing_ttl(self):
+        w=self.window;value,hero,names=self.accepted_proof_fixture();old_time=w.last_observation
+        old_counts=(w.state.automatic_frames,w.state.hero_stable_frames,w.state.generation)
+        w.capture_pending=True;w.ocr_busy=True
+        w.task_result('capture-proof',value,w.state.generation)
+        self.assertFalse(w.capture_pending);self.assertTrue(w.ocr_busy);self.assertTrue(w.overlay.isVisible())
+        self.assertIn('上次候选复核中',w.overlay.heading.text())
+        self.assertEqual(w.last_observation,old_time);self.assertEqual((w.state.automatic_frames,w.state.hero_stable_frames,w.state.generation),old_counts)
+        changed=dict(value,hero_observation={'confident':False},automatic_candidates=[],candidates=[],image_size={'width':900,'height':400})
+        w.task_result('ocr',changed,w.state.generation)
+        self.assertFalse(w.overlay.isVisible());self.assertFalse(w.state.confirmed);self.assertIsNone(w._accepted_frame)
+
+    def test_fast_restore_rejects_every_changed_or_expired_reference_scope(self):
+        w=self.window;value,hero,names=self.accepted_proof_fixture()
+        self.assertTrue(w.may_restore_accepted_frame(value))
+        for field,replacement in (('_roiDigest','b'*64),('_hudInputDigest',None),('_capturedAt',w.last_observation)):
+            with self.subTest(field=field):self.assertFalse(w.may_restore_accepted_frame(dict(value,**{field:replacement})))
+        for index in range(7):
+            scope=list(value['_frameScope']);scope[index]='changed-proof-scope'
+            with self.subTest(scope=index):self.assertFalse(w.may_restore_accepted_frame(dict(value,_frameScope=tuple(scope))))
+        self.assertFalse(w.may_restore_accepted_frame(dict(value,hero_observation={'hero':hero,'confident':False})))
+        w.hero_matcher.minimum_score=.95;self.assertFalse(w.may_restore_accepted_frame(value));w.hero_matcher.minimum_score=.88
+        old_data=w.data;w.data=dict(w.data);self.assertFalse(w.may_restore_accepted_frame(value));w.data=old_data
+        w._accepted_frame['observed_at']=time.monotonic()-4.01;self.assertFalse(w.may_restore_accepted_frame(value))
+
+    def test_direct_invalidation_hides_visible_previous_overlay_and_clears_status_now(self):
+        w=self.window;value,_,_=self.accepted_proof_fixture()
+        w.capture_pending=True;w.ocr_busy=True;w.task_result('capture-proof',value,w.state.generation)
+        self.assertTrue(w.overlay.isVisible());w.status.setText('old confirmation status')
+        w.invalidate_scene('Owned explicit scene invalidation')
+        self.assertFalse(w.overlay.isVisible());self.assertFalse(w.state.confirmed)
+        self.assertIsNone(w._accepted_frame);self.assertEqual(w.status.text(),'Owned explicit scene invalidation')
+
+    def test_capture_failure_edit_stop_and_late_phase_never_restore(self):
+        w=self.window;value,_,_=self.accepted_proof_fixture();generation=w.state.generation
+        w.ocr_busy=True;w.capture_pending=True;w.task_error('ocr','owned acquisition failure',generation)
+        self.assertFalse(w.overlay.isVisible());self.assertIsNone(w._accepted_frame)
+        w.task_result('capture-proof',value,generation);self.assertFalse(w.overlay.isVisible())
+        value,_,_=self.accepted_proof_fixture();w.edit_changed();self.assertIsNone(w._accepted_frame)
+        w.task_result('capture-proof',value,w.state.generation-1);self.assertFalse(w.overlay.isVisible())
+        value,_,_=self.accepted_proof_fixture();generation=w.state.generation;w.stop_monitor()
+        w.task_result('capture-proof',value,generation);self.assertFalse(w.overlay.isVisible());self.assertFalse(w.state.running)
+
+    def test_slow_inference_keeps_exact_previous_frame_visible_without_overlapping_capture(self):
+        from screen_capture import ClientRect
+        w=self.window;_,hero,names=self.accepted_proof_fixture();release=threading.Event();self._release_events.append(release);calls=[]
+        class Capture:
+            def capture(inner,*args,**kwargs):calls.append(1);return b'owned-image',ClientRect(0,0,900,600)
+            def rect(inner,target):return ClientRect(0,0,900,600)
+            def foreground(inner,target):return True
+        w.capture=Capture()
+        candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr):
+            before_match('a'*64,b'owned-crop')
+            if not release.wait(2):raise RuntimeError('owned inference timeout')
+            before_ocr({'hero':hero,'confident':True},b'owned-crop')
+            return {'hero_observation':{'hero':hero,'confident':True},'candidates':candidates,'automatic_candidates':candidates,'image_size':{'width':900,'height':400}}
+        with patch('hero_recognition.recognize_frame',side_effect=recognize):
+            w.capture_hidden(w.state.generation);self.wait(lambda:w.overlay.isVisible())
+            self.assertTrue(w.ocr_busy);self.assertFalse(w.capture_pending)
+            old_time=w.last_observation;w.capture_tick();self.assertEqual(calls,[1]);self.assertEqual(w.last_observation,old_time)
+            self.assertIn('复核中',w.overlay.heading.text());release.set();self.wait(lambda:not w.ocr_busy)
+        self.assertTrue(w.state.confirmed);self.assertNotIn('复核中',w.overlay.heading.text());self.assertEqual(calls,[1])
+
+    def test_completion_cadence_is_single_shot_bounded_and_never_overlaps(self):
+        from native_ui import ControlWindow
+        w=self.window;self.assertTrue(w.monitor.isSingleShot())
+        w.ocr_busy=True;ControlWindow.schedule_capture(w);self.assertFalse(w.monitor.isActive())
+        w.ocr_busy=False;w.capture_pending=True;ControlWindow.schedule_capture(w);self.assertFalse(w.monitor.isActive())
+        w.capture_pending=False;ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),200);w.monitor.stop()
+        w.state.confirmed=True;ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),700);w.monitor.stop()
+        w.state.confirmed=False
+        with patch.object(w,'client_strength_reference',return_value={'sourceTier':'T5'}):
+            ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),700);w.monitor.stop();self.assertFalse(w.state.confirmed)
+        with patch.object(w,'client_strength_reference',return_value=None):
+            ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),200);w.monitor.stop()
+        w.stop_monitor();ControlWindow.schedule_capture(w);self.assertFalse(w.monitor.isActive())
 
 
 if __name__ == '__main__':

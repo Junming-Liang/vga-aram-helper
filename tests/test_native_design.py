@@ -72,6 +72,13 @@ class NativeDesignTests(unittest.TestCase):
         self.assertEqual([s.value() for s in w.roi], [15,25,70,35])
         self.assertEqual([e.accessibleName() for e in w.inputs], ['左侧候选','中间候选','右侧候选'])
 
+    def test_real_window_titles_match_exact_current_ota_contract(self):
+        from app_version import __version__
+        from windows_ota_smoke import control_title_for_version, OVERLAY_TITLE, CONTROL_TITLE
+        self.assertEqual(self.window.windowTitle(), control_title_for_version(__version__))
+        self.assertEqual(self.window.overlay.windowTitle(), OVERLAY_TITLE)
+        self.assertEqual(CONTROL_TITLE, 'VGA乱斗助手 · 原生控制台')
+
     def test_manual_recovery_expands_the_actual_existing_hero_control(self):
         w = self.window
         w.hero_auto.setChecked(False)
@@ -364,6 +371,110 @@ class NativeDesignTests(unittest.TestCase):
         self.assertEqual(w.status_chip.property('state'),'provisional');self.assertFalse(w.state.confirmed)
         self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
         deliver(102.,'unknown');self.assertEqual(w.hero_title.text(),'等待识别');self.assertNotIn('HUD 连续确认',w.status_chip.text())
+
+    def test_client_hero_strength_is_separate_fresh_canonical_reference(self):
+        from native_ui import ControlWindow
+        from screen_capture import WindowInfo,ClientRect
+        from selection_session import SelectionSession
+        w=self.window;hero=next(iter(w.data['heroes']));w.data['heroes'][hero].update(championId='9001',overallTier='T5')
+        w.target=WindowInfo(1,10,'owned client','Chrome_WidgetWin_1');w.state.start(w.target.identity)
+        session=SelectionSession();session.start(w.target.identity);w.selection_session=session
+        for stamp in (100.,101.):session.observe_client({'scene':'assigned-selection','assigned':True,'championId':'9001'},w.target.identity,stamp,stamp+.01,generation=session.generation)
+        w.state.hero=hero;rect=ClientRect(10,10,1280,720)
+        class Capture:
+            def rect(inner,target):return rect
+            def foreground(inner,target):return True
+        w.capture=Capture();w.target_allowed=lambda:True
+        with patch('native_ui.time.monotonic',return_value=101.1):
+            reference=w.client_strength_reference();self.assertEqual(reference['sourceTier'],'T5')
+            ControlWindow.check_target(w);w.refresh_status_badge()
+            self.assertTrue(w.overlay.isVisible());self.assertEqual(w.overlay.cards,[]);self.assertFalse(w.state.confirmed);self.assertEqual(w.state.offered,())
+            self.assertIn('HUD未复核',w.overlay.heading.text());self.assertIn('仍可交换',w.overlay.heading.text())
+            self.assertIn('T5',w.hero_caption.text());self.assertIn('T5',w.overlay.tier_labels[0].text());self.assertIn('虚构',w.overlay.footer.text())
+            session.assigned='9002';self.assertIsNone(w.client_strength_reference());ControlWindow.check_target(w);self.assertFalse(w.overlay.isVisible())
+            session.assigned='9001';w.state.hero='';self.assertIsNone(w.client_strength_reference())
+            w.state.hero=hero
+        with patch('native_ui.time.monotonic',return_value=105.1):
+            self.assertIsNone(w.client_strength_reference());ControlWindow.check_target(w);self.assertFalse(w.overlay.isVisible())
+        w.stop_monitor();self.assertIsNone(w.client_strength_reference())
+
+    def test_client_reference_never_reconstructs_revoked_identity_from_session(self):
+        from native_ui import ControlWindow
+        from screen_capture import WindowInfo,ClientRect
+        from selection_session import SelectionSession
+        w=self.window;hero=next(iter(w.data['heroes']));w.data['heroes'][hero].update(championId='9001',overallTier='T5')
+        w.target=WindowInfo(1,10,'owned client','Chrome_WidgetWin_1');rect=ClientRect(10,10,1280,720)
+        proof={'foreground':True,'allowed':True,'rect':rect}
+        class Capture:
+            def rect(inner,target):return proof['rect']
+            def foreground(inner,target):return proof['foreground']
+        w.capture=Capture();w.target_allowed=lambda:proof['allowed']
+        def assign():
+            w.state.start(w.target.identity);session=SelectionSession();session.start(w.target.identity);w.selection_session=session
+            for stamp in (100.,101.):session.observe_client({'scene':'assigned-selection','assigned':True,'championId':'9001'},w.target.identity,stamp,stamp+.01,generation=session.generation)
+            w.state.hero=hero;w.last_rect=rect;w.was_target_foreground=True
+            proof.update(foreground=True,allowed=True,rect=rect)
+            ControlWindow.check_target(w);self.assertTrue(w.overlay.isVisible());self.assertFalse(w.state.confirmed)
+        with patch('native_ui.time.monotonic',return_value=101.1):
+            assign();w.invalidate_scene('Owned inference revoked the observation')
+            self.assertEqual(w.selection_session.assigned,'9001');self.assertFalse(w.state.hero)
+            ControlWindow.check_target(w);self.assertIsNone(w.client_strength_reference());self.assertFalse(w.overlay.isVisible())
+            for reason in ('permission','focus','resize'):
+                with self.subTest(reason=reason):
+                    assign()
+                    if reason=='permission':proof['allowed']=False
+                    elif reason=='focus':proof['foreground']=False
+                    else:proof['rect']=ClientRect(10,10,1200,720)
+                    ControlWindow.check_target(w)
+                    self.assertFalse(w.overlay.isVisible());self.assertFalse(w.state.hero);self.assertFalse(w.state.confirmed)
+                    self.assertIsNone(w.client_strength_reference())
+                    self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
+
+    def test_identical_card_payload_reuses_widgets_but_every_visible_change_rebuilds(self):
+        from native_state import display_cards
+        import copy
+        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
+        cards=display_cards(w.data,hero,names);overlay=w.overlay
+        overlay.set_cards(hero,cards,'2026-10-14','owned-v1','人工确认')
+        titles=tuple(overlay._title_labels);tiers=tuple(overlay.tier_labels);revision=overlay._layout_revision
+        overlay.set_cards(hero,copy.deepcopy(cards),'2026-10-14','owned-v1','人工确认')
+        self.assertEqual(tuple(overlay._title_labels),titles);self.assertEqual(tuple(overlay.tier_labels),tiers);self.assertEqual(overlay._layout_revision,revision)
+        overlay.set_rechecking(True);overlay.set_cards(hero,copy.deepcopy(cards),'2026-10-14','owned-v1','人工确认')
+        self.assertEqual(tuple(overlay._title_labels),titles);self.assertFalse(overlay._rechecking)
+        for field in ('tier','name','source','hero','date','version','confirmation'):
+            changed=copy.deepcopy(cards);args=[hero,changed,'2026-10-14','owned-v1','人工确认']
+            if field=='tier':changed[0]['sourceTier']=None
+            elif field=='name':changed[0]['name']+='（变化）'
+            elif field=='source':changed[0]['sourceTierLabel']='来源待核对'
+            else:args[{'hero':0,'date':2,'version':3,'confirmation':4}[field]]+=' changed'
+            old=tuple(overlay._title_labels);overlay.set_cards(*args)
+            self.assertNotEqual(tuple(overlay._title_labels),old,field)
+
+    def test_history_keeps_one_literal_snapshot_without_reviving_live_or_selected_state(self):
+        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
+        w.state.start((1,10,'owned'));w.state.hero=hero
+        for edit,name in zip(w.inputs,names):edit.setText(name)
+        w.confirm();record=w.last_candidates;self.assertIsNotNone(record)
+        self.assertEqual([card['name'] for card in record['cards']],names)
+        old_text=w.history_view.text();w.invalidate_scene('owned choice cards disappeared')
+        self.assertFalse(w.state.confirmed);self.assertEqual(w.state.offered,());self.assertFalse(w.overlay.isVisible())
+        self.assertEqual([view['name'].text() for view in w.candidate_views],['等待识别']*3)
+        self.assertIn('上次候选 · 最终选择未知',w.history_view.text())
+        for name in names:self.assertIn(name,w.history_view.text())
+        original=record['cards'][0]['sourceTier'];w.data['heroAugmentStats'][hero][0]['tier']='T4';w.refresh_history()
+        self.assertEqual(record['cards'][0]['sourceTier'],original)
+        generation=w.state.generation;w.show_page('correction');self.assertEqual(w.state.generation,generation);self.assertFalse(w.state.confirmed)
+        w.stop_monitor();self.assertIsNone(w.last_candidates);self.assertIn('尚无本次监测记录',w.history_view.text())
+
+    def test_history_clears_on_new_target_or_verified_hero(self):
+        from screen_capture import WindowInfo
+        w=self.window;heroes=list(w.data['heroes']);names=list(w.data['augments'])[:3]
+        def record():
+            w.state.start((1,10,'owned'));w.state.hero=heroes[0]
+            for edit,name in zip(w.inputs,names):edit.setText(name)
+            w.confirm();self.assertIsNotNone(w.last_candidates)
+        record();w.target=WindowInfo(2,20,'new owned','owned');w.refresh_history();self.assertIsNone(w.last_candidates)
+        w.target=None;record();w.state.hero=heroes[1];w.refresh_history();self.assertIsNone(w.last_candidates)
 
     def test_secondary_navigation_preserves_state_and_keeps_stop_reachable(self):
         w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]

@@ -30,9 +30,20 @@ from windows_exe_smoke import isolated_windows_environment, smoke_workspace
 EXPECTED_SHA256 = '40b8d2af8309278b9cf6a5eace8ca26d6a483f659578d441636b86369d66cf6e'
 EXPECTED_SIZE = 150155259
 CONTROL_TITLE = 'VGA乱斗助手 · 原生控制台'
+LIGHT_CONTROL_TITLE = 'VGA乱斗助手'
 OVERLAY_TITLE = 'VGA乱斗助手 · 资料叠加'
 MAX_JSON = 65536
 MAX_EVIDENCE = 2 * 1024 * 1024
+
+
+def control_title_for_version(version):
+    # One exact title per known release, never a prefix or a fallback to another
+    # window. Keep the pinned v0.3.0 walkthrough's legacy default unchanged.
+    if version in ('0.3.0', '0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.4.4', '0.4.5', '0.4.6'):
+        return CONTROL_TITLE
+    if version == '0.4.7':
+        return LIGHT_CONTROL_TITLE
+    raise AssertionError('No exact native control title is bound to this application version')
 
 
 def sha256(path):
@@ -317,8 +328,8 @@ class NativeJob:
         if not self.u.PostMessageW(window['hwnd'], 0x0010, 0, 0):  # WM_CLOSE
             raise ctypes.WinError(ctypes.get_last_error())
 
-    def close_application(self, executable, deadline):
-        windows = self.windows(executable)
+    def close_application(self, executable, deadline, title=CONTROL_TITLE):
+        windows = self.windows(executable, title)
         if len(windows) != 1:
             raise AssertionError('Expected exactly one owned visible native control window')
         self.close_window(windows[0])
@@ -406,14 +417,15 @@ def collect_logs(state, report_dir, name):
     return evidence
 
 
-def run_case(kind, original, root, report_dir, native, budget, proxy, version, digest):
+def run_case(kind, original, root, report_dir, native, budget, proxy, version, digest, control_title):
     work = root / kind
     work.mkdir()
     target = work / 'VGA-Aram-Helper.exe'
     shutil.copyfile(original, target)
     env = child_environment(os.environ, work, proxy)
     state = Path(env['VGA_STATE_DIR'])
-    report = {'case': kind, 'status': 'failed', 'candidate_kind': 'unmodified-same-binary', 'checks': []}
+    report = {'case': kind, 'status': 'failed', 'candidate_kind': 'unmodified-same-binary',
+              'expected_control_title': control_title, 'checks': []}
     observer = None
     try:
         ready_path = work / 'old-ready.json'
@@ -427,7 +439,7 @@ def run_case(kind, original, root, report_dir, native, budget, proxy, version, d
         Deadline.wait(old_ready, budget.until(60), 'Old native application readiness timed out')
         ready = read_json(ready_path)
         validate_old_ready(ready, version)
-        windows = native.windows(target)
+        windows = native.windows(target, control_title)
         if len(windows) != 1 or windows[0]['pid'] != ready['pid']:
             raise AssertionError('Native ready PID does not own the visible control window')
         original_identity = target.stat().st_ino
@@ -496,7 +508,7 @@ def run_case(kind, original, root, report_dir, native, budget, proxy, version, d
                 raise AssertionError('Successful rollback should consume the .previous recovery copy')
             report['checks'].append('Actual native candidate rejected the mismatched expected version after OCR; no health marker')
             report['checks'].append('Updater restored exact original bytes from .previous and reported rolled_back')
-        relaunched = Deadline.wait(lambda: native.windows(target), budget.until(30), 'Relaunched native control window was not visible')
+        relaunched = Deadline.wait(lambda: native.windows(target, control_title), budget.until(30), 'Relaunched native control window was not visible')
         if len(relaunched) != 1 or relaunched[0]['pid'] == ready['pid']:
             raise AssertionError('Expected a new owned native application process')
         overlays = native.windows(target, OVERLAY_TITLE, visible=False)
@@ -512,7 +524,7 @@ def run_case(kind, original, root, report_dir, native, budget, proxy, version, d
             raise AssertionError('Updater left the OS target lock held after exit')
         if list(work.glob(target.name + '.update-*.new')) or list(work.glob(target.name + '.update-*.backup')):
             raise AssertionError('Completed transaction left adjacent staging files')
-        native.close_application(target, budget.until(25))
+        native.close_application(target, budget.until(25), title=control_title)
         Deadline.wait(lambda: not native.pids(), budget.until(10), 'Owned process descendants survived graceful shutdown')
         report['checks'].append('New native window closed cleanly; updater lock released; no surviving job descendants')
         report.update(status='passed', expected_version=expected_version, running_version=version,
@@ -579,8 +591,10 @@ def main():
                 version = version_info['applicationVersion']
                 different_version(version)  # Validate bounded numeric version syntax.
                 report['applicationVersion'] = version
+                control_title = control_title_for_version(version)
+                report['expected_control_title'] = control_title
                 for kind in ('success-concurrency', 'version-mismatch-rollback'):
-                    case = run_case(kind, original, work, reports, native, budget, proxy, version, args.expected_sha256)
+                    case = run_case(kind, original, work, reports, native, budget, proxy, version, args.expected_sha256, control_title)
                     report['cases'].append(case)
                     # Cases are sequential; never retain both large fixture trees.
                     from windows_exe_smoke import remove_smoke_directory

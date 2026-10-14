@@ -9,9 +9,8 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from PySide6 import QtWidgets,QtCore,QtTest
 from native_ui import ControlWindow
 from engine import load_data
-from screen_capture import CaptureUnavailable,ClientRect
+from screen_capture import CaptureUnavailable,ClientRect,WindowInfo
 import time,threading
-from types import SimpleNamespace
 app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([]);checks=[]
 with patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen test: no actual capture')),patch('updates.check_for_update',return_value={'state':'current','message':'Synthetic update test'}):
     w=ControlWindow(lambda:{'data':load_data(ROOT/'fixtures/demo.json'),'status':{'state':'demo','message':'虚构演示'}},state_dir=Path('/unused'),current_executable=Path('/unused/test.exe'),current_version='test',frozen=False)
@@ -19,6 +18,7 @@ with patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen te
     for _ in range(30):
         app.processEvents();QtTest.QTest.qWait(20)
         if w.data:break
+    w.monitor.stop();w.schedule_capture=lambda delay=None:None # This script explicitly drives each observation.
     assert w.data is not None and w.isVisible();checks.append('Actual QtWidgets control created and synthetic data loaded')
     assert w.findChildren(QtWidgets.QScrollArea) and w.minimumSizeHint().height()<700;checks.append('Settings content scrolls instead of forcing an oversized control window')
     w.hero_box.setCurrentText('小星');assert w.state.hero=='星火术士（演示）';checks.append('Native hero alias resolves to one canonical hero');w.target_allowed=lambda:True;w.state.start((1,1,'synthetic'))
@@ -37,14 +37,17 @@ with patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen te
         def rect(self,target):return ClientRect(0,0,1000,700)
         def foreground(self,target):return True
         def capture(self,target,roi,**kwargs):raise OSError('Synthetic GDI/setup failure')
-    w.capture=FakeCapture();w.target=SimpleNamespace(hwnd=1);w.last_rect=None
+    w.capture=FakeCapture();w.target=WindowInfo(1,1,'Owned synthetic target','synthetic');w.last_rect=None
     w.target_allowed=lambda:True;w.state.start((1,1,'synthetic'));w.state.hero='星火术士（演示）';w.state.confirm(names,w.data['augments']);w.last_observation=time.monotonic()-5
     w.check_target();assert not w.state.confirmed and not w.overlay.isVisible();checks.append('Expired observation hides stale cards through production watchdog')
     w.state.confirm(names,w.data['augments']);w.last_observation=time.monotonic();w.ocr_busy=True;w.ocr_started=time.monotonic()-9;w.ocr_timed_out=False;token=w.state.generation
     w.check_target();assert not w.state.confirmed and w.ocr_busy;checks.append('Inference timeout hides cards while retaining one bounded active OCR job')
     w.task_result('ocr',{'candidates':[{'name':name,'match_method':'exact','ocr_confidence':1} for name in names]},token);assert not w.state.confirmed;checks.append('Late timed-out OCR result cannot revive an old scene')
     w.state.confirm(names,w.data['augments']);w.task_result('ocr',{'candidates':[{'name':name} for name in names],'_capturedAt':time.monotonic()-5},w.state.generation);assert not w.state.confirmed;checks.append('Freshly completed inference cannot revive an already old captured image')
-    w.state.confirm(names,w.data['augments']);w.capture_hidden(w.state.generation);assert not w.state.confirmed and not w.ocr_busy;checks.append('Unexpected capture/setup exception fails closed')
+    w.state.confirm(names,w.data['augments']);w.capture_hidden(w.state.generation)
+    deadline=time.monotonic()+2
+    while w.ocr_busy and time.monotonic()<deadline:app.processEvents();QtTest.QTest.qWait(5)
+    assert not w.state.confirmed and not w.ocr_busy;checks.append('Unexpected asynchronous capture exception fails closed')
     release=threading.Event();emitted=[];w.signals.result.connect(lambda *args:emitted.append(args));w.spawn('synthetic_close_race',lambda:release.wait(2))
     started=time.monotonic();w.close();elapsed=time.monotonic()-started;release.set()
     for _ in range(10):app.processEvents();QtTest.QTest.qWait(20)

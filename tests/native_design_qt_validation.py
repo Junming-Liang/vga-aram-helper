@@ -25,7 +25,7 @@ from engine import load_data
 from screen_capture import CaptureUnavailable,ClientRect
 from app_version import __version__
 
-SOURCE_FILES=('native_ui.py','overlay_geometry.py','native_smoke.py','tests/native_design_qt_validation.py','fixtures/demo.json','app_version.py')
+SOURCE_FILES=('native_ui.py','overlay_geometry.py','native_smoke.py','tests/native_design_qt_validation.py','fixtures/demo.json','app_version.py','hero_strength.py')
 
 class PresentationCapture:
     """Only existing window setup hooks; no pixels, discovery or OS calls."""
@@ -104,7 +104,24 @@ def main():
             x,y,width,height=overlay._fit_layout(ClientRect(0,0,960,600),scale);overlay.show();app.processEvents();inspect_smoke_layout(overlay)
             assert height<=300
             save(overlay,'overlay-hud-verified','Original synthetic fully confirmed HUD presentation; not an actual recognition result')
+            overlay.set_rechecking(True);overlay._fit_layout(ClientRect(0,0,960,600),scale);app.processEvents()
+            assert '上次候选复核中' in overlay.heading.text() and overlay.heading.isVisibleTo(overlay)
+            save(overlay,'overlay-rechecking','Original synthetic previous-candidate recheck label; no live capture or freshness claim')
+            overlay.hide();overlay.set_rechecking(False)
+            from hero_strength import hero_strength_reference
+            w.data['heroes'][hero].update(championId='9001',overallTier='T5')
+            reference=hero_strength_reference(w.data,hero,champion_id='9001');assert reference['sourceTier']=='T5'
+            overlay.set_hero_reference(reference);_,_,width,height=overlay._fit_layout(ClientRect(0,0,960,600),scale);overlay.show();app.processEvents()
+            for widget in (overlay.heading,overlay.metadata_label,overlay.footer,*overlay._title_labels,*overlay.tier_labels):
+                assert widget.isVisibleTo(overlay) and widget.heightForWidth(widget.width())<=widget.height()+1
+                assert overlay.rect().contains(QtCore.QRect(widget.mapTo(overlay,QtCore.QPoint()),widget.size()))
+            assert not overlay.cards and height<=300 and 'HUD未复核' in overlay.heading.text()
+            save(overlay,'overlay-selection-strength','Original synthetic canonical hero with explicit demoT5; hero-only provisional reference, not augment confirmation or game evidence')
             overlay.hide();w.show_page('correction');w.details_toggle.setChecked(True);app.processEvents();save(w,'control-card-details','Read-only exact-name dictionary lookup, explicitly not current confirmation')
+            w.confirm();w.invalidate_scene('Owned candidate scene disappeared');w.show_page('correction');w.details_toggle.setChecked(False);app.processEvents()
+            assert w.last_candidates and not w.state.confirmed and not w.overlay.isVisible()
+            w.scroll.ensureWidgetVisible(w.history_view);app.processEvents()
+            save(w,'control-last-candidates','Actual separate last-candidates memory view after invalidation; final selected augment explicitly unknown')
             w.show_page('settings');save(w,'control-settings','Actual retained settings controls; presentation-only fixture')
             w.show_page('about');save(w,'control-about','Actual source version, safety limitations and update controls')
             w.invalidate_scene('Owned presentation scene invalidated');dashboard()

@@ -15,6 +15,8 @@ from tests.test_microsoft_runtime import runtime_fixture
 from scripts import microsoft_runtime as ms_runtime
 from scripts import minimal_opencv_package as custom_package
 from scripts.probe_opencv_parity import PERFORMANCE_CASES
+from tests.test_native_packaging import overlay_duty_fixture
+from tests.test_windows_selection_smoke import SelectionHarnessTests
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('verify_release', ROOT / 'scripts' / 'verify_release.py')
@@ -157,6 +159,7 @@ class ReleaseFixture(unittest.TestCase):
                        'overlay_window_physical': dict(x=40, y=380, width=920, height=220),
                        'overlay_compact': False, 'physical_mock_geometry_passed': True, 'overlay_layout_passed': True}
         self.native.update(dict.fromkeys(gate.NATIVE_AUTOMATION_FIELDS, True))
+        self.native.update(overlay_duty_fixture(), executable_sha256=self.hash)
         self.extra_scale_smokes, self.extra_natives = {}, {}
         for scale, prefix in gate.NATIVE_SCALES[1:]:
             self.extra_scale_smokes[prefix] = dict(self.native_smoke, requested_app_scale=scale,
@@ -164,10 +167,19 @@ class ReleaseFixture(unittest.TestCase):
             self.extra_natives[prefix] = copy.deepcopy(self.native)
             self.extra_natives[prefix].update(requested_app_scale=scale, mock_qwindow_dpr=scale,
                 overlay_qwindow_dpr=scale, overlay_compact=scale == 2.)
-        self.selection_smoke = {'status': 'passed', 'executable_sha256': self.hash, 'applicationVersion': VERSION,
-                                'process_exited': True, 'owned_processes_exited': True, 'game_launched_after_selection_request': True, 'native_report': 'windows-selection-handoff.json'}
-        self.selection = {'status': 'passed', 'backend': 'qtwidgets', 'frozen': True, 'qt_platform': 'windows', 'applicationVersion': VERSION}
-        self.selection.update(dict.fromkeys(gate.SELECTION_FIELDS, True))
+        self.selection_smoke = SelectionHarnessTests().good_aggregate(frozen=True)
+        self.selection_source = SelectionHarnessTests().good_aggregate(frozen=False)
+        for aggregate in (self.selection_smoke, self.selection_source):
+            aggregate['applicationVersion'] = VERSION
+            if aggregate['frozen']:
+                aggregate.update(executable_sha256=self.hash, executable_size=self.exe.stat().st_size)
+            for row in aggregate['runs']:
+                row['applicationVersion'] = VERSION
+                row['detail']['applicationVersion'] = VERSION
+                if aggregate['frozen']:
+                    row['executable_sha256'] = self.hash
+                    row['detail']['executable_sha256'] = self.hash
+        self.selection = self.selection_smoke['runs'][0]['detail']
         self.budget = {'status': 'passed', 'upload_scope': 'evidence-only', 'existing_repository_artifact_bytes': 100_000_000,
                        'proposed_upper_estimate_bytes': 1_000_000, 'projected_bytes': 101_000_000,
                        'project_budget_bytes': 500_000_000, 'reserve_bytes': 10_000_000}
@@ -208,7 +220,7 @@ class ReleaseFixture(unittest.TestCase):
              'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
              'scripts/probe_opencv_parity.py', 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt',
              'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md')}
-        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, 'frame_ocr_cache.py'):
+        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, *gate.selection_fixture.SOURCE_FILES, *gate.duty_contract.SOURCE_FILES, 'frame_ocr_cache.py'):
             self.source_entries.setdefault(name, b'Unit-test source fixture')
         for name in gate.DPI_SOURCE_FILES:
             self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
@@ -216,6 +228,15 @@ class ReleaseFixture(unittest.TestCase):
             archive.comment = SHA.encode('ascii')
             for name, data in self.source_entries.items():
                 archive.writestr(name, data)
+        for aggregate in (self.selection_smoke, self.selection_source):
+            aggregate['source_files'] = {name:hashlib.sha256(self.source_entries[name]).hexdigest()
+                                         for name in gate.selection_fixture.SOURCE_FILES}
+            for row in aggregate['runs']:
+                row['fixture_source_sha256'] = aggregate['source_files']['tests/SessionWindowFixture.cs']
+            aggregate['fixture_source_sha256'] = aggregate['runs'][0]['fixture_source_sha256']
+        for _, _, smoke, _ in self.native_reports():
+            smoke.update(executable_size=self.exe.stat().st_size, source_commit=SHA,
+                source_files={name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.duty_contract.SOURCE_FILES})
         self.access = {'source_commit': SHA, 'application_source': {'filename': source.name,
                        'size': source.stat().st_size, 'sha256': gate.digest(source)}, 'qt_sources': qt_sources}
         self.build['source_access'] = copy.deepcopy(self.access)
@@ -254,6 +275,7 @@ class ReleaseFixture(unittest.TestCase):
             (self.evidence / name).write_bytes(self.make_png(pixels=(b'\x00' + bytes([number, 34, 51]) * 2) * 2))
         for name in (name for name in gate.EVIDENCE_NAMES if name.endswith('.log') or name == 'windows-build-environment.txt'):
             (self.evidence / name).write_text('fixture\n', encoding='utf-8')
+        self.write_reports()
 
     @staticmethod
     def make_png(pixels=None, width=2, height=2):
@@ -280,8 +302,15 @@ class ReleaseFixture(unittest.TestCase):
         self.write_json(self.evidence / 'windows-automatic-capture.json', self.automatic_capture)
         self.write_json(self.evidence / 'windows-package-size.json', self.package_size)
         self.write_json(self.evidence / 'windows-ota-smoke.json', self.ota)
-        self.write_json(self.evidence / 'windows-selection-smoke.json', self.selection_smoke)
-        self.write_json(self.evidence / 'windows-selection-handoff.json', self.selection)
+        self.selection_smoke['runs'][0]['detail'] = self.selection
+        for aggregate, filename in ((self.selection_smoke, 'windows-selection-smoke.json'),
+                                    (self.selection_source, 'windows-selection-source.json')):
+            for row in aggregate['runs']:
+                path = self.evidence / row['native_report']
+                self.write_json(path, row['detail'])
+                row['native_report_sha256'] = gate.digest(path)
+            aggregate['native_report_sha256'] = aggregate['runs'][0]['native_report_sha256']
+            self.write_json(self.evidence / filename, aggregate)
         self.write_json(self.evidence / 'hero-recognition-genuine.json', self.genuine)
         self.write_json(self.evidence / 'champion-select-genuine.json', self.selection_genuine)
         self.write_json(self.evidence / 'windows-build.json', self.build)
@@ -292,6 +321,12 @@ class ReleaseFixture(unittest.TestCase):
         for _, prefix in gate.NATIVE_SCALES[1:]:
             self.write_json(self.evidence / (prefix + '-smoke.json'), self.extra_scale_smokes[prefix])
             self.write_json(self.evidence / (prefix + '-overlay.json'), self.extra_natives[prefix])
+        for _, prefix, smoke, _ in self.native_reports():
+            smoke['native_report_sha256'] = gate.digest(self.evidence / (prefix+'-overlay.json'))
+            screenshot = self.evidence / (prefix+'-overlay.png')
+            if screenshot.exists():
+                smoke['native_screenshot_sha256'] = gate.digest(screenshot)
+            self.write_json(self.evidence / (prefix+'-smoke.json'), smoke)
         self.write_json(self.evidence / 'windows-dpi-candidate-matrix.json', self.dpi_report)
         self.write_json(self.evidence / 'windows-artifact-budget.json', self.budget)
 
@@ -361,6 +396,76 @@ class ReleaseFixture(unittest.TestCase):
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
             self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES) | set(custom_package.EVIDENCE_NAMES))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)
+
+    def test_selection_source_and_frozen_every_scale_and_native_bytes_are_required(self):
+        for frozen in (False, True):
+            for scale in gate.selection_fixture.SCALES:
+                self.write_reports()
+                path=self.evidence/gate.selection_fixture.native_report_name(frozen,scale)
+                path.unlink()
+                with self.subTest(frozen=frozen,scale=scale),self.assertRaises(gate.VerificationError):self.verify()
+                self.write_reports();path.write_text(path.read_text()+' ',encoding='utf-8')
+                with self.subTest(frozen=frozen,scale=scale,tamper='bytes'),self.assertRaises(gate.VerificationError):self.verify()
+        for filename in ('windows-selection-source.json','windows-selection-smoke.json'):
+            self.write_reports();(self.evidence/filename).unlink()
+            with self.subTest(file=filename),self.assertRaises(gate.VerificationError):self.verify()
+
+    def test_selection_source_inventories_are_exact_and_bound_to_archive(self):
+        for aggregate in (self.selection_source,self.selection_smoke):
+            original=copy.deepcopy(aggregate['source_files'])
+            for name in gate.selection_fixture.SOURCE_FILES:
+                aggregate['source_files']=dict(original,**{name:'0'*64});self.write_reports()
+                with self.subTest(frozen=aggregate['frozen'],source=name),self.assertRaises(gate.VerificationError):self.verify()
+            for bad in ({},dict(original,unexpected='f'*64),dict(original,**{'hero_strength.py':True})):
+                aggregate['source_files']=bad;self.write_reports()
+                with self.assertRaises(gate.VerificationError):self.verify()
+            aggregate['source_files']=original
+
+    def test_new_selection_observations_cannot_be_replaced_by_passing_flags(self):
+        for aggregate in (self.selection_source,self.selection_smoke):
+            for row in aggregate['runs']:
+                original=copy.deepcopy(row['detail'])
+                mutations=[lambda d:d['client_hero_reference'].update(visible=False),
+                    lambda d:d['client_hero_reference'].update(confirmed=True),
+                    lambda d:d['client_hero_reference'].update(augment_card_count=3),
+                    lambda d:d['client_hero_reference']['reference'].update(sourceTier='T1'),
+                    lambda d:d['client_hero_reference']['overlay_rect'].update(height=400),
+                    lambda d:d['client_hero_safety'].update(unknown_handler_hidden=1)]
+                for mutate in mutations:
+                    mutate(row['detail']);self.write_reports()
+                    with self.subTest(frozen=aggregate['frozen'],scale=row['app_scale']),self.assertRaises(gate.VerificationError):self.verify()
+                    row['detail'].clear();row['detail'].update(copy.deepcopy(original))
+
+    def test_native_report_bytes_exe_and_source_binding_cannot_be_substituted(self):
+        for scale,prefix,smoke,native in self.native_reports():
+            for field,bad in [('executable_size',True),('executable_size',1),('source_commit','f'*40)]:
+                old=smoke[field];smoke[field]=bad;self.write_reports()
+                with self.subTest(scale=scale,field=field),self.assertRaises(gate.VerificationError):self.verify()
+                smoke[field]=old
+            original=copy.deepcopy(smoke['source_files'])
+            for name in gate.duty_contract.SOURCE_FILES:
+                smoke['source_files']=dict(original,**{name:'0'*64});self.write_reports()
+                with self.subTest(scale=scale,source=name),self.assertRaises(gate.VerificationError):self.verify()
+            smoke['source_files']=original
+            for suffix in ('overlay.json','overlay.png'):
+                self.write_reports();path=self.evidence/(prefix+'-'+suffix);old=path.read_bytes();path.write_bytes(old+b' ')
+                with self.subTest(scale=scale,tamper=suffix),self.assertRaises(gate.VerificationError):self.verify()
+                path.write_bytes(old)
+            original_hash=native['executable_sha256'];native['executable_sha256']='0'*64;self.write_reports()
+            with self.assertRaises(gate.VerificationError):self.verify()
+            native['executable_sha256']=original_hash
+
+    def test_native_duty_evidence_cannot_be_replaced_by_success_flag(self):
+        for scale,_,_,native in self.native_reports():
+            original=copy.deepcopy(native['overlay_duty_cycle'])
+            for row in native['overlay_duty_cycle']['cases']:
+                row['capture_visible_samples']=1;self.write_reports()
+                with self.subTest(scale=scale,case=row['name']),self.assertRaises(gate.VerificationError):self.verify()
+                row['capture_visible_samples']=0
+            for bad in (None,{},dict(original,cases=[])):
+                native['overlay_duty_cycle']=bad;self.write_reports()
+                with self.subTest(scale=scale),self.assertRaises(gate.VerificationError):self.verify()
+            native['overlay_duty_cycle']=original
 
     def test_package_size_report_is_required_and_remeasured(self):
         for key, value in [('status', 'failed'), ('source_commit', 'c' * 40),
@@ -1242,8 +1347,7 @@ class WorkflowSafetyTests(unittest.TestCase):
                 for row in report['source_metadata']:
                     name = Path(row['path']).name
                     checkout = (root / name).read_bytes()
-                    if name in gate.AUTO_SOURCE_FILES or name in gate.HERO_GENUINE_FILES:self.assertNotIn(b'\r\n',checkout)
-                    else:self.assertIn(b'\r\n',checkout)
+                    self.assertNotIn(b'\r\n',checkout)
                     self.assertEqual(archive.read(name), checkout)
                     self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), row['sha256'])
             path = root / 'windows-dpi-candidate-matrix.json'
@@ -1265,6 +1369,26 @@ class WorkflowSafetyTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as zipped:
                 for name in gate.AUTO_SOURCE_FILES:
                     checkout=(root/name).read_bytes();self.assertNotIn(b'\r\n',checkout,name)
+                    self.assertEqual(checkout,(ROOT/name).read_bytes(),name)
+                    self.assertEqual(zipped.read(name),checkout,name)
+
+    def test_windows_git_archive_preserves_every_feedback_source_inventory_byte(self):
+        names=sorted(set(gate.selection_fixture.SOURCE_FILES)|set(gate.duty_contract.SOURCE_FILES))
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            def git(*args):
+                return subprocess.run(['git','-c','core.autocrlf=true',*args],cwd=root,check=True,
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            git('init');(root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())
+            for name in names:
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes((ROOT/name).read_bytes())
+            git('add','.gitattributes',*names)
+            git('-c','user.name=Packaging test','-c','user.email=packaging-test@example.invalid','commit','--no-gpg-sign','-m','Feedback source fixture')
+            for name in names:(root/name).unlink()
+            git('checkout-index','--force','--all');archive=root/'source.zip';git('archive','--format=zip','--output',str(archive),'HEAD')
+            with zipfile.ZipFile(archive) as zipped:
+                for name in names:
+                    checkout=(root/name).read_bytes()
                     self.assertEqual(checkout,(ROOT/name).read_bytes(),name)
                     self.assertEqual(zipped.read(name),checkout,name)
 
@@ -1306,6 +1430,20 @@ class WorkflowSafetyTests(unittest.TestCase):
             '5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22',
             'd594337feca84c26fb67fe87b85e6a5c12fda404b611d905f9d138210c311876',
             'cecd8900f34b6550076309bc94f62f828008b633a4239e0a08c86788f41001f8'})
+
+    def test_diagnostic_dispatch_runs_all_gates_but_cannot_publish(self):
+        text=(ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')
+        job=text.split('  native-preview:',1)[1].split('    runs-on:',1)[0]
+        self.assertNotIn('inputs.publish_preview',job)
+        self.assertIn("github.event_name == 'workflow_dispatch'",job)
+        self.assertIn('github.event.repository.private == false',job)
+        self.assertIn("github.ref == 'refs/heads/main'",job)
+        publication=text.split('- name: Create verified draft',1)[1]
+        self.assertIn('if: ${{ success() && inputs.publish_preview }}',publication)
+        self.assertEqual(text.count('--publish'),1)
+        self.assertEqual(text.count('GH_TOKEN:'),1)
+        self.assertIn('GH_TOKEN:',publication)
+        self.assertIn('run: python tests/windows_selection_smoke.py --report-dir reports',text)
 
     def test_workflow_direct_build_has_only_bounded_evidence_upload_and_final_token(self):
         text = (ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')

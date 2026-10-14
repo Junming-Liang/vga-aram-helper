@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -18,6 +19,37 @@ import updates
 
 
 class WindowsOtaHarnessTests(unittest.TestCase):
+    def test_control_title_is_exact_and_bound_to_known_release(self):
+        import inspect
+        self.assertEqual(smoke.CONTROL_TITLE, 'VGA乱斗助手 · 原生控制台')
+        for version in ('0.3.0', '0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.4.4', '0.4.5', '0.4.6'):
+            self.assertEqual(smoke.control_title_for_version(version), smoke.CONTROL_TITLE)
+        self.assertEqual(smoke.control_title_for_version('0.4.7'), 'VGA乱斗助手')
+        self.assertEqual(inspect.signature(smoke.NativeJob.windows).parameters['title'].default, smoke.CONTROL_TITLE)
+        self.assertEqual(inspect.signature(smoke.NativeJob.close_application).parameters['title'].default, smoke.CONTROL_TITLE)
+
+    def test_control_title_rejects_unknown_and_noncanonical_versions(self):
+        for version in ('', '0.3', 'v0.4.7', '0.4.07', '0.4.7-rc1', '0.4.8', '99.0.0', None, True):
+            with self.subTest(version=version), self.assertRaises(AssertionError):
+                smoke.control_title_for_version(version)
+
+    def test_graceful_close_keeps_selected_exact_title_and_uniqueness(self):
+        native = smoke.NativeJob.__new__(smoke.NativeJob)
+        window = {'hwnd': 101, 'pid': 202}
+        native.windows = Mock(return_value=[window])
+        native.close_window = Mock()
+        native.image_pids = Mock(return_value=set())
+        native.close_application('owned.exe', time.monotonic() + 1, title=smoke.LIGHT_CONTROL_TITLE)
+        native.windows.assert_called_once_with('owned.exe', smoke.LIGHT_CONTROL_TITLE)
+        native.close_window.assert_called_once_with(window)
+        native.image_pids.assert_called_once_with('owned.exe')
+        for windows in ([], [window, dict(hwnd=102, pid=202)]):
+            native.windows = Mock(return_value=windows)
+            native.close_window.reset_mock()
+            with self.assertRaisesRegex(AssertionError, 'exactly one'):
+                native.close_application('owned.exe', time.monotonic() + 1, title=smoke.LIGHT_CONTROL_TITLE)
+            native.close_window.assert_not_called()
+
     def test_pinned_release_identity(self):
         self.assertEqual(smoke.EXPECTED_SHA256, '40b8d2af8309278b9cf6a5eace8ca26d6a483f659578d441636b86369d66cf6e')
         self.assertEqual(smoke.EXPECTED_SIZE, 150155259)
