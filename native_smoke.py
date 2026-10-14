@@ -63,6 +63,9 @@ def inspect_smoke_layout(overlay):
             row.update(text=widget.text(),required_height_at_width=required,minimum_width=minimum)
         rows.append(row)
     assert len(overlay.cards)==3 and len(overlay.tier_labels)==3 and all(label.isVisibleTo(overlay) for label in overlay.tier_labels)
+    assert overlay.metadata_label.isVisibleTo(overlay) is (not overlay._compact)
+    assert '来源日期' in overlay.metadata_label.text() and '非 Riot' in overlay.footer.text()
+    if overlay._compact:assert '简版' in overlay.footer.text()
     for i,card in enumerate(overlay.cards):
         labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
         assert labels[0].isVisibleTo(overlay) and labels[0].text()==f"选项 {card['slot']} · {card['name']}"
@@ -169,13 +172,33 @@ def start_smoke(control,report_path,screenshot_path):
         unknown={**result,'hero_observation':{'hero':None,'confident':False,'reason':'Synthetic unknown portrait'},'_capturedAt':time.monotonic()}
         control.task_result('ocr',unknown,control.state.generation);assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True
         observe_current();observe_current();assert control.state.confirmed
-        paint_mock('9002');app.processEvents();observe_current();assert not control.state.confirmed and control.state.hero==''
-        observe_current();assert control.state.hero=='磐石守卫（演示）' and control.state.confirmed;report['auto_hero_change_clears_passed']=True
-        paint_mock('9001');app.processEvents();observe_current();observe_current();assert control.state.confirmed
+        def change_hero(key,expected_hero):
+            paint_mock(key);app.processEvents()
+            first=observe_current()
+            assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible(),'Changed hero must immediately revoke the old hero and overlay'
+            reused=first.get('ocr_reused') is True
+            independent=0 if reused else 1
+            assert control.state.automatic_frames==independent,'A reused transition cannot count as independent OCR'
+            observations=[{'reused':reused,'independent_frames':independent,'confirmed':False}]
+            # Cache expiry can make the first transition already fresh. Either
+            # way exactly two independent new-hero inferences are required;
+            # a discarded unchanged-title hit never supplies confirmation.
+            for expected_frames in range(independent+1,3):
+                current=observe_current()
+                assert current.get('ocr_reused') is not True,'Unconfirmed hero transition must run fresh OCR'
+                assert control.state.automatic_frames==expected_frames,'Unexpected independent confirmation count'
+                assert control.state.confirmed is (expected_frames==2),'Hero changed without two independent new observations'
+                if not control.state.confirmed:assert not control.overlay.isVisible()
+                observations.append({'reused':False,'independent_frames':expected_frames,'confirmed':control.state.confirmed})
+            assert control.state.hero==expected_hero and control.state.confirmed,'New hero did not confirm after two independent observations'
+            return observations
+        report['hero_transition_observations']=[change_hero('9002','磐石守卫（演示）'),change_hero('9001','星火术士（演示）')]
+        report['auto_hero_change_clears_passed']=True
+        checks.append('Both hero transitions immediately hide old cards; a reused title is discarded and exactly two independent new-hero OCR results are required')
         assert [card['name'] for card in control.overlay.cards]==names
         assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
         assert [widget.text() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
-        assert '来源日期' in control.overlay.heading.text() and '数据包' in control.overlay.heading.text() and '游戏资料' in control.overlay.heading.text()
+        assert '来源日期' in control.overlay.metadata_label.text() and '数据包' in control.overlay.metadata_label.text() and '游戏资料' in control.overlay.metadata_label.text()
         control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
         control.confirm();assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
         report['source_tier_hero_specific']=True;report['auto_manual_fallback_passed']=not control.hero_auto.isChecked()

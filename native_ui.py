@@ -20,7 +20,39 @@ from screen_capture import Win32Capture,CaptureUnavailable,CapturePaused
 
 ROOT=Path(__file__).resolve().parent
 APP_NAME='VGA乱斗助手'
-STYLE='''QWidget{background:#121e24;color:#ecf5ef;font-family:"Microsoft YaHei","Noto Sans CJK SC";font-size:13px} QLineEdit,QComboBox,QSpinBox{background:#1d3037;border:1px solid #45616b;border-radius:5px;padding:6px} QPushButton{background:#264b50;border:1px solid #557d75;border-radius:5px;padding:8px} QPushButton:disabled{color:#738580;background:#253335} QLabel#muted{color:#adbbb5;font-size:11px} QGroupBox{border:1px solid #3b555b;border-radius:7px;margin-top:13px;padding-top:13px} QGroupBox::title{subcontrol-origin:margin;left:12px}'''
+STYLE="""
+QWidget { color:#F1F5F9; font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","Noto Sans CJK SC"; font-size:13px; }
+ControlWindow, QDialog, QMessageBox { background:#0E141C; }
+QWidget#scroll-content, QScrollArea, QScrollArea > QWidget > QWidget { background:#0E141C; border:0; }
+QLabel { background:transparent; border:0; }
+QLabel#muted, QLabel#field-label { color:#AAB9C8; font-size:12px; }
+QLabel#app-title { font-size:20px; font-weight:600; }
+QLabel#version-chip { color:#D5B66F; background:#1B2938; border:1px solid #2D4055; border-radius:6px; padding:4px 8px; font-size:12px; }
+QLabel#status-chip { color:#AAB9C8; background:#1B2938; border:1px solid #2D4055; border-radius:6px; padding:4px 8px; font-size:12px; }
+QLabel#status-chip[state="confirmed"] { color:#78CAA9; }
+QLabel#status-chip[state="waiting"] { color:#E5BD78; }
+QLabel#status-chip[state="working"] { color:#70B8E8; }
+QFrame#section, QFrame#status-strip { background:#151F2B; border:1px solid #2D4055; border-radius:12px; }
+QLabel#section-title { font-size:14px; font-weight:600; }
+QLineEdit,QComboBox,QSpinBox { background:#1B2938; border:1px solid #2D4055; border-radius:6px; padding:5px 8px; min-height:20px; selection-background-color:#70B8E8; selection-color:#0C1824; }
+QLineEdit:focus,QComboBox:focus,QSpinBox:focus { border:2px solid #70B8E8; padding:4px 7px; }
+QComboBox QAbstractItemView { background:#1B2938; color:#F1F5F9; selection-background-color:#24364A; border:1px solid #2D4055; }
+QPushButton,QToolButton { background:#1B2938; border:1px solid #2D4055; border-radius:7px; padding:7px 12px; min-height:20px; }
+QPushButton:hover,QToolButton:hover { background:#24364A; border-color:#48627B; }
+QPushButton:focus,QToolButton:focus { border:2px solid #70B8E8; padding:6px 11px; }
+QPushButton#primary-action { background:#70B8E8; color:#0C1824; border-color:#70B8E8; font-weight:600; }
+QPushButton#primary-action:hover { background:#93CDF1; }
+QPushButton#primary-action:disabled { color:#6F8194; background:#1B2938; border-color:#2D4055; }
+QPushButton:disabled,QToolButton:disabled,QLineEdit:disabled,QComboBox:disabled { color:#6F8194; background:#151F2B; border-color:#243344; }
+QCheckBox { spacing:8px; padding:3px 0; }
+QCheckBox::indicator { width:16px; height:16px; }
+QCheckBox:focus { outline:1px solid #70B8E8; }
+QToolButton#advanced-toggle { text-align:left; color:#AAB9C8; }
+QScrollBar:vertical { background:#0E141C; width:10px; margin:0; }
+QScrollBar::handle:vertical { background:#2D4055; border-radius:4px; min-height:24px; }
+QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
+QToolTip { background:#1B2938; color:#F1F5F9; border:1px solid #48627B; padding:5px; }
+"""
 
 def label(text='',muted=False):
     widget=QtWidgets.QLabel(text);widget.setTextFormat(QtCore.Qt.TextFormat.PlainText);widget.setWordWrap(True)
@@ -40,28 +72,29 @@ class Overlay(QtWidgets.QWidget):
         self.setWindowTitle(APP_NAME+' · 资料叠加');self.setStyleSheet(STYLE+'\nOverlay{background:transparent;}')
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,True)
         layout=QtWidgets.QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
-        self.panel=QtWidgets.QFrame();self.panel.setObjectName('overlay-panel');self.panel.setStyleSheet('#overlay-panel{background:rgba(12,24,29,235);border:1px solid #b4c97b;border-radius:10px} #overlay-panel QLabel{background:transparent;border:0}')
-        layout.addWidget(self.panel);inner=QtWidgets.QVBoxLayout(self.panel)
-        self.heading=label('');inner.addWidget(self.heading);self.row=QtWidgets.QHBoxLayout();inner.addLayout(self.row)
+        self.panel=QtWidgets.QFrame();self.panel.setObjectName('overlay-panel');self.panel.setStyleSheet('#overlay-panel{background:rgba(10,17,25,245);border:1px solid #3B4B5A;border-radius:10px} #overlay-panel QLabel{background:transparent;border:0} QLabel#overlay-heading{font-size:13px;font-weight:600} QLabel#source-tier-label{color:#D5B66F;font-size:12px;font-weight:600}')
+        layout.addWidget(self.panel);inner=QtWidgets.QVBoxLayout(self.panel);inner.setContentsMargins(10,10,10,10);inner.setSpacing(8)
+        self.heading=label('');self.heading.setObjectName('overlay-heading');inner.addWidget(self.heading);self.metadata_label=label('',True);inner.addWidget(self.metadata_label);self.row=QtWidgets.QHBoxLayout();self.row.setSpacing(8);inner.addLayout(self.row)
         self.footer=label('仅窗口像素 · Ctrl+Alt+O 切换鼠标穿透 · 不是 Riot 评级/批准',True);inner.addWidget(self.footer)
-        self.resize(940,230)
+        self.resize(820,190)
     def set_cards(self,hero,cards,source_date='未知',source_version='未知',confirmation='人工确认'):
-        self.cards=cards;self.tier_labels=[];self._detail_labels=[];self._layout_revision+=1;self._placed_key=None
+        self.cards=cards;self.tier_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
-        self._full_heading=f'{APP_NAME}  |  {hero}  |  {confirmation}  |  来源日期 {source_date}  |  {source_version}'
-        self._compact_heading=f'{hero} | {confirmation}\n来源日期 {source_date} | {source_version}'
-        self.heading.setText(self._full_heading)
+        self._full_heading=f'{hero}  ·  {confirmation}'
+        compact_confirmation={'英雄/候选连续高置信自动识别':'连续高置信自动识别','英雄人工纠正 · 候选自动识别':'英雄人工 · 候选自动'}.get(confirmation,confirmation)
+        self._compact_heading=f'{hero} · {compact_confirmation}'
+        self.heading.setText(self._full_heading);self.metadata_label.setText(f'来源日期 {source_date} · {source_version}')
         for card in cards:
-            frame=QtWidgets.QFrame();frame.setObjectName('overlay-card');frame.setStyleSheet('#overlay-card{background:#1b3036;border:1px solid #49646a;border-radius:7px}');box=QtWidgets.QVBoxLayout(frame)
-            box.addWidget(label(f"选项 {card['slot']} · {card['name']}"))
+            frame=QtWidgets.QFrame();frame.setObjectName('overlay-card');frame.setStyleSheet('#overlay-card{background:#172432;border:1px solid #2D4055;border-radius:8px}');box=QtWidgets.QVBoxLayout(frame);box.setContentsMargins(10,8,10,8);box.setSpacing(5);self._card_layouts.append(box)
+            title=label(f"选项 {card['slot']} · {card['name']}");title.setObjectName('card-title');title.setStyleSheet('font-size:14px;font-weight:600');self._title_labels.append(title);box.addWidget(title)
             tier_label=label(f"{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}",True);tier_label.setObjectName('source-tier-label');self.tier_labels.append(tier_label);box.addWidget(tier_label)
             desc=card['description'];detail=label(desc[:140]+('…' if len(desc)>140 else ''),True);box.addWidget(detail);self._detail_labels.append(detail)
             if card['notes']:
                 note=label('条件/提醒：'+'；'.join(card['notes'])[:160],True);box.addWidget(note);self._detail_labels.append(note)
-            self.row.addWidget(frame,1)
-        self.adjustSize();self.resize(max(750,min(self.width(),1020)),max(200,self.height()))
+            box.addStretch(1);self.row.addWidget(frame,1)
+        self.adjustSize();self.resize(820,max(150,self.height()))
     def configure(self):
         if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through)
     def set_click_through(self,value):
@@ -69,31 +102,38 @@ class Overlay(QtWidgets.QWidget):
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,self.click_through)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.configure()
-    def _set_compact(self,compact):
-        self._compact=compact
+    def _set_compact(self,compact,*,dense=False):
+        self._compact=compact;self._dense=bool(dense)
         self.heading.setText(self._compact_heading if compact else self._full_heading)
         for widget in self._detail_labels:widget.setVisible(not compact)
-        self.footer.setText(('紧凑：说明隐藏 · ' if compact else '')+'穿透'+('开' if self.click_through else '关')+' Ctrl+Alt+O · 非 Riot 评级/批准')
+        self.metadata_label.setVisible(not compact)
+        self.panel.layout().setContentsMargins(*((1,1,1,1) if dense else (3,3,3,3) if compact else (10,10,10,10)));self.panel.layout().setSpacing(0 if dense else 2 if compact else 8);self.row.setSpacing(4 if compact else 8)
+        for box in self._card_layouts:box.setContentsMargins(*((6,0,6,0) if dense else (6,3,6,3) if compact else (10,8,10,8)));box.setSpacing(1 if dense else 2 if compact else 5)
+        for title in self._title_labels:title.setStyleSheet('font-size:'+('13' if compact else '14')+'px;font-weight:600')
+        self.footer.setText(('简版 · ' if compact else '虎牙公开源 · ')+'非 Riot 评级/批准 · 穿透'+('开' if self.click_through else '关')+' · Ctrl+Alt+O')
         for layout in reversed(self.findChildren(QtWidgets.QLayout)):layout.invalidate();layout.activate()
         self.layout().invalidate();self.layout().activate()
     def _fit_layout(self,rect,dpr):
         from overlay_geometry import layout_budget,placement
         budget=layout_budget(rect,dpr)
-        for compact in (False,True):
-            self._set_compact(compact)
+        for compact,dense in ((False,False),(True,False),(True,True)):
+            self._set_compact(compact,dense=dense)
             width=budget.logical_width
             self.resize(width,max(100,min(self.height(),budget.logical_height)))
             self.layout().activate()
             hint=self.layout().totalHeightForWidth(width)
             height=max(self.minimumSizeHint().height(),hint if hint>=0 else self.sizeHint().height(),100)
-            if self.minimumSizeHint().width()<=width and height<=budget.logical_height:
+            # Prefer the compact presentation before descriptions would cover
+            # most of a short/high-DPI client; the hard containment test stays.
+            prefer_full=height<=min(220,max(120,budget.logical_height//2))
+            if self.minimumSizeHint().width()<=width and height<=min(budget.logical_height,math.floor(rect.height*.5/dpr)) and (compact or prefer_full):
                 self.resize(width,height);self.layout().activate()
                 return placement(rect,budget,height)
-        raise CaptureUnavailable(f'客户区 {rect.width}×{rect.height} 像素 / 叠加缩放 {dpr:g} 倍：紧凑资料卡仍放不下，已隐藏。')
+        raise CaptureUnavailable(f'客户区 {rect.width}×{rect.height} 像素 / 叠加缩放 {dpr:g} 倍：紧凑资料卡无法清晰放入半屏高度，已隐藏；可在控制台按名称查阅资料。')
     def _verify_rect(self,rect):
         actual=W.RECT()
-        if not self.capture.u.GetWindowRect(int(self.winId()),ctypes.byref(actual)) or actual.right<=actual.left or actual.bottom<=actual.top or actual.left<rect.x or actual.top<rect.y or actual.right>rect.x+rect.width or actual.bottom>rect.y+rect.height:
-            raise CaptureUnavailable(f'叠加实际范围超出客户区 {rect.width}×{rect.height}，已隐藏。')
+        if not self.capture.u.GetWindowRect(int(self.winId()),ctypes.byref(actual)) or actual.right<=actual.left or actual.bottom<=actual.top or actual.left<rect.x or actual.top<rect.y or actual.right>rect.x+rect.width or actual.bottom>rect.y+rect.height or actual.bottom-actual.top>rect.height//2:
+            raise CaptureUnavailable(f'叠加实际范围超出客户区或半屏高度 {rect.width}×{rect.height}，已隐藏。')
     def show_at(self,rect,target):
         if not self.cards:return
         try:
@@ -138,38 +178,113 @@ class ControlWindow(QtWidgets.QWidget):
         self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
         self.signals=TaskSignals(self);self.signals.result.connect(self.task_result);self.signals.error.connect(self.task_error)
-        self.setWindowTitle(APP_NAME+' · 原生控制台');self.setWindowIcon(QtGui.QIcon(str(ROOT/'assets/branding/vga.ico')));self.setStyleSheet(STYLE);self.resize(790,760)
-        outer=QtWidgets.QVBoxLayout(self);outer.setContentsMargins(8,8,8,8);scroll=QtWidgets.QScrollArea();scroll.setWidgetResizable(True);container=QtWidgets.QWidget();scroll.setWidget(container);outer.addWidget(scroll)
-        layout=QtWidgets.QVBoxLayout(container);layout.addWidget(label(APP_NAME+'  ·  原生窗口资料助手'))
-        layout.addWidget(label('自动模式只看已核验英雄联盟窗口的可见像素；不读取游戏内存、不注入、不装输入钩子。初版支持窗口/无边框模式；实际 LoL 与 Vanguard 兼容性尚未验证。',True))
-        self.source=label('正在检查公开数据，首次启动可能需要数十秒…',True);layout.addWidget(self.source)
-        group=QtWidgets.QGroupBox('1  窗口与本人英雄自动识别');form=QtWidgets.QFormLayout(group);layout.addWidget(group)
-        self.window_list=QtWidgets.QComboBox();self.refresh=QtWidgets.QPushButton('重新检测');row=QtWidgets.QHBoxLayout();row.addWidget(self.window_list,1);row.addWidget(self.refresh);form.addRow('窗口连接',row);self.window_status=label('默认自动连接，无需选择窗口。',True);form.addRow(self.window_status);self.trust_button=QtWidgets.QPushButton('确认自己的游戏安装目录…');self.trust_button.hide();self.trust_button.clicked.connect(self.confirm_game_installation);form.addRow(self.trust_button);self.unverified_candidate=None
-        self.hero_auto=QtWidgets.QCheckBox('自动识别本人英雄（选人文字 + 局内 HUD，无需预选）');self.hero_auto.setChecked(True);form.addRow(self.hero_auto)
-        self.hero_status=label('本人头像模板准备中…',True);form.addRow(self.hero_status)
-        self.portrait_diagnostics=None;self.cache_diagnostic_button=QtWidgets.QPushButton('头像缓存诊断');self.cache_diagnostic_button.hide();self.cache_diagnostic_button.clicked.connect(self.show_cache_diagnostics);form.addRow(self.cache_diagnostic_button)
-        self.client_follow=QtWidgets.QCheckBox('自动接续同一安装目录的客户端与游戏窗口');self.client_follow.setChecked(True);form.addRow(self.client_follow)
-        self.hero_box=QtWidgets.QComboBox();self.hero_box.setEditable(True);self.hero_box.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert);self.hero_box.setEnabled(False);form.addRow('英雄 / 不确定时人工纠正',self.hero_box)
-        layout.addWidget(label('点击开始后自动寻找已核验的英雄联盟窗口，并最小化此控制台以免遮挡游戏。游戏晚启动、重开或窗口重建会自动重连；切出或被遮挡时等待，截图不保存。',True))
-        roi_group=QtWidgets.QGroupBox('2  截图范围（所选窗口内的百分比，可按游戏界面调整）');roi_row=QtWidgets.QHBoxLayout(roi_group);layout.addWidget(roi_group);self.roi=[]
+        self.setWindowTitle(APP_NAME+' · 原生控制台');self.setWindowIcon(QtGui.QIcon(str(ROOT/'assets/branding/vga.ico')));self.setStyleSheet(STYLE);self.resize(720,680)
+        outer=QtWidgets.QVBoxLayout(self);outer.setContentsMargins(16,16,16,16);outer.setSpacing(12)
+        header=QtWidgets.QHBoxLayout();header.setSpacing(12)
+        icon=label();icon.setPixmap(QtGui.QPixmap(str(ROOT/'assets/branding/vga-icon-512.png')).scaled(40,40,QtCore.Qt.AspectRatioMode.KeepAspectRatio,QtCore.Qt.TransformationMode.SmoothTransformation));icon.setFixedSize(40,40);header.addWidget(icon)
+        title_box=QtWidgets.QVBoxLayout();title_box.setSpacing(2);title=label(APP_NAME);title.setObjectName('app-title');title_box.addWidget(title);title_box.addWidget(label('识别当前英雄与三项海克斯资料',True));header.addLayout(title_box,1)
+        version=label('v'+str(current_version).removeprefix('v'));version.setObjectName('version-chip');header.addWidget(version,0,QtCore.Qt.AlignmentFlag.AlignTop);outer.addLayout(header)
+        self.compatibility=label('仅核验窗口的可见像素，不读取游戏内存。支持窗口 / 无边框模式；实际 LoL 与 Vanguard 兼容性尚未验证。',True);outer.addWidget(self.compatibility)
+        self.start_button=QtWidgets.QPushButton('开始本局监测');self.start_button.setObjectName('primary-action');self.stop_button=QtWidgets.QPushButton('停止');self.toggle_button=QtWidgets.QPushButton('鼠标穿透：开（Ctrl+Alt+O）')
+        self.actions_layout=QtWidgets.QGridLayout();self.actions_layout.setSpacing(8);self.actions_layout.setColumnStretch(0,1);self.actions_layout.addWidget(self.start_button,0,0);self.actions_layout.addWidget(self.stop_button,0,1);self.actions_layout.addWidget(self.toggle_button,0,2);self._compact_actions=False;outer.addLayout(self.actions_layout)
+        self.scroll=QtWidgets.QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,QtWidgets.QSizePolicy.Policy.Ignored);self.scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame);self.scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        container=QtWidgets.QWidget();container.setObjectName('scroll-content');self.scroll.setWidget(container);outer.addWidget(self.scroll,1)
+        layout=QtWidgets.QVBoxLayout(container);layout.setContentsMargins(0,0,4,0);layout.setSpacing(12)
+        def section(title):
+            frame=QtWidgets.QFrame();frame.setObjectName('section');box=QtWidgets.QVBoxLayout(frame);box.setContentsMargins(12,12,12,12);box.setSpacing(8)
+            heading=label(title);heading.setObjectName('section-title');box.addWidget(heading);layout.addWidget(frame);return box
+        monitor_box=section('本局监测')
+        state_row=QtWidgets.QHBoxLayout();state_row.addWidget(monitor_box.takeAt(0).widget());state_row.addStretch();self.status_chip=label('准备中');self.status_chip.setObjectName('status-chip');state_row.addWidget(self.status_chip);monitor_box.addLayout(state_row)
+        self.window_status=label('默认自动连接，无需选择窗口。',True);monitor_box.addWidget(self.window_status)
+        self.hero_auto=QtWidgets.QCheckBox('自动识别本人英雄');self.hero_auto.setToolTip('结合本局选人文字与局内 HUD，高置信连续识别后自动使用');self.hero_auto.setChecked(True);monitor_box.addWidget(self.hero_auto)
+        self.hero_status=label('本人头像模板准备中…',True);monitor_box.addWidget(self.hero_status)
+        self.trust_button=QtWidgets.QPushButton('确认自己的游戏安装目录…');self.trust_button.hide();self.trust_button.clicked.connect(self.confirm_game_installation);monitor_box.addWidget(self.trust_button);self.unverified_candidate=None
+        monitor_box.addWidget(label('开始后控制台自动最小化；切出或被遮挡时等待。恢复此窗口可随时停止，截图不保存。',True))
+        candidate_box=section('候选核对')
+        candidate_box.addWidget(label('高置信且连续稳定后自动显示；文字不确定时，请按画面原顺序人工核对。',True))
+        fields=QtWidgets.QHBoxLayout();fields.setSpacing(8);self.inputs=[]
+        for name in ('左侧','中间','右侧'):
+            column=QtWidgets.QVBoxLayout();column.setSpacing(4);caption=label(name,True);edit=QtWidgets.QLineEdit();edit.setAccessibleName(name+'候选');edit.setPlaceholderText('等待识别');caption.setBuddy(edit);edit.textEdited.connect(self.edit_changed);self.inputs.append(edit);column.addWidget(caption);column.addWidget(edit);fields.addLayout(column,1)
+        candidate_box.addLayout(fields);self.confirm_button=QtWidgets.QPushButton('人工纠正并确认三项');self.confirm_button.clicked.connect(self.confirm);candidate_box.addWidget(self.confirm_button)
+        self.details_toggle=QtWidgets.QToolButton();self.details_toggle.setText('查阅输入名称的完整资料');self.details_toggle.setCheckable(True);self.details_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon);self.details_toggle.setArrowType(QtCore.Qt.ArrowType.RightArrow);candidate_box.addWidget(self.details_toggle)
+        self.card_details=label('',True);self.card_details.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse|QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard);self.card_details.setAccessibleName('输入名称的词典资料');self.card_details.hide();candidate_box.addWidget(self.card_details);self.details_toggle.toggled.connect(self.refresh_card_details)
+        self.advanced_toggle=QtWidgets.QToolButton();self.advanced_toggle.setObjectName('advanced-toggle');self.advanced_toggle.setText('高级设置 · 手动纠正与截图范围');self.advanced_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon);self.advanced_toggle.setArrowType(QtCore.Qt.ArrowType.RightArrow);self.advanced_toggle.setCheckable(True);self.advanced_toggle.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,QtWidgets.QSizePolicy.Policy.Fixed);layout.addWidget(self.advanced_toggle)
+        self.advanced_panel=QtWidgets.QFrame();self.advanced_panel.setObjectName('section');advanced=QtWidgets.QVBoxLayout(self.advanced_panel);advanced.setContentsMargins(12,12,12,12);advanced.setSpacing(8);layout.addWidget(self.advanced_panel);self.advanced_panel.hide();self.advanced_toggle.toggled.connect(self.set_advanced_visible)
+        self.window_list=QtWidgets.QComboBox();self.window_list.setMinimumContentsLength(12);self.window_list.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.window_list.setAccessibleName('窗口连接');self.refresh=QtWidgets.QPushButton('重新检测');row=QtWidgets.QHBoxLayout();row.addWidget(self.window_list,1);row.addWidget(self.refresh);caption=label('窗口连接',True);caption.setBuddy(self.window_list);advanced.addWidget(caption);advanced.addLayout(row)
+        self.client_follow=QtWidgets.QCheckBox('自动接续同目录的客户端与游戏');self.client_follow.setToolTip('仅接续已经核验、属于同一安装目录的英雄联盟客户端与游戏窗口');self.client_follow.setChecked(True);advanced.addWidget(self.client_follow)
+        self.hero_box=QtWidgets.QComboBox();self.hero_box.setEditable(True);self.hero_box.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert);self.hero_box.setEnabled(False);self.hero_box.setAccessibleName('人工纠正本人英雄');caption=label('本人英雄 · 关闭自动识别后可纠正',True);caption.setBuddy(self.hero_box);advanced.addWidget(caption);advanced.addWidget(self.hero_box)
+        advanced.addWidget(label('截图范围 · 所选窗口内百分比',True));roi_row=QtWidgets.QHBoxLayout();roi_row.setSpacing(8);self.roi=[]
         for name,value in [('左',15),('上',25),('宽',70),('高',35)]:
-            roi_row.addWidget(label(name));spin=QtWidgets.QSpinBox();spin.setRange(0,100);spin.setValue(value);spin.setSuffix('%');spin.valueChanged.connect(self.roi_changed);self.roi.append(spin);roi_row.addWidget(spin)
-        self.start_button=QtWidgets.QPushButton('开始本局监测');self.stop_button=QtWidgets.QPushButton('停止');self.toggle_button=QtWidgets.QPushButton('鼠标穿透：开（Ctrl+Alt+O）');buttons=QtWidgets.QHBoxLayout();buttons.addWidget(self.start_button);buttons.addWidget(self.stop_button);buttons.addWidget(self.toggle_button);layout.addLayout(buttons)
-        group=QtWidgets.QGroupBox('3  三个候选（高置信稳定后自动显示；不确定时核对）');form=QtWidgets.QFormLayout(group);layout.addWidget(group);self.inputs=[]
-        for i in range(3):
-            edit=QtWidgets.QLineEdit();edit.textEdited.connect(self.edit_changed);self.inputs.append(edit);form.addRow(['左侧','中间','右侧'][i],edit)
-        self.confirm_button=QtWidgets.QPushButton('人工纠正并确认三项');self.confirm_button.clicked.connect(self.confirm);form.addRow(self.confirm_button)
-        self.status=label('准备中…');layout.addWidget(self.status)
-        layout.addWidget(label('叠加按三张牌原位置显示名称、效果及当前英雄的虎牙公开源评级（T1–T4）；缺失显示暂无评级。不展示胜率、不自行换算等级或自动排序，也不输出唯一最佳选项。公开源评级不等于云端实时结果，也不代表 Riot 批准。',True))
-        self.update_status=label('软件更新待检查。',True);layout.addWidget(self.update_status);self.update_button=QtWidgets.QPushButton('查看并安装软件更新');self.update_button.hide();layout.addWidget(self.update_button)
+            column=QtWidgets.QVBoxLayout();column.setSpacing(4);caption=label(name,True);spin=QtWidgets.QSpinBox();spin.setRange(0,100);spin.setValue(value);spin.setSuffix('%');spin.setAccessibleName('截图范围'+name);caption.setBuddy(spin);spin.valueChanged.connect(self.roi_changed);self.roi.append(spin);column.addWidget(caption);column.addWidget(spin);roi_row.addLayout(column,1)
+        advanced.addLayout(roi_row)
+        data_box=section('数据与软件');self.source=label('正在检查公开数据，首次启动可能需要数十秒…',True);data_box.addWidget(self.source)
+        data_box.addWidget(label('虎牙公开源评级 T1–T4，缺失显示暂无评级。保留三项原位置，不展示胜率、换算等级或推荐唯一最佳选项；公开源资料并非 Riot 评级或批准。',True))
+        self.portrait_diagnostics=None;self.cache_diagnostic_button=QtWidgets.QPushButton('头像缓存诊断');self.cache_diagnostic_button.hide();self.cache_diagnostic_button.clicked.connect(self.show_cache_diagnostics);data_box.addWidget(self.cache_diagnostic_button)
+        self.update_status=label('软件更新待检查。',True);data_box.addWidget(self.update_status);self.update_button=QtWidgets.QPushButton('查看并安装软件更新');self.update_button.hide();data_box.addWidget(self.update_button);layout.addStretch()
+        strip=QtWidgets.QFrame();strip.setObjectName('status-strip');status_layout=QtWidgets.QVBoxLayout(strip);status_layout.setContentsMargins(12,9,12,9);self.status=label('准备中…',True);self.status.setAccessibleName('当前监测状态');status_layout.addWidget(self.status);outer.addWidget(strip)
+        order=[self.start_button,self.stop_button,self.toggle_button,self.hero_auto,*self.inputs,self.confirm_button,self.details_toggle,self.advanced_toggle,self.window_list,self.refresh,self.client_follow,self.hero_box,*self.roi,self.cache_diagnostic_button,self.update_button]
+        for before,after in zip(order,order[1:]):QtWidgets.QWidget.setTabOrder(before,after)
         self.refresh.clicked.connect(self.refresh_windows);self.window_list.currentIndexChanged.connect(self.target_changed);self.hero_box.currentTextChanged.connect(self.hero_changed);self.hero_auto.toggled.connect(self.hero_mode_changed);self.client_follow.toggled.connect(self.follow_scope_changed);self.start_button.clicked.connect(self.start_monitor);self.stop_button.clicked.connect(self.stop_monitor);self.toggle_button.clicked.connect(self.toggle_clickthrough);self.update_button.clicked.connect(self.install_update)
         try:self.capture=Win32Capture()
         except CaptureUnavailable as exc:self.status.setText(str(exc))
         self.overlay=Overlay(self.capture);self.overlay.winId();self.overlay.configure()
         self.monitor=QtCore.QTimer(self);self.monitor.setInterval(1300);self.monitor.timeout.connect(self.capture_tick)
-        self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.start()
+        self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
-        self.show();self.register_hotkey();self.refresh_windows();self.spawn('load',startup_loader)
+        self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.spawn('load',startup_loader)
+    def resizeEvent(self,event):
+        if hasattr(self,'actions_layout'):
+            compact=self.width()<560
+            if compact!=self._compact_actions:
+                self._compact_actions=compact;self.actions_layout.removeWidget(self.toggle_button)
+                self.actions_layout.addWidget(self.toggle_button,1,0,1,2) if compact else self.actions_layout.addWidget(self.toggle_button,0,2)
+        super().resizeEvent(event)
+    def fit_control_to_screen(self,*,initial=False):
+        # Qt availableGeometry is in this window's logical units. Leave room
+        # for native chrome as well as the taskbar, including high-DPI screens.
+        available=self.screen().availableGeometry()
+        width=min(720 if initial else self.width(),max(360,available.width()-32))
+        height=min(680 if initial else self.height(),max(280,available.height()-64))
+        self.setMinimumSize(min(640,width),min(560,height));self.resize(width,height)
+        if self.isVisible():
+            frame=self.frameGeometry()
+            self.move(available.x()+max(0,(available.width()-frame.width())//2),available.y()+max(0,(available.height()-frame.height())//2))
+    def set_advanced_visible(self,visible):
+        self.advanced_panel.setVisible(bool(visible));self.advanced_toggle.setArrowType(QtCore.Qt.ArrowType.DownArrow if visible else QtCore.Qt.ArrowType.RightArrow)
+    def refresh_card_details(self,*_):
+        expanded=self.details_toggle.isChecked();self.card_details.setVisible(expanded);self.details_toggle.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
+        if not expanded:return
+        # A deliberate dictionary view of editable names, not a retained game
+        # result. Foreground loss still revokes hero/overlay confirmation.
+        hero=self.hero_box.currentText() if not self.hero_auto.isChecked() else ''
+        hero=hero if self.data and hero in self.data.get('heroes',{}) else ''
+        rows=['资料查阅 · 基于输入名称，不代表识别或确认。',
+              '人工选择英雄：'+hero if hero else '未选择人工英雄：仅展示基础说明，不推断英雄专属评级或条件。']
+        for index,edit in enumerate(self.inputs,1):
+            name=edit.text().strip()
+            if not self.data or name not in self.data.get('augments',{}):
+                rows.append(f'{index} · 名称未精确匹配词典，请在上方核对。');continue
+            card=display_cards(self.data,hero,[name])[0]
+            text=f"{index} · {name}\n{card['description']}"
+            if hero:
+                text+=f"\n{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}"
+                if card['notes']:text+='\n条件/提醒：'+'；'.join(card['notes'])
+            rows.append(text)
+        text='\n\n'.join(rows)
+        if self.card_details.text()!=text:self.card_details.setText(text)
+    def refresh_status_badge(self):
+        self.refresh_card_details()
+        # Presentation only: derive from explicit state, never status-text keywords.
+        if not self.data:state,text='waiting','资料待就绪'
+        elif not self.capture:state,text='waiting','采集不可用'
+        elif not self.state.running:state,text='idle','未开始'
+        elif self.state.confirmed:state,text='confirmed','资料已确认'
+        elif self.ocr_busy:state,text='working','正在识别'
+        elif self.target is None:state,text='waiting','等待连接'
+        else:state,text='waiting','等待核对'
+        if self.status_chip.property('state')!=state:
+            self.status_chip.setProperty('state',state);self.status_chip.style().unpolish(self.status_chip);self.status_chip.style().polish(self.status_chip)
+        self.status_chip.setText(text)
     def spawn(self,kind,fn,generation=0):
         def worker():
             value=error=None
@@ -286,23 +401,25 @@ class ControlWindow(QtWidgets.QWidget):
         dialog.setDetailedText(json.dumps(self.portrait_diagnostics,ensure_ascii=False,indent=2))
         dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok);dialog.exec()
     def hero_mode_changed(self,automatic):
-        self.hero_box.setEnabled(not automatic);self.state.clear_hero();self.overlay.hide();self.manual_editing=False
+        if not automatic:self.advanced_toggle.setChecked(True)
+        self.hero_box.setEnabled(not automatic);self.state.clear_hero();self.refresh_card_details();self.overlay.hide();self.manual_editing=False
         self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
         self.hero_status.setText('等待本人 HUD 头像，连续两帧高置信后自动使用。' if automatic else '人工纠正模式：请选择已确认的本人英雄。')
     def hero_changed(self,text):
+        if text:self.advanced_toggle.setChecked(True)
         if text and self.hero_auto.isChecked():
             self.hero_auto.blockSignals(True);self.hero_auto.setChecked(False);self.hero_auto.blockSignals(False);self.hero_box.setEnabled(True)
         hero=text if self.data and text in self.data.get('heroes',{}) else getattr(self,'hero_aliases',{}).get(text,'')
-        self.hero_origin='manual';self.state.select_hero(hero);self.overlay.hide();self.status.setText(self.state.reason)
+        self.hero_origin='manual';self.state.select_hero(hero);self.refresh_card_details();self.overlay.hide();self.status.setText(self.state.reason)
     def invalidate_scene(self,reason):
         self._capture_cancel.set();self.ocr_reuse.clear()
         if self.hero_auto.isChecked():
             self.state.clear_hero();self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
-        self.state.invalidate(reason)
+        self.state.invalidate(reason);self.refresh_card_details()
     def roi_changed(self,*_):
         self.invalidate_scene('截图范围改变，请重新识别确认');self.overlay.hide()
     def edit_changed(self,*_):
-        self.manual_editing=True;self.state.invalidate('候选已修改，请重新确认',clear_observed=False);self.overlay.hide()
+        self.manual_editing=True;self.state.invalidate('候选已修改，请重新确认',clear_observed=False);self.refresh_card_details();self.overlay.hide()
     def follow_scope_changed(self,*_):
         self.stop_monitor();self.status.setText("接续窗口范围已改变；本局授权已停止，请重新点击开始。")
     def start_monitor(self):
@@ -341,7 +458,7 @@ class ControlWindow(QtWidgets.QWidget):
         if self.selection_session:self.selection_session.stop()
         if self.window_policy:self.window_policy.stop()
         self.selection_session=None;self.window_policy=None;self.client_target=None;self.hero_origin='hud'
-        self.monitor.stop();self.state.stop();
+        self.monitor.stop();self.state.stop();self.refresh_card_details()
         if self.hero_auto.isChecked():self.state.clear_hero()
         self.overlay.hide();self.stop_button.setEnabled(False);self.confirm_button.setEnabled(False)
         self.status.setText(self.state.reason)
@@ -466,7 +583,7 @@ class ControlWindow(QtWidgets.QWidget):
             metadata=self.data.get('metadata',{})
             source_version=f"数据包 {metadata.get('wikiDataVersion') or '未知'} / 游戏资料 {metadata.get('gamePatch') or '未知'}"
             self.overlay.set_cards(self.state.hero,display_cards(self.data,self.state.hero,self.state.offered),metadata.get('sourceDataDate') or '未知',source_version,('来自本局选人 · HUD未复核' if self.hero_origin=='client-provisional' else '本局选人 + HUD复核' if self.hero_origin=='client-verified' else '英雄/候选连续高置信自动识别' if self.hero_auto.isChecked() else '英雄人工纠正 · 候选自动识别') if automatic else '人工确认')
-            self.status.setText(self.state.reason+'；切回目标窗口后显示。');self.check_target()
+            self.refresh_card_details();self.status.setText(self.state.reason+'；切回目标窗口后显示。');self.check_target()
         except (ValueError,KeyError) as exc:self.status.setText(str(exc))
     def toggle_clickthrough(self):
         try:self.overlay.set_click_through(not self.overlay.click_through)
@@ -508,7 +625,7 @@ class ControlWindow(QtWidgets.QWidget):
             if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                 self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
             now=time.monotonic();stable=self.selection_session.observe_client(value,self.target.identity,value.get('_capturedAt'),now,generation=value.get('_sessionGeneration'))
-            self.overlay.hide();self.state.confirmed=False;self.state.offered=()
+            self.overlay.hide();self.state.confirmed=False;self.state.offered=();self.refresh_card_details()
             hero=next((name for name,row in self.data['heroes'].items() if self.selection_session.assigned and str(row.get('championId'))==self.selection_session.assigned),'')
             if self.hero_auto.isChecked():
                 self.state.hero=hero;self.hero_box.blockSignals(True);self.hero_box.setCurrentText(hero);self.hero_box.blockSignals(False)
@@ -546,12 +663,12 @@ class ControlWindow(QtWidgets.QWidget):
                 self.hero_status.setText((self.state.hero+' · '+observation.get('reason','')) if hero_stable else observation.get('reason','本人头像尚不确定')+'；等待新画面或人工纠正')
             safe_candidates=automatic_candidates(auto_candidates,value.get('image_size'))
             if value.get('ocr_reused') is True and not self.state.confirmed:
-                self.ocr_reuse.clear();self.overlay.hide();return
+                self.ocr_reuse.clear();self.refresh_card_details();self.overlay.hide();return
             if self.state.confirmed and self.state.confirmation_mode=='automatic' and not safe_candidates:self.state.invalidate('候选置信度或三卡布局不足，旧资料已隐藏')
             stable=self.state.observe(names,generation=self.state.generation)
             automatic_stable=(self.state.confirmed and self.state.confirmation_mode=='automatic') if value.get('ocr_reused') is True else self.state.observe_automatic_candidates(names,safe_candidates)
             self.last_observation=captured_at
-            if not self.state.confirmed:self.overlay.hide()
+            if not self.state.confirmed:self.refresh_card_details();self.overlay.hide()
             if stable and not self.state.confirmed and not self.manual_editing:
                 for edit,name in zip(self.inputs,names):edit.setText(name)
             uncertainty=any(item.get('match_method')!='exact' or item.get('ocr_confidence',0)<.85 for item in candidates)

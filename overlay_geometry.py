@@ -20,7 +20,7 @@ def layout_budget(rect,dpr):
     margin=max(2,min(math.ceil(12*dpr),rect.width//12,rect.height//12))
     width=math.floor((rect.width-2*margin)/dpr);height=math.floor((rect.height-2*margin)/dpr)
     if width<280 or height<100:raise ValueError(f'目标客户区 {rect.width}×{rect.height} 像素，叠加缩放 {dpr:g} 倍；可用布局 {width}×{height}，不足以清晰显示三项。')
-    return LayoutBudget(min(950,width),height,margin,float(dpr))
+    return LayoutBudget(min(820,width),height,margin,float(dpr))
 
 def placement(rect,budget,logical_height):
     if not isinstance(logical_height,int) or isinstance(logical_height,bool) or not 1<=logical_height<=budget.logical_height:raise ValueError('资料文字在当前客户区中无法完整显示。')
