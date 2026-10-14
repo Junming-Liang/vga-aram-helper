@@ -75,6 +75,17 @@ def verify_owned_job_close(job, process):
             'elapsed_ms': round((time.monotonic()-started)*1000, 2)}
 
 
+def restore_owned_bounds(user32, hwnd, bounds):
+    """Restore the saved physical bounds of this diagnostic's existing HWND."""
+    require(type(bounds) is list and len(bounds) == 4
+            and all(type(value) is int and -(2**31) <= value < 2**31 for value in bounds)
+            and bounds[2] > 0 and bounds[3] > 0 and bounds[2]*bounds[3] <= 16_000_000,
+            'Saved owned window bounds are invalid')
+    # Preserve z-order and activation. Never change display or DPI settings.
+    require(user32.SetWindowPos(hwnd, None, *bounds, 0x0004 | 0x0010),
+            'Cannot restore the owned window physical bounds')
+
+
 def pixel_error(image, rect, roi):
     from PIL import Image, ImageDraw, ImageChops, ImageStat
     colors = ((226, 61, 82), (45, 188, 137), (68, 109, 231), (243, 196, 54))
@@ -325,7 +336,17 @@ def execute(result):
                 release.set(); wgc_capture.subprocess.Popen = recording_popen
         reject_after_snapshot(lambda: window.resize(336, 256), 'resize_stale_passed')
         window.resize(320, 240); pump(); focus(window)
-        require(capture.rect(target) == rect, 'Owned geometry was not restored after resize')
+        # Fractional application scaling can round the logical frame position
+        # during resize. Restore the exact original physical HWND rectangle,
+        # then still require all original client/Win32/DWM bounds to agree.
+        result['before_restore_geometry'] = geometry(hwnd, capture.rect(target))
+        restore_owned_bounds(u, hwnd, result['owned_geometry']['window'])
+        pump()
+        restored_rect = capture.rect(target)
+        result['restored_geometry'] = geometry(hwnd, restored_rect)
+        require(capture.foreground(target) and restored_rect == rect
+                and result['restored_geometry'] == result['owned_geometry'],
+                'Owned geometry was not restored after resize')
         cover = QtWidgets.QWidget()
         cover.setWindowTitle('VGA original focus and occlusion fixture')
         cover.resize(80, 80); cover.move(window.x()+40, window.y()+40)
