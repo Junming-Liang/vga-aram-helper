@@ -15,11 +15,13 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from decimal import Decimal
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT/'tests'))
 from app_version import __version__
 from scripts.build_wgc_session_capture import SOURCE_FILES,validate_manifest,verify_built_helper,verify_archive
-from wgc_session_smoke import CHECK_FIELDS,SCOPE,LIMITATIONS
+from wgc_session_smoke import (CHECK_FIELDS,SCOPE,LIMITATIONS,SHUTDOWN_STRESS_PAIRS,
+    SHUTDOWN_STRESS_SECONDS,SHUTDOWN_STRESS_COLUMNS,SHUTDOWN_CLEANUP_FIELDS)
 from windows_exe_smoke import isolated_windows_environment,smoke_workspace,terminate_tree
 SCALES=(1,1.5,2)
 MAX_REPORT_BYTES=256*1024
@@ -48,6 +50,57 @@ def positive_int(value):
 
 def strict_roi(value,expected):
     return type(value)is list and len(value)==4 and all(type(item)is int for item in value) and value==expected
+
+
+def rounded_milliseconds(value,high):
+    return finite(value,0,high) and round(value,3)==value
+
+
+def validate_shutdown_stress(value,roi,*,complete=True):
+    required={'schema_version','pairs','deadline_ms','columns','cleanup_bit_fields','roi','rows','elapsed_ms'}
+    if (type(value)is not dict or set(value)-{'failure_diagnostic'}!=required
+        or type(value['schema_version'])is not int or value['schema_version']!=1
+        or type(value['pairs'])is not int or value['pairs']!=SHUTDOWN_STRESS_PAIRS
+        or type(value['deadline_ms'])is not int or value['deadline_ms']!=SHUTDOWN_STRESS_SECONDS*1000
+        or type(value['columns'])is not list or value['columns']!=list(SHUTDOWN_STRESS_COLUMNS)
+        or type(value['cleanup_bit_fields'])is not list or value['cleanup_bit_fields']!=list(SHUTDOWN_CLEANUP_FIELDS)
+        or not strict_roi(value['roi'],roi) or not all(0<=x<=16000000 for x in value['roi'])
+        or min(value['roi'][2:])<=0 or type(value['rows'])is not list
+        or len(value['rows'])>SHUTDOWN_STRESS_PAIRS*2
+        or not rounded_milliseconds(value['elapsed_ms'],180000)):
+        raise RuntimeError('Malformed bounded native shutdown stress evidence')
+    identities=set();previous_idle=0
+    for index,row in enumerate(value['rows']):
+        if (type(row)is not list or len(row)!=len(SHUTDOWN_STRESS_COLUMNS)
+            or type(row[0])is not int or row[0]!=index//2+1 or row[1]!=('stop','eof')[index%2]
+            or type(row[1])is not str or any(not positive_int(row[i]) for i in range(2,9))
+            or row[5]!=1 or not previous_idle<row[6]<row[7]<=row[8]
+            or (row[2],row[3])in identities or not finite(row[9],0,255)
+            or not rounded_milliseconds(row[10],3500) or type(row[11])is not int or not -(2**31)<=row[11]<2**32
+            or type(row[12])is not bool or (type(row[13])is not bool and row[13]is not None)
+            or not rounded_milliseconds(row[14],6000) or not rounded_milliseconds(row[15],6000) or row[15]<row[14]
+            or type(row[16])is not int or not 0<=row[16]<=31
+            or value['elapsed_ms']<max(row[10],row[15])):
+            raise RuntimeError('Malformed native shutdown stress row or helper reuse')
+        identities.add((row[2],row[3]));previous_idle=row[8]
+        if complete and (row[9]!=0 or row[11]!=0 or row[12]is not True or row[13]is not False or row[16]!=31):
+            raise RuntimeError('Native shutdown stress did not prove exact pixels and unforced complete teardown')
+    if 'failure_diagnostic'in value:
+        from wgc_session_capture import sanitize_session_shutdown_diagnostic
+        diagnostic=sanitize_session_shutdown_diagnostic(value['failure_diagnostic'],value['rows'][-1][11]if value['rows']else None)
+        if diagnostic is None or diagnostic!=value['failure_diagnostic']:
+            raise RuntimeError('Malformed native shutdown stress failure diagnostic')
+    # Sequential capture and retirement intervals cannot exceed the total.
+    # Each producer measurement is independently rounded to three decimals;
+    # permit only its maximum half-unit error plus the rounded total's error.
+    measured=sum((Decimal(str(row[10]))+Decimal(str(row[15])) for row in value['rows']),Decimal(0))
+    rounding_bound=Decimal('0.0005')*(len(value['rows'])*2+1)
+    if Decimal(str(value['elapsed_ms']))+rounding_bound<measured:
+        raise RuntimeError('Native shutdown stress elapsed total contradicts sequential measurements')
+    if complete and (len(value['rows'])!=SHUTDOWN_STRESS_PAIRS*2
+        or value['elapsed_ms']>=SHUTDOWN_STRESS_SECONDS*1000 or 'failure_diagnostic'in value):
+        raise RuntimeError('Incomplete, failed or over-deadline native shutdown stress')
+    return value
 
 
 def validate_overlay_rendering(value):
@@ -199,6 +252,7 @@ def validate_report(value,*,frozen,scale,helper_build,version=__version__):
         previous=row
     if 'static_frame_failure' in value:
         raise RuntimeError('Static-window failure cannot be promoted to passing evidence')
+    validate_shutdown_stress(value.get('shutdown_stress'),roi)
     negatives=value.get('negative_results',{})
     if type(negatives)is not dict:raise RuntimeError('Negative request evidence missing')
     expected={'cancel_before_launch_passed':{'cancelled'},'cancel_during_wait_passed':{'cancelled'},
@@ -232,7 +286,10 @@ def validate_report(value,*,frozen,scale,helper_build,version=__version__):
     lease=by_case['idle_lease_passed'][0]
     if not 3000<=lease['process_exit_ms']<=5500:raise RuntimeError('Four-second lease observation missing')
     for name in ('native_stop_passed','pipe_eof_passed'):
-        if by_case[name][0]['exit_code']!=0:raise RuntimeError('Native graceful shutdown did not occur')
+        row=by_case[name][0]
+        if (row['exit_code']!=0 or row.get('native_checkpoints_complete')is not True
+            or row.get('parent_termination_requested')is not False):
+            raise RuntimeError('Native graceful shutdown did not occur')
     stop=by_case['stop'][0]
     if not finite(stop.get('close_call_ms'),0,250):raise RuntimeError('Stop caller responsiveness missing')
     job=value.get('suspended_job_close_observation',{})
@@ -312,6 +369,11 @@ def summary_transitions(value):
     return rows
 
 
+def summary_shutdown_stress(value):
+    try:return validate_shutdown_stress(value,value.get('roi')if type(value)is dict else None,complete=False)
+    except (RuntimeError,TypeError,ValueError,IndexError):return None
+
+
 def summarize(reports):
     """Print and persist bounded metadata even when an earlier Windows step failed."""
     reports=Path(reports);reports.mkdir(parents=True,exist_ok=True)
@@ -378,6 +440,7 @@ def summarize(reports):
                 'overlay_rendering':detail.get('overlay_rendering'),
                 'overlay_setup':detail.get('overlay_setup',[]),
                 'static_requests':detail.get('static_requests',[]),'static_frame_failure':detail.get('static_frame_failure'),
+                'shutdown_stress':summary_shutdown_stress(detail.get('shutdown_stress')),
                 'transitions':transitions,'negative_results':detail.get('negative_results',{}),
                 'parent_death_observation':detail.get('parent_death_observation'),
                 'suspended_job_close_observation':detail.get('suspended_job_close_observation'),

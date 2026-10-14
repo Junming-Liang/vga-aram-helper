@@ -60,6 +60,19 @@ def overlay_report():
     return {'overlay_rendering':rendering,'overlay_setup':rows}
 
 
+def shutdown_stress_report(scale=1):
+    rows=[]
+    for index in range(smoke.SHUTDOWN_STRESS_PAIRS*2):
+        rows.append([index//2+1,('stop','eof')[index%2],1000+index,134364808860193529+index,
+            2973183492968784245+index,1,4561453775+index*1000,4561453800+index*1000,
+            4561453900+index*1000,0.,50.,0,True,False,25.,26.,31])
+    return {'schema_version':1,'pairs':smoke.SHUTDOWN_STRESS_PAIRS,
+        'deadline_ms':smoke.SHUTDOWN_STRESS_SECONDS*1000,'columns':list(smoke.SHUTDOWN_STRESS_COLUMNS),
+        'cleanup_bit_fields':list(smoke.SHUTDOWN_CLEANUP_FIELDS),
+        'roi':[round(80*scale),round(60*scale),round(160*scale),round(120*scale)],
+        'rows':rows,'elapsed_ms':5000.}
+
+
 def passing_report(scale=1,frozen=True):
     proof=manifest();roi=[round(80*scale),round(60*scale),round(160*scale),round(120*scale)]
     result={'schema_version':1,'status':'passed','applicationVersion':smoke.__version__,'frozen':frozen,
@@ -77,6 +90,7 @@ def passing_report(scale=1,frozen=True):
         'suspended_job_close_observation':{'wait_result':0,'elapsed_ms':12,'helper_pid':789,'exit_code':1,
             'job_closed':True,'never_resumed':True,'start_gate_released':False}}
     result.update(overlay_report())
+    result['shutdown_stress']=shutdown_stress_report(scale)
     result.update(dict.fromkeys(smoke.CHECK_FIELDS,True))
     for number in range(4):
         result['requests'].append({'helper_pid':123,'helper_created':456,'session_generation':789,
@@ -89,6 +103,8 @@ def passing_report(scale=1,frozen=True):
             ('native_stop_passed','pipe_eof_passed')else 12,'revoked_ms':elapsed,'process_exit_ms':elapsed,
             'cleanup_ms':elapsed+1,'observed_exit_within_50ms':elapsed<=50,'job_closed':True,
             'io_done':True,'stderr_done':True,'threads_exited':True,'pipes_closed':True,**({'close_call_ms':1}if name=='stop'else {})})
+        if name in ('native_stop_passed','pipe_eof_passed'):
+            result['transitions'][-1].update(native_checkpoints_complete=True,parent_termination_requested=False)
     for name in smoke.NEGATIVES:
         status='cancelled' if name.startswith('cancel_')else 'timeout' if name=='request_deadline_passed'else 'stale'
         result['negative_results'][name]={'status':status,'elapsed_ms':25}
@@ -723,6 +739,127 @@ class AcceptanceTests(unittest.TestCase):
             row['exit_code']=0
             with self.subTest(case=case,forged_zero=True),self.assertRaisesRegex(RuntimeError,'shutdown diagnostic'):
                 smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+
+    def test_graceful_shutdown_requires_complete_native_trace_and_no_parent_attempt(self):
+        for case in ('native_stop_passed','pipe_eof_passed'):
+            for field,bad in (('native_checkpoints_complete',False),('native_checkpoints_complete',1),
+                ('parent_termination_requested',True),('parent_termination_requested',None),
+                ('parent_termination_requested',0)):
+                value=passing_report();row=next(x for x in value['transitions']if x['case']==case)
+                row[field]=bad
+                with self.subTest(case=case,field=field,bad=bad),self.assertRaisesRegex(RuntimeError,'graceful shutdown'):
+                    smoke.validate_report(value,frozen=True,scale=1,helper_build=manifest())
+
+    def test_shutdown_stress_requires_exact_complete_rows_fresh_helpers_and_types(self):
+        value=shutdown_stress_report();smoke.validate_shutdown_stress(value,value['roi'])
+        # Reused numerical PID with a later creation is a different process.
+        reused=copy.deepcopy(value);reused['rows'][1][2]=reused['rows'][0][2]
+        smoke.validate_shutdown_stress(reused,reused['roi'])
+        edits=[lambda x:x.update(pairs=True),lambda x:x.update(pairs=4),
+            lambda x:x.update(columns=list(reversed(x['columns']))),lambda x:x.update(rows=x['rows'][:-1]),
+            lambda x:x.update(cleanup_bit_fields=list(reversed(x['cleanup_bit_fields']))),
+            lambda x:x.update(elapsed_ms=45000),lambda x:x.update(deadline_ms=45001),
+            lambda x:x.update(failure_diagnostic={}),lambda x:x['roi'].__setitem__(0,float(x['roi'][0])),
+            lambda x:x['rows'][1].__setitem__(slice(2,4),x['rows'][0][2:4])]
+        for position,bad in ((0,True),(1,'eof'),(2,True),(3,0),(4,True),(5,2),(6,0),(7,1),(8,1),
+            (9,1),(9,False),(10,float('inf')),(10,.1234),(11,0xc0000005),(11,False),(12,False),(12,1),
+            (13,True),(13,None),(13,0),(14,-1),(15,1),(16,30),(16,31.)):
+            edits.append(lambda x,p=position,b=bad:x['rows'][0].__setitem__(p,b))
+        for edit in edits:
+            broken=copy.deepcopy(value);edit(broken)
+            with self.subTest(broken=broken),self.assertRaises(RuntimeError):
+                smoke.validate_shutdown_stress(broken,value['roi'])
+        forged=copy.deepcopy(value)
+        for row in forged['rows']:row[10]=3000.;row[15]=3000.
+        forged['elapsed_ms']=6000.
+        with self.assertRaisesRegex(RuntimeError,'elapsed total'):
+            smoke.validate_shutdown_stress(forged,forged['roi'])
+        rounded=copy.deepcopy(value)
+        total=sum(row[10]+row[15] for row in rounded['rows'])
+        rounding=(len(rounded['rows'])*2+1)*.0005
+        rounded['elapsed_ms']=round(total-rounding+.0005,3)
+        smoke.validate_shutdown_stress(rounded,rounded['roi'])
+        rounded['elapsed_ms']=round(total-rounding-.001,3)
+        with self.assertRaisesRegex(RuntimeError,'elapsed total'):
+            smoke.validate_shutdown_stress(rounded,rounded['roi'])
+
+    def test_stress_summary_preserves_failure_and_unknown_parent_observation(self):
+        value=shutdown_stress_report();value['rows']=value['rows'][:1]
+        value['rows'][0][11]=0xc0000005;value['rows'][0][12]=False;value['rows'][0][13]=None
+        value['failure_diagnostic']={'schema_version':1,'exit_code':0xc0000005,
+            'checkpoints':[1,2,3,4,5,6],'last_started_stage':'apartment-uninit'}
+        self.assertEqual(smoke.summary_shutdown_stress(value),value)
+        with self.assertRaises(RuntimeError):smoke.validate_shutdown_stress(value,value['roi'])
+        forged=copy.deepcopy(value);forged['failure_diagnostic']['address']='forbidden'
+        self.assertIsNone(smoke.summary_shutdown_stress(forged))
+        forged=copy.deepcopy(value);forged['rows'][0][13]='unknown'
+        self.assertIsNone(smoke.summary_shutdown_stress(forged))
+
+    def test_complete_real_sized_summary_retains_every_stress_row_under_budget(self):
+        runs=[]
+        for scale in (*smoke.SCALES,*smoke.SCALES):
+            value=shutdown_stress_report(scale);value['elapsed_ms']=44999.999
+            for index,row in enumerate(value['rows']):
+                for position in (2,3,4):row[position]=2**63-100000+index
+                for position in (6,7,8):row[position]=2**63-100000+index*1000+position
+                row[10]=2000.;row[14]=1999.999;row[15]=2000.
+            smoke.validate_shutdown_stress(value,value['roi'])
+            runs.append({'shutdown_stress':value})
+        self.assertEqual(sum(len(row['shutdown_stress']['rows'])for row in runs),60)
+        # Run34's complete three source rows duplicated into six runs occupy
+        # 216627 bytes with the exact summary serializer. Keep extra space for
+        # new single-case fields and proof changes; no evidence row is dropped.
+        measured_existing_summary=216627
+        complete_size=measured_existing_summary+len(json.dumps(runs,indent=2).encode())+2048
+        self.assertLess(complete_size,256*1024)
+
+    def test_actual_stress_driver_is_bounded_and_keeps_failures(self):
+        import wgc_session_smoke as runtime
+        def fixture(*,forced=False,complete=True,pixels=0.,exit_code=0,wrong_pid=False,wrong_roi=False):
+            samples=shutdown_stress_report()['rows'];sessions=[];result={};counter=iter(samples)
+            def new_session():
+                row=next(counter)
+                s=SimpleNamespace(_request_id=1,close=Mock(),sample=row,
+                    _transport=SimpleNamespace(generation=row[4],process=SimpleNamespace(stdin=Mock())))
+                sessions.append(s);return s
+            def positive(s,**kwargs):
+                row=s.sample
+                return dict(zip(('helper_pid','helper_created','session_generation','request_id',
+                    'request_cutoff_100ns','frame_100ns','idle_enter_100ns'),row[2:9]),
+                    mean_channel_error=pixels,elapsed_ms=50.,roi=[81 if wrong_roi else 80,60,160,120])
+            observed={'exit_code':exit_code,'native_checkpoints_complete':complete,
+                'parent_termination_requested':forced,'process_exit_ms':25.,'cleanup_ms':26.,
+                **dict.fromkeys(runtime.SHUTDOWN_CLEANUP_FIELDS,True)}
+            f=SimpleNamespace(roi=(80,60,160,120),session=SimpleNamespace(encode_request=Mock(return_value=b'request')),
+                new_session=Mock(side_effect=new_session),positive=Mock(side_effect=positive),
+                retirement=Mock(side_effect=lambda s,*a,**kw:dict(observed,helper_pid=s.sample[2]+int(wrong_pid))))
+            return f,result,sessions
+        f,result,sessions=fixture()
+        clock=iter(x/10 for x in range(1000))
+        with patch.object(runtime.time,'monotonic',side_effect=lambda:next(clock)):
+            runtime.verify_native_shutdown_stress(f,result)
+        self.assertIs(result['native_shutdown_stress_passed'],True)
+        self.assertEqual(len(sessions),runtime.SHUTDOWN_STRESS_PAIRS*2)
+        self.assertEqual(f.session.encode_request.call_count,runtime.SHUTDOWN_STRESS_PAIRS)
+        smoke.validate_shutdown_stress(result['shutdown_stress'],list(f.roi))
+        for i,s in enumerate(sessions):
+            s.close.assert_called_once_with()
+            (s._transport.process.stdin.write if i%2==0 else s._transport.process.stdin.close).assert_called_once()
+        for kwargs in ({'forced':True},{'forced':None},{'complete':False},{'pixels':1.},{'exit_code':0xc0000005}):
+            f,result,sessions=fixture(**kwargs)
+            with self.subTest(kwargs=kwargs),self.assertRaises(AssertionError):
+                runtime.verify_native_shutdown_stress(f,result)
+            self.assertEqual(len(result['shutdown_stress']['rows']),1)
+            self.assertNotIn('native_shutdown_stress_passed',result);sessions[0].close.assert_called_once_with()
+        for kwargs in ({'wrong_pid':True},{'wrong_roi':True}):
+            f,result,sessions=fixture(**kwargs)
+            with self.subTest(kwargs=kwargs),self.assertRaises(AssertionError):
+                runtime.verify_native_shutdown_stress(f,result)
+            self.assertEqual(result['shutdown_stress']['rows'],[]);sessions[0].close.assert_called_once_with()
+        f,result,sessions=fixture()
+        with patch.object(runtime.time,'monotonic',side_effect=[0.,46.,46.]),self.assertRaisesRegex(AssertionError,'deadline'):
+            runtime.verify_native_shutdown_stress(f,result)
+        f.new_session.assert_not_called()
 
     def test_retirement_forwards_only_completed_pipe_checkpoint_evidence(self):
         import threading,time

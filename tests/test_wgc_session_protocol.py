@@ -175,6 +175,31 @@ class ProtocolTests(unittest.TestCase):
         for code in (None, True, False, 1.0, 3221225477.0, '3221225477', -(2**31)-1, 2**32):
             self.assertIsNone(session.decode_session_shutdown_diagnostic(shutdown_trace(), code))
 
+    def test_completed_native_shutdown_requires_exact_complete_raw_trace_and_integer_zero(self):
+        for raw in (shutdown_trace(), bytearray(shutdown_trace())):
+            self.assertIs(session.completed_native_shutdown(raw, 0), True)
+            self.assertIsNone(session.decode_session_shutdown_diagnostic(raw, 0))
+            self.assertIsNone(session.decode_session_diagnostic(raw, 0))
+        for code in (None, True, False, 0.0, '0', 1, -9, 14, 3221225477):
+            self.assertIs(session.completed_native_shutdown(shutdown_trace(), code), False)
+        malformed = (None, 'S1\n', memoryview(shutdown_trace()), [83, 49, 10],
+                     b'', b'S1\r\n' + shutdown_trace()[3:], shutdown_trace()[3:],
+                     b'S1\nS1\n' + shutdown_trace()[3:], b'S2\nS1\n' + shutdown_trace()[6:],
+                     b' ' + shutdown_trace(), shutdown_trace() + b' ', shutdown_trace() + b'\n',
+                     shutdown_trace() + b'S8\n', shutdown_trace() + b'\xff',
+                     shutdown_trace() + diagnostic_bytes(shutdown_failure()), b'x' * 1025)
+        for raw in (*malformed, *(shutdown_trace(count) for count in range(7))):
+            with self.subTest(raw=raw):
+                self.assertIs(session.completed_native_shutdown(raw, 0), False)
+
+    def test_module_pin_failure_is_bounded_session_only_diagnostic(self):
+        failure = shutdown_failure(phase='session-create', check='capture-module-pin')
+        raw = diagnostic_bytes(failure)
+        self.assertEqual(session.decode_session_diagnostic(raw, 14), failure)
+        self.assertIsNone(decode_native_diagnostic(raw, 14))
+        self.assertIsNone(session.decode_session_shutdown_diagnostic(raw, 14))
+        self.assertFalse(session.completed_native_shutdown(raw, 0))
+
     def test_shutdown_json_tail_retains_existing_failure_and_requires_shutdown(self):
         good = shutdown_failure()
         raw = diagnostic_bytes(good)
@@ -457,7 +482,112 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(self.process.writes[0], b'C')
         self.assertEqual([session.REQUEST.unpack(x)[3] for x in self.process.writes[1:]], [1, 2])
         self.assertEqual(self.capture.last_timing['request_id'], 2)
+        self.assertIs(self.capture._transport.termination_requested_while_alive, False)
         self.wait_cleanup()
+        self.assertIs(self.capture._transport.termination_requested_while_alive, True)
+
+    def test_natural_exit_then_cleanup_never_records_parent_termination(self):
+        self.capture.capture(self.target, self.rect, ROI)
+        transport = self.capture._transport
+        self.process.stderr.feed(shutdown_trace())
+        self.process.exit(0)
+        self.assertTrue(transport.ready_for_replacement.wait(2))
+        self.assertIs(transport.termination_requested_while_alive, False)
+        self.assertEqual(self.process.kills, 0)
+        self.assertTrue(session.completed_native_shutdown(transport.diagnostic, self.process.returncode))
+        self.job.close.assert_called_once()
+
+    def test_job_termination_stays_recorded_even_when_child_has_full_trace_and_zero_exit(self):
+        self.capture.capture(self.target, self.rect, ROI)
+        transport = self.capture._transport
+        self.process.stderr.feed(shutdown_trace())
+        def terminate_job():
+            self.assertIs(transport.termination_requested_while_alive, True)
+            self.process.exit(0)
+            return True
+        self.job.close.side_effect = terminate_job
+        self.wait_cleanup()
+        self.assertEqual(self.process.kills, 0)
+        self.assertIs(transport.termination_requested_while_alive, True)
+        self.assertTrue(session.completed_native_shutdown(transport.diagnostic, 0))
+        transport._terminate()
+        self.assertIs(transport.termination_requested_while_alive, True)
+
+    def test_termination_flag_records_attempts_without_changing_job_or_process_actions(self):
+        # Execute the actual termination method with deterministic exact-child
+        # doubles, without asynchronous workers racing these individual branches.
+        for job_kind, process_kind, expected, kills in (
+                ('none', 'none', False, 0), ('close', 'none', False, 0),
+                ('close', 'exited', False, 0), ('none', 'alive', True, 1),
+                ('closed', 'alive', True, 1), ('close', 'alive', True, 1),
+                ('fails', 'alive', True, 1), ('raises', 'alive', True, 1),
+                ('close', 'kill-raises', True, 1)):
+            with self.subTest(job=job_kind, process=process_kind):
+                transport = object.__new__(session._Transport)
+                transport.job = None if job_kind == 'none' else Mock()
+                transport.job_closed = job_kind == 'closed'
+                transport.termination_requested_while_alive = False
+                process = None if process_kind == 'none' else FakeProcess()
+                transport.process = process
+                if process_kind == 'exited':
+                    process.exit(0)
+                if transport.job is not None:
+                    transport.job.close.return_value = job_kind != 'fails'
+                    if job_kind == 'raises':
+                        transport.job.close.side_effect = OSError('owned job failure')
+                if process is not None:
+                    original_kill = process.kill
+                    def kill():
+                        self.assertIs(transport.termination_requested_while_alive, True)
+                        if process_kind == 'kill-raises':
+                            raise OSError('owned process failure')
+                        original_kill()
+                    process.kill = Mock(side_effect=kill)
+                transport._terminate()
+                self.assertIs(transport.termination_requested_while_alive, expected)
+                if process is not None:
+                    self.assertEqual(process.kill.call_count, kills)
+                if transport.job is not None:
+                    self.assertEqual(transport.job.close.call_count, int(job_kind != 'closed'))
+                self.assertIs(transport.job_closed, job_kind in ('closed', 'close'))
+
+    def test_termination_observation_error_preserves_close_and_fails_closed(self):
+        for initial, subsequent_poll, expected in (
+                (False, 0, None), (None, 0, None), (True, 0, True),
+                (False, None, True), (None, None, True), (True, None, True)):
+            with self.subTest(initial=initial, subsequent_poll=subsequent_poll):
+                transport = object.__new__(session._Transport)
+                process = Mock()
+                process.poll.side_effect = [OSError('observation failed'), subsequent_poll, 0]
+                transport.process = process
+                transport.job = Mock()
+                transport.job.close.return_value = True
+                transport.job_closed = False
+                transport.termination_requested_while_alive = initial
+                transport._terminate()
+                transport.job.close.assert_called_once()
+                self.assertTrue(transport.job_closed)
+                self.assertIs(transport.termination_requested_while_alive, expected)
+                self.assertEqual(process.kill.call_count, int(subsequent_poll is None))
+                # A later observed-dead result must not erase unknown/True.
+                transport._terminate()
+                self.assertIs(transport.termination_requested_while_alive, expected)
+
+        # A failure from the original post-close poll still propagates exactly
+        # as before, after the existing close attempt has run. Metadata sampling
+        # must not absorb or relocate that lifecycle error.
+        transport = object.__new__(session._Transport)
+        transport.process = Mock()
+        transport.process.poll.side_effect = OSError('poll failed')
+        transport.job = Mock()
+        transport.job.close.return_value = True
+        transport.job_closed = False
+        transport.termination_requested_while_alive = False
+        with self.assertRaises(OSError):
+            transport._terminate()
+        transport.job.close.assert_called_once()
+        self.assertTrue(transport.job_closed)
+        self.assertIsNone(transport.termination_requested_while_alive)
 
     def test_missing_trailer_and_blocked_pipe_have_independent_deadline(self):
         for blocked_write in (False, True):
@@ -762,6 +892,144 @@ class NativeSourceParityTests(unittest.TestCase):
         self.assertIn('diagnostic.clock = {};', phase)
         self.assertGreaterEqual(self.new.count('static_assert(qpc_ticks_100ns('), 8)
 
+    def test_actual_cpp_system_module_pin_path_failure_and_before_capture_order(self):
+        # Compile the actual pin function and its creation/start call sites.
+        # Controlled OS stubs establish path, failure and lifetime ordering only;
+        # they cannot prove which native module/thread caused the Windows crash.
+        compiler = shutil.which('c++')
+        if not compiler:
+            self.skipTest('Portable C++ compiler absent; Windows module-lifetime evidence still required')
+        pin = self.new[self.new.index('void pin_graphics_capture_module() {'):self.new.index('void run(Input const& p)')]
+        failure = self.new[self.new.index('struct Failure {'):self.new.index('void report_failure(')]
+        start = self.new.index('    auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(')
+        create = self.new[start:self.new.index('    if (ApiInformation::IsPropertyPresent(', start)]
+        start = self.new.index('    phase("session-start");')
+        capture = self.new[start:self.new.index('    uint64_t last_id = 0;', start)]
+        self.assertEqual(self.new.count('pin_graphics_capture_module();'), 1)
+        self.assertIn('auto session = pool.CreateCaptureSession(item);', create)
+        self.assertLess(create.index('pool.CreateCaptureSession(item)'), create.index('pin_graphics_capture_module();'))
+        for forbidden in ('LoadLibrary(', 'LoadLibraryW(', 'LoadLibraryEx', 'FreeLibrary(',
+                          'GetModuleHandleW(', 'GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS',
+                          'GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT', 'Sleep(',
+                          'ExitProcess(', 'TerminateProcess(', '__try', '__except'):
+            self.assertNotIn(forbidden, pin)
+        harness = r'''
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cwchar>
+#include <string>
+#include <vector>
+using DWORD = uint32_t;
+using UINT = uint32_t;
+using HMODULE = void*;
+constexpr UINT MAX_PATH = 260;
+constexpr DWORD GET_MODULE_HANDLE_EX_FLAG_PIN = 1;
+constexpr int stale = 12, failed = 14;
+std::string scenario;
+std::vector<std::string> calls;
+std::wstring directory, exact_path;
+bool factory_alive = false, item_alive = false, pool_alive = false,
+     session_alive = false, pinned = false, started = false;
+void before_capture() {
+    assert(factory_alive && item_alive && pool_alive && session_alive && !started);
+}
+UINT GetSystemDirectoryW(wchar_t* out, UINT capacity) {
+    before_capture(); calls.push_back("system-directory");
+    assert(capacity == MAX_PATH);
+    if (scenario == "directory-missing") return 0;
+    if (scenario == "directory-truncated") return capacity;
+    if (scenario == "directory-required") return capacity + 1;
+    if (scenario == "directory-oversized") return UINT(-1);
+    if (scenario == "directory-unterminated") {
+        std::fill_n(out, capacity, L'x'); return capacity - 1;
+    }
+    assert(directory.size() < capacity);
+    std::copy(directory.begin(), directory.end(), out);
+    out[directory.size()] = L'\0';
+    if (scenario == "directory-embedded-null") out[1] = L'\0';
+    return UINT(directory.size());
+}
+bool GetModuleHandleExW(DWORD flags, wchar_t const* path, HMODULE* module) {
+    before_capture(); calls.push_back("pin");
+    assert(flags == GET_MODULE_HANDLE_EX_FLAG_PIN && std::wstring(path) == exact_path);
+    assert(*module == nullptr);
+    // No path search or module-load stub exists in this harness.
+    if (scenario == "module-missing" || scenario == "pin-failed") return false;
+    if (scenario != "pin-null-module") *module = reinterpret_cast<HMODULE>(1);
+    pinned = *module != nullptr;
+    return true;
+}
+''' + failure + pin + r'''
+struct Factory {
+    Factory() { factory_alive = true; calls.push_back("factory"); }
+    ~Factory() { factory_alive = false; calls.push_back("factory-release"); }
+};
+struct Item {
+    Item() { assert(factory_alive); item_alive = true; calls.push_back("item"); }
+    ~Item() { item_alive = false; calls.push_back("item-release"); }
+};
+struct Session {
+    Session() { assert(factory_alive && item_alive && pool_alive); session_alive = true; }
+    ~Session() { session_alive = false; calls.push_back("session-release"); }
+    void StartCapture() { before_capture(); assert(pinned); started = true; calls.push_back("start"); }
+};
+struct Pool {
+    Pool() { assert(factory_alive && item_alive); pool_alive = true; calls.push_back("pool"); }
+    ~Pool() { pool_alive = false; calls.push_back("pool-release"); }
+    Session CreateCaptureSession(Item const&) { calls.push_back("session"); return {}; }
+};
+enum class DirectXPixelFormat { B8G8R8A8UIntNormalized };
+struct Direct3D11CaptureFramePool {
+    static Pool CreateFreeThreaded(int device, DirectXPixelFormat format, int count, int size) {
+        assert(device == 11 && format == DirectXPixelFormat::B8G8R8A8UIntNormalized && count == 1 && size == 22);
+        return {};
+    }
+};
+void phase(char const* value) { assert(std::string(value) == "session-start"); }
+void exercise_creation() {
+    Factory factory; Item item;
+    int runtime_device = 11, size = 22;
+ACTUAL_CREATE
+ACTUAL_START
+}
+int main() {
+    for (char const* name : {"normal", "root", "longest-directory", "directory-missing",
+            "directory-truncated", "directory-required", "directory-oversized",
+            "directory-unterminated", "directory-embedded-null", "module-missing",
+            "pin-failed", "pin-null-module"}) {
+        scenario = name; calls.clear(); pinned = started = false;
+        directory = scenario == "root" ? L"C:\\" : L"C:\\Windows\\System32";
+        if (scenario == "longest-directory") directory = L"C:\\" + std::wstring(MAX_PATH - 4, L'x');
+        exact_path = directory + (directory.back() == L'\\' ? L"" : L"\\") + L"GraphicsCapture.dll";
+        bool expected_success = scenario == "normal" || scenario == "root" || scenario == "longest-directory";
+        bool directory_failure = scenario.compare(0, 10, "directory-") == 0;
+        bool rejected = false;
+        try { exercise_creation(); }
+        catch (Failure const& error) {
+            rejected = true; assert(error.code == failed && std::string(error.check) == "capture-module-pin");
+        }
+        assert(rejected == !expected_success && started == expected_success);
+        assert(!factory_alive && !item_alive && !pool_alive && !session_alive);
+        std::vector<std::string> expected{"factory", "item", "pool", "session", "system-directory"};
+        if (!directory_failure) expected.push_back("pin");
+        if (expected_success) expected.push_back("start");
+        for (char const* step : {"session-release", "pool-release", "item-release", "factory-release"})
+            expected.push_back(step);
+        assert(calls == expected);
+    }
+}
+'''
+        harness = harness.replace('ACTUAL_CREATE', create).replace('ACTUAL_START', capture)
+        with tempfile.TemporaryDirectory() as directory:
+            source, binary = Path(directory) / 'module_pin.cpp', Path(directory) / 'module_pin.exe'
+            source.write_text(harness)
+            built = subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', str(source), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+
     def test_actual_cpp_shutdown_checkpoints_preserve_teardown_order_and_failure_exit(self):
         compiler = shutil.which('c++')
         if not compiler:
@@ -855,13 +1123,16 @@ int main(int argc, char** argv) {
                 if failure:
                     self.assertEqual(record['checkpoints'], list(range(1, failure + 1)))
                     self.assertEqual(record['exit_code'], 14)
+                    self.assertFalse(session.completed_native_shutdown(ran.stdout, ran.returncode))
                 else:
                     self.assertIsNone(record)
+                    self.assertTrue(session.completed_native_shutdown(ran.stdout, ran.returncode))
             for short in range(1, 8):
                 ran = subprocess.run([str(binary), '0', str(short)], capture_output=True, timeout=10)
                 self.assertEqual(ran.returncode, 0, ran.stderr)  # Write failure never changes native success.
                 self.assertEqual(len(ran.stdout), 19)
                 self.assertIsNone(session.decode_session_shutdown_diagnostic(ran.stdout, 3221225477))
+                self.assertFalse(session.completed_native_shutdown(ran.stdout, ran.returncode))
 
     def test_actual_cpp_clock_sampling_arithmetic_and_worst_case_failure_size(self):
         # Execute the actual serializer, phase reset, QPC helper and predicates
