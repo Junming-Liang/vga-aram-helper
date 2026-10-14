@@ -58,6 +58,8 @@ jobs:
         run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
       - name: Install and use approved free Community C++ runtime tooling
         run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
+      - name: Build bounded HWND-only WGC helper
+        run: python scripts/build_wgc_capture.py
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Install mandatory official browser test dependencies
