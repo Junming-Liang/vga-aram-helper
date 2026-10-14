@@ -53,7 +53,7 @@ jobs:
       - name: Python unit tests
         env:
           VGA_RELEASE_PACKAGE_PROFILE: ''
-        run: python -m unittest discover -s tests -v
+        run: python -u -X faulthandler -m unittest discover -s tests -v
       - name: JavaScript checks
         run: |
           node --check static/app.js
@@ -91,7 +91,7 @@ jobs:
       - name: Re-run Python tests with the adopted native library
         env:
           VGA_RELEASE_PACKAGE_PROFILE: ''
-        run: python -m unittest discover -s tests -v
+        run: python -u -X faulthandler -m unittest discover -s tests -v
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Require exact frozen EXE WGC acceptance at three app scales
