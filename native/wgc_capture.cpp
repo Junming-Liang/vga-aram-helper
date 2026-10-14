@@ -123,6 +123,21 @@ constexpr int capture_model(RECT const& window, RECT const& frame, int64_t width
     if (outer && visible && !same(window, frame)) return -1;
     return outer ? 1 : (visible ? 2 : 0);
 }
+// The frame's content can be smaller than the item-sized pool allocation.
+// It must still exactly name one original rectangle; arbitrary smaller frames
+// and ambiguous origins are not valid mappings. -2 means content would be clipped.
+constexpr int content_model(RECT const& window, RECT const& frame, int64_t pool_width,
+                            int64_t pool_height, int64_t width, int64_t height) {
+    int model = capture_model(window, frame, width, height);
+    if (model <= 0) return model;
+    return width <= pool_width && height <= pool_height ? model : -2;
+}
+constexpr bool roi_inside(int64_t left, int64_t top, int64_t width, int64_t height,
+                          int64_t extent_width, int64_t extent_height) {
+    return left >= 0 && top >= 0 && width > 0 && height > 0 &&
+        left <= extent_width && top <= extent_height &&
+        width <= extent_width - left && height <= extent_height - top;
+}
 // These assertions execute in the mandatory native helper build. They cover
 // the actual run-17 coordinates, identical borderless bounds, ambiguity and
 // negative desktop coordinates without requiring capture access or pixels.
@@ -135,6 +150,19 @@ static_assert(capture_model({30, 30, 350, 270}, {31, 30, 351, 270}, 320, 240) ==
 static_assert(capture_model({30, 30, 350, 270}, {30, 31, 350, 271}, 320, 240) == -1);
 static_assert(capture_model({-978, -30, -642, 249}, {-971, -30, -649, 242}, 336, 279) == 1);
 static_assert(capture_model({30, 30, 30, 270}, {30, 30, 30, 270}, 0, 240) == 0);
+// Actual run-18: item/pool is Win32 outer, valid content is DWM visible.
+static_assert(content_model({22, 30, 358, 309}, {29, 30, 351, 302}, 336, 279, 322, 272) == 2);
+static_assert(content_model({22, 30, 358, 309}, {29, 30, 351, 302}, 336, 279, 336, 279) == 1);
+static_assert(content_model({22, 30, 358, 309}, {29, 30, 351, 302}, 322, 272, 336, 279) == -2);
+static_assert(content_model({22, 30, 358, 309}, {29, 30, 351, 302}, 336, 279, 321, 272) == 0);
+static_assert(content_model({30, 30, 350, 270}, {31, 30, 351, 270}, 320, 240, 320, 240) == -1);
+static_assert(content_model({30, 30, 350, 270}, {30, 30, 350, 270}, 320, 240, 320, 240) == 1);
+static_assert(roi_inside(81, 91, 160, 120, 322, 272));
+static_assert(roi_inside(1, 31, 320, 240, 322, 272));
+static_assert(roi_inside(300, 240, 32, 32, 336, 279));
+static_assert(!roi_inside(300, 240, 32, 32, 322, 272));  // Exclude pool padding.
+static_assert(!roi_inside(-1, 0, 32, 32, 322, 272));
+static_assert(!roi_inside(0, 260, 32, 16, 322, 272));
 bool intersects(RECT const& a, RECT const& b) {
     return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
@@ -276,11 +304,11 @@ std::vector<uint8_t> capture(Input const& p) {
     int model = capture_model(geometry.window, geometry.frame, size.Width, size.Height);
     require(model != 0, stale, "item-dimensions");
     require(model != -1, stale, "capture-origin");
-    RECT capture_bounds = model == 1 ? geometry.window : geometry.frame;
-    // Bind this one origin once. Later ContentSize must equal the same extent;
-    // a smaller/different frame is never reinterpreted as another rectangle.
-    // Both candidate rectangles and the client are revalidated before/after GPU
-    // copy/readback, so a resize or border-style geometry change stays stale.
+    // Item extent constrains the GPU allocation; actual frame ContentSize below
+    // independently selects exactly one original, still-validated rectangle.
+    // Microsoft's pool contract leaves padding outside smaller content undefined:
+    // https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture
+    // That padding is never included in the staged client ROI.
     phase("session-create");
     auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device,
         DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, size);
@@ -301,6 +329,7 @@ std::vector<uint8_t> capture(Input const& p) {
     session.StartCapture();
     auto deadline = GetTickCount64() + p.timeout;
     Direct3D11CaptureFrame frame{nullptr};
+    RECT capture_bounds{};
     int last_content_width = 0, last_content_height = 0;
     while (GetTickCount64() < deadline) {
         phase("validate-frame-wait");
@@ -311,10 +340,17 @@ std::vector<uint8_t> capture(Input const& p) {
         if (frame) {
             auto candidate_size = frame.ContentSize();
             last_content_width = candidate_size.Width; last_content_height = candidate_size.Height;
-            if (candidate_size.Width == size.Width && candidate_size.Height == size.Height) break;
-            // Some Windows versions initially deliver a differently-sized frame.
-            // No pixels are mapped from it; keep waiting only while original
-            // window geometry remains exact and this one deadline has time left.
+            dimensions(0, 0, candidate_size.Width, candidate_size.Height, 0, 0, size.Width, size.Height);
+            int selected_model = content_model(geometry.window, geometry.frame, size.Width,
+                size.Height, candidate_size.Width, candidate_size.Height);
+            require(selected_model != -1, stale, "capture-origin");
+            require(selected_model != -2, stale, "content-in-pool");
+            if (selected_model > 0) {
+                capture_bounds = selected_model == 1 ? geometry.window : geometry.frame;
+                break;
+            }
+            // Unknown content dimensions never authorize an origin or pixel copy.
+            // Keep waiting only within this deadline and exact original geometry.
             frame.Close(); frame = nullptr;
         }
         WaitForSingleObject(signal->event.value, 10);
@@ -323,10 +359,12 @@ std::vector<uint8_t> capture(Input const& p) {
     require(bool(frame), timed_out, "frame-deadline");
     phase("frame-size");
     auto content = frame.ContentSize();
-    // Resizes are rejected rather than reusing an old surface with undefined
-    // pixels. The next request creates a fresh pool from freshly proved geometry.
-    dimensions(0, 0, content.Width, content.Height, 0, 0, size.Width, size.Height);
-    require(content.Width == size.Width && content.Height == size.Height, stale, "frame-dimensions");
+    // Bind the one selected content origin for this frame. All original window,
+    // DWM and client geometry is still checked before and after the pixel copy.
+    int64_t content_width = int64_t(capture_bounds.right) - capture_bounds.left;
+    int64_t content_height = int64_t(capture_bounds.bottom) - capture_bounds.top;
+    dimensions(0, 0, content.Width, content.Height, 0, 0, content_width, content_height);
+    require(content.Width == content_width && content.Height == content_height, stale, "frame-dimensions");
     phase("texture");
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     com_ptr<ID3D11Texture2D> texture;
@@ -338,7 +376,8 @@ std::vector<uint8_t> capture(Input const& p) {
             source.Format == DXGI_FORMAT_B8G8R8A8_UNORM && source.SampleDesc.Count == 1, stale, "texture-layout");
     UINT left = UINT(int64_t(p.x) - capture_bounds.left + p.left);
     UINT top = UINT(int64_t(p.y) - capture_bounds.top + p.top);
-    require(uint64_t(left) + p.roi_width <= source.Width && uint64_t(top) + p.roi_height <= source.Height, stale, "texture-roi");
+    require(roi_inside(left, top, p.roi_width, p.roi_height, content.Width, content.Height), stale, "content-roi");
+    require(roi_inside(left, top, p.roi_width, p.roi_height, source.Width, source.Height), stale, "texture-roi");
     phase("validate-before-copy");
     validate(p, &geometry);
     require(!signal->closed.load(), stale, "item-open");
