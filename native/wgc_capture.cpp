@@ -105,10 +105,36 @@ struct Input {
     int x, y, width, height, left, top, roi_width, roi_height;
     DWORD timeout;
 };
-struct Geometry { RECT frame; POINT origin; RECT client; };
-bool same(RECT const& a, RECT const& b) {
+struct Geometry { RECT frame; RECT window; POINT origin; RECT client; };
+constexpr bool same(RECT const& a, RECT const& b) {
     return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
 }
+// WGC geometry selection is exact, never a guessed border/padding offset.
+// GetWindowRect includes invisible resize borders; DWM reports visible bounds.
+// Both are physical here because this process establishes PMv2 before querying.
+// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect
+// 0 = no exact model, 1 = Win32 outer bounds, 2 = DWM visible bounds,
+// -1 = equal extents with inconsistent origins, which must not be guessed.
+constexpr int capture_model(RECT const& window, RECT const& frame, int64_t width, int64_t height) {
+    bool outer = width > 0 && height > 0 &&
+        int64_t(window.right) - window.left == width && int64_t(window.bottom) - window.top == height;
+    bool visible = width > 0 && height > 0 &&
+        int64_t(frame.right) - frame.left == width && int64_t(frame.bottom) - frame.top == height;
+    if (outer && visible && !same(window, frame)) return -1;
+    return outer ? 1 : (visible ? 2 : 0);
+}
+// These assertions execute in the mandatory native helper build. They cover
+// the actual run-17 coordinates, identical borderless bounds, ambiguity and
+// negative desktop coordinates without requiring capture access or pixels.
+static_assert(capture_model({22, 30, 358, 309}, {29, 30, 351, 302}, 336, 279) == 1);
+static_assert(capture_model({22, 30, 358, 309}, {29, 30, 351, 302}, 322, 272) == 2);
+static_assert(capture_model({22, 30, 358, 309}, {29, 30, 351, 302}, 335, 279) == 0);
+static_assert(capture_model({22, 30, 358, 309}, {29, 30, 351, 302}, 336, 278) == 0);
+static_assert(capture_model({30, 30, 350, 270}, {30, 30, 350, 270}, 320, 240) == 1);
+static_assert(capture_model({30, 30, 350, 270}, {31, 30, 351, 270}, 320, 240) == -1);
+static_assert(capture_model({30, 30, 350, 270}, {30, 31, 350, 271}, 320, 240) == -1);
+static_assert(capture_model({-978, -30, -642, 249}, {-971, -30, -649, 242}, 336, 279) == 1);
+static_assert(capture_model({30, 30, 30, 270}, {30, 30, 30, 270}, 0, 240) == 0);
 bool intersects(RECT const& a, RECT const& b) {
     return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
@@ -187,17 +213,21 @@ Geometry validate(Input const& p, Geometry const* expected = nullptr) {
     int64_t fw = int64_t(g.frame.right) - g.frame.left, fh = int64_t(g.frame.bottom) - g.frame.top;
     diagnostic.frame_rect[0] = g.frame.left; diagnostic.frame_rect[1] = g.frame.top;
     diagnostic.frame_rect[2] = fw; diagnostic.frame_rect[3] = fh;
-    RECT window{};
-    if (GetWindowRect(p.hwnd, &window)) {
-        diagnostic.window_rect[0] = window.left; diagnostic.window_rect[1] = window.top;
-        diagnostic.window_rect[2] = int64_t(window.right) - window.left;
-        diagnostic.window_rect[3] = int64_t(window.bottom) - window.top;
-    }
+    require(GetWindowRect(p.hwnd, &g.window), stale, "window-query");
+    int64_t ww = int64_t(g.window.right) - g.window.left, wh = int64_t(g.window.bottom) - g.window.top;
+    diagnostic.window_rect[0] = g.window.left; diagnostic.window_rect[1] = g.window.top;
+    diagnostic.window_rect[2] = ww; diagnostic.window_rect[3] = wh;
+    dimensions(g.window.left, g.window.top, ww, wh, p.x, p.y, p.width, p.height);
+    require(ww > 0 && wh > 0 && uint64_t(ww) <= pixel_budget / uint64_t(wh), stale, "window-budget");
+    require(p.x >= g.window.left && p.y >= g.window.top &&
+            int64_t(p.x) + p.width <= g.window.right && int64_t(p.y) + p.height <= g.window.bottom,
+            stale, "client-in-window");
     dimensions(g.frame.left, g.frame.top, fw, fh, p.x, p.y, p.width, p.height);
-    require(fw > 0 && fh > 0 && fw * fh <= pixel_budget, stale, "frame-budget");
+    require(fw > 0 && fh > 0 && uint64_t(fw) <= pixel_budget / uint64_t(fh), stale, "frame-budget");
     require(p.x >= g.frame.left && p.y >= g.frame.top &&
             int64_t(p.x) + p.width <= g.frame.right && int64_t(p.y) + p.height <= g.frame.bottom, stale, "client-in-frame");
-    if (expected) require(same(g.frame, expected->frame) && same(g.client, expected->client) &&
+    if (expected) require(same(g.frame, expected->frame) && same(g.window, expected->window) &&
+                          same(g.client, expected->client) &&
                           g.origin.x == expected->origin.x && g.origin.y == expected->origin.y, stale, "geometry-stable");
     RECT bounds{p.x, p.y, p.x + p.width, p.y + p.height};
     MONITORINFO monitor{sizeof(monitor)};
@@ -243,8 +273,14 @@ std::vector<uint8_t> capture(Input const& p) {
     phase("item-size");
     dimensions(0, 0, size.Width, size.Height, 0, 0,
                int64_t(geometry.frame.right) - geometry.frame.left, int64_t(geometry.frame.bottom) - geometry.frame.top);
-    require(size.Width == geometry.frame.right - geometry.frame.left &&
-            size.Height == geometry.frame.bottom - geometry.frame.top, stale, "item-dimensions");
+    int model = capture_model(geometry.window, geometry.frame, size.Width, size.Height);
+    require(model != 0, stale, "item-dimensions");
+    require(model != -1, stale, "capture-origin");
+    RECT capture_bounds = model == 1 ? geometry.window : geometry.frame;
+    // Bind this one origin once. Later ContentSize must equal the same extent;
+    // a smaller/different frame is never reinterpreted as another rectangle.
+    // Both candidate rectangles and the client are revalidated before/after GPU
+    // copy/readback, so a resize or border-style geometry change stays stale.
     phase("session-create");
     auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device,
         DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, size);
@@ -265,6 +301,7 @@ std::vector<uint8_t> capture(Input const& p) {
     session.StartCapture();
     auto deadline = GetTickCount64() + p.timeout;
     Direct3D11CaptureFrame frame{nullptr};
+    int last_content_width = 0, last_content_height = 0;
     while (GetTickCount64() < deadline) {
         phase("validate-frame-wait");
         require(!signal->closed.load(), stale, "item-open");
@@ -273,6 +310,7 @@ std::vector<uint8_t> capture(Input const& p) {
         frame = pool.TryGetNextFrame();
         if (frame) {
             auto candidate_size = frame.ContentSize();
+            last_content_width = candidate_size.Width; last_content_height = candidate_size.Height;
             if (candidate_size.Width == size.Width && candidate_size.Height == size.Height) break;
             // Some Windows versions initially deliver a differently-sized frame.
             // No pixels are mapped from it; keep waiting only while original
@@ -281,6 +319,7 @@ std::vector<uint8_t> capture(Input const& p) {
         }
         WaitForSingleObject(signal->event.value, 10);
     }
+    if (!frame) dimensions(0, 0, last_content_width, last_content_height, 0, 0, size.Width, size.Height);
     require(bool(frame), timed_out, "frame-deadline");
     phase("frame-size");
     auto content = frame.ContentSize();
@@ -297,7 +336,8 @@ std::vector<uint8_t> capture(Input const& p) {
     dimensions(0, 0, source.Width, source.Height, 0, 0, size.Width, size.Height);
     require(source.Width == UINT(size.Width) && source.Height == UINT(size.Height) &&
             source.Format == DXGI_FORMAT_B8G8R8A8_UNORM && source.SampleDesc.Count == 1, stale, "texture-layout");
-    UINT left = UINT(p.x - geometry.frame.left + p.left), top = UINT(p.y - geometry.frame.top + p.top);
+    UINT left = UINT(int64_t(p.x) - capture_bounds.left + p.left);
+    UINT top = UINT(int64_t(p.y) - capture_bounds.top + p.top);
     require(uint64_t(left) + p.roi_width <= source.Width && uint64_t(top) + p.roi_height <= source.Height, stale, "texture-roi");
     phase("validate-before-copy");
     validate(p, &geometry);
