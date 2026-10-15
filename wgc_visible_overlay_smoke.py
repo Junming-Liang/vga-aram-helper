@@ -82,9 +82,11 @@ def pixels(png):
 def compare_pixels(reference, captured):
     """Exact deterministic-state proof; no animated frames compared as equal."""
     import numpy as np
-    before, after = (np.asarray(pixels(value), dtype=np.int16) for value in (reference, captured))
+    before, after = (np.asarray(pixels(value)) for value in (reference, captured))
     require(before.shape == after.shape, 'Hidden/visible physical image dimensions differ')
-    delta = np.abs(before - after)
+    # Hash the canonical RGB8 pixels used by observed_capture. Widen only the
+    # subtraction so signed channel deltas cannot wrap in the uint8 arrays.
+    delta = np.abs(before.astype(np.int16) - after.astype(np.int16))
     magenta = lambda value: int(np.count_nonzero(np.all(value == (255, 0, 255), axis=2)))
     return dict(mean_channel_error=float(delta.mean()), max_channel_error=int(delta.max()),
                 changed_pixels=int(np.count_nonzero(np.any(delta, axis=2))),
