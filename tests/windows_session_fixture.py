@@ -30,9 +30,9 @@ FOCUS_SINK_TITLE = 'VGA owned focus sink'
 FOCUS_SINK_BOUNDS = (0, 0, 160, 96)
 MAX_PNG_BYTES = 8 * 1024 * 1024
 MAX_LOG_BYTES = 64 * 1024
-
-
-
+# Standalone smoke entrypoints initially expose only the tests directory.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from owned_diagnostic_json import poll_owned_json
 
 

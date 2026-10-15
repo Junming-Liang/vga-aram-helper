@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import time
 from types import SimpleNamespace
@@ -84,6 +85,61 @@ def windows_deny_read_handle(path):
         yield release
     finally:
         release()
+
+
+class FixtureEntrypointImportTests(unittest.TestCase):
+    def run_isolated(self, *arguments):
+        # A fresh interpreter cannot inherit the unit runner's imported modules
+        # or checkout path; the empty cwd cannot supply the shared root module.
+        environment = {key: value for key, value in os.environ.items()
+                       if key.upper() != 'PYTHONPATH'}
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            completed = subprocess.run(
+                [sys.executable, '-I', '-B', *map(str, arguments)],
+                cwd=directory, env=environment, capture_output=True,
+                text=True, encoding='utf-8', timeout=30, check=False)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(completed.stderr, '')
+        return completed.stdout
+
+    def test_direct_fixture_import_bootstraps_exact_checkout_and_shared_poller(self):
+        tests = Path(__file__).resolve().parent
+        program = '''
+from pathlib import Path
+import os
+import sys
+tests = Path(sys.argv[1]).resolve()
+root = tests.parent
+assert 'PYTHONPATH' not in {key.upper() for key in os.environ}
+assert not list(Path.cwd().iterdir())
+assert root not in [Path(entry).resolve() for entry in sys.path]
+assert 'windows_session_fixture' not in sys.modules
+assert 'owned_diagnostic_json' not in sys.modules
+sys.path.insert(0, str(tests))
+import windows_session_fixture as fixture
+import owned_diagnostic_json as polling
+assert fixture.ROOT == root
+assert Path(fixture.__file__).resolve() == tests / 'windows_session_fixture.py'
+assert Path(polling.__file__).resolve() == root / 'owned_diagnostic_json.py'
+assert fixture.poll_owned_json is polling.poll_owned_json
+assert fixture.poll_owned_json.__module__ == 'owned_diagnostic_json'
+print('exact checkout import and shared poller identity verified')
+'''
+        self.assertEqual(self.run_isolated('-c', program, tests).strip(),
+                         'exact checkout import and shared poller identity verified')
+
+    def test_consumer_help_entrypoints_import_from_empty_cwd(self):
+        # Each main parses --help before native work or report creation.
+        for filename in ('windows_selection_smoke.py', 'windows_exe_smoke.py',
+                         'windows_ota_smoke.py', 'windows_automatic_capture.py',
+                         'windows_wgc_visible_overlay.py'):
+            with self.subTest(filename=filename):
+                output = self.run_isolated(Path(__file__).with_name(filename).resolve(), '--help')
+                self.assertIn('usage:', output)
+                self.assertIn(filename, output)
+                self.assertIn('--help', output)
 
 
 class OwnedJsonPollingTests(unittest.TestCase):
