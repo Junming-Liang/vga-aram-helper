@@ -52,6 +52,11 @@ _session_spec = importlib.util.spec_from_file_location('release_windows_wgc_sess
 session_capture_fixture = importlib.util.module_from_spec(_session_spec)
 _session_spec.loader.exec_module(session_capture_fixture)
 
+_visible_spec = importlib.util.spec_from_file_location('release_windows_wgc_visible_overlay',
+    Path(__file__).resolve().parents[1] / 'tests' / 'windows_wgc_visible_overlay.py')
+visible_capture_fixture = importlib.util.module_from_spec(_visible_spec)
+_visible_spec.loader.exec_module(visible_capture_fixture)
+
 _selection_spec = importlib.util.spec_from_file_location('release_windows_selection_smoke',
     Path(__file__).resolve().parents[1] / 'tests' / 'windows_selection_smoke.py')
 selection_fixture = importlib.util.module_from_spec(_selection_spec)
@@ -77,11 +82,14 @@ MODEL_HASHES = {
 }
 EVIDENCE_NAMES = ('windows-wgc-source.json', 'windows-wgc-frozen.json',
                   'windows-wgc-session-application-source.json', 'windows-wgc-session-application-frozen.json',
+                  'windows-wgc-visible-overlay-source.json', 'windows-wgc-visible-overlay-frozen.json',
                   'windows-automatic-capture.json', 'windows-package-size.json', 'windows-ota-smoke.json', 'windows-build.json', 'windows-exe-smoke.json', 'windows-exe-self-test.json',
                   'windows-exe-ui.png', 'windows-exe-self-test.log', 'windows-exe-server.log',
                   'windows-build-environment.txt', 'windows-artifact-budget.json', 'hero-recognition-genuine.json',
                   'windows-selection-smoke.json', 'windows-selection-handoff.json', 'champion-select-genuine.json',
                   'windows-dpi-candidate-matrix.json', 'windows-selection-source.json') + tuple(
+                      visible_capture_fixture.scale_report_name(scale, frozen=frozen)
+                      for frozen in (False, True) for scale in visible_capture_fixture.SCALES) + tuple(
                       selection_fixture.native_report_name(frozen, scale)
                       for frozen in (False, True) for scale in selection_fixture.SCALES
                       if not (frozen and scale == 1)) + tuple(
@@ -728,6 +736,104 @@ def verify_frozen_session_archive(executable, proof):
         raise VerificationError('Final frozen persistent helper/manifest differs: ' + str(exc)) from exc
 
 
+def verify_frozen_visible_modules(executable):
+    """Re-read product bytecode from the final EXE using the trusted validator."""
+    from PyInstaller.archive.readers import CArchiveReader
+    return visible_capture_fixture.verify_product_modules(CArchiveReader(str(executable)))
+
+
+def verify_visible_capture_bundle(files, source_archive, version, source_sha, build,
+                                  executable, checksum, exe_size):
+    """Bind the two visible aggregates to all six original, fixed-name reports."""
+    fixture = visible_capture_fixture
+    from scripts.probe_opencv_postbuild import check_directory
+    summaries = []
+    try:
+        helper = build.get('wgc_session_helper_build')
+        fixture_inventory = build.get('archive_inventory', {})
+        session_capture_fixture.validate_manifest(helper)
+        require(helper.get('source_commit') == source_sha and
+                fixture.same_json(helper, fixture_inventory.get('wgc_session_helper')),
+                'Visible helper build/bundle/source binding differs')
+        with zipfile.ZipFile(source_archive) as archive:
+            require(archive.comment == source_sha.encode('ascii'), 'Visible source archive commit differs')
+            for name, record in helper['source_files'].items():
+                require(archive.namelist().count(name) == 1, 'Visible helper source missing/duplicated: ' + name)
+                raw = archive.read(name)
+                require(type(record.get('size')) is int and len(raw) == record['size'] and
+                        hashlib.sha256(raw).hexdigest() == record['sha256'],
+                        'Visible helper tested different source bytes: ' + name)
+        for frozen, kind in ((False, 'source'), (True, 'frozen')):
+            path = files['windows-wgc-visible-overlay-' + kind + '.json']
+            check_directory(path.parent)
+            report = read_json(path)
+            require(type(report) is dict and fixture.same_json(report, report) and
+                    report.get('status') == 'passed' and 'error' not in report and
+                    'report_binding_errors' not in report and report.get('frozen') is frozen and
+                    report.get('scope') == fixture.SCOPE and report.get('applicationVersion') == version and
+                    report.get('source_commit') == source_sha and
+                    fixture.same_json(report.get('scales'), list(fixture.SCALES)) and
+                    fixture.same_json(report.get('helper_build'), helper),
+                    'Visible ' + kind + ' aggregate identity/source/scales/helper differs')
+            verify_source_inventory(report.get('source_files'), fixture.SOURCE_FILES, source_archive,
+                                    'Visible ' + kind)
+            foreign = report.get('foreign_fixture')
+            require(type(foreign) is dict and set(foreign) == {'source_sha256', 'executable_sha256'} and
+                    foreign['source_sha256'] == report['source_files']['tests/SessionWindowFixture.cs'],
+                    'Visible foreign fixture source differs')
+            fixture.digest(foreign['executable_sha256'])
+            if frozen:
+                require(report.get('executable_sha256') == checksum and
+                        type(report.get('executable_size')) is int and report['executable_size'] == exe_size and
+                        fixture.same_json(report.get('archive_inventory'), fixture_inventory),
+                        'Visible frozen EXE/inventory differs')
+                modules = verify_frozen_visible_modules(executable)
+                require(fixture.same_json(report.get('product_modules'), modules),
+                        'Visible frozen product modules differ from final EXE')
+                for name, record in modules.items():
+                    require(record['source_sha256'] == report['source_files'].get(name + '.py'),
+                            'Visible frozen product source differs from archive: ' + name)
+            else:
+                require(all(report.get(key) is None for key in
+                            ('executable_sha256', 'executable_size', 'archive_inventory', 'product_modules')),
+                        'Visible source aggregate claims frozen evidence')
+            runs = report.get('runs')
+            require(type(runs) is list and len(runs) == len(fixture.SCALES),
+                    'Visible ordered scale inventory missing')
+            validated = []
+            for run, scale in zip(runs, fixture.SCALES):
+                name = fixture.scale_report_name(scale, frozen=frozen)
+                require(type(run) is dict and fixture.same_json(run.get('scale'), scale) and
+                        run.get('detail_report') == name and run.get('coordination') == 'passed' and
+                        type(run.get('exit_code')) is int and run['exit_code'] == 0 and
+                        run.get('outer_cleanup_complete') is True and
+                        not any(key in run for key in ('coordination_error', 'outer_cleanup_errors',
+                                                      'detail_error', 'report_binding_error')),
+                        'Visible scale identity/coordination/cleanup differs: ' + name)
+                raw_path = files[name]
+                check_directory(raw_path.parent)
+                require(raw_path.name == name and
+                        raw_path.parent.resolve(strict=True) == path.parent.resolve(strict=True),
+                        'Visible raw report is outside its aggregate directory: ' + name)
+                detail = fixture.read_bound_detail(run, path.parent, frozen=frozen)
+                require('detail' not in run or fixture.same_json(detail, run['detail']),
+                        'Visible inline/raw report types or values differ: ' + name)
+                require(fixture.same_json(detail.get('helper'),
+                        dict(manifest=helper, sha256=helper['sha256'], size=helper['size'])),
+                        'Visible raw helper inventory types or values differ: ' + name)
+                fixture.validate_report(detail, scale=scale, frozen=frozen, helper=helper,
+                    executable_sha256=checksum if frozen else None,
+                    foreign_proof=run.get('foreign'), foreign_fixture_sha256=foreign['executable_sha256'])
+                validated.append({'scale': scale, 'report': name, 'sha256': run['report_sha256'],
+                                  'size': run['report_size']})
+            summaries.append({'status': 'passed', 'frozen': frozen, 'scope': fixture.SCOPE,
+                              'source_commit': source_sha, 'helper_sha256': helper['sha256'],
+                              'runs': validated})
+    except (AssertionError, RuntimeError, ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+        raise VerificationError('Visible-overlay release evidence failed: ' + str(exc)) from exc
+    return summaries
+
+
 def verify_session_capture(path, source_archive, version, source_sha, build, *, frozen, checksum, exe_size):
     """Application-entrypoint synthetic protocol evidence, separate from UI duty."""
     report = read_json(path)
@@ -1033,6 +1139,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         source_archive, version, source_sha, build, frozen=(kind == 'frozen'),
         checksum=checksum, exe_size=exe.stat().st_size) for kind in ('source', 'frozen')]
     verify_frozen_session_archive(exe, build['wgc_session_helper_build'])
+    visible_summary = verify_visible_capture_bundle(files, source_archive, version, source_sha, build,
+                                                    exe, checksum, exe.stat().st_size)
     genuine_counts = verify_genuine_report(files['hero-recognition-genuine.json'],
         release_dir / f'vga-aram-helper-{version}-source.zip', version)
     selection_counts = verify_selection_genuine_report(files['champion-select-genuine.json'],
@@ -1052,7 +1160,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'opencv_distribution_version': CUSTOM_VERSION if profile != OFFICIAL_PROFILE else OFFICIAL_VERSION,
               'opencv_adoption': adoption, 'opencv_postbuild': postbuild_adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
-              'wgc_capture_summary': wgc_summary, 'wgc_session_application_summary': session_summary, 'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'selection_summary': selection_summary, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
+              'wgc_capture_summary': wgc_summary, 'wgc_session_application_summary': session_summary,
+              'wgc_visible_overlay_summary': visible_summary,
+              'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'selection_summary': selection_summary, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
@@ -1062,7 +1172,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
              'This candidate combines the selected light dashboard with bounded HWND-only Windows Graphics Capture, off-GUI capture and cleanup, '
              'fixes Chinese exact-title matching and reuses identical title OCR only after two independent confirmations. '
-             'The persistent helper reuses one explicitly authorized target and one exact owned opaque overlay registration; CPU acquisition still requires the overlay hidden. '
+             'The persistent helper reuses one explicitly authorized target and permits visible CPU acquisition only for the exact enrolled owned opaque overlay with WDA_EXCLUDEFROMCAPTURE (17), after all registration and freshness checks pass. '
              'Idle overlay exclusion never exempts other windows, and every request retains fresh identity/geometry/focus/occlusion/ROI and timestamp checks. '
              'Stop and invalidation revoke immediately, with off-GUI ownership cleanup blocking replacement. Initial unsupported capability may use the original guarded single-shot path; later persistent failures remain fail-closed. '
              'The user-selected interactive overlay mode retires the session before using the strict-hide single-shot path; it is not an automatic error fallback. '
@@ -1073,7 +1183,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'The historical cache-lock owner is not established; current diagnostics distinguish observed write failures without inventing their owner. '
              'Screenshot-only champion-select name detection now exposes the exact assigned hero’s public T1–T5 overall tier as a separate provisional reference, without confirming augment choices. '
              'The control-only last-candidates record preserves literal previous source fields and labels the final choice unknown; no selected augment is inferred from disappearing cards. '
-             'Completion-driven capture cadence and accepted-frame proof can restore unchanged previous candidates during inference without refreshing their original four-second expiry. '
+             'Completion-driven capture cadence and accepted-frame proof can keep or restore explicitly labelled previous/rechecking candidates during inference without renewing their original four-second expiry. '
+             'A default-off, current-launch local debug toggle and one-click debug ZIP export record bounded diagnostic metadata only, with no screenshots, recognized text, account data or tokens and no automatic upload. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
              'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
@@ -1094,6 +1205,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               if profile == ADOPTED_PROFILE else '') +
              'Separate source and exact-frozen-EXE WGC fixtures at application scales 1, 1.5 and 2 require the WGC backend, original owned-window pixel/ROI agreement, stale/closed/resized/focus/protected-window rejection and bounded helper cleanup. '
              'Additional source and actual-application-EXE session fixtures at all three scales require static-frame freshness, exact opaque profile/exclusion, strict negatives, parent/lease cleanup and sixty fresh-helper Stop/EOF stress cases in total. '
+             'Separate source and exact-frozen-EXE visible-overlay fixtures at all three scales use the ordinary ControlWindow() constructor, preserve the visible owned overlay across two GUI capture cycles including changed target ROI pixels, and bind both aggregates to all six original raw reports. '
+             'Those visible checks retain hidden-reference pixel equality, strict negative cases and exact helper/foreign-process cleanup; they do not establish live-game, borderless or exclusive-fullscreen behavior. '
              'Those synthetic protocol checks remain separate from the actual product Overlay/backend duty measurement, which requires both full five-case single-shot and persistent passes in the same owned scene, real persistent request receipts and helper reuse, Stop responsiveness and cleanup. '
              'Declared inference holds and raw observed hidden/acquisition/visible timings are recorded without a speed-factor guarantee. '
              'A source-only Windows fixture separately verifies no-HWND automatic discovery, lifecycle recovery, guarded compositor fallback and cleanup; its publisher trust is injected only for exact owned test binaries. Native offline signature API checks use signed/unsigned/tampered files. This is distinct from the packaged-EXE tests. '
