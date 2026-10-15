@@ -67,6 +67,92 @@ def rendered_report(payload, width=240):
     return '\n'.join(lines)
 
 
+def scale_report_name(scale, *, frozen):
+    """Only runner-owned mode and one typed supported scale select a filename."""
+    if type(frozen) is not bool or type(scale) not in (int,float) or scale not in SCALES:
+        raise RuntimeError('Invalid fixed scale report identity')
+    return 'windows-wgc-visible-overlay-'+('frozen' if frozen else 'source')+'-scale'+str(round(scale*100))+'.json'
+
+
+def same_json(left, right):
+    """JSON equality without bool/int/float coercion or signed-zero loss."""
+    if type(left) is not type(right):return False
+    if type(left) is dict:
+        return (left.keys()==right.keys() and all(type(key) is str and same_json(value,right[key])
+                                                for key,value in left.items()))
+    if type(left) is list:return len(left)==len(right) and all(same_json(a,b) for a,b in zip(left,right))
+    if type(left) is float:return left.hex()==right.hex() and left not in (float('inf'),float('-inf')) and left==left
+    return type(left) in (str,int,bool,type(None)) and left==right
+
+
+def read_bound_detail(run, reports, *, frozen):
+    """Read the complete original report through a fixed local name and binding.
+
+    References are portable with their reports directory. No path supplied by a
+    report is ever opened; filename, exact bytes, and strict JSON are all checked.
+    """
+    name=scale_report_name(run.get('scale'),frozen=frozen)
+    if 'detail_report' in run and (type(run['detail_report']) is not str or run['detail_report']!=name):
+        raise RuntimeError('Scale report reference is not its fixed filename')
+    expected_hash=digest(run.get('report_sha256'));size=run.get('report_size')
+    if type(size) is not int or not 0<size<=MAX_REPORT_BYTES:raise RuntimeError('Invalid bounded scale report size')
+    root=Path(reports)
+    if root.is_symlink():raise RuntimeError('Reports directory is symlinked')
+    path=root.resolve(strict=True)/name
+    if path.is_symlink() or not path.is_file():raise RuntimeError('Fixed scale report missing or symlinked')
+    with path.open('rb') as source:raw=source.read(MAX_REPORT_BYTES+1)
+    if len(raw)!=size or hashlib.sha256(raw).hexdigest()!=expected_hash:
+        raise RuntimeError('Fixed scale report bytes differ from original SHA256/size')
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise ValueError('Duplicate scale report key')
+            value[key]=item
+        return value
+    def invalid(_):raise ValueError('Non-finite scale report constant')
+    detail=json.loads(raw.decode('utf-8'),object_pairs_hook=unique,parse_constant=invalid)
+    if type(detail) is not dict or not same_json(detail,detail):raise RuntimeError('Scale report is not strict JSON evidence')
+    if (detail.get('frozen') is not frozen or any(not finite(detail.get(key)) or abs(detail[key]-run['scale'])>.01
+            for key in ('requested_app_scale','measured_qt_scale'))):
+        raise RuntimeError('Scale report mode/physical scale differs from fixed identity')
+    return detail
+
+
+def aggregate_evidence(result, reports, *, frozen):
+    """Deduplicate only bound per-scale files; retain every full JSON log block.
+
+    Per-scale raw files and their hashes stay unchanged. An unbound detail is
+    retained inline and fails the run, including when the old aggregate cap then
+    refuses serialization. A primary diagnostic error is never replaced.
+    """
+    aggregate=dict(result,runs=[]);blocks=[];failures=[];seen=set()
+    if result.get('status')=='passed' and (result.get('frozen') is not frozen
+            or not same_json(result.get('scales'),list(SCALES))
+            or [row.get('scale') for row in result['runs']]!=list(SCALES)):
+        failures.append('Passed aggregate requires its exact mode and complete ordered scale inventory')
+    for index,original in enumerate(result['runs']):
+        run=dict(original);aggregate['runs'].append(run)
+        block=None
+        if 'detail' in run:
+            block=['inline scale report '+str(index+1),report_payload(run['detail'])];blocks.append(block)
+        try:
+            name=scale_report_name(run.get('scale'),frozen=frozen)
+            if name in seen:raise RuntimeError('Duplicate fixed scale report')
+            seen.add(name)
+            if 'detail' not in run:raise RuntimeError('Complete scale report detail missing')
+            # Keep the complete in-memory evidence even if the file changed.
+            block[0]=name
+            detail=read_bound_detail(run,reports,frozen=frozen)
+            if not same_json(detail,run['detail']):raise RuntimeError('Scale report JSON differs from in-memory evidence')
+            run.pop('detail');run['detail_report']=name
+        except Exception as error:
+            message=str(error)[:2000];run['report_binding_error']=message;failures.append(message)
+    if failures:
+        aggregate['status']='failed';aggregate['report_binding_errors']=failures
+        if 'error' not in aggregate:aggregate['error']='Scale report evidence binding failed: '+failures[0]
+    return aggregate,blocks
+
+
 def code_fingerprint(code):
     """Normalize build paths only; preserve bytecode, constants and line tables."""
     if not isinstance(code, types.CodeType):raise RuntimeError('Expected bundled Python code')
@@ -429,7 +515,7 @@ def main(argv=None):
                 executable=work/'VGA-Aram-Helper.exe';shutil.copyfile(original,executable)
                 if sha256(executable)!=result['executable_sha256']:raise RuntimeError('Staged EXE changed bytes')
             for scale in SCALES:
-                report=reports/(name+'-scale'+str(round(scale*100))+'.json')
+                report=reports/scale_report_name(scale,frozen=frozen)
                 for path in (report,*(report.with_suffix(suffix) for suffix in
                         ('.foreign-request.json','.foreign-ready.json','.foreign-release.json'))):path.unlink(missing_ok=True)
                 env=child_environment(os.environ,work,scale,frozen=frozen)
@@ -471,12 +557,32 @@ def main(argv=None):
                 if original and sha256(executable)!=result['executable_sha256']:raise RuntimeError('Staged EXE changed during test')
         if original and sha256(original)!=result['executable_sha256']:raise RuntimeError('Original EXE changed during test')
         verify_source_checkout(ROOT,commit)
-        result['status']='passed';return 0
+        result['status']='passed'
     except Exception as error:
-        result['error']=str(error)[:3000];return 1
+        result['error']=str(error)[:3000]
     finally:
-        payload=report_payload(result)
-        (reports/(name+'.json')).write_text(payload,encoding='utf-8')
+        exit_code=finish_reports(result,reports,frozen=frozen)
+    return exit_code
+
+
+def finish_reports(result, reports, *, frozen):
+    """Finish diagnostics only after all evidence bindings and writes succeed."""
+    name='windows-wgc-visible-overlay-'+('frozen' if frozen else 'source')
+    reports=Path(reports)
+    try:
+        if reports.is_symlink():raise RuntimeError('Reports directory is symlinked')
+        destination=reports/(name+'.json')
+        if destination.is_symlink():raise RuntimeError('Aggregate report is symlinked')
+        # Clear a stale receipt before aggregation, serialization, or printing
+        # can fail, including an oversized inline detail in a failed run.
+        destination.unlink(missing_ok=True)
+        aggregate,blocks=aggregate_evidence(result,reports,frozen=frozen)
+        result['status']=aggregate['status']
+        if 'error' in aggregate:result['error']=aggregate['error']
+        for filename,complete in blocks:
+            print('Complete bounded visible-overlay scale evidence: '+filename,flush=True)
+            print(rendered_report(complete),flush=True)
+        payload=report_payload(aggregate)
         print(json.dumps(dict(status=result['status'],frozen=frozen,source_commit=result.get('source_commit'),
             report=name+'.json',report_bytes=len(payload.encode('utf-8')),error=result.get('error'),
             runs=[dict(scale=row['scale'],status=row.get('detail',{}).get('status'),
@@ -486,6 +592,13 @@ def main(argv=None):
                 for row in result['runs']]),indent=2),flush=True)
         print('Complete bounded visible-overlay evidence follows:',flush=True)
         print(rendered_report(payload),flush=True)
+        destination.write_text(payload,encoding='utf-8')
+    except Exception as error:
+        result['status']='failed'
+        if result.get('error'):print('Primary diagnostic failure: '+result['error'],flush=True)
+        print('Failed to preserve bounded visible-overlay aggregate: '+str(error),flush=True)
+        return 1
+    return 0 if result['status']=='passed' else 1
 
 
 if __name__=='__main__':raise SystemExit(main())

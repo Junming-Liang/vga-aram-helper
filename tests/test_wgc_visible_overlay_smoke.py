@@ -1,8 +1,10 @@
 """Portable contract regressions only; never Windows exclusion evidence."""
 import copy
-from contextlib import redirect_stderr
+from contextlib import chdir, redirect_stderr, redirect_stdout
+import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -94,6 +96,83 @@ def fixture():
     foreign=dict(pid=88,hwnd=99,created=100,job_verified=True,executable_sha256='f'*64,
                  owner_pid=6,owner_created=3,launcher_pid=6,launcher_created=3,owner_ancestry_verified=True)
     return value,dict(scale=1,frozen=False,helper=helper,foreign_proof=foreign,foreign_fixture_sha256='f'*64)
+
+def observed_shape_fixture():
+    """Synthetic run50-sized data, never a claim of actual Windows acceptance."""
+    from test_wgc_session_build import manifest
+    detail,kwargs=fixture();helper=manifest()
+    detail['helper']=dict(manifest=helper,sha256=helper['sha256'],size=helper['size']);kwargs['helper']=helper
+    initial=detail['requests'][:8];rejected=detail['requests'][8:];detail['requests']=initial
+    template=copy.deepcopy(initial[-1])
+    for index,(name,failure) in enumerate(zip(runtime.NEGATIVES,rejected)):
+        success=copy.deepcopy(template);binding=dict(helper_pid=100+index,helper_created=200+index,session_generation=300+index)
+        success.update(binding);success['observation'].update(binding);success['request_id']=1
+        detail['requests'].append(success)
+        failure.update(binding);negative=detail['negative_results'][name];negative.update(binding)
+        negative['request_index']=len(detail['requests']);detail['requests'].append(failure)
+        cleanup=copy.deepcopy(detail['transitions'][0]);cleanup.update(binding);detail['transitions'].append(cleanup)
+    # The observed 24 successful and 16 rejected captures retained 2,672 raw
+    # samples. Include samples on rejected captures, not only successful ones.
+    counts=iter((138,88,102,51,130,105,104,88,100,142,116,130,118,101,106,100,103,118,102,112,112,114,115,99))
+    failed_counts={'stop':7,'owner_change':1,'cancel':41,'active_affinity_change':29}
+    for index,row in enumerate(detail['requests']):
+        passed=row['status']=='passed';visible=row['visible_request']
+        count=next(counts) if passed else failed_counts.get(row['negative_case'],0)
+        duration=1173*(count+1)+index
+        row['elapsed_ms']=duration/1000
+        row['visibility']=dict(samples=count,qt_hidden_samples=0 if visible else count,
+            native_hidden_samples=0 if visible else count,duration_us=duration,
+            samples_us=[[1173*i,3 if visible else 0] for i in range(1,count+1)],
+            sample_format=runtime.SAMPLE_FORMAT,max_sample_gap_ms=(1173+index)/1000)
+        start=4_260_000_000_000+index*2_500_000
+        row.update(capture_start_100ns=start,capture_return_100ns=start+duration*10)
+        if passed:
+            row.update(request_cutoff_100ns=start+100,frame_100ns=start+duration*9,idle_enter_100ns=start+duration*9+100)
+        else:
+            row.update(error='Actual pending native exchange rejected by owned diagnostic guard: '+row['negative_case'],
+                       error_type='CaptureError',native_visible_before=True,paint_state=1)
+            negative=detail['negative_results'][row['negative_case']]
+            mutation=None if row['negative_case']=='foreign_pid_occluder' else start+duration*5 if 'pending_exchange_request_id' in row else start-100
+            row['mutation_100ns']=mutation
+            negative.update(capture_start_100ns=start,capture_return_100ns=start+duration*10,mutation_100ns=mutation)
+    # Real-sized creation times and generations make the old compact-JSON-only
+    # test unable to hide the production aggregate overflow behind tiny IDs.
+    def identities(value):
+        if type(value) is dict:
+            for key,item in value.items():
+                if key=='helper_pid':value[key]=3900+item*4
+                elif key=='helper_created':value[key]=134365520183600000+item*1000
+                elif key=='session_generation':value[key]=7324629758592700000+item
+                else:identities(item)
+        elif type(value) is list:
+            for item in value:identities(item)
+    identities(detail)
+    while len(detail['transitions'])<53:detail['transitions'].append(copy.deepcopy(detail['transitions'][len(detail['transitions'])%20]))
+    for index,row in enumerate(detail['transitions']):
+        row.update(observed_ms=float(index%7),termination_requested_while_alive=True,shutdown_diagnostic=None,
+                   case='owned-visible-negative-before-replacement-drain-'+str(index))
+    detail.update(windows_version=dict(major=10,minor=0,build=20348),helper_process_count=20,
+        pattern='original owned deterministic target, title/HUD, and opaque overlay',
+        overlay_setup=[dict(stage=stage,overlay_hwnd=4,overlay_affinity=17,overlay_extended_style=0x080800a8,
+                            qt_translucent_background=False,qt_opaque_paint_event=True,qt_surface_has_alpha=False)
+                       for stage in ('created-hidden','realized-visible','verified-hidden')])
+    return detail,kwargs
+
+
+def write_scale_reports(folder, *, count=3):
+    detail,kwargs=observed_shape_fixture()
+    aggregate=dict(status='passed',frozen=False,scope=runtime.SCOPE,applicationVersion=harness.__version__,
+        scales=list(runtime.SCALES),source_commit='d'*40,helper_build=kwargs['helper'],
+        source_files={name:'a'*64 for name in runtime.SOURCE_FILES},runs=[])
+    for scale in runtime.SCALES[:count]:
+        current=copy.deepcopy(detail);current.update(requested_app_scale=scale,measured_qt_scale=scale)
+        harness.validate_report(current,**dict(kwargs,scale=scale))
+        path=Path(folder)/harness.scale_report_name(scale,frozen=False)
+        raw=runtime.report_payload(current).encode();path.write_bytes(raw)
+        aggregate['runs'].append(dict(scale=scale,detail=current,foreign=copy.deepcopy(kwargs['foreign_proof']),
+            coordination='passed',exit_code=0,outer_cleanup_complete=True,
+            report_sha256=hashlib.sha256(raw).hexdigest(),report_size=len(raw)))
+    return aggregate,kwargs
 
 
 class VisibleContracts(unittest.TestCase):
@@ -273,6 +352,48 @@ class VisibleContracts(unittest.TestCase):
         self.assertEqual(changed['changed_pixels'],1);self.assertEqual(changed['visible_magenta_pixels'],1)
         self.assertNotEqual(changed['hidden_sha256'],changed['visible_sha256'])
 
+    def test_comparison_hashes_independently_decoded_rgb8_bytes(self):
+        from PIL import Image
+        from synthetic_vision import encoded
+        before=Image.new('RGBA',(2,1),(255,0,255,17))
+        after=before.copy();after.putpixel((0,0),(0,255,0,240))
+        reference,captured=encoded(before),encoded(after)
+        comparison=runtime.compare_pixels(reference,captured)
+        for key,png in (('hidden_sha256',reference),('visible_sha256',captured)):
+            with Image.open(io.BytesIO(png)) as decoded:
+                expected=hashlib.sha256(decoded.convert('RGB').tobytes()).hexdigest()
+            self.assertEqual(comparison[key],expected)
+        self.assertEqual((comparison['max_channel_error'],comparison['changed_pixels']),(255,1))
+        self.assertEqual(comparison['mean_channel_error'],127.5)
+        self.assertEqual((comparison['hidden_magenta_pixels'],comparison['visible_magenta_pixels']),(2,1))
+
+    def test_real_pixel_comparisons_bind_to_producer_shaped_acquisitions(self):
+        import numpy as np
+        from PIL import Image
+        from synthetic_vision import encoded
+        value,kwargs=fixture()
+        first=Image.new('RGB',(960,600),(24,42,62));second=first.copy()
+        second.paste((75,60,85),(192,162,204,174))
+        frames=[encoded(first),encoded(second)]
+        # Acquisition evidence independently decodes to RGB8, as the real
+        # observed_capture producer does; no shared placeholder digest can
+        # conceal a different byte encoding in compare_pixels.
+        for row in value['requests']:
+            if row['status']=='passed':
+                with Image.open(io.BytesIO(frames[row['paint_state']])) as decoded:
+                    row['pixels_sha256']=hashlib.sha256(decoded.convert('RGB').tobytes()).hexdigest()
+        for pair in value['pixel_pairs']:
+            hidden=value['requests'][pair['hidden_reference_index']]
+            visible=value['requests'][pair['request_index']]
+            pair.update(runtime.compare_pixels(frames[hidden['paint_state']],frames[visible['paint_state']]))
+        self.assertIs(harness.validate_report(value,**kwargs),value)
+        # Even mutually equal hashes over widened arithmetic buffers must
+        # remain rejected when they do not bind to the acquired RGB8 bytes.
+        widened=hashlib.sha256(np.asarray(first,dtype=np.int16).tobytes()).hexdigest()
+        value['pixel_pairs'][0].update(hidden_sha256=widened,visible_sha256=widened)
+        with self.assertRaisesRegex(RuntimeError,'Pixel equality not bound'):
+            harness.validate_report(value,**kwargs)
+
     def test_timestamp_native_bounds_not_relaxed(self):
         value,_=fixture();row=value['requests'][0]
         self.assertTrue(runtime.strict_timing(row))
@@ -330,40 +451,214 @@ class VisibleContracts(unittest.TestCase):
         with self.assertRaises(RuntimeError):harness.verify_product_modules(archive)
 
     def test_lossless_full_three_scale_aggregate_stays_under_existing_cap(self):
-        from test_wgc_session_build import manifest
-        detail,kwargs=fixture();helper=manifest()
-        detail['helper']=dict(manifest=helper,sha256=helper['sha256'],size=helper['size']);kwargs['helper']=helper
-        # Complete producer shape: eight initial successful acquisitions, one
-        # fresh owner + one rejected request for every negative, full cleanups,
-        # real manifest shape, and 100 raw GUI samples per successful capture.
-        initial=detail['requests'][:8];rejected=detail['requests'][8:];detail['requests']=initial
-        template=copy.deepcopy(initial[-1])
-        for index,(name,failure) in enumerate(zip(runtime.NEGATIVES,rejected)):
-            success=copy.deepcopy(template);binding=dict(helper_pid=100+index,helper_created=200+index,session_generation=300+index)
-            success.update(binding);success['observation'].update(binding);success['request_id']=1
-            detail['requests'].append(success)
-            failure.update(binding);negative=detail['negative_results'][name];negative.update(binding)
-            negative['request_index']=len(detail['requests']);detail['requests'].append(failure)
-            cleanup=copy.deepcopy(detail['transitions'][0]);cleanup.update(binding);detail['transitions'].append(cleanup)
-        for row in detail['requests']:
-            if row['status']=='passed':
-                visible=row['visible_request'];row['elapsed_ms']=101
-                row['visibility']=dict(samples=100,qt_hidden_samples=0 if visible else 100,
-                    native_hidden_samples=0 if visible else 100,duration_us=101000,
-                    samples_us=[[1000*i,3 if visible else 0] for i in range(1,101)],
-                    sample_format=runtime.SAMPLE_FORMAT,max_sample_gap_ms=1)
-        aggregate=dict(status='passed',helper_build=helper,source_files={name:'a'*64 for name in runtime.SOURCE_FILES},runs=[])
-        for scale in runtime.SCALES:
-            current=copy.deepcopy(detail);current.update(requested_app_scale=scale,measured_qt_scale=scale)
-            harness.validate_report(current,**dict(kwargs,scale=scale))
-            aggregate['runs'].append(dict(scale=scale,detail=current,foreign=kwargs['foreign_proof']))
-        compact=runtime.report_payload(aggregate)
-        self.assertEqual(json.loads(compact),aggregate)
-        self.assertLessEqual(len(compact.encode()),runtime.MAX_REPORT_BYTES)
-        self.assertGreater(len(json.dumps(aggregate,indent=2).encode()),runtime.MAX_REPORT_BYTES)
-        rendered=harness.rendered_report(compact)
-        self.assertEqual(json.loads(rendered),aggregate)
-        self.assertLessEqual(max(map(len,rendered.splitlines())),1024)
+        with tempfile.TemporaryDirectory() as folder:
+            original,kwargs=write_scale_reports(folder)
+            before=copy.deepcopy(original)
+            self.assertGreater(len(json.dumps(original,separators=(',',':')).encode()),runtime.MAX_REPORT_BYTES)
+            aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertEqual(original,before)
+            compact=runtime.report_payload(aggregate)
+            self.assertLessEqual(len(compact.encode()),runtime.MAX_REPORT_BYTES)
+            self.assertEqual(len(blocks),3)
+            for run,source,(filename,complete) in zip(aggregate['runs'],original['runs'],blocks):
+                self.assertNotIn('detail',run)
+                self.assertEqual(run['detail_report'],filename)
+                decoded=harness.read_bound_detail(run,folder,frozen=False)
+                self.assertTrue(harness.same_json(decoded,source['detail']))
+                harness.validate_report(decoded,**dict(kwargs,scale=run['scale']))
+                self.assertEqual(len(decoded['requests']),40)
+                self.assertEqual(len(decoded['transitions']),53)
+                self.assertEqual(sum(row['visibility']['samples'] for row in decoded['requests']),2672)
+                self.assertLessEqual(len(complete.encode()),runtime.MAX_REPORT_BYTES)
+                rendered=harness.rendered_report(complete)
+                self.assertTrue(harness.same_json(json.loads(rendered),source['detail']))
+                self.assertLessEqual(max(map(len,rendered.splitlines())),1024)
+                raw=(Path(folder)/filename).read_bytes()
+                self.assertEqual(hashlib.sha256(raw).hexdigest(),source['report_sha256'])
+                self.assertEqual(len(raw),source['report_size'])
+            self.assertEqual(json.loads(harness.rendered_report(compact)),aggregate)
+            output=io.StringIO()
+            with redirect_stdout(output):self.assertEqual(harness.finish_reports(original,Path(folder),frozen=False),0)
+            self.assertEqual(output.getvalue().count('Complete bounded visible-overlay scale evidence:'),3)
+
+    def test_bound_scale_reports_are_relocatable_and_allow_relative_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            old=Path(folder)/'original';old.mkdir();original,_=write_scale_reports(old)
+            aggregate,_=harness.aggregate_evidence(original,old,frozen=False)
+            moved=old.with_name('moved');old.rename(moved)
+            with chdir(folder):
+                for run,source in zip(aggregate['runs'],original['runs']):
+                    self.assertTrue(harness.same_json(harness.read_bound_detail(run,'moved',frozen=False),source['detail']))
+            for scale in runtime.SCALES:
+                self.assertEqual(harness.scale_report_name(scale,frozen=True),
+                                 'windows-wgc-visible-overlay-frozen-scale'+str(round(scale*100))+'.json')
+
+    def test_aggregate_retains_failed_current_detail_after_two_complete_scales(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original,_=write_scale_reports(folder);last=original['runs'][-1]
+            original.update(status='failed',error='Original native rejection must survive')
+            last['detail'].update(status='failed',error='Full current failure including all samples')
+            # Its changed original file has a matching raw binding, so failures
+            # can be referenced losslessly just like successful complete files.
+            path=Path(folder)/harness.scale_report_name(last['scale'],frozen=False)
+            raw=runtime.report_payload(last['detail']).encode();path.write_bytes(raw)
+            last.update(report_sha256=hashlib.sha256(raw).hexdigest(),report_size=len(raw))
+            aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertEqual(aggregate['error'],original['error']);self.assertEqual(len(blocks),3)
+            self.assertEqual(harness.read_bound_detail(aggregate['runs'][-1],folder,frozen=False),last['detail'])
+            self.assertLessEqual(len(runtime.report_payload(aggregate).encode()),runtime.MAX_REPORT_BYTES)
+            # A vanished failed file stays inline, with its complete evidence,
+            # while the first two verified reports remain referenced.
+            path.unlink();aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertEqual(aggregate['error'],original['error'])
+            self.assertEqual(aggregate['runs'][-1]['detail'],last['detail'])
+            self.assertTrue(all('detail_report' in run for run in aggregate['runs'][:2]))
+            self.assertLessEqual(len(runtime.report_payload(aggregate).encode()),runtime.MAX_REPORT_BYTES)
+            self.assertEqual(json.loads(blocks[-1][1]),last['detail'])
+            with redirect_stdout(io.StringIO()):self.assertEqual(harness.finish_reports(original,Path(folder),frozen=False),1)
+
+    def test_unbound_scale_evidence_is_never_dropped_or_reported_as_success(self):
+        edits={
+            'missing':lambda run,path:path.unlink(),
+            'hash':lambda run,path:run.update(report_sha256='b'*64),
+            'size':lambda run,path:run.update(report_size=run['report_size']+1),
+            'boolean_size':lambda run,path:run.update(report_size=True),
+            'unsafe_name':lambda run,path:run.update(detail_report='../other.json'),
+            'absolute_name':lambda run,path:run.update(detail_report=str(path.resolve())),
+            'wrong_mode':lambda run,path:run.update(detail_report=harness.scale_report_name(run['scale'],frozen=True)),
+            'boolean_scale':lambda run,path:run.update(scale=True),
+            'unknown_scale':lambda run,path:run.update(scale=3),
+            'field_missing':lambda run,path:run['detail'].pop('windows_version'),
+            'sample_missing':lambda run,path:run['detail']['requests'][0]['visibility']['samples_us'].pop(),
+            'boolean_for_int':lambda run,path:run['detail']['requests'][0]['visibility']['samples_us'][0].__setitem__(1,False),
+            'float_for_int':lambda run,path:run['detail'].update(schema_version=1.0),
+            'extra_field':lambda run,path:run['detail'].update(unbound_extra='preserve this'),
+        }
+        for label,edit in edits.items():
+            with self.subTest(label=label),tempfile.TemporaryDirectory() as folder:
+                original,_=write_scale_reports(folder,count=1);run=original['runs'][0]
+                path=Path(folder)/harness.scale_report_name(run['scale'],frozen=False);edit(run,path)
+                aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+                self.assertEqual(aggregate['status'],'failed')
+                self.assertTrue(harness.same_json(aggregate['runs'][0]['detail'],run['detail']))
+                self.assertTrue(harness.same_json(json.loads(blocks[0][1]),run['detail']))
+                self.assertIn('report_binding_error',aggregate['runs'][0])
+                with redirect_stdout(io.StringIO()):self.assertEqual(harness.finish_reports(original,Path(folder),frozen=False),1)
+
+    def test_strict_bound_reader_rejects_duplicate_nonfinite_oversize_and_symlink(self):
+        for label,raw in (('duplicate',b'{"status":"passed","status":"failed"}'),
+                          ('nonfinite',b'{"value":NaN}'),('overflow',b'{"value":1e999}'),
+                          ('array',b'[]'),('oversize',b' '*runtime.MAX_REPORT_BYTES+b'{}')):
+            with self.subTest(label=label),tempfile.TemporaryDirectory() as folder:
+                original,_=write_scale_reports(folder,count=1);run=original['runs'][0]
+                path=Path(folder)/harness.scale_report_name(run['scale'],frozen=False);path.write_bytes(raw)
+                run.update(report_size=len(raw),report_sha256=hashlib.sha256(raw).hexdigest())
+                aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+                self.assertEqual(aggregate['status'],'failed');self.assertEqual(aggregate['runs'][0]['detail'],run['detail'])
+                self.assertEqual(json.loads(blocks[0][1]),run['detail'])
+        with tempfile.TemporaryDirectory() as folder:
+            original,_=write_scale_reports(folder,count=1);run=original['runs'][0]
+            path=Path(folder)/harness.scale_report_name(run['scale'],frozen=False)
+            other=path.with_name('untrusted.json');path.rename(other)
+            try:path.symlink_to(other)
+            except NotImplementedError:self.skipTest('Symlink creation unavailable')
+            except OSError as error:
+                if os.name=='nt' and getattr(error,'winerror',None) in (1,50,1314):
+                    self.skipTest('Symlink creation is not available for this Windows account')
+                raise
+            with self.assertRaisesRegex(RuntimeError,'symlinked'):harness.read_bound_detail(run,folder,frozen=False)
+
+    def test_missing_and_duplicate_scale_inventory_retains_all_available_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original,_=write_scale_reports(folder,count=1)
+            original['runs'].append(copy.deepcopy(original['runs'][0]))
+            aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertEqual(aggregate['status'],'failed');self.assertEqual(len(blocks),2)
+            self.assertIn('detail_report',aggregate['runs'][0]);self.assertIn('detail',aggregate['runs'][1])
+            missing=dict(scale=1.5,detail_error='Final native report never appeared')
+            original['runs'][-1]=missing
+            aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertEqual(aggregate['status'],'failed');self.assertEqual(len(blocks),1)
+            self.assertEqual(aggregate['runs'][-1]['detail_error'],missing['detail_error'])
+            self.assertNotIn('detail_report',aggregate['runs'][-1])
+        self.assertFalse(harness.same_json({'x':0.0},{'x':-0.0}))
+        self.assertFalse(harness.same_json({'x':False},{'x':0}))
+        self.assertFalse(harness.same_json({'x':1},{'x':1.0}))
+
+    def test_aggregate_requires_complete_ordered_mode_and_scale_inventory(self):
+        edits=(lambda v:v.update(runs=[]),lambda v:v['runs'].pop(),lambda v:v['runs'].reverse(),
+               lambda v:v.update(frozen=True),lambda v:v.update(scales=[1,2]))
+        for edit in edits:
+            with tempfile.TemporaryDirectory() as folder:
+                original,_=write_scale_reports(folder);edit(original)
+                aggregate,_=harness.aggregate_evidence(original,folder,frozen=False)
+                self.assertEqual(aggregate['status'],'failed');self.assertIn('report_binding_errors',aggregate)
+        for key,value in (('frozen',True),('requested_app_scale',2),('measured_qt_scale',True)):
+            with self.subTest(key=key),tempfile.TemporaryDirectory() as folder:
+                original,_=write_scale_reports(folder);run=original['runs'][0]
+                run['detail'][key]=value
+                raw=runtime.report_payload(run['detail']).encode()
+                (Path(folder)/harness.scale_report_name(1,frozen=False)).write_bytes(raw)
+                run.update(report_size=len(raw),report_sha256=hashlib.sha256(raw).hexdigest())
+                aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+                self.assertEqual(aggregate['status'],'failed');self.assertIn('detail',aggregate['runs'][0])
+                self.assertEqual(json.loads(blocks[0][1]),run['detail'])
+
+    def test_symlinked_reports_directory_cannot_bind_or_write_receipts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'real';root.mkdir();original,_=write_scale_reports(root)
+            link=root.with_name('alias')
+            try:link.symlink_to(root,target_is_directory=True)
+            except NotImplementedError:self.skipTest('Symlink creation unavailable')
+            except OSError as error:
+                if os.name=='nt' and getattr(error,'winerror',None) in (1,50,1314):
+                    self.skipTest('Symlink creation is not available for this Windows account')
+                raise
+            with self.assertRaisesRegex(RuntimeError,'directory is symlinked'):
+                harness.read_bound_detail(original['runs'][0],link,frozen=False)
+            with redirect_stdout(io.StringIO()):self.assertEqual(harness.finish_reports(original,link,frozen=False),1)
+            self.assertFalse((root/'windows-wgc-visible-overlay-source.json').exists())
+
+    def test_all_unbound_details_keep_cap_failure_honest_and_preserve_full_logs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original,_=write_scale_reports(folder)
+            original.update(status='failed',error='Primary diagnostic failure survives finalization')
+            for run in original['runs']:(Path(folder)/harness.scale_report_name(run['scale'],frozen=False)).unlink()
+            aggregate,blocks=harness.aggregate_evidence(original,folder,frozen=False)
+            self.assertTrue(all('detail' in run for run in aggregate['runs']))
+            with self.assertRaisesRegex(AssertionError,'metadata budget'):runtime.report_payload(aggregate)
+            destination=Path(folder)/'windows-wgc-visible-overlay-source.json'
+            destination.write_text('{"status":"passed"}')
+            output=io.StringIO()
+            with redirect_stdout(output):self.assertEqual(harness.finish_reports(original,folder,frozen=False),1)
+            self.assertFalse(destination.exists())
+            self.assertIn(original['error'],output.getvalue())
+            self.assertEqual(output.getvalue().count('Complete bounded visible-overlay scale evidence:'),3)
+            for run,(_,complete) in zip(original['runs'],blocks):
+                self.assertEqual(json.loads(complete),run['detail'])
+
+    def test_oversized_inline_detail_removes_stale_receipt_before_aggregation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            original,_=write_scale_reports(folder,count=1)
+            original.update(status='failed',error='Keep the original native failure')
+            original['runs'][0]['detail']['oversized_evidence']='x'*runtime.MAX_REPORT_BYTES
+            destination=Path(folder)/'windows-wgc-visible-overlay-source.json'
+            destination.write_text('{"status":"passed"}')
+            output=io.StringIO()
+            with redirect_stdout(output):self.assertEqual(harness.finish_reports(original,folder,frozen=False),1)
+            self.assertFalse(destination.exists());self.assertEqual(original['status'],'failed')
+            self.assertEqual(original['error'],'Keep the original native failure')
+            self.assertIn(original['error'],output.getvalue());self.assertIn('metadata budget',output.getvalue())
+            self.assertEqual(len(original['runs'][0]['detail']['oversized_evidence']),runtime.MAX_REPORT_BYTES)
+
+    def test_interruption_still_finalizes_evidence_without_suppressing_interrupt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(harness,'os',SimpleNamespace(name='nt',environ={})), \
+                 patch('scripts.build_windows.verify_source_checkout',side_effect=KeyboardInterrupt), \
+                 redirect_stdout(io.StringIO()),self.assertRaises(KeyboardInterrupt):
+                harness.main(['--reports',folder])
+            report=json.loads((Path(folder)/'windows-wgc-visible-overlay-source.json').read_text())
+            self.assertEqual(report['status'],'failed');self.assertEqual(report['runs'],[])
 
     def test_non_windows_diagnostic_fails_with_truthful_report(self):
         if sys.platform=='win32':self.skipTest('Portable rejection test')
