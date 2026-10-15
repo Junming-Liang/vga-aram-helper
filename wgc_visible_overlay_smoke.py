@@ -31,6 +31,15 @@ NEGATIVES = ('same_pid_occluder', 'foreign_pid_occluder', 'wrong_hwnd', 'replace
              'owner_change', 'token_change', 'extended_style_change', 'window_style_change',
              'affinity_change', 'opacity_change', 'protected_target', 'focus_loss',
              'geometry_loss', 'active_affinity_change', 'cancel', 'stop')
+# Exact native idle-denial contract from native/wgc_session_capture.cpp. Target
+# protection is protected_content (13); ordinary invalidation is stale (12).
+# Product/in-flight lifecycle cases deliberately do not claim an idle exit code.
+NATIVE_NEGATIVE_EXIT_CODES = {
+    'same_pid_occluder': 12, 'foreign_pid_occluder': 12, 'replaced_hwnd_token': 12,
+    'token_change': 12, 'extended_style_change': 12, 'window_style_change': 12,
+    'affinity_change': 12, 'opacity_change': 12, 'protected_target': 13,
+    'focus_loss': 12, 'geometry_loss': 12,
+}
 SOURCE_FILES = ('wgc_visible_overlay_smoke.py', 'tests/windows_wgc_visible_overlay.py',
                 'tests/test_wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'launcher.py', 'native_ui.py',
                 'native_smoke.py', 'screen_capture.py', 'persistent_capture_adapter.py',
@@ -447,7 +456,6 @@ class ProductFixture(Fixture):
             cleanup = self.cleanup_owner(owner, name)
             require(len(self.fallback_calls) == before, 'Visible failure reached v1/GDI: '+name)
             require(self.capture.last_session_receipt is None, 'Rejected capture retained a usable receipt')
-            if native:require(transport.process.returncode == 12, 'Expected actual native stale rejection: '+name)
             self.result['negative_results'][name] = dict(status='rejected',
                 actual_native_idle_rejection=native_revoked, native_exit_code=transport.process.returncode,
                 evidence='actual native mutation' if native else 'actual product request/lifecycle guard',
@@ -455,6 +463,12 @@ class ProductFixture(Fixture):
                 fallback_calls=0, helper_pid=cleanup['helper_pid'], helper_created=cleanup['helper_created'])
             self.result['negative_results'][name]['session_generation']=cleanup['session_generation']
             self.result['negative_results'][name].update(self.rejected_evidence(name,cleanup,mutation=mutation))
+            if native:
+                from wgc_session_capture import decode_session_diagnostic
+                code=transport.process.returncode;expected=NATIVE_NEGATIVE_EXIT_CODES[name]
+                self.result['negative_results'][name]['native_diagnostic']=decode_session_diagnostic(transport.diagnostic,code)
+                require(type(code) is int and code == expected,
+                        f'Native rejection exit differs for {name}: expected {expected}, observed {code!r}')
         finally:
             restore(); self.pump(.02)
 
@@ -656,14 +670,18 @@ def foreign_negative(f):
     except Exception as rejected:error=rejected
     require(error is not None and len(f.fallback_calls)==before, 'Foreign occlusion did not fail closed')
     f.capture.retire_session();cleanup=f.cleanup_owner(owner,'foreign_pid_occluder')
-    require(transport.process.returncode==12, 'Native foreign-occlusion exit differs')
     f.result['negative_results']['foreign_pid_occluder'] = dict(status='rejected',
-        actual_native_idle_rejection=True, native_exit_code=12, fallback_calls=0,
+        actual_native_idle_rejection=True, native_exit_code=transport.process.returncode, fallback_calls=0,
         helper_pid=cleanup['helper_pid'], helper_created=cleanup['helper_created'],
         session_generation=cleanup['session_generation'],
         foreign_pid=info.pid, foreign_created=proof['created'], foreign_hwnd=info.hwnd,
         foreign_fixture_sha256=proof['executable_sha256'], job_verified=True)
     f.result['negative_results']['foreign_pid_occluder'].update(f.rejected_evidence('foreign_pid_occluder',cleanup))
+    from wgc_session_capture import decode_session_diagnostic
+    code=transport.process.returncode;expected=NATIVE_NEGATIVE_EXIT_CODES['foreign_pid_occluder']
+    f.result['negative_results']['foreign_pid_occluder']['native_diagnostic']=decode_session_diagnostic(transport.diagnostic,code)
+    require(type(code) is int and code == expected,
+            f'Native rejection exit differs for foreign_pid_occluder: expected {expected}, observed {code!r}')
     write_report(release, {'status':'release'})
     f.wait(lambda:not f.u.IsWindow(info.hwnd), 10, 'External owned foreign window survived cleanup')
 
