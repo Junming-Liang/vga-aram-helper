@@ -157,6 +157,8 @@ struct Input {
     uint32_t overlay_style;
     uint64_t overlay_generation, generation;
     HANDLE parent = nullptr;
+    bool allow_visible_overlay = false;
+    uint32_t overlay_window_style = 0;
 };
 #pragma pack(push, 1)
 struct Request {
@@ -252,7 +254,10 @@ int64_t number(wchar_t const* text) {
     return result;
 }
 Input parse(int argc, wchar_t** argv) {
-    require(argc == 15 && std::wstring(argv[1]) == L"--session-v2", failed);
+    require(argc == 15 || argc == 16, failed);
+    bool visible = std::wstring(argv[1]) == L"--session-v2-visible-owned-overlay";
+    require((visible && argc == 16) || (!visible && argc == 15 &&
+            std::wstring(argv[1]) == L"--session-v2"), failed);
     int64_t n[13];
     for (int i = 0; i < 13; ++i) n[i] = number(argv[i + 2]);
     require(n[0] > 0 && n[1] > 0 && n[1] <= UINT32_MAX && n[2] > 0, failed);
@@ -266,9 +271,12 @@ Input parse(int argc, wchar_t** argv) {
             (n[9] > 0 && n[11] > 0 &&
              (uint32_t(n[10]) & required_overlay_style) == required_overlay_style), failed);
     require(n[9] != n[0], failed);
+    int64_t window_style = visible ? number(argv[15]) : 0;
+    require(!visible || (n[9] > 0 && window_style >= 0 && window_style <= UINT32_MAX), failed);
     return {reinterpret_cast<HWND>(n[0]), DWORD(n[1]), uint64_t(n[2]),
             int(n[3]), int(n[4]), int(n[5]), int(n[6]), DWORD(n[7]), uint64_t(n[8]),
-            reinterpret_cast<HWND>(n[9]), uint32_t(n[10]), uint64_t(n[11]), uint64_t(n[12])};
+            reinterpret_cast<HWND>(n[9]), uint32_t(n[10]), uint64_t(n[11]), uint64_t(n[12]),
+            nullptr, visible, uint32_t(window_style)};
 }
 uint64_t creation_time(DWORD pid) {
     // Metadata only. Never request VM_READ, VM_WRITE or PROCESS_ALL_ACCESS.
@@ -303,9 +311,19 @@ void validate_overlay(Input const& p) {
     require(uint64_t(reinterpret_cast<uintptr_t>(GetPropW(p.overlay,
             overlay_property(p.overlay_generation).c_str()))) == p.overlay_generation,
             stale, "overlay-generation");
+    SetLastError(0);
     auto style = uint32_t(GetWindowLongPtrW(p.overlay, GWL_EXSTYLE));
+    require(GetLastError() == 0, stale, "overlay-style");
     require(style == p.overlay_style && (style & required_overlay_style) == required_overlay_style,
             stale, "overlay-style");
+    if (p.allow_visible_overlay) {
+        SetLastError(0);
+        auto window_style = uint32_t(GetWindowLongPtrW(p.overlay, GWL_STYLE));
+        require(GetLastError() == 0 && window_style == p.overlay_window_style, stale, "overlay-style");
+        COLORREF color = 0; BYTE alpha = 0; DWORD flags = 0;
+        require(GetLayeredWindowAttributes(p.overlay, &color, &alpha, &flags) &&
+                color == 0 && alpha == 255 && flags == LWA_ALPHA, stale, "overlay-opacity");
+    }
     require(GetWindowDisplayAffinity(p.overlay, &affinity) && affinity == 0x11,
             stale, "overlay-affinity");
 }
@@ -325,10 +343,11 @@ BOOL CALLBACK check_above(HWND hwnd, LPARAM pointer) {
         scope.blocked = scope.unreadable = true; return FALSE;
     }
     if (intersects(scope.client, other)) {
-        // CPU checks always have idle == nullptr. No PID-wide exemption exists.
-        // Validate the registered HWND again at the precise exemption point.
+        // Only GPU idle or an explicitly visible-capable immutable session can
+        // supply this exact-HWND exemption. No PID-wide exemption exists.
+        // Validate parent/token/full styles/opacity/affinity again at this point.
         if (scope.idle && hwnd == scope.idle->overlay) {
-            try { validate_overlay(*scope.idle); return TRUE; }
+            try { validate_parent(*scope.idle); validate_overlay(*scope.idle); return TRUE; }
             catch (...) { scope.blocked = true; return FALSE; }
         }
         dimensions(other.left, other.top, int64_t(other.right) - other.left,
@@ -344,9 +363,11 @@ Geometry validate(Input const& p, Geometry const* expected = nullptr, bool idle 
     validate_parent(p);
     if (p.overlay) {
         validate_overlay(p);
-        // CPU authorization requires the registered overlay to be hidden even
-        // when it is outside the client or below the target in z-order.
-        if (!idle) require(!IsWindowVisible(p.overlay), stale, "overlay-hidden");
+        // The default CLI remains strict-hidden, including outside the client
+        // or below the target. A different immutable launch contract is needed
+        // for visible-overlay CPU readback; no request can change that contract.
+        if (!idle && !p.allow_visible_overlay)
+            require(!IsWindowVisible(p.overlay), stale, "overlay-hidden");
     }
     require(IsWindow(p.hwnd) && IsWindowVisible(p.hwnd) && !IsIconic(p.hwnd), stale, "window-visible");
     require(GetAncestor(p.hwnd, GA_ROOT) == p.hwnd &&
@@ -390,7 +411,7 @@ Geometry validate(Input const& p, Geometry const* expected = nullptr, bool idle 
     require(selected && GetMonitorInfoW(selected, &monitor) &&
             monitor.rcMonitor.left <= bounds.left && monitor.rcMonitor.top <= bounds.top &&
             bounds.right <= monitor.rcMonitor.right && bounds.bottom <= monitor.rcMonitor.bottom, stale, "client-on-monitor");
-    ZOrder order{p.hwnd, bounds, idle ? &p : nullptr};
+    ZOrder order{p.hwnd, bounds, (idle || p.allow_visible_overlay) ? &p : nullptr};
     EnumWindows(check_above, reinterpret_cast<LPARAM>(&order));
     require(!order.blocked, stale, order.unreadable ? "occluder-query" : "occluder-overlap");
     require(order.found, stale, "zorder-target");
@@ -563,7 +584,7 @@ void run(Input const& p) {
         while (GetTickCount64() < deadline) {
             phase("validate-frame-wait");
             require(!signal->closed.load(), stale, "item-open");
-            validate(p, &geometry); // STRICT, including our overlay.
+            validate(p, &geometry); // Default strict; exact visible enrollment only when opted in.
             phase("frame-wait");
             if (!frame) frame = pool.TryGetNextFrame();
             if (frame) {
@@ -631,6 +652,9 @@ void run(Input const& p) {
         D3D11_BOX box{left, top, 0, left + UINT(request.width), top + UINT(request.height), 1};
         context->CopySubresourceRegion(staging.get(), 0, 0, 0, 0, texture.get(), 0, &box);
         context->Flush();
+        phase("validate-after-copy");
+        validate(p, &geometry); // After GPU copy, before any CPU Map attempt.
+        require(!signal->closed.load(), stale, "item-open");
         phase("map");
         D3D11_MAPPED_SUBRESOURCE mapped{};
         hr = DXGI_ERROR_WAS_STILL_DRAWING;
@@ -658,7 +682,7 @@ void run(Input const& p) {
         } catch (...) { context->Unmap(staging.get(), 0); throw; }
         context->Unmap(staging.get(), 0);
         phase("validate-final");
-        validate(p, &geometry); // STRICT after CPU copy, before any output.
+        validate(p, &geometry); // After CPU copy, before any output, under immutable mode.
         require(!signal->closed.load(), stale, "item-open");
         frame.Close(); frame = nullptr;
         texture = nullptr; staging = nullptr;
@@ -670,7 +694,7 @@ void run(Input const& p) {
         write_all(pixels.data(), DWORD(pixels.size()));
         SecureZeroMemory(pixels.data(), pixels.size()); pixels.clear();
         phase("validate-final");
-        validate(p, &geometry); // Still strict until all ROI bytes have left us.
+        validate(p, &geometry); // Recheck the same mode after all ROI output bytes.
         require(!signal->closed.load(), stale, "item-open");
         phase("validate-idle");
         validate(p, &geometry, true);
