@@ -87,8 +87,10 @@ class OverlayDutyTrace:
     Native visibility is sampled at capture boundaries, phase dispatch and Qt
     timer ticks. Durations use the preceding sample, so the maximum sample gap
     is reported alongside them. The old hide-until-final policy is an explicit
-    same-run counterfactual, not a measurement of another executable. All
-    diagnostic elapsed measurements share this high-resolution clock; product
+    same-run counterfactual, not a measurement of another executable.
+    Inference ends when the final result enters the GUI handler; total elapsed
+    and visibility still include that handler's application and final display.
+    Diagnostic elapsed measurements share this high-resolution clock; product
     freshness timestamps and the existing timeout deadlines keep their clocks.
     """
     def __init__(self,name,*,clock=time.perf_counter):
@@ -108,7 +110,7 @@ class OverlayDutyTrace:
     def sample(self,visible,*,capturing=False):
         with self.lock:self.samples.append((self.elapsed_ms(),bool(visible),bool(capturing)))
     def summary(self):
-        total=self.events['final']
+        total=self.events['final'];received=self.events.get('result_received',total)
         # Preserve actual acquisition order at equal timestamps. Sorting full
         # tuples orders False before True and can invent visibility changes;
         # clipping before sorting can also reverse distinct final samples.
@@ -119,7 +121,7 @@ class OverlayDutyTrace:
                 elapsed=points[index+1][0]-stamp;gap=max(gap,elapsed)
                 if shown:
                     visible+=elapsed
-                    inference_visible+=max(0.,points[index+1][0]-max(stamp,self.events.get('capture_return',float('inf'))))
+                    inference_visible+=max(0.,min(points[index+1][0],received)-max(stamp,self.events.get('capture_return',float('inf'))))
                 else:hidden+=elapsed
         return {'name':self.name,'status':'passed','timings_ms':{key:round(value,3) for key,value in self.events.items()},
                 'measurement_clock':dict(self.measurement_clock),'initial_native_visible':self.initial_native_visible,'initial_qt_visible':self.initial_qt_visible,
@@ -133,6 +135,37 @@ class OverlayDutyTrace:
                 'old_hide_until_final_policy_counterfactual_ms':round(total,3),
                 'comparison_scope':'Counterfactual whole-cycle hidden duration on this same instrumented run; not a measured baseline executable',
                 'phases':self.phases}
+
+
+class _DutyResultDispatch(QtCore.QObject):
+    """Keep diagnostic result boundaries around the unchanged GUI handler.
+
+    Separate queued observers can run after an intervening visibility timer.
+    This GUI-affine receiver forwards every result exactly once. A disconnected
+    receiver can still have queued calls, so restoration leaves it alive under
+    the control and forwards those calls without running retired diagnostics.
+    """
+    def __init__(self,control,before,after,failed):
+        super().__init__(control)
+        self.signal=control.signals.result;self.handler=control.task_result
+        self.before=before;self.after=after;self.failed=failed;self.installed=True
+        self.signal.disconnect(self.handler);self.signal.connect(self.apply)
+    @QtCore.Slot(str,object,int)
+    def apply(self,kind,value,generation):
+        if not self.installed:
+            self.handler(kind,value,generation);return
+        self.before(kind,value,generation)
+        try:self.handler(kind,value,generation)
+        except BaseException as exc:
+            if self.installed:self.failed(kind,exc,generation)
+            raise
+        else:
+            if self.installed:self.after(kind,value,generation)
+    def restore(self):
+        if not self.installed:return
+        self.installed=False
+        self.signal.disconnect(self.apply);self.signal.connect(self.handler)
+        self.before=self.after=self.failed=None
 
 
 def _duty_session_observation(capture, receipt, *, hidden):
@@ -379,6 +412,10 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 trace.hold_elapsed[name]=(trace.clock()-trace.hold_started[name])*1000
         return original_recognize(*arguments,before_match=lambda *values:phase('before_match',before_match,*values),
             before_ocr=lambda *values:phase('before_ocr',before_ocr,*values),**keywords)
+    def received(kind,value,generation):
+        trace=active[0]
+        if trace is not None and kind=='ocr':
+            trace.mark('result_received');mode_report['active_case']['phase_state']='result-received'
     def observed(kind,value,generation):
         trace=active[0]
         if trace is None or kind not in ('capture-proof','ocr'):return
@@ -420,10 +457,16 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
     def observed_error(kind,error,generation):
         trace=active[0]
         if trace is not None and kind=='ocr':trace.error=AssertionError('Production duty capture '+trace.name+' failed: '+error);trace.finished=True
+    def handler_failed(kind,error,generation):
+        trace=active[0]
+        if trace is not None:
+            trace.error=AssertionError('Production duty result handler '+kind+' failed: '+str(error));trace.finished=True
+            mode_report['active_case']['phase_state']='handler-failed'
     capture_adapter.capture=watched_capture;capture_adapter.validate_compositor=watched_compositor
     hero_recognition.recognize_frame=watched_recognize;wgc_capture.subprocess.Popen=watched_popen
     if mode=='one-shot':wgc_capture._CaptureJob=watched_job
-    control.signals.result.connect(observed);control.signals.error.connect(observed_error)
+    result_dispatch=_DutyResultDispatch(control,received,observed,handler_failed)
+    control.signals.error.connect(observed_error)
     def cleanup():
         trace=active[0]
         if trace:
@@ -431,7 +474,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
         overlay.removeEventFilter(visibility_guard);visibility_guard.deleteLater()
         capture_adapter.capture=original_capture;capture_adapter.validate_compositor=original_compositor
         hero_recognition.recognize_frame=original_recognize;wgc_capture.subprocess.Popen=original_popen;wgc_capture._CaptureJob=original_job
-        control.signals.result.disconnect(observed);control.signals.error.disconnect(observed_error)
+        result_dispatch.restore();control.signals.error.disconnect(observed_error)
         control.schedule_capture=original_schedule;control.monitor.stop();active[0]=None;control._smoke_duty_cleanup=None
     # Failures release only our diagnostic holds before ordinary shutdown.
     control._smoke_duty_cleanup=cleanup
@@ -484,6 +527,9 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     if mode=='one-shot':value.update(helper_count=len(trace.helpers),helper_exit_codes=[process.poll() for process in trace.helpers],
                         helper_cleanup_complete_before_phase=all(phase['helper_cleanup_complete'] for phase in trace.phases))
                     else:value.update(helper_count=1,session_capture=trace.session_capture)
+                    # Preserve every computed operand even if an unchanged
+                    # acceptance predicate below fails; only accepted rows pass.
+                    mode_report['active_case'].update(value,status='pending-validation')
                     assert value['capture_samples']>=2 and value['capture_visible_samples']==0 and value['qt_show_events_during_capture']==0
                     assert [phase['name'] for phase in value['phases']]==['before_match','before_ocr']
                     assert all(phase['state_unchanged'] for phase in value['phases'])
