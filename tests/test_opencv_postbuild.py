@@ -1,5 +1,6 @@
 """Portable postbuild protocol tests. Never invoke pip or native capture locally."""
 import copy
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 from importlib.metadata import PackagePath
@@ -25,6 +26,15 @@ from scripts import probe_opencv_parity as parity
 spec = importlib.util.spec_from_file_location('postbuild_parity_fixtures', ROOT / 'tests' / 'test_opencv_parity.py')
 fixtures = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixtures)
+
+
+@contextmanager
+def fixture_directory():
+    # Production ROOT comes from __file__.resolve(). Resolve the whole fixture
+    # once, including build/report paths, before replacing that root. Windows
+    # temporary-directory names can otherwise retain a different path spelling.
+    with tempfile.TemporaryDirectory() as directory:
+        yield str(Path(directory).resolve())
 
 
 def fake_wheel(folder, variant='A', changes=None):
@@ -72,7 +82,7 @@ def completed_receipt(action='identity', label='initial', pid=500):
 
 class PostbuildTests(unittest.TestCase):
     def test_official_and_custom_wheels_are_strictly_validated(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             for variant in ('A', 'B'):
                 wheel = postbuild.wheel_identity(fake_wheel(directory, variant), variant)
                 self.assertEqual(wheel['version'], postbuild.VERSIONS[variant])
@@ -82,7 +92,7 @@ class PostbuildTests(unittest.TestCase):
     def test_metadata_name_normalization_preserves_raw_fields_and_exact_hashes(self):
         names = ('opencv-python-headless', 'opencv_python_headless', 'OpenCV_Python_Headless',
                  'OPENCV-PYTHON-HEADLESS', 'opencv.python.headless', 'OpenCV-._Python__Headless')
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             for name in names:
                 with self.subTest(name=name):
                     def change(rows, dist):
@@ -118,7 +128,7 @@ class PostbuildTests(unittest.TestCase):
                    'Name: opencv-python-headless\nVersion: 5.0.0.93+wrong\n',
                    'Name: opencv-python-headless\nVersion: 5.0.0.93 \n',
                    'Name: opencv-python-headless\n', 'Version: 5.0.0.93\n')
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             for text in invalid:
                 with self.subTest(text=text):
                     with self.assertRaises(RuntimeError):
@@ -144,7 +154,7 @@ class PostbuildTests(unittest.TestCase):
                 postbuild.installed_opencv_distribution()
 
     def test_equivalent_names_do_not_relax_exact_installed_metadata_bytes(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheel = postbuild.wheel_identity(fake_wheel(directory), 'A')
             identity = installed(wheel)
             identity['metadata_fields']['raw_name'] = 'opencv_python_headless'
@@ -167,7 +177,7 @@ class PostbuildTests(unittest.TestCase):
             lambda rows, dist: rows.__setitem__(dist + 'WHEEL', b'Tag: cp312-cp312-linux_x86_64\nRoot-Is-Purelib: false\n'),
             lambda rows, dist: rows.__setitem__(dist + 'METADATA', b'Name: opencv-python-headless\nName: other\nVersion: 5.0.0.93\n'),
         ]
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             for mutation in mutations:
                 with self.subTest(mutation=mutation):
                     path = fake_wheel(directory, changes=mutation)
@@ -179,7 +189,7 @@ class PostbuildTests(unittest.TestCase):
                     postbuild.wheel_identity(path, 'A')
 
     def test_rejects_symlink_and_wrong_version_filename(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             path = fake_wheel(directory)
             linked = Path(directory) / 'link.whl'
             try:
@@ -193,7 +203,7 @@ class PostbuildTests(unittest.TestCase):
                 postbuild.wheel_identity(Path(directory) / 'opencv_python_headless-6.0.0-cp37-abi3-win_amd64.whl', 'A')
 
     def test_installed_inventory_rejects_stale_files_changed_metadata_and_native(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheel = postbuild.wheel_identity(fake_wheel(directory), 'A')
             for kind in ('stale', 'missing', 'native', 'metadata', 'version', 'dependencies'):
                 identity = installed(wheel)
@@ -213,7 +223,7 @@ class PostbuildTests(unittest.TestCase):
                     postbuild.verify_installed(identity, wheel, dependencies=installed(wheel)['dependencies'])
 
     def test_only_explicit_pip_metadata_extras_are_allowed(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheel = postbuild.wheel_identity(fake_wheel(directory), 'A')
             identity = installed(wheel)
             prefix = 'opencv_python_headless-' + wheel['version'] + '.dist-info/'
@@ -237,7 +247,7 @@ class PostbuildTests(unittest.TestCase):
         self.assertFalse(str(native_windows_path).endswith('.dist-info/METADATA'))
 
     def test_real_empty_requested_and_package_payload_are_valid_inventory(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheel_path = fake_wheel(directory)
             wheel = postbuild.wheel_identity(wheel_path, 'A')
             site = Path(directory) / 'site-packages'
@@ -279,7 +289,7 @@ class PostbuildTests(unittest.TestCase):
                 postbuild.wheel_identity(empty, 'A')
 
     def test_json_is_bounded_unique_finite_and_non_overwriting(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             path = Path(directory) / 'proof.json'
             for raw in ('{"a":1,"a":2}', '{"a":NaN}'):
                 path.write_text(raw)
@@ -354,7 +364,7 @@ class PostbuildTests(unittest.TestCase):
 
     def run_protocol(self, *, fail=None, unsafe=False, restoration_fail=False, malformed=False):
         context = tempfile.TemporaryDirectory()
-        directory = Path(context.name)
+        directory = Path(context.name).resolve()
         wheels, sources, prepared, baseline, candidate = self.protocol_fixture(directory)
         values = {str(directory / 'reports' / (postbuild.PREFIX + 'prepared.json')): prepared}
         calls = []
@@ -427,7 +437,7 @@ class PostbuildTests(unittest.TestCase):
         self.assertEqual(result['restoration']['error']['message'], 'restore-failure')
 
     def test_probe_validation_rejects_sample_override(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheels, sources, prepared, baseline, candidate = self.protocol_fixture(directory)
             postbuild.validate_block(baseline, wheels['A'], prepared)
             baseline['performance']['capture_synthetic_window']['warmups'] = 3
@@ -478,7 +488,7 @@ class PostbuildTests(unittest.TestCase):
         return stdin, stdout, process, job, reader
 
     def test_live_reader_failed_retirement_never_blocks_on_stdout_close(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             stdin, stdout, process, job, reader = self.runner_fixture(directory, live_reader=True, retirement_failure=True)
             with patch.object(postbuild, 'ROOT', Path(directory)), patch.object(postbuild, 'OwnedJob', return_value=job), \
                     patch.object(postbuild.subprocess, 'Popen', return_value=process), \
@@ -496,7 +506,7 @@ class PostbuildTests(unittest.TestCase):
                 self.assertEqual(len(runner.records), 1)
 
     def test_forced_job_cleanup_is_failure_even_when_all_processes_retire(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             stdin, stdout, process, job, reader = self.runner_fixture(directory, leaked=True)
             with patch.object(postbuild, 'ROOT', Path(directory)), patch.object(postbuild, 'OwnedJob', return_value=job), \
                     patch.object(postbuild.subprocess, 'Popen', return_value=process), \
@@ -511,7 +521,7 @@ class PostbuildTests(unittest.TestCase):
                 self.assertEqual(runner.records[0]['status'], 'failed')
 
     def test_normal_owned_command_records_complete_retirement_and_exact_pid(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             stdin, stdout, process, job, reader = self.runner_fixture(directory)
             with patch.object(postbuild, 'ROOT', Path(directory)), patch.object(postbuild, 'OwnedJob', return_value=job), \
                     patch.object(postbuild.subprocess, 'Popen', return_value=process), \
@@ -529,7 +539,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_stream_or_join_error_still_closes_job_and_forbids_replacement(self):
         for failure in ('close', 'join'):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(failure=failure), fixture_directory() as directory:
                 stdin, stdout, process, job, reader = self.runner_fixture(directory)
                 if failure == 'close':
                     stdout.close.side_effect = OSError('close failed')
@@ -561,7 +571,7 @@ class PostbuildTests(unittest.TestCase):
         self.assertNotEqual(projected['api_results'], baseline['api_results'])
 
     def test_failed_summary_preserves_malformed_raw_hash_and_prepare_error(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             path = postbuild.output_path('prepared')
             postbuild.write_json(path, {'schema_version': 1, 'status': 'failed', 'primary_error': {'message': 'prepare failed'}, 'commands': []})
             bad = postbuild.output_path('A1-probe')
@@ -613,7 +623,7 @@ class PostbuildTests(unittest.TestCase):
         return result
 
     def test_summary_revalidates_raw_reports_identities_order_and_retirement(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory)
             summary = postbuild.summarize()
             self.assertEqual(summary['status'], 'completed', summary['validation_errors'])
@@ -633,7 +643,7 @@ class PostbuildTests(unittest.TestCase):
             self.assertEqual(len(bad['files']['B1-probe']['value']['performance']['capture_synthetic_window']['samples_seconds']), 7)
 
     def test_coherently_rehashed_float_preparation_pid_cannot_match_embedded_integer(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory)
             path = postbuild.output_path('prepare-identity')
             raw = postbuild.read_json(path); raw['run']['pid'] = float(raw['run']['pid'])
@@ -652,7 +662,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_source_and_recomputed_comparison_bindings_are_type_sensitive(self):
         for mutation in ('source', 'comparison'):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(mutation=mutation), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 self.write_summary_fixture(directory)
                 path = postbuild.output_path('result'); value = postbuild.read_json(path)
                 if mutation == 'source':
@@ -666,7 +676,7 @@ class PostbuildTests(unittest.TestCase):
                 self.assertEqual(postbuild.validate_evidence()['status'], 'failed')
 
     def test_installed_native_and_metadata_inventory_records_are_type_sensitive(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             wheel = postbuild.wheel_identity(fake_wheel(directory), 'A')
             for mutation in ('native', 'metadata'):
                 value = installed(wheel)
@@ -678,7 +688,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_summary_rejects_reordered_extra_commands_and_incomplete_block(self):
         for mutation in ('reorder', 'extra', 'block', 'prepare'):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(mutation=mutation), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 self.write_summary_fixture(directory)
                 path = postbuild.output_path('prepared' if mutation == 'prepare' else 'result')
                 value = json.loads(path.read_text())
@@ -707,7 +717,7 @@ class PostbuildTests(unittest.TestCase):
             return postbuild.export()
 
     def test_exact_standard_exports_and_small_receipt_are_independently_revalidated(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             result = self.write_summary_fixture(directory)
             self.assertEqual(len(result['commands']), 10)
             with patch.object(parity, 'compare_reports', wraps=parity.compare_reports) as compare:
@@ -725,7 +735,7 @@ class PostbuildTests(unittest.TestCase):
             self.assertEqual(len(postbuild.EVIDENCE_NAMES), 10)
 
     def test_pure_validators_never_launch_install_capture_export_or_native_code(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory)
             self.export_fixture(directory)
             before = {p.name: p.read_bytes() for p in (Path(directory) / 'reports').iterdir()}
@@ -742,7 +752,7 @@ class PostbuildTests(unittest.TestCase):
             self.assertEqual(before, {p.name: p.read_bytes() for p in (Path(directory) / 'reports').iterdir()})
 
     def test_relative_and_relocated_fixed_evidence_preserves_original_receipt_paths(self):
-        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as relocated, \
+        with fixture_directory() as directory, fixture_directory() as relocated, \
                 patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory)
             original = self.export_fixture(directory)
@@ -763,7 +773,7 @@ class PostbuildTests(unittest.TestCase):
             self.assertEqual(receipt, original)
 
     def test_fixed_record_binding_rejects_wrong_name_shape_hash_size_and_types(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with fixture_directory() as directory:
             path = Path(directory) / 'windows-opencv-build.json'; path.write_bytes(b'{}\n')
             good = postbuild.file_record(path)
             for old_path in (str(path), 'D:\\a\\repository\\reports\\windows-opencv-build.json'):
@@ -787,7 +797,7 @@ class PostbuildTests(unittest.TestCase):
                 postbuild.verify_record(good, path)
 
     def test_selected_evidence_directory_symlink_is_rejected_before_resolution(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory)
             self.export_fixture(directory)
             link = Path(directory) / 'linked-reports'
@@ -801,7 +811,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_exports_require_unchanged_bound_sources_exact_wheels_and_build_proof(self):
         for mutation in ('source', 'wheel', 'build', 'late-source'):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(mutation=mutation), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 result = self.write_summary_fixture(directory)
                 prepared = postbuild.read_json(postbuild.output_path('prepared'))
                 source = copy.deepcopy(prepared['sources'])
@@ -824,7 +834,7 @@ class PostbuildTests(unittest.TestCase):
                     postbuild.validate_export()
 
     def test_host_requires_approved_manual_main_windows_runner(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)), \
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)), \
                 patch.object(postbuild.sys, 'platform', 'win32'), patch.object(postbuild.sys, 'version_info', (3, 12, 10)), \
                 patch.object(postbuild.struct, 'calcsize', return_value=8):
             environment = {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
@@ -839,8 +849,35 @@ class PostbuildTests(unittest.TestCase):
                     with self.subTest(key=key), patch.dict(postbuild.os.environ, {key: value}), self.assertRaises(RuntimeError):
                         postbuild.require_host()
 
+    def test_fixture_path_alias_is_resolved_before_strict_host_and_raw_export_checks(self):
+        with fixture_directory() as actual:
+            component = Path(actual) / 'temporary-path-spelling'
+            component.mkdir()
+            alias = component / '..'
+            self.assertNotEqual(str(alias), str(alias.resolve()))
+            @contextmanager
+            def aliased_allocation():
+                yield str(alias)
+            with patch.object(tempfile, 'TemporaryDirectory', aliased_allocation):
+                with fixture_directory() as directory:
+                    self.assertEqual(directory, str(Path(actual).resolve()))
+                    with patch.object(postbuild, 'ROOT', Path(directory)), \
+                            patch.object(postbuild.sys, 'platform', 'win32'), \
+                            patch.object(postbuild.sys, 'version_info', (3, 12, 10)), \
+                            patch.object(postbuild.struct, 'calcsize', return_value=8):
+                        environment = {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REPOSITORY': 'Junming-Liang/vga-aram-helper',
+                            'GITHUB_REF': 'refs/heads/main', 'GITHUB_WORKSPACE': directory}
+                        with patch.dict(postbuild.os.environ, environment, clear=True):
+                            postbuild.require_host()
+                        self.write_summary_fixture(directory)
+                        self.assertEqual(self.export_fixture(directory)['status'], 'passed')
+                        bundle, receipt = postbuild.validate_export()
+                        self.assertEqual(bundle['status'], 'completed')
+                        self.assertEqual(receipt['status'], 'passed')
+
     def test_source_binding_exports_exact_fixed_inventory_and_commit(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             for name in postbuild.SOURCE_FILES:
                 path = Path(directory) / name; path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes((name + '\n').encode('utf-8'))
@@ -855,7 +892,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_exports_never_overwrite_or_complete_preexisting_partial_outputs(self):
         for name in (*postbuild.EXPORT_NAMES.values(), postbuild.PREFIX + 'export.json'):
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(name=name), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 self.write_summary_fixture(directory)
                 path = Path(directory) / 'reports' / name
                 path.write_bytes(b'earlier evidence')
@@ -868,7 +905,7 @@ class PostbuildTests(unittest.TestCase):
         cases = ('baseline-bytes', 'candidate-bytes', 'parity', 'missing-candidate', 'missing-receipt',
                  'receipt-hash', 'receipt-extra', 'receipt-bool-version', 'receipt-false-role')
         for mutation in cases:
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(mutation=mutation), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 self.write_summary_fixture(directory)
                 self.export_fixture(directory)
                 reports = Path(directory) / 'reports'
@@ -900,7 +937,7 @@ class PostbuildTests(unittest.TestCase):
 
     def test_export_requires_verified_restoration_and_exact_fixed_protocol_role(self):
         for mutation in ('restore', 'scope', 'excluded', 'order'):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+            with self.subTest(mutation=mutation), fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
                 self.write_summary_fixture(directory)
                 path = postbuild.output_path('result'); value = postbuild.read_json(path)
                 if mutation == 'restore':
@@ -918,7 +955,7 @@ class PostbuildTests(unittest.TestCase):
                 self.assertFalse((Path(directory) / 'reports' / postbuild.EXPORT_NAMES['baseline']).exists())
 
     def test_failed_default_parity_keeps_every_sample_but_cannot_validate_for_release(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
+        with fixture_directory() as directory, patch.object(postbuild, 'ROOT', Path(directory)):
             self.write_summary_fixture(directory, candidate_seconds=.3)
             receipt = self.export_fixture(directory)
             self.assertEqual(receipt['status'], 'failed')
