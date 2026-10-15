@@ -64,6 +64,8 @@ jobs:
         run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
       - name: Build bounded HWND-only WGC helper
         run: python scripts/build_wgc_capture.py
+      - name: Build persistent HWND-only WGC helper with the same approved compiler
+        run: python scripts/build_wgc_session_capture.py
       - name: Probe official pinned OpenCV on this Windows runner
         run: python scripts/probe_opencv_parity.py generate --output reports/windows-opencv-baseline.json
       - name: Build hash-pinned minimal OpenCV with the approved Community compiler

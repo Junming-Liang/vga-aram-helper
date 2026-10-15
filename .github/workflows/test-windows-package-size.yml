@@ -60,6 +60,8 @@ jobs:
         run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
       - name: Build bounded HWND-only WGC helper
         run: python scripts/build_wgc_capture.py
+      - name: Build persistent HWND-only WGC helper with the same approved compiler
+        run: python scripts/build_wgc_session_capture.py
       - name: Build single-file EXE with local OCR models
         run: python scripts/build_windows.py
       - name: Install mandatory official browser test dependencies
