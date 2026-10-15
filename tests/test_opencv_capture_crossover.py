@@ -3,6 +3,7 @@ import copy
 import hashlib
 import importlib.util
 from importlib.metadata import PackagePath
+from email.parser import Parser
 import io
 import json
 import os
@@ -52,7 +53,7 @@ def fake_wheel(folder, variant='A', changes=None):
 
 def installed(wheel):
     return {'run': {'id': 'identity', 'pid': 500, 'created_unix': 10},
-        'version': wheel['version'], 'cv_version': '5.0.0',
+        'version': wheel['version'], 'cv_version': '5.0.0', 'metadata_fields': copy.deepcopy(wheel['metadata_fields']),
         'loaded_native': {'path': 'candidate/cv2.pyd', **wheel['native']},
         'package_inventory': copy.deepcopy(wheel['package_inventory']),
         'metadata_inventory': copy.deepcopy(wheel['metadata_inventory']),
@@ -76,6 +77,83 @@ class CrossoverTests(unittest.TestCase):
                 self.assertEqual(wheel['version'], crossover.VERSIONS[variant])
                 self.assertEqual(wheel['native']['size'], 2048)
                 crossover.verify_installed(installed(wheel), wheel)
+
+    def test_metadata_name_normalization_preserves_raw_fields_and_exact_hashes(self):
+        names = ('opencv-python-headless', 'opencv_python_headless', 'OpenCV_Python_Headless',
+                 'OPENCV-PYTHON-HEADLESS', 'opencv.python.headless', 'OpenCV-._Python__Headless')
+        with tempfile.TemporaryDirectory() as directory:
+            for name in names:
+                with self.subTest(name=name):
+                    def change(rows, dist):
+                        rows[dist + 'METADATA'] = ('Name: ' + name + '\nVersion: ' + crossover.VERSIONS['A'] + '\n').encode('ascii')
+                    path = fake_wheel(directory, changes=change)
+                    wheel = crossover.wheel_identity(path, 'A')
+                    self.assertEqual(wheel['metadata_fields'], {'raw_name': name, 'raw_version': crossover.VERSIONS['A'],
+                                                               'normalized_name': 'opencv-python-headless'})
+                    crossover.verify_installed(installed(wheel), wheel)
+                    raw = ('Name: ' + name + '\nVersion: ' + crossover.VERSIONS['A'] + '\n').encode('ascii')
+                    metadata_name = 'opencv_python_headless-' + crossover.VERSIONS['A'] + '.dist-info/METADATA'
+                    self.assertEqual(wheel['metadata_inventory'][metadata_name], crossover.bytes_record(raw))
+            # Keep the unchanged builder's secondary custom-wheel checks intact.
+            for name in ('opencv_python_headless', 'OpenCV-Python-Headless'):
+                def change_custom(rows, dist):
+                    rows[dist + 'METADATA'] = ('Name: ' + name + '\nVersion: ' + crossover.VERSIONS['B'] + '\n').encode('ascii')
+                wheel = crossover.wheel_identity(fake_wheel(directory, 'B', change_custom), 'B')
+                self.assertEqual(wheel['metadata_fields']['raw_name'], name)
+                crossover.verify_installed(installed(wheel), wheel)
+
+    def test_metadata_rejects_invalid_ascii_names_duplicates_and_wrong_versions(self):
+        names = ('', '-opencv-python-headless', 'opencv-python-headless.', 'opencv python headless',
+                 'opencv/python/headless', 'opencv-python-headless\n', 'opencK-python-headless',
+                 'opencv-python-headless\x00', 'opencv-python', 'opencv-python-headless-extra')
+        for name in names:
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                if '\n' in name:
+                    crossover.normalized_distribution_name(name)
+                else:
+                    crossover.metadata_identity(Parser().parsestr('Name: ' + name + '\nVersion: 5.0.0.93\n'))
+        invalid = ('Name: opencv-python-headless\nName: opencv_python_headless\nVersion: 5.0.0.93\n',
+                   'Name: opencv-python-headless\nVersion: 5.0.0.93\nVersion: 5.0.0.93\n',
+                   'Name: opencv-python-headless\nVersion: 5.0.0.93+wrong\n',
+                   'Name: opencv-python-headless\nVersion: 5.0.0.93 \n',
+                   'Name: opencv-python-headless\n', 'Version: 5.0.0.93\n')
+        with tempfile.TemporaryDirectory() as directory:
+            for text in invalid:
+                with self.subTest(text=text):
+                    with self.assertRaises(RuntimeError):
+                        crossover.metadata_identity(Parser().parsestr(text), expected_version=crossover.VERSIONS['A'])
+                    path = fake_wheel(directory, changes=lambda rows, dist: rows.__setitem__(dist + 'METADATA', text.encode()))
+                    with self.assertRaises(RuntimeError):
+                        crossover.wheel_identity(path, 'A')
+
+    def test_installed_distribution_name_rules_reject_conflicts_and_duplicate_headers(self):
+        def distribution(name='OpenCV_Python_Headless', extra='', version='5.0.0.93'):
+            return Mock(metadata=Parser().parsestr('Name: ' + name + '\nVersion: ' + version + '\n' + extra), version=version)
+        for name in ('OpenCV_Python_Headless', 'opencv.python.headless', 'opencv--python__headless'):
+            item = distribution(name)
+            with patch.object(crossover.importlib.metadata, 'distributions', return_value=[item]):
+                selected, fields = crossover.installed_opencv_distribution()
+                self.assertIs(selected, item)
+                self.assertEqual(fields['raw_name'], name)
+        for items in ([distribution(), distribution()], [distribution(), distribution('opencv-python')],
+                      [distribution(extra='Name: unrelated\n')], [distribution(extra='Version: 5.0.0.93\n')],
+                      [distribution(version='5.0.0.93+wrong')], [distribution(name='opencv python headless')],
+                      [distribution(name='unrelated', extra='Name: opencv-python-headless\n')]):
+            with patch.object(crossover.importlib.metadata, 'distributions', return_value=items), self.assertRaises(RuntimeError):
+                crossover.installed_opencv_distribution()
+
+    def test_equivalent_names_do_not_relax_exact_installed_metadata_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = crossover.wheel_identity(fake_wheel(directory), 'A')
+            identity = installed(wheel)
+            identity['metadata_fields']['raw_name'] = 'opencv_python_headless'
+            with self.assertRaises(RuntimeError):
+                crossover.verify_installed(identity, wheel)
+            identity = installed(wheel)
+            key = 'opencv_python_headless-' + crossover.VERSIONS['A'] + '.dist-info/METADATA'
+            identity['metadata_inventory'][key] = crossover.bytes_record(b'Name: opencv_python_headless\nVersion: 5.0.0.93\n')
+            with self.assertRaises(RuntimeError):
+                crossover.verify_installed(identity, wheel)
 
     def test_rejects_metadata_version_native_archive_path_and_budget(self):
         mutations = [
@@ -176,7 +254,8 @@ class CrossoverTests(unittest.TestCase):
             (metadata / 'RECORD').write_bytes(b'pip-rewritten-record')
             fake = SimpleNamespace(__file__=str(site / 'cv2' / '__init__.py'), __version__='5.0.0',
                 _native=SimpleNamespace(__file__=str(site / 'cv2' / 'cv2.pyd')))
-            distribution = Mock(metadata={'Name': 'opencv-python-headless'}, version=crossover.VERSIONS['A'], files=files)
+            distribution = Mock(metadata=Parser().parsestr((metadata / 'METADATA').read_text()),
+                                version=crossover.VERSIONS['A'], files=files)
             distribution.locate_file.side_effect = lambda path: site / path
             with patch.dict(sys.modules, {'cv2': fake}), patch.object(sys, 'prefix', directory), \
                     patch.object(crossover.importlib.metadata, 'distributions', return_value=[distribution]), \
@@ -258,6 +337,8 @@ class CrossoverTests(unittest.TestCase):
         wheels = {}
         for variant, report in (('A', baseline), ('B', candidate)):
             wheels[variant] = {'version': crossover.VERSIONS[variant],
+                'metadata_fields': {'raw_name': 'opencv-python-headless', 'raw_version': crossover.VERSIONS[variant],
+                                    'normalized_name': 'opencv-python-headless'},
                 'wheel': {'path': variant + '.whl', 'size': 100, 'sha256': variant.lower() * 64},
                 'native': {'size': report['native']['size'], 'sha256': report['native']['sha256']},
                 'package_inventory': {}, 'metadata_inventory': {}, 'cache_exclusion_rule': crossover.CACHE_RULE}
