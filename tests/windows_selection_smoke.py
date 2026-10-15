@@ -46,11 +46,11 @@ LEGACY_FIELDS = ('process_exited', 'owned_processes_exited', 'game_launched_afte
 SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
     'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
     'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
-SOURCE_FILES = ('native_ui.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
+SOURCE_FILES = ('native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
     'persistent_capture_adapter.py', 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
     'hero_strength.py', 'champion_select.py', 'selection_session.py', 'session_windows.py',
     'selection_smoke.py', 'synthetic_vision.py', 'launcher.py', 'tests/windows_selection_smoke.py',
-    'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs',
+    'owned_diagnostic_json.py', 'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs',
     'fixtures/demo.json', 'fixtures/champselect-synthetic.png', 'fixtures/auto-scene.png')
 EXPECTED_REFERENCE = {'hero': '星火术士（演示）', 'championId': '9001', 'sourceTier': 'T5',
     'sourceTierLabel': '虚构英雄评级（演示）', 'sourceLabel': '虚构演示 · 不能用于对局',

@@ -41,10 +41,10 @@ from windows_selection_smoke import (assert_owned_window, child_environment,
 from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 
 MAX_SECONDS = 240
-SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'screen_capture.py', 'session_windows.py',
+SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
                 'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
-                'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'tests/windows_session_fixture.py')
+                'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
 WM_RECREATE_OWNED = 0x8000 + 73
 SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process metadata, '
          'Qt lifecycle, z-order guards and bounded OS pixels. Publisher verification '

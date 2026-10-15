@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 import re
 
-SOURCE_FILES = ('native_smoke.py', 'native_ui.py', 'hero_recognition.py', 'hero_portraits.py',
+SOURCE_FILES = ('native_smoke.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'hero_recognition.py', 'hero_portraits.py',
     'local_ocr.py', 'ocr_privacy.py', 'model_inventory.py', 'frame_ocr_cache.py', 'native_state.py',
     'screen_capture.py', 'wgc_capture.py', 'persistent_capture_adapter.py', 'wgc_session_capture.py',
     'native/wgc_session_capture.cpp', 'native/wgc_capture.cpp', 'scripts/build_wgc_session_capture.py',

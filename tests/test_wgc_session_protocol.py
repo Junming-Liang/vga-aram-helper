@@ -464,6 +464,42 @@ class WrapperTests(unittest.TestCase):
         self.spawn = self.stack.enter_context(patch.object(session.subprocess, 'Popen', side_effect=lambda *a, **kw: self.process))
         self.stack.enter_context(patch.object(session, '_CaptureJob', return_value=self.job))
 
+    def test_visible_capability_requires_registration_before_any_helper_launch(self):
+        self.capture._allow_visible_overlay = True
+        with self.assertRaises(WgcError):
+            self.capture.capture(self.target, self.rect, ROI)
+        self.spawn.assert_not_called()
+
+    def test_explicit_visible_startup_has_distinct_flag_and_full_standard_style(self):
+        self.capture._allow_visible_overlay = True
+        user = SimpleNamespace(GetWindowLongPtrW=Mock(return_value=0x90000000))
+        with patch.object(session, '_register_owned_overlay'), \
+             patch.object(session, '_window_api', return_value=user), \
+             patch('ctypes.set_last_error', create=True), \
+             patch('ctypes.get_last_error', return_value=0, create=True), \
+             patch.object(session, '_remove_owned_overlay'):
+            self.capture.register_idle_overlay(456, session.REQUIRED_OVERLAY_STYLE, 1)
+            self.capture.capture(self.target, self.rect, ROI)
+            args = self.spawn.call_args.args[0]
+            self.assertEqual(args[1], '--session-v2-visible-owned-overlay')
+            self.assertEqual(args[-5:], ['456', str(session.REQUIRED_OVERLAY_STYLE),
+                                        '555', '7', str(0x90000000)])
+            self.wait_cleanup()
+
+    def test_failed_complete_style_query_removes_token_and_cannot_launch(self):
+        self.capture._allow_visible_overlay = True
+        user = SimpleNamespace(GetWindowLongPtrW=Mock(return_value=0))
+        with patch.object(session, '_register_owned_overlay'), \
+             patch.object(session, '_window_api', return_value=user), \
+             patch('ctypes.set_last_error', create=True), \
+             patch('ctypes.get_last_error', return_value=5, create=True), \
+             patch.object(session, '_remove_owned_overlay') as remove:
+            with self.assertRaises(WgcError):
+                self.capture.register_idle_overlay(456, session.REQUIRED_OVERLAY_STYLE, 1)
+            remove.assert_called_once_with(456, 555, 99)
+        self.assertIsNone(self.capture._overlay)
+        self.spawn.assert_not_called()
+
     def wait_cleanup(self):
         self.capture.close()
         transport = self.capture._transport
@@ -857,8 +893,9 @@ class NativeSourceParityTests(unittest.TestCase):
     def test_registered_overlay_hidden_at_every_strict_guard(self):
         validate = self.new[self.new.index('Geometry validate('):self.new.index('int64_t qpc_100ns(')]
         self.assertIn('validate_overlay(p);', validate)
-        self.assertIn('if (!idle) require(!IsWindowVisible(p.overlay)', validate)
-        self.assertIn('idle ? &p : nullptr', validate)
+        self.assertIn('if (!idle && !p.allow_visible_overlay)', validate)
+        self.assertIn('require(!IsWindowVisible(p.overlay)', validate)
+        self.assertIn('(idle || p.allow_visible_overlay) ? &p : nullptr', validate)
         # Explicit hidden check applies regardless of overlap, position or z-order.
         self.assertLess(validate.index('"overlay-hidden"'), validate.index('ZOrder order'))
         self.assertIn('scope.idle && hwnd == scope.idle->overlay', self.new)
@@ -881,6 +918,27 @@ class NativeSourceParityTests(unittest.TestCase):
         self.assertIn('require(idle.entered >= frame_time, stale, "frame-timestamp");', self.new)
         self.assertIn('SecureZeroMemory(pixels.data(), pixels.size()); pixels.clear();', self.new)
         self.assertIn('~SensitivePixels()', self.new)
+
+    def test_visible_guards_bracket_gpu_cpu_and_output_operations(self):
+        body = self.new[self.new.index('        phase("validate-before-copy");'):]
+        ordered = ('phase("validate-before-copy");', 'context->CopySubresourceRegion(',
+                   'phase("validate-after-copy");', 'context->Map(',
+                   'phase("validate-after-map");', 'std::memcpy(',
+                   'phase("validate-final");', 'write_all(pixels.data()',
+                   'phase("validate-final");', 'phase("validate-idle");',
+                   'write_all(&idle, sizeof(idle));')
+        cursor = 0
+        for marker in ordered:
+            found = body.index(marker, cursor)
+            if marker.startswith('phase("validate-'):
+                following = body.index('validate(p, &geometry', found)
+                self.assertLess(following - found, 100)
+            cursor = found + len(marker)
+        self.assertIn('window_style == p.overlay_window_style', self.new)
+        self.assertIn('color == 0 && alpha == 255 && flags == LWA_ALPHA', self.new)
+        self.assertIn('std::wstring(argv[1]) == L"--session-v2-visible-owned-overlay"', self.new)
+        self.assertIn('visible && argc == 16', self.new)
+        self.assertIn('!visible && argc == 15', self.new)
 
     def test_native_clock_uses_only_existing_samples_and_resets_on_phase_change(self):
         self.assertEqual(self.new.count('qpc_100ns('), 4)  # Definition, cutoff, each readiness check and idle.
@@ -1299,6 +1357,18 @@ int main() {
 #define CALLBACK
 using DWORD = uint32_t;
 using BOOL = int;
+using BYTE = uint8_t;
+using COLORREF = DWORD;
+constexpr DWORD LWA_ALPHA = 2;
+void SetLastError(DWORD) {}
+DWORD GetLastError() { return 0; }
+bool changed(char const*);
+BOOL GetLayeredWindowAttributes(void*, COLORREF* color, BYTE* alpha, DWORD* flags) {
+    *color = changed("overlay-color-key") ? 1 : 0;
+    *alpha = changed("overlay-opacity") ? 254 : 255;
+    *flags = changed("overlay-alpha-flags") ? 3 : LWA_ALPHA;
+    return !changed("overlay-opacity-query");
+}
 using HANDLE = void*;
 using HWND = void*;
 using LPARAM = intptr_t;
@@ -1319,6 +1389,7 @@ HWND const target_hwnd = reinterpret_cast<HWND>(1), overlay_hwnd = reinterpret_c
     occluder_hwnd = reinterpret_cast<HWND>(3);
 HANDLE const parent_handle = reinterpret_cast<HANDLE>(4), event_handle = reinterpret_cast<HANDLE>(5);
 std::string scenario;
+bool visible_mode = false, force_mutation = false;
 uint64_t elapsed_ms = 0;
 int waits = 0, validation_calls = 0, counter_calls = 0, frequency_calls = 0,
     frame_reads = 0, pool_calls = 0, content_calls = 0, frame_closes = 0,
@@ -1326,7 +1397,7 @@ int waits = 0, validation_calls = 0, counter_calls = 0, frequency_calls = 0,
 int64_t initial_now = 200;
 std::vector<DWORD> waited;
 std::vector<uint64_t> validated_at;
-bool changed(char const* name) { return waits > 0 && scenario == name; }
+bool changed(char const* name) { return (waits > 0 || force_mutation) && scenario == name; }
 bool SUCCEEDED(int result) { return result >= 0; }
 bool CloseHandle(HANDLE) { return true; }
 HANDLE CreateEventW(void*, BOOL, BOOL, void*) { return event_handle; }
@@ -1349,7 +1420,7 @@ HANDLE OpenProcess(DWORD access, BOOL, DWORD pid) {
 }
 BOOL GetProcessTimes(HANDLE handle, FILETIME* created, FILETIME*, FILETIME*, FILETIME*) {
     created->dwHighDateTime = 0;
-    created->dwLowDateTime = handle == parent_handle ? 200000 :
+    created->dwLowDateTime = handle == parent_handle ? (changed("parent-created") ? 200001 : 200000) :
         (changed("process-created") ? 100001 : 100000);
     return TRUE;
 }
@@ -1364,21 +1435,25 @@ BOOL IsWindow(HWND hwnd) {
              (hwnd == overlay_hwnd && changed("overlay-owner")));
 }
 BOOL IsWindowVisible(HWND hwnd) {
-    if (hwnd == overlay_hwnd) return changed("overlay-hidden");
-    if (hwnd == occluder_hwnd) return changed("occluder-overlap");
+    if (hwnd == overlay_hwnd) return visible_mode || changed("overlay-hidden");
+    if (hwnd == occluder_hwnd) return changed("occluder-overlap") || changed("second-samepid");
     return TRUE;
 }
 BOOL IsIconic(HWND hwnd) { return hwnd == target_hwnd && changed("minimized"); }
 HWND GetAncestor(HWND hwnd, int flag) { assert(flag == GA_ROOT); return hwnd; }
 HWND GetForegroundWindow() { return changed("foreground-root") ? overlay_hwnd : target_hwnd; }
 DWORD GetWindowThreadProcessId(HWND hwnd, DWORD* out) {
-    *out = hwnd == target_hwnd ? (changed("window-process") ? 78 : 77) : 99; return 1;
+    *out = hwnd == target_hwnd ? (changed("window-process") ? 78 : 77) :
+        (hwnd == overlay_hwnd && changed("overlay-owner-pid") ? 100 : 99); return 1;
 }
 HANDLE GetPropW(HWND hwnd, wchar_t const* name) {
     assert(hwnd == overlay_hwnd && std::wstring(name) == L"VGA.WGC.SessionV2.Overlay.555");
-    return reinterpret_cast<HANDLE>(changed("overlay-generation") ? 556 : 555);
+    return reinterpret_cast<HANDLE>(changed("overlay-reused-hwnd") ? 0 :
+        (changed("overlay-generation") ? 556 : 555));
 }
 intptr_t GetWindowLongPtrW(HWND hwnd, int field) {
+    if (hwnd == overlay_hwnd && field == GWL_STYLE)
+        return 0x90000000 | (changed("overlay-window-style") ? 1 : 0);
     if (hwnd != overlay_hwnd || field != GWL_EXSTYLE) return 0;
     return WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
         (changed("overlay-style") ? 0 : WS_EX_TRANSPARENT);
@@ -1405,6 +1480,7 @@ BOOL GetMonitorInfoW(HANDLE, MONITORINFO* out) {
     out->rcMonitor = {changed("client-on-monitor") ? 100 : 0, 0, 1000, 1000}; return TRUE;
 }
 BOOL EnumWindows(BOOL (*callback)(HWND, LPARAM), LPARAM argument) {
+    if (visible_mode && !callback(overlay_hwnd, argument)) return TRUE;
     if (callback(occluder_hwnd, argument)) callback(target_hwnd, argument); return TRUE;
 }
 """ + metadata + failure + handles + inputs + geometry + r"""
@@ -1464,6 +1540,43 @@ int main(int argc, char** argv) {
     Input p{target_hwnd, 77, 100000, 8, 31, 320, 240, 99, 200000, overlay_hwnd,
             required_overlay_style, 555, 7, parent_handle};
     Geometry geometry{{7, 0, 329, 272}, {0, 0, 336, 279}, {8, 31}, {0, 0, 320, 240}};
+    if (scenario.rfind("visible:", 0) == 0) {
+        // Execute the real native validator at each readback/output guard with
+        // controlled state changes. This is not a WGC or Windows pixel test.
+        auto separator = scenario.find(':', 8);
+        assert(separator != std::string::npos);
+        int mutate_at = std::stoi(scenario.substr(8, separator - 8));
+        scenario = scenario.substr(separator + 1);
+        visible_mode = true;
+        p.allow_visible_overlay = scenario != "strict-hidden";
+        p.overlay_window_style = 0x90000000;
+        char const* phases[] = {"validate-before-copy", "validate-after-copy",
+            "validate-after-map", "validate-final", "validate-final"};
+        int passed = 0; std::string rejected;
+        try {
+            for (int stage = 0; stage < 5; ++stage) {
+                force_mutation = stage == mutate_at;
+                phase(phases[stage]);
+                validate(p, &geometry);
+                ++passed;
+            }
+        } catch (Failure const& error) { rejected = error.check; }
+        if (scenario == "valid") assert(passed == 5 && rejected.empty());
+        else if (scenario == "strict-hidden") assert(passed == 0 && rejected == "overlay-hidden");
+        else {
+            assert(passed == mutate_at);
+            std::string expected = scenario;
+            if (scenario == "parent-created") expected = "parent-lifetime";
+            if (scenario == "overlay-owner-pid") expected = "overlay-owner";
+            if (scenario == "overlay-window-style") expected = "overlay-style";
+            if (scenario == "overlay-reused-hwnd") expected = "overlay-generation";
+            if (scenario == "overlay-color-key" || scenario == "overlay-alpha-flags" ||
+                scenario == "overlay-opacity-query") expected = "overlay-opacity";
+            if (scenario == "second-samepid") expected = "occluder-overlap";
+            assert(rejected == expected);
+        }
+        return 0;
+    }
     Size size{336, 279};
     auto signal = std::make_shared<CaptureSignal>(); active_signal = signal.get();
     struct { uint32_t wait_ms; } request{60};
@@ -1564,6 +1677,13 @@ ACTUAL_LOOP
                  'overlay-affinity', 'overlay-hidden', 'window-visible', 'minimized', 'foreground-root',
                  'window-process', 'process-created', 'window-uncloaked', 'display-affinity', 'client-geometry',
                  'geometry-stable', 'client-on-monitor', 'occluder-overlap')
+        cases += tuple('visible:%d:%s' % (stage, name) for stage in range(5)
+                       for name in ('valid', 'strict-hidden', 'overlay-owner', 'overlay-owner-pid',
+                           'overlay-generation', 'overlay-reused-hwnd', 'parent-lifetime', 'parent-created',
+                           'overlay-style', 'overlay-window-style', 'overlay-affinity', 'overlay-opacity',
+                           'overlay-color-key', 'overlay-alpha-flags', 'overlay-opacity-query',
+                           'overlay-support', 'occluder-overlap', 'second-samepid',
+                           'foreground-root', 'process-created', 'client-geometry', 'display-affinity'))
         with tempfile.TemporaryDirectory() as directory:
             source, binary = Path(directory) / 'readiness.cpp', Path(directory) / 'readiness.exe'
             source.write_text(harness)

@@ -15,6 +15,7 @@ from unittest.mock import Mock, call, patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import windows_session_fixture as fixture
+import owned_diagnostic_json as polling
 import windows_automatic_capture as automatic
 import windows_ota_smoke as ota
 import windows_selection_smoke as selection
@@ -90,7 +91,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
         path = Path('owned-ready.json')
         value = ready_payload(note='完整的就绪证据')
         reader = Mock(side_effect=[FileNotFoundError(errno.ENOENT, 'Not yet'), read_error(), value])
-        with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+        with patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
             for index, expected in enumerate((None, None, value), 1):
                 self.assertIs(fixture.poll_owned_json(path, reader), expected)
                 self.assertEqual(reader.call_count, index)
@@ -100,7 +101,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
         for error in (read_error(5), read_error(32), read_error(33), read_error()):
             with self.subTest(winerror=getattr(error, 'winerror', None)):
                 reader = Mock(side_effect=error)
-                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                with patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
                     self.assertIsNone(fixture.poll_owned_json('owned', reader))
                 reader.assert_called_once_with('owned')
 
@@ -109,7 +110,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
             with self.subTest(code=code):
                 error = read_error(code)
                 reader = Mock(side_effect=error)
-                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                with patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
                     with self.assertRaises(PermissionError) as caught:
                         fixture.poll_owned_json('owned', reader)
                 self.assertIs(caught.exception, error)
@@ -118,7 +119,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
     def test_a_previous_success_is_never_returned_during_later_denial(self):
         old, new = ready_payload(hwnd=199), ready_payload(hwnd=200)
         reader = Mock(side_effect=[old, read_error(32), FileNotFoundError(), new])
-        with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+        with patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
             self.assertIs(fixture.poll_owned_json('owned', reader), old)
             self.assertIsNone(fixture.poll_owned_json('owned', reader))
             self.assertIsNone(fixture.poll_owned_json('owned', reader))
@@ -133,7 +134,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
             for error in errors:
                 with self.subTest(platform=platform, error=error, winerror=getattr(error, 'winerror', None)):
                     reader = Mock(side_effect=error)
-                    with patch.object(fixture, 'sys', SimpleNamespace(platform=platform)):
+                    with patch.object(polling, 'sys', SimpleNamespace(platform=platform)):
                         with self.assertRaises(OSError) as caught:
                             fixture.poll_owned_json('owned', reader)
                     self.assertIs(caught.exception, error)
@@ -169,7 +170,7 @@ class OwnedJsonPollingTests(unittest.TestCase):
             path.write_text('[]', encoding='utf-8')
             self.assertEqual(ota.read_json(path), [])  # Object policy belongs only to live polling.
             error = read_error(32)
-            with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')), \
+            with patch.object(polling, 'sys', SimpleNamespace(platform='win32')), \
                  patch.object(Path, 'open', side_effect=error):
                 with self.assertRaises(PermissionError) as caught:
                     ota.read_json(path)
@@ -198,7 +199,7 @@ class ReadinessConsumerTests(unittest.TestCase):
                 value = ready_payload()
                 reader = Mock(side_effect=[FileNotFoundError(), read_error(), value])
                 predicate, namespace = self.automatic_callback(name, reader)
-                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                with patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
                     self.assertIsNone(predicate())
                     self.assertIsNone(predicate())
                     namespace['validate_ready'].assert_not_called()
@@ -265,7 +266,7 @@ class ReadinessConsumerTests(unittest.TestCase):
                     predicate, namespace = self.automatic_callback(name, reader)
                     app = SimpleNamespace(processEvents=Mock())
                     with patch.object(automatic, 'time', clock), patch.object(ota, 'time', clock), \
-                         patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                         patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
                         budget = ota.Deadline(overall)
                         original_end = budget.end
                         with patch.object(budget, 'until', wraps=budget.until) as until:
@@ -284,7 +285,7 @@ class ReadinessConsumerTests(unittest.TestCase):
         for value in ({'phase': 'await-game-window'}, {'status': 'passed'}):
             reader = Mock(side_effect=[read_error(32), value])
             with patch.object(selection, 'read_json', reader), \
-                 patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                 patch.object(polling, 'sys', SimpleNamespace(platform='win32')):
                 terminal = value.get('status') == 'passed'
                 self.assertIsNone(selection.report_when('owned', 'await-game-window', terminal=terminal))
                 self.assertIs(selection.report_when('owned', 'await-game-window', terminal=terminal), value)

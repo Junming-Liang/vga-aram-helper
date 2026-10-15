@@ -25,7 +25,7 @@ from engine import load_data
 from screen_capture import CaptureUnavailable,ClientRect
 from app_version import __version__
 
-SOURCE_FILES=('native_ui.py','overlay_geometry.py','native_smoke.py','tests/native_design_qt_validation.py','fixtures/demo.json','app_version.py','hero_strength.py')
+SOURCE_FILES=('native_ui.py', 'portrait_display.py', 'local_debug.py','overlay_geometry.py','native_smoke.py','tests/native_design_qt_validation.py','fixtures/demo.json','app_version.py','hero_strength.py')
 
 class PresentationCapture:
     """Only existing window setup hooks; no pixels, discovery or OS calls."""
@@ -122,7 +122,7 @@ def main():
             assert w.last_candidates and not w.state.confirmed and not w.overlay.isVisible()
             w.scroll.ensureWidgetVisible(w.history_view);app.processEvents()
             save(w,'control-last-candidates','Actual separate last-candidates memory view after invalidation; final selected augment explicitly unknown')
-            w.show_page('settings');save(w,'control-settings','Actual retained settings controls; presentation-only fixture')
+            w.show_page('settings');app.processEvents();w.scroll.ensureWidgetVisible(w.debug_export_button);app.processEvents();assert w.debug_export_button.isVisibleTo(w);save(w,'control-settings','Actual settings with reachable default-off local debug toggle and local ZIP export; presentation-only fixture')
             w.show_page('about');save(w,'control-about','Actual source version, safety limitations and update controls')
             w.invalidate_scene('Owned presentation scene invalidated');dashboard()
             assert not w.state.confirmed and w.hero_title.text()=='等待识别' and all(v['name'].text()=='等待识别' for v in w.candidate_views)

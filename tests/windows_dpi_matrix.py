@@ -215,7 +215,7 @@ def clean_child_environment(environ, scale):
 
 
 def source_metadata(implementation, support):
-    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py')]
+    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'portrait_display.py', 'local_debug.py')]
     return [dict(path=str(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
             for p in files if p.is_file()]
 
