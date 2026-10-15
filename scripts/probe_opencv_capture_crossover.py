@@ -169,6 +169,47 @@ def expected_wheel(variant):
     return path
 
 
+def normalized_distribution_name(name):
+    # PyPA: https://packaging.python.org/en/latest/specifications/name-normalization/
+    # Explicit ASCII ranges and fullmatch reject Unicode lookalikes/trailing newlines.
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?', name):
+        raise RuntimeError('Distribution Name is not a valid ASCII project name')
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
+def metadata_identity(fields, *, expected_version=None):
+    names, versions = fields.get_all('Name', []), fields.get_all('Version', [])
+    if len(names) != 1 or len(versions) != 1:
+        raise RuntimeError('Distribution METADATA requires exactly one Name and one Version')
+    normalized = normalized_distribution_name(names[0])
+    if (normalized != 'opencv-python-headless' or versions[0] not in VERSIONS.values()
+            or (expected_version is not None and versions[0] != expected_version)):
+        raise RuntimeError('Distribution METADATA name/exact version differs')
+    return {'raw_name': names[0], 'raw_version': versions[0], 'normalized_name': normalized}
+
+
+def installed_opencv_distribution():
+    candidates = []
+    opencv_names = {'opencv-python-headless', 'opencv-python', 'opencv-contrib-python', 'opencv-contrib-python-headless'}
+    for distribution in importlib.metadata.distributions():
+        fields = distribution.metadata
+        recognized = False
+        for name in fields.get_all('Name', []):
+            try:
+                recognized |= normalized_distribution_name(name) in opencv_names
+            except RuntimeError:
+                continue
+        if recognized:
+            candidates.append((distribution, fields))
+    if len(candidates) != 1:
+        raise RuntimeError('Installed OpenCV distributions are conflicting or duplicated')
+    distribution, fields = candidates[0]
+    identity = metadata_identity(fields)
+    if distribution.version != identity['raw_version']:
+        raise RuntimeError('Installed distribution Version disagrees with raw METADATA')
+    return distribution, identity
+
+
 def wheel_identity(path, variant):
     path = regular(path, maximum=MAX_WHEEL_BYTES)
     version = VERSIONS[variant]
@@ -212,8 +253,7 @@ def wheel_identity(path, variant):
         if directory != 'opencv_python_headless-' + version + '.dist-info' or any(not name.startswith(directory + '/') for name in metadata):
             raise RuntimeError('Wheel distribution metadata directory differs')
         fields = Parser().parsestr(archive.read(metadata_names[0]).decode('utf-8'))
-        if (fields.get_all('Name') != ['opencv-python-headless'] or fields.get_all('Version') != [version]):
-            raise RuntimeError('Wheel metadata name/version differs')
+        fields_identity = metadata_identity(fields, expected_version=version)
         wheel_name = directory + '/WHEEL'
         wheel_fields = Parser().parsestr(archive.read(wheel_name).decode('utf-8'))
         if (wheel_fields.get_all('Tag') != [python_tag + '-' + abi + '-win_amd64']
@@ -233,7 +273,8 @@ def wheel_identity(path, variant):
         checked = builder.validate_wheel(path)
         if any(checked['native'][key] != inventory['cv2/cv2.pyd'][key] for key in ('size', 'sha256')):
             raise RuntimeError('Custom native validation disagrees')
-    return {'version': version, 'wheel': file_record(path, maximum=MAX_WHEEL_BYTES),
+    return {'version': version, 'metadata_fields': fields_identity,
+            'wheel': file_record(path, maximum=MAX_WHEEL_BYTES),
             'native': inventory['cv2/cv2.pyd'], 'package_inventory': inventory,
             'metadata_inventory': metadata, 'cache_exclusion_rule': CACHE_RULE}
 
@@ -241,12 +282,7 @@ def wheel_identity(path, variant):
 def installed_identity():
     """Only called in a separate gated identity child, never the supervisor/probe."""
     import cv2
-    distributions = [distribution for distribution in importlib.metadata.distributions()
-        if re.sub('[-_.]+', '-', distribution.metadata.get('Name', '')).lower()
-        in {'opencv-python-headless', 'opencv-python', 'opencv-contrib-python', 'opencv-contrib-python-headless'}]
-    if len(distributions) != 1 or distributions[0].metadata['Name'] != 'opencv-python-headless':
-        raise RuntimeError('Installed OpenCV distributions are conflicting or duplicated')
-    distribution = distributions[0]
+    distribution, fields_identity = installed_opencv_distribution()
     files = list(distribution.files or [])
     metadata_paths = [file for file in files if str(file).endswith('.dist-info/METADATA')]
     if len(metadata_paths) != 1:
@@ -277,7 +313,7 @@ def installed_identity():
             continue
         metadata[path.relative_to(site).as_posix()] = bytes_record(regular(path, allow_empty=True).read_bytes())
     return {'run': {'id': str(uuid.uuid4()), 'pid': os.getpid(), 'created_unix': time.time()},
-            'version': distribution.version, 'cv_version': cv2.__version__,
+            'version': distribution.version, 'cv_version': cv2.__version__, 'metadata_fields': fields_identity,
             'loaded_native': file_record(native, maximum=200_000_000),
             'package_inventory': inventory, 'metadata_inventory': metadata,
             'dependencies': {name: importlib.metadata.version(name) for name in (*parity.DEPENDENCIES, 'PySide6-Essentials')},
@@ -285,6 +321,15 @@ def installed_identity():
 
 
 def verify_installed(identity, wheel, *, dependencies=None):
+    for value in (identity, wheel):
+        fields = value.get('metadata_fields')
+        if (not isinstance(fields, dict) or set(fields) != {'raw_name', 'raw_version', 'normalized_name'}
+                or normalized_distribution_name(fields['raw_name']) != 'opencv-python-headless'
+                or fields['normalized_name'] != 'opencv-python-headless' or fields['raw_version'] != value['version']
+                or value['version'] not in VERSIONS.values()):
+            raise RuntimeError('Recorded raw distribution metadata identity differs')
+    if not same(identity['metadata_fields'], wheel['metadata_fields']):
+        raise RuntimeError('Installed raw Name/Version fields differ from exact wheel')
     if (identity['version'] != wheel['version'] or identity['cv_version'] != '5.0.0'
             or identity['cache_exclusion_rule'] != CACHE_RULE
             or any(identity['loaded_native'][key] != wheel['native'][key] for key in ('size', 'sha256'))
