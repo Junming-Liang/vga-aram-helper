@@ -1,7 +1,32 @@
 # Windows package size
 
-v0.4.6 retains the reviewed minimal OpenCV source-build recipe adopted in v0.4.4.
-Published tags/assets remain immutable. Earlier release and experimental measurements are preserved separately below.
+v0.4.7 retains the reviewed `minimal-opencv-v1` recipe adopted in v0.4.4.
+Earlier release and experimental measurements are preserved separately below.
+
+## Measured final v0.4.7 release
+
+[Windows release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941) passed all required gates and published [v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7).
+
+- Source/tag: `1046af25d66e12c784554c38351e75ed82afa81b`; tree `74f1bcaaad84a4fd08d05360c7cd474348f2cdc5`
+- Final EXE: **106,858,822 bytes (101.91 MiB)**
+- SHA-256: `96bc81fcb12dc48c45e210706b358eb5eeccc062574166b440bf1452f4000547`
+- Change from v0.4.6: **+305,780 bytes**; below the unchanged **110,000,000-byte** ceiling
+- All 15 public asset names, sizes and SHA-256 values match the publishing verifier; prerelease / non-latest
+
+For comparison only, [full diagnostic run #46](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38699532128)
+passed at source `506c934673d718efe8c24e6f0ef871c332a58988` with publication disabled:
+
+- Tested diagnostic EXE: **106,858,085 bytes (101.91 MiB)**
+- Diagnostic SHA-256: `c77d04f12e80e5db2d89876efa956977142ba62492dad7336c4572cbefa6269e`
+- Against the fixed 116,559,213-byte v0.4.3 baseline: **9,701,128 bytes smaller (8.323%)**
+- Against v0.4.6: **305,043 bytes larger**; below the unchanged **110,000,000-byte** adopted-profile ceiling
+
+These are run #46's historical diagnostic bytes, distinct from the release identity above.
+Both actual product capture modes, all three frozen application scales, selection,
+OTA, original models and source/license gates passed. The fixed post-build
+OpenCV comparison uses the unchanged seven-sample rule; its synthetic capture
+metric is neither game latency nor an overall speed claim. See the
+[full comparison and preserved rejected runs](POSTBUILD_OPENCV_VALIDATION.md).
 
 ## Measured final v0.4.6 release
 
@@ -91,8 +116,8 @@ downstream packaging patches, compiler settings and complete license evidence
 is an explicit additional maintenance cost. Byte-identical rebuilds across
 changing hosted runner/compiler images are not promised.
 
-v0.4.4 remains a prerelease excluded from stable OTA; the README links its
-manual download and same-version checksum. See the
+All released previews remain excluded from stable OTA; use the README’s
+verified manual download and same-version checksum. See the
 [recipe and full evidence scope](WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md).
 
 ## Successful second-round experiment, not the v0.4.4 release

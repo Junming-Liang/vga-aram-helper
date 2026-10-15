@@ -63,3 +63,36 @@ The complete same-build Windows source/frozen/product/OTA/size/license gates are
 still required. This change alone is not a release or a claim that actual
 exclusive fullscreen, live-game compatibility, or automatic final-choice
 identification has been validated.
+
+## Historical passing full diagnostic #46
+
+[Run #46](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38699532128)
+passed the fixed post-build pair and every subsequent source/frozen/product,
+OTA, size and source/license gate with publication disabled. It used source
+`506c934673d718efe8c24e6f0ef871c332a58988` and tree
+`757c44184e41811434da660fce55352013d9e796`. The run #46 diagnostic EXE was
+106,858,085 bytes, SHA-256
+`c77d04f12e80e5db2d89876efa956977142ba62492dad7336c4572cbefa6269e`.
+
+Its official → custom seven-sample medians were:
+
+| Synthetic workload | Official ms | Custom ms | Change |
+| --- | ---: | ---: | ---: |
+| Owned-window capture | 146.943 | 146.644 | −0.299 ms (−0.203%) |
+| Hero matching, 1080p | 39.331 | 38.727 | −0.603 ms (−1.533%) |
+| OCR application demo | 247.762 | 275.552 | **+27.789 ms (+11.216%)** |
+
+All workloads passed the unchanged rule; OCR was slower, but not both more than
+15% and more than 5 ms slower. The complete original reports, fixed order,
+child cleanup, exact installed identities, byte-for-byte exports and restored
+custom library were verified. The custom native library bound to the tested
+EXE was 55,959,552 bytes, SHA-256
+`33d6d89c08b48b019f4d2aa2eafc165ca76245488b22c649f887232c58587c3c`.
+
+These are run #46 results only. They neither erase runs #40/#41 nor establish
+the cause of their shift. Synthetic capture is not real-game latency, product
+visible/hidden time or a universal speed advantage. The subsequent [release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941) rebuilt and repeated every required gate,
+including the same fixed post-build pair and unchanged strict rule. It published
+source/tag `1046af25d66e12c784554c38351e75ed82afa81b` as [v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7). The public EXE is 106,858,822 bytes,
+SHA-256 `96bc81fcb12dc48c45e210706b358eb5eeccc062574166b440bf1452f4000547`; all 15 public assets match the publishing verifier. The table
+above remains run #46's historical measurement, not run #48's timing values.
