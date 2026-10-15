@@ -25,16 +25,16 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.7'
+PREVIEW_VERSION = '0.4.8'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
                          'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                          'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
 NATIVE_SCALES = ((1.0, 'windows-native'), (1.5, 'windows-native-scale150'), (2.0, 'windows-native-scale200'))
-AUTO_SOURCE_FILES = ('automatic_windows.py','native_ui.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','tests/windows_session_fixture.py')
+AUTO_SOURCE_FILES = ('automatic_windows.py','native_ui.py','portrait_display.py', 'local_debug.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
 AUTO_CAPTURE_FIELDS = ('wait_without_window','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
-DPI_SOURCE_FILES = ('native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py')
+DPI_SOURCE_FILES = ('native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py')
 # Load only the trusted local pure validator, never Python from a source archive.
 # An installed package named "tests" must not select a different validator.
 _dpi_spec = importlib.util.spec_from_file_location('release_windows_dpi_matrix',
@@ -302,7 +302,7 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'native/wgc_capture.cpp', 'wgc_capture.py', 'wgc_smoke.py', 'frame_ocr_cache.py', 'scripts/build_wgc_capture.py', 'tests/windows_wgc_capture.py', 'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
+        require({'native/wgc_capture.cpp', 'wgc_capture.py', 'wgc_smoke.py', 'frame_ocr_cache.py', 'scripts/build_wgc_capture.py', 'tests/windows_wgc_capture.py', 'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_display.py', 'local_debug.py', 'wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'tests/windows_wgc_visible_overlay.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
                  'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
                  'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
                  'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
