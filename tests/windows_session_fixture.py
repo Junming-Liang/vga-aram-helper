@@ -4,12 +4,14 @@ No download/install, game process access, metadata stubs, input or hooks. The
 external smoke harness owns launch/cleanup through its private NativeJob.
 """
 from __future__ import annotations
+import errno
 import hashlib
 import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 
 SOURCE = Path(__file__).with_name('SessionWindowFixture.cs')
 TITLES = {'client': 'League of Legends', 'game': 'VGA owned game fixture'}
@@ -28,6 +30,30 @@ FOCUS_SINK_TITLE = 'VGA owned focus sink'
 FOCUS_SINK_BOUNDS = (0, 0, 160, 96)
 MAX_PNG_BYTES = 8 * 1024 * 1024
 MAX_LOG_BYTES = 64 * 1024
+
+
+
+def poll_owned_json(path, reader):
+    """One attempt at an owned live fixture publication, never a final artifact.
+
+    The caller retains its original deadline, liveness and full payload checks.
+    No cached/partial payload is returned. Windows replacement can briefly deny
+    a reader; CRT opens may expose EACCES without a native winerror attribute.
+    """
+    try:
+        value = reader(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        code = getattr(exc, 'winerror', None)
+        if sys.platform == 'win32' and (
+                (type(code) is int and code in (5, 32, 33)) or
+                (code is None and isinstance(exc, PermissionError) and exc.errno == errno.EACCES)):
+            return None
+        raise
+    if type(value) is not dict:
+        raise AssertionError('Owned live JSON publication is not an object')
+    return value
 
 
 def compiler_files(system_root):

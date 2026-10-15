@@ -38,13 +38,13 @@ from windows_exe_smoke import smoke_workspace
 from windows_ota_smoke import Deadline, NativeJob, read_json, sha256, write_json
 from windows_selection_smoke import (assert_owned_window, child_environment,
     declare_desktop, fixture_dimensions, foreground_owned)
-from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready
+from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 
 MAX_SECONDS = 240
 SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'screen_capture.py', 'session_windows.py',
                 'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
-                'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs')
+                'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'tests/windows_session_fixture.py')
 WM_RECREATE_OWNED = 0x8000 + 73
 SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process metadata, '
          'Qt lifecycle, z-order guards and bounded OS pixels. Publisher verification '
@@ -268,9 +268,9 @@ def execute(reports, result):
                         require(int(native.u.GetForegroundWindow() or 0) == foreground_before,
                                 'Nonactivating owned fixture changed foreground during startup')
                     require(native.poll(process) is None, 'Owned fixture exited before readiness')
-                    if not ready.is_file():
+                    value = poll_owned_json(ready, read_json)
+                    if value is None:
                         return None
-                    value = read_json(ready)
                     window = validate_ready(value, role=role, pid=process['pid'],
                                             width=dimensions[0], height=dimensions[1])
                     assert_owned_window(native, process, executable, role, window, dimensions)
@@ -462,7 +462,10 @@ def execute(reports, result):
                 require(native.u.PostMessageW(old_window['hwnd'], WM_RECREATE_OWNED, 0, 0), 'Owned HWND recreation request failed')
 
                 def recreated():
-                    value = read_json(game['ready'])
+                    require(native.poll(game['process']) is None, 'Owned fixture exited during HWND recreation')
+                    value = poll_owned_json(game['ready'], read_json)
+                    if value is None:
+                        return None
                     if value['hwnd'] == old_window['hwnd']:
                         return None
                     replacement = validate_ready(value, role='game', pid=game['process']['pid'],

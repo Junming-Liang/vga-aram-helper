@@ -1,20 +1,386 @@
-"""Portable fixture compiler/contract regressions; not Windows execution proof."""
+"""Fixture contracts plus Windows-only real readiness file-sharing regressions."""
+import ast
+from contextlib import contextmanager
+import errno
 import hashlib
 import json
+import os
 from pathlib import Path
 import struct
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import windows_session_fixture as fixture
+import windows_automatic_capture as automatic
+import windows_ota_smoke as ota
+import windows_selection_smoke as selection
 
 
 def png_header(width=960, height=540):
     # Only a validator input; this is intentionally never displayed/executed.
     return b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', width, height) + b'\x00' * 9
+
+
+def read_error(code=None, *, number=errno.EACCES):
+    error = PermissionError(number, 'Synthetic owned readiness read denial')
+    if code is not None:
+        error.winerror = code
+    return error
+
+
+def ready_payload(**changes):
+    return dict(dict(protocol=1, pid=101, hwnd=200, role='game',
+                     class_name='RiotWindowClass', width=964, height=602,
+                     paint_count=1, per_monitor_v2=True), **changes)
+
+
+def source_tree(name):
+    return ast.parse(Path(__file__).with_name(name).read_text(encoding='utf-8'))
+
+
+def source_function(name, function):
+    matches = [node for node in ast.walk(source_tree(name))
+               if isinstance(node, ast.FunctionDef) and node.name == function]
+    if len(matches) != 1:
+        raise AssertionError('Expected one source function: ' + function)
+    return matches[0]
+
+
+def extracted_function(name, function, namespace):
+    """Execute the real nested callback without launching any native fixture."""
+    tree = ast.Module(body=[source_function(name, function)], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(tree), name, 'exec'), namespace)
+    return namespace[function]
+
+
+@contextmanager
+def windows_deny_read_handle(path):
+    """Own a real handle allowing write/delete sharing, but denying reads."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.CreateFileW(str(path), 0x80000000, 0x2 | 0x4, None, 3, 0x80, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    closed = False
+
+    def release():
+        nonlocal closed
+        if not closed:
+            if not kernel.CloseHandle(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+            closed = True
+    try:
+        yield release
+    finally:
+        release()
+
+
+class OwnedJsonPollingTests(unittest.TestCase):
+    def test_one_attempt_each_for_missing_denial_then_exact_success(self):
+        path = Path('owned-ready.json')
+        value = ready_payload(note='完整的就绪证据')
+        reader = Mock(side_effect=[FileNotFoundError(errno.ENOENT, 'Not yet'), read_error(), value])
+        with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+            for index, expected in enumerate((None, None, value), 1):
+                self.assertIs(fixture.poll_owned_json(path, reader), expected)
+                self.assertEqual(reader.call_count, index)
+        self.assertEqual(reader.call_args_list, [call(path)] * 3)
+
+    def test_only_windows_allowlisted_denials_are_pending(self):
+        for error in (read_error(5), read_error(32), read_error(33), read_error()):
+            with self.subTest(winerror=getattr(error, 'winerror', None)):
+                reader = Mock(side_effect=error)
+                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                    self.assertIsNone(fixture.poll_owned_json('owned', reader))
+                reader.assert_called_once_with('owned')
+
+    def test_windows_native_error_allowlist_requires_integer_codes(self):
+        for code in (True, False, 5.0, 32.0, 33.0, '5', '32', '33'):
+            with self.subTest(code=code):
+                error = read_error(code)
+                reader = Mock(side_effect=error)
+                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                    with self.assertRaises(PermissionError) as caught:
+                        fixture.poll_owned_json('owned', reader)
+                self.assertIs(caught.exception, error)
+                reader.assert_called_once_with('owned')
+
+    def test_a_previous_success_is_never_returned_during_later_denial(self):
+        old, new = ready_payload(hwnd=199), ready_payload(hwnd=200)
+        reader = Mock(side_effect=[old, read_error(32), FileNotFoundError(), new])
+        with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+            self.assertIs(fixture.poll_owned_json('owned', reader), old)
+            self.assertIsNone(fixture.poll_owned_json('owned', reader))
+            self.assertIsNone(fixture.poll_owned_json('owned', reader))
+            self.assertIs(fixture.poll_owned_json('owned', reader), new)
+        self.assertEqual(reader.call_count, 4)
+
+    def test_posix_denials_and_unrelated_windows_errors_propagate_unchanged(self):
+        for platform, errors in (
+                ('linux', (read_error(), read_error(5), read_error(32), read_error(33))),
+                ('win32', (read_error(2), read_error(87), read_error(number=errno.EPERM),
+                           OSError(errno.EIO, 'I/O failure'), OSError(errno.ENOSPC, 'Disk full')))):
+            for error in errors:
+                with self.subTest(platform=platform, error=error, winerror=getattr(error, 'winerror', None)):
+                    reader = Mock(side_effect=error)
+                    with patch.object(fixture, 'sys', SimpleNamespace(platform=platform)):
+                        with self.assertRaises(OSError) as caught:
+                            fixture.poll_owned_json('owned', reader)
+                    self.assertIs(caught.exception, error)
+                    reader.assert_called_once_with('owned')
+
+    def test_real_reader_missing_malformed_oversized_and_nonobject_contracts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'ready.json'
+            self.assertIsNone(fixture.poll_owned_json(path, ota.read_json))
+            for payload, error in ((b'{"pid":', json.JSONDecodeError),
+                                   (b'{"text":"' + b'x' * ota.MAX_JSON + b'"}', AssertionError),
+                                   (b'[]', AssertionError), (b'null', AssertionError),
+                                   (b'1', AssertionError), (b'"text"', AssertionError)):
+                with self.subTest(payload=payload[:16]):
+                    path.write_bytes(payload)
+                    with self.assertRaises(error):
+                        fixture.poll_owned_json(path, ota.read_json)
+            path.write_text(json.dumps(ready_payload()), encoding='utf-8')
+            self.assertEqual(fixture.poll_owned_json(path, ota.read_json), ready_payload())
+
+    def test_no_nonobject_or_dict_subclass_is_accepted_as_ready(self):
+        class DictSubclass(dict):
+            pass
+        for value in (None, False, [], 1, 'text', DictSubclass(ready_payload())):
+            with self.subTest(value=value), self.assertRaisesRegex(AssertionError, 'not an object'):
+                fixture.poll_owned_json('owned', lambda path: value)
+
+    def test_generic_final_artifact_reader_remains_strict_and_unwrapped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'final-report.json'
+            with self.assertRaises(FileNotFoundError):
+                ota.read_json(path)
+            path.write_text('[]', encoding='utf-8')
+            self.assertEqual(ota.read_json(path), [])  # Object policy belongs only to live polling.
+            error = read_error(32)
+            with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')), \
+                 patch.object(Path, 'open', side_effect=error):
+                with self.assertRaises(PermissionError) as caught:
+                    ota.read_json(path)
+            self.assertIs(caught.exception, error)
+        self.assertNotIn('poll_owned_json', ast.unparse(source_function('windows_ota_smoke.py', 'read_json')))
+
+
+class ReadinessConsumerTests(unittest.TestCase):
+    def automatic_callback(self, name, reader):
+        process = {'pid': 101}
+        path, executable = Path('game-2-ready.json'), Path('owned-game.exe')
+        native = SimpleNamespace(poll=Mock(return_value=None),
+                                 u=SimpleNamespace(GetForegroundWindow=Mock(return_value=900)))
+        namespace = dict(native=native, process=process, ready=path, executable=executable,
+                         role='game', dimensions=(964, 602), size=(964, 602),
+                         no_activate=False, foreground_before=900,
+                         game={'process': process, 'ready': path, 'exe': executable},
+                         old_window={'hwnd': 199, 'pid': 101}, require=automatic.require,
+                         poll_owned_json=Mock(wraps=fixture.poll_owned_json), read_json=reader,
+                         validate_ready=Mock(wraps=fixture.validate_ready), assert_owned_window=Mock())
+        return extracted_function('windows_automatic_capture.py', name, namespace), namespace
+
+    def test_initial_and_recreated_callbacks_pending_then_validate_exact_new_window(self):
+        for name in ('ready_window', 'recreated'):
+            with self.subTest(callback=name):
+                value = ready_payload()
+                reader = Mock(side_effect=[FileNotFoundError(), read_error(), value])
+                predicate, namespace = self.automatic_callback(name, reader)
+                with patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                    self.assertIsNone(predicate())
+                    self.assertIsNone(predicate())
+                    namespace['validate_ready'].assert_not_called()
+                    namespace['assert_owned_window'].assert_not_called()
+                    self.assertEqual(predicate(), {'hwnd': 200, 'pid': 101})
+                self.assertEqual(namespace['poll_owned_json'].call_args_list,
+                                 [call(namespace['ready'], reader)] * 3)
+                self.assertEqual(namespace['native'].poll.call_count, 3)
+                namespace['validate_ready'].assert_called_once_with(value, role='game', pid=101, width=964, height=602)
+                namespace['assert_owned_window'].assert_called_once_with(
+                    namespace['native'], namespace['process'], namespace['executable'],
+                    'game', {'hwnd': 200, 'pid': 101}, (964, 602))
+
+    def test_actual_validator_still_rejects_wrong_pid_and_invalid_ready_payloads(self):
+        for name in ('ready_window', 'recreated'):
+            for changes in ({'pid': 102}, {'hwnd': True}, {'class_name': 'other'},
+                            {'paint_count': 0}, {'per_monitor_v2': False}, {'width': 963}, {'height': 601}):
+                with self.subTest(callback=name, changes=changes):
+                    predicate, namespace = self.automatic_callback(name, Mock(return_value=ready_payload(**changes)))
+                    with self.assertRaises(AssertionError):
+                        predicate()
+                    namespace['validate_ready'].assert_called_once()
+                    namespace['assert_owned_window'].assert_not_called()
+
+    def test_recreated_old_hwnd_remains_pending_and_new_hwnd_requires_native_ownership(self):
+        predicate, namespace = self.automatic_callback('recreated', Mock(side_effect=[ready_payload(hwnd=199), ready_payload()]))
+        self.assertIsNone(predicate())
+        namespace['validate_ready'].assert_not_called()
+        namespace['assert_owned_window'].assert_not_called()
+        namespace['assert_owned_window'].side_effect = AssertionError('Wrong native ownership')
+        with self.assertRaisesRegex(AssertionError, 'Wrong native ownership'):
+            predicate()
+        namespace['validate_ready'].assert_called_once()
+
+    def test_initial_and_recreated_process_exit_fails_before_attempting_json_read(self):
+        for name in ('ready_window', 'recreated'):
+            with self.subTest(callback=name):
+                reader = Mock(side_effect=read_error())
+                predicate, namespace = self.automatic_callback(name, reader)
+                namespace['native'].poll.return_value = 1
+                with self.assertRaisesRegex(AssertionError, 'exited'):
+                    predicate()
+                reader.assert_not_called()
+                namespace['poll_owned_json'].assert_not_called()
+
+    def test_initial_nonactivating_foreground_guard_still_precedes_read(self):
+        predicate, namespace = self.automatic_callback('ready_window', Mock(return_value=ready_payload()))
+        namespace['no_activate'] = True
+        namespace['native'].u.GetForegroundWindow.return_value = 901
+        with self.assertRaisesRegex(AssertionError, 'changed foreground'):
+            predicate()
+        namespace['poll_owned_json'].assert_not_called()
+
+    def test_permanent_denial_uses_one_existing_events_deadline_not_a_retry_budget(self):
+        for name in ('ready_window', 'recreated'):
+            for overall, seconds in ((.05, 12), (1, .05)):
+                with self.subTest(callback=name, overall=overall, seconds=seconds):
+                    now, sleeps = [100.], []
+                    def sleep(interval):
+                        sleeps.append(interval)
+                        now[0] += interval
+                    clock = SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)
+                    reader = Mock(side_effect=read_error())
+                    predicate, namespace = self.automatic_callback(name, reader)
+                    app = SimpleNamespace(processEvents=Mock())
+                    with patch.object(automatic, 'time', clock), patch.object(ota, 'time', clock), \
+                         patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                        budget = ota.Deadline(overall)
+                        original_end = budget.end
+                        with patch.object(budget, 'until', wraps=budget.until) as until:
+                            with self.assertRaisesRegex(TimeoutError, '^Original readiness timeout$'):
+                                automatic.Events(app, budget).wait(predicate, 'Original readiness timeout', seconds=seconds)
+                            until.assert_called_once_with(seconds)
+                    self.assertEqual(budget.end, original_end)
+                    self.assertEqual(sleeps, [.02] * 3)
+                    self.assertAlmostEqual(now[0], 100.06)
+                    self.assertEqual(reader.call_count, 3)
+                    self.assertEqual(namespace['native'].poll.call_count, 3)
+                    self.assertEqual(app.processEvents.call_count, 3)
+                    namespace['validate_ready'].assert_not_called()
+
+    def test_selection_live_reports_retry_denials_but_keep_phase_failure_and_object_checks(self):
+        for value in ({'phase': 'await-game-window'}, {'status': 'passed'}):
+            reader = Mock(side_effect=[read_error(32), value])
+            with patch.object(selection, 'read_json', reader), \
+                 patch.object(fixture, 'sys', SimpleNamespace(platform='win32')):
+                terminal = value.get('status') == 'passed'
+                self.assertIsNone(selection.report_when('owned', 'await-game-window', terminal=terminal))
+                self.assertIs(selection.report_when('owned', 'await-game-window', terminal=terminal), value)
+        for value in ([], {'status': 'failed', 'error': 'original failure'}):
+            with patch.object(selection, 'read_json', return_value=value), self.assertRaises(AssertionError):
+                selection.report_when('owned', 'await-game-window')
+        with patch.object(selection, 'read_json', return_value={'phase': 'other'}):
+            self.assertIsNone(selection.report_when('owned', 'await-game-window'))
+
+    def test_consumer_wiring_preserves_original_waits_liveness_and_validation(self):
+        # Structural checks supplement executed callbacks; no GUI or download is needed.
+        expected = {
+            'windows_automatic_capture.py': (
+                "events.wait(ready_window, 'Owned fixture never painted its PNG: ' + role)",
+                "events.wait(recreated, 'Same-process owned HWND was not recreated')"),
+            'windows_selection_smoke.py': (
+                "Deadline.wait(ready, budget.until(20), 'Owned fixture readiness timed out')",
+                "Deadline.wait(awaiting_game, budget.until(135), 'Application did not confirm selection before game launch')"),
+            'windows_ota_smoke.py': (
+                "Deadline.wait(old_ready, budget.until(60), 'Old native application readiness timed out')",
+                'validate_old_ready(ready, version)'),
+        }
+        for filename, calls in expected.items():
+            actual = {ast.unparse(node) for node in ast.walk(source_tree(filename)) if isinstance(node, ast.Call)}
+            for expression in calls:
+                with self.subTest(filename=filename, expression=expression):
+                    self.assertIn(expression, actual)
+        for filename, name, expression in (
+                ('windows_selection_smoke.py', 'ready', 'poll_owned_json(ready_path, read_json)'),
+                ('windows_selection_smoke.py', 'awaiting_game', 'poll_owned_json(handoff_path, read_json)'),
+                ('windows_ota_smoke.py', 'old_ready', 'poll_owned_json(ready_path, read_json)')):
+            node = source_function(filename, name)
+            calls = [ast.unparse(item) for item in ast.walk(node) if isinstance(item, ast.Call)]
+            self.assertIn(expression, calls)
+            self.assertTrue(any(item.startswith('native.poll(') for item in calls))
+            self.assertFalse(any(isinstance(item, (ast.For, ast.While)) for item in ast.walk(node)))
+        selection_ready = ast.unparse(source_function('windows_selection_smoke.py', 'ready'))
+        self.assertIn("validate_ready(value, role=role, pid=process['pid'], width=dimensions[0], height=dimensions[1])", selection_ready)
+        self.assertIn('assert_owned_window(native, process, executable, role, window, dimensions)', selection_ready)
+        exe = ast.unparse(source_tree('windows_exe_smoke.py'))
+        self.assertIn('deadline = time.monotonic() + 90', exe)
+        self.assertIn('while info is None:', exe)
+        self.assertIn('assert process.poll() is None', exe)
+        self.assertIn('if time.monotonic() > deadline:', exe)
+        self.assertIn("poll_owned_json(ready, lambda path: json.loads(path.read_text(encoding='utf-8')))", exe)
+        self.assertIn('time.sleep(0.25)', exe)
+        self.assertIn("assert info['frozen'] is True", exe)
+        wait = source_function('windows_automatic_capture.py', 'wait')
+        self.assertEqual(ast.unparse(wait.args.defaults[0]), '12')
+
+
+@unittest.skipUnless(os.name == 'nt', 'Requires actual Windows deny-read sharing semantics')
+class WindowsOwnedJsonPollingTests(unittest.TestCase):
+    def test_real_deny_read_handle_is_pending_then_exact_json_is_validated_after_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'game-2-ready.json'
+            value = ready_payload(note='原始完整证据')
+            raw = json.dumps(value, ensure_ascii=False).encode('utf-8')
+            path.write_bytes(raw)
+            reader = Mock(wraps=ota.read_json)
+            with windows_deny_read_handle(path) as release:
+                with self.assertRaises(PermissionError):
+                    ota.read_json(path)
+                self.assertIsNone(fixture.poll_owned_json(path, reader))
+                reader.assert_called_once_with(path)
+                release()
+                actual = fixture.poll_owned_json(path, reader)
+                self.assertEqual(actual, value)
+                self.assertEqual(fixture.validate_ready(actual, role='game', pid=101, width=964, height=602),
+                                 {'hwnd': 200, 'pid': 101})
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_real_persistent_deny_read_times_out_with_existing_events_budget_and_closes_handle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'game-2-ready.json'
+            path.write_text(json.dumps(ready_payload()), encoding='utf-8')
+            reader = Mock(wraps=ota.read_json)
+            app = SimpleNamespace(processEvents=Mock())
+            with self.assertRaisesRegex(TimeoutError, '^Owned readiness remained denied$'):
+                with windows_deny_read_handle(path):
+                    budget = ota.Deadline(.08)
+                    original_end = budget.end
+                    started = time.monotonic()
+                    try:
+                        automatic.Events(app, budget).wait(
+                            lambda: fixture.poll_owned_json(path, reader), 'Owned readiness remained denied')
+                    finally:
+                        self.assertGreater(reader.call_count, 0)
+                        self.assertGreaterEqual(time.monotonic(), original_end)
+                        self.assertLess(time.monotonic() - started, 2.)
+                        self.assertEqual(budget.end, original_end)
+                        with self.assertRaises(PermissionError):
+                            ota.read_json(path)  # The lock stayed held until the deadline.
+            # Exceptional timeout cleanup closed the handle and preserved the complete object.
+            self.assertEqual(fixture.poll_owned_json(path, ota.read_json), ready_payload())
+            path.unlink()
 
 
 class SessionFixtureTests(unittest.TestCase):

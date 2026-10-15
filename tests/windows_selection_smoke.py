@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace
 from windows_ota_smoke import Deadline, NativeJob, read_json, sha256, write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from windows_session_fixture import CLASSES, TITLES, compile_fixture, fixture_argv, validate_ready
+from windows_session_fixture import CLASSES, TITLES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT
 
 CLIENT_PNG = ROOT / 'fixtures' / 'champselect-synthetic.png'
@@ -191,9 +191,9 @@ def wait_fixture(native, process, executable, role, ready_path, dimensions, budg
     def ready():
         if native.poll(process) is not None:
             raise AssertionError('Owned fixture failed before readiness')
-        if not ready_path.is_file():
+        value = poll_owned_json(ready_path, read_json)
+        if value is None:
             return None
-        value = read_json(ready_path)
         window = validate_ready(value, role=role, pid=process['pid'], width=dimensions[0], height=dimensions[1])
         assert_owned_window(native, process, executable, role, window, dimensions)
         return window
@@ -201,12 +201,12 @@ def wait_fixture(native, process, executable, role, ready_path, dimensions, budg
 
 
 def report_when(path, phase=None, *, terminal=False):
-    if not path.is_file():
-        return None
     try:
-        value = read_json(path)
+        value = poll_owned_json(path, read_json)
     except json.JSONDecodeError:
         return None  # The app may still be replacing/writing its bounded diagnostic report.
+    if value is None:
+        return None
     if not isinstance(value, dict):
         raise AssertionError('Selection handoff report is not a JSON object')
     if value.get('status') == 'failed' or 'error' in value:
@@ -535,7 +535,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 value = report_when(handoff_path, 'await-game-window')
                 if value:
                     return value
-                current = read_json(handoff_path) if handoff_path.is_file() else {}
+                current = poll_owned_json(handoff_path, read_json) or {}
                 if current.get('phase') in ('testing-client-foreground-loss','requesting-client-focus-return'):
                     drive_focus_fixture(native,client,fixture['client_exe'],client_window,sizes['client'],current['phase'],result)
                 else:

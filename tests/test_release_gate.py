@@ -224,7 +224,7 @@ class ReleaseFixture(unittest.TestCase):
         self.source_entries = {name: b'Unit-test source fixture' for name in
             ('launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py',
              'native_smoke.py', 'hero_portraits.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py',
-             'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
+             'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'tests/windows_session_fixture.py', 'requirements-build.txt',
              'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
              'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
              'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',

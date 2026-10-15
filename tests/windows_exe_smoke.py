@@ -18,6 +18,8 @@ import time
 from urllib.request import ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tests'))
+from windows_session_fixture import poll_owned_json
 
 
 def supported_image_payloads(path):
@@ -175,12 +177,14 @@ def main():
                                            cwd=work, env=env, stdout=log, stderr=subprocess.STDOUT)
                 cleanup.callback(terminate_tree, process)
                 deadline = time.monotonic() + 90
-                while not ready.exists():
+                info = None
+                while info is None:
                     assert process.poll() is None, f'EXE exited before HTTP readiness (code {process.returncode})'
                     if time.monotonic() > deadline:
                         raise TimeoutError('EXE did not become ready within 90 seconds')
-                    time.sleep(0.25)
-                info = json.loads(ready.read_text(encoding='utf-8'))
+                    info = poll_owned_json(ready, lambda path: json.loads(path.read_text(encoding='utf-8')))
+                    if info is None:
+                        time.sleep(0.25)
                 assert info['frozen'] is True
                 url = info['url']
                 opener = build_opener(ProxyHandler({}))

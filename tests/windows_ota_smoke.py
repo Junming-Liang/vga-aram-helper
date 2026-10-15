@@ -26,6 +26,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace
+from windows_session_fixture import poll_owned_json
 
 EXPECTED_SHA256 = '40b8d2af8309278b9cf6a5eace8ca26d6a483f659578d441636b86369d66cf6e'
 EXPECTED_SIZE = 150155259
@@ -434,10 +435,9 @@ def run_case(kind, original, root, report_dir, native, budget, proxy, version, d
         def old_ready():
             if native.poll(old) is not None:
                 raise AssertionError('Old native EXE exited before readiness')
-            return ready_path.exists()
+            return poll_owned_json(ready_path, read_json)
 
-        Deadline.wait(old_ready, budget.until(60), 'Old native application readiness timed out')
-        ready = read_json(ready_path)
+        ready = Deadline.wait(old_ready, budget.until(60), 'Old native application readiness timed out')
         validate_old_ready(ready, version)
         windows = native.windows(target, control_title)
         if len(windows) != 1 or windows[0]['pid'] != ready['pid']:
