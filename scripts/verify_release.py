@@ -838,6 +838,80 @@ def verify_adopted_performance(report):
             'performance': performance}
 
 
+
+def verify_postbuild_adoption(evidence_dir, build, source_archive, source_sha):
+    """Require the fixed post-build pair and bind measured/restored B to the EXE proof."""
+    from scripts import probe_opencv_postbuild as postbuild
+    # Resolve only our fixed evidence name/layout, never a path supplied by JSON.
+    selected_dir = evidence_file(Path(evidence_dir), 'windows-opencv-postbuild-export.json').parent
+    try:
+        postbuild.check_directory(selected_dir)
+        report_dir = selected_dir.resolve()
+        bundle, receipt = postbuild.validate_export(report_dir)
+    except (RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
+        raise VerificationError('Post-build comparison/restoration evidence failed: ' + str(exc)) from exc
+    require(bundle.get('status') == 'completed' and bundle.get('validation_errors') == []
+            and bundle.get('excluded_from_adoption') is False,
+            'Post-build comparison/restoration did not complete')
+    records = bundle['files']
+    result, prepared = records['result']['value'], records['prepared']['value']
+    sources = result.get('sources')
+    require(isinstance(sources, dict) and sources.get('commit') == source_sha
+            and postbuild.same(sources, prepared.get('sources')),
+            'Post-build comparison source commit differs')
+    inventory = sources.get('files')
+    require(isinstance(inventory, dict) and set(inventory) == set(postbuild.SOURCE_FILES),
+            'Post-build comparison source inventory differs')
+    with zipfile.ZipFile(source_archive) as archive:
+        require(archive.comment == source_sha.encode('ascii'), 'Post-build source archive commit differs')
+        for name, record in inventory.items():
+            require(isinstance(record, dict) and set(record) == {'size', 'sha256'}
+                    and type(record.get('size')) is int and 0 < record['size'] <= 1_000_000
+                    and isinstance(record.get('sha256'), str) and bool(re.fullmatch('[0-9a-f]{64}', record['sha256'])),
+                    'Malformed post-build source record: ' + name)
+            require(archive.namelist().count(name) == 1,
+                    'Missing or ambiguous post-build source: ' + name)
+            raw = archive.read(name)
+            require(len(raw) == record['size'] and hashlib.sha256(raw).hexdigest() == record['sha256'],
+                    'Post-build source bytes differ: ' + name)
+    proof_path = evidence_file(report_dir, 'windows-opencv-build.json')
+    proof = read_json(proof_path)
+    require(postbuild.same(proof, build.get('opencv_custom_build'))
+            and proof.get('source_commit') == source_sha,
+            'Post-build custom build proof differs from packaged build')
+    try:
+        postbuild.verify_record(result.get('build_report_file'), proof_path)
+    except (RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
+        raise VerificationError('Post-build custom build raw hash/path differs: ' + str(exc)) from exc
+    custom = result.get('custom', {})
+    require(custom.get('version') == CUSTOM_VERSION and proof.get('version') == CUSTOM_VERSION,
+            'Post-build custom version differs')
+    for kind in ('native', 'wheel'):
+        measured, built = custom.get(kind), proof.get(kind)
+        require(isinstance(measured, dict) and isinstance(built, dict)
+                and type(measured.get('size')) is int and type(built.get('size')) is int
+                and measured['size'] > 0 and measured['size'] == built['size']
+                and measured.get('sha256') == built.get('sha256')
+                and isinstance(measured.get('sha256'), str)
+                and bool(re.fullmatch('[0-9a-f]{64}', measured['sha256'])),
+                'Post-build measured custom ' + kind + ' differs from packaged build')
+    require(receipt.get('source_commit') == source_sha,
+            'Post-build export source commit differs')
+    names = tuple(postbuild.EVIDENCE_NAMES)
+    require(len(names) == len(set(names)) and all(isinstance(name, str)
+            and re.fullmatch(r'windows-opencv-postbuild-[A-Za-z0-9-]+\.json', name) for name in names),
+            'Unexpected post-build evidence inventory')
+    # The full strict validator already checks the fresh process identities,
+    # complete fixed sequence, all raw payloads and the final B reinstall proof.
+    # Existing verify_custom_evidence independently extracts B from the EXE.
+    summary = {'status': 'passed', 'fixed_order': list(postbuild.BLOCKS),
+               'source_commit': source_sha, 'custom_native_sha256': custom['native']['sha256'],
+               'custom_wheel_sha256': custom['wheel']['sha256'],
+               'restoration': 'verified',
+               'export_sha256': digest(evidence_file(Path(evidence_dir), 'windows-opencv-postbuild-export.json'))}
+    return summary, names
+
+
 def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id, run_attempt):
     require(repository == REPOSITORY, 'Repository is not the approved project')
     require(bool(re.fullmatch(r'[0-9a-f]{40}', source_sha)) and type(run_id) is int and run_id > 0 and type(run_attempt) is int and run_attempt > 0, 'Invalid source commit/run')
@@ -867,6 +941,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         raise VerificationError('Invalid package profile: '+str(exc)) from exc
     experimental = build['experimental']
     adoption = None
+    postbuild_adoption = None
     if profile != OFFICIAL_PROFILE:
         try:
             extra = verify_custom_evidence(exe, evidence_dir, build)
@@ -874,6 +949,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
         except (RuntimeError, ValueError, TypeError, KeyError) as exc:
             raise VerificationError('Custom OpenCV evidence failed: '+str(exc)) from exc
         if profile == ADOPTED_PROFILE:
+            postbuild_adoption, extra = verify_postbuild_adoption(evidence_dir, build,
+                release_dir / f'vga-aram-helper-{version}-source.zip', source_sha)
+            files.update({name: evidence_file(evidence_dir, name) for name in extra})
             adoption = verify_adopted_performance(read_json(files['windows-opencv-parity.json']))
     smoke = read_json(files['windows-exe-smoke.json'])
     selftest = read_json(files['windows-exe-self-test.json'])
@@ -972,7 +1050,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     result = {'experimental': experimental, 'package_profile': profile,
               'opencv_build_profile': (build.get('opencv_custom_build') or {}).get('package_profile'),
               'opencv_distribution_version': CUSTOM_VERSION if profile != OFFICIAL_PROFILE else OFFICIAL_VERSION,
-              'opencv_adoption': adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
+              'opencv_adoption': adoption, 'opencv_postbuild': postbuild_adoption, 'repository': REPOSITORY, 'source_sha': source_sha, 'run_id': run_id, 'run_attempt': run_attempt, 'version': version, 'tag': tag,
               'exe_sha256': checksum, 'exe_size': exe.stat().st_size, 'artifact_budget': budget, 'qt_binaries': sorted(qt_paths),
               'wgc_capture_summary': wgc_summary, 'wgc_session_application_summary': session_summary, 'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'selection_summary': selection_summary, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
@@ -1009,6 +1087,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              (f'OpenCV distribution: {CUSTOM_VERSION}, a maintained downstream build from pinned official source; '
               'the application source ZIP includes its exact recipe and packaging-only patches, and the complete supplemental notices are included. '
               'All three OCR models are unchanged. Same-run image/OCR/hero outputs match the official wheel. '
+              'The fixed official-to-custom timing pair runs after the native build in fresh interpreters, with exact offline wheel payloads, complete owned-child cleanup and verified custom restoration before packaging. '
               'The release timing screen requires no operation to be both over 15% and over 5 ms slower; raw seven-sample timings are attached. '
               'This is limited fixture evidence, not a speed guarantee for every computer. '
               'ORT_DISABLE_TELEMETRY=1 is set before runtime initialization and the API opt-out remains; this is not a general network firewall.\n\n'
@@ -1162,6 +1241,15 @@ def publish(verified, notes_file, provenance):
     adoption = verified.get('opencv_adoption')
     require(isinstance(adoption, dict) and adoption == verify_adopted_performance(adoption),
             'Adopted timing evidence differs from the publishing policy')
+    postbuild = verified.get('opencv_postbuild')
+    require(isinstance(postbuild, dict) and postbuild.get('status') == 'passed'
+            and postbuild.get('fixed_order') == ['A1', 'B1']
+            and postbuild.get('restoration') == 'verified'
+            and postbuild.get('source_commit') == verified.get('source_sha')
+            and isinstance(postbuild.get('export_sha256'), str)
+            and bool(re.fullmatch('[0-9a-f]{64}', postbuild['export_sha256']))
+            and postbuild['export_sha256'] == verified.get('evidence_sha256', {}).get('windows-opencv-postbuild-export.json'),
+            'Post-build adoption sequence or restoration binding is missing')
     check_preview_identity(verified, provenance)
     repo, tag, sha = verified['repository'], verified['tag'], verified['source_sha']
     require(repo == REPOSITORY and tag == 'v' + verified['version'] and
