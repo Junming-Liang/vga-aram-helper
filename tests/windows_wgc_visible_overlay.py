@@ -21,7 +21,7 @@ import types
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT));sys.path.insert(0, str(ROOT/'tests'))
-from wgc_visible_overlay_smoke import SCALES, SCOPE, SOURCE_FILES, NEGATIVES, strict_timing, MAX_REPORT_BYTES, read_live_json, report_payload, SAMPLE_FORMAT
+from wgc_visible_overlay_smoke import SCALES, SCOPE, SOURCE_FILES, NEGATIVES, NATIVE_NEGATIVE_EXIT_CODES, strict_timing, MAX_REPORT_BYTES, read_live_json, report_payload, SAMPLE_FORMAT
 from wgc_session_smoke import write_report
 from wgc_session_smoke import LIMITATIONS
 from windows_wgc_session_capture import child_environment, read_report, positive_int, finite
@@ -267,7 +267,10 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
             or not positive_int(row.get('helper_pid')) or not positive_int(row.get('helper_created'))
             or row.get('actual_native_idle_rejection') is not (name not in injected)):
             raise RuntimeError('Negative native/product evidence mislabeled: '+name)
-        if name not in injected and row.get('native_exit_code')!=12:raise RuntimeError('Actual native guard did not reject: '+name)
+        if name not in injected:
+            expected=NATIVE_NEGATIVE_EXIT_CODES[name]
+            if row['native_exit_code']!=expected:
+                raise RuntimeError(f'Native rejection exit differs for {name}: expected {expected}, observed {row["native_exit_code"]!r}')
         if name in ('active_affinity_change','cancel','stop'):
             if (row.get('actual_pending_native_exchange') is not True
                 or not positive_int(row.get('mutation_100ns')) or not positive_int(row.get('request_id'))

@@ -4,17 +4,26 @@ from contextlib import redirect_stderr
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT/'tests'))
 import launcher
 import wgc_visible_overlay_smoke as runtime
 import windows_wgc_visible_overlay as harness
+
+
+def native_diagnostic(code):
+    return dict(schema_version=1,code=code,phase='validate-idle',
+        check='display-affinity' if code==13 else 'overlay-generation',hresult=0,
+        observed=[120,135,960,600],expected=[120,135,960,600],
+        window_rect=[120,135,960,600],frame_rect=[120,135,960,600],
+        style=2516582400,extended_style=134742184)
 
 
 def fixture():
@@ -59,9 +68,11 @@ def fixture():
         rejected=dict(status='rejected',negative_case=name,visible_request=True,helper_pid=13,helper_created=23,
                       session_generation=33,capture_start_100ns=start,capture_return_100ns=start+20)
         row=dict(status='rejected',fallback_calls=0,helper_pid=13,helper_created=23,session_generation=33,
-                 actual_native_idle_rejection=name not in injected,native_exit_code=12,
+                 actual_native_idle_rejection=name not in injected,
+                 native_exit_code=runtime.NATIVE_NEGATIVE_EXIT_CODES.get(name,12),
                  request_index=len(value['requests']),capture_start_100ns=start,capture_return_100ns=start+20,
                  mutation_100ns=start-1,request_id=None)
+        if name not in injected:row['native_diagnostic']=native_diagnostic(row['native_exit_code'])
         rejected['mutation_100ns']=start-1
         if name in ('stop','cancel','active_affinity_change'):
             row.update(actual_pending_native_exchange=True,mutation_100ns=start+10,request_id=20+number)
@@ -88,6 +99,129 @@ def fixture():
 class VisibleContracts(unittest.TestCase):
     def test_complete_synthetic_report_contract(self):
         value,kwargs=fixture();self.assertIs(harness.validate_report(value,**kwargs),value)
+
+    def test_native_negative_codes_match_actual_native_guard_sources(self):
+        source=(ROOT/'native/wgc_session_capture.cpp').read_text()
+        declaration=re.search(r'constexpr int unsupported\s*=.*?;',source).group()
+        codes={name:int(code) for name,code in re.findall(r'(\w+)\s*=\s*(\d+)',declaration)}
+        self.assertEqual((codes['stale'],codes['protected_content']),(12,13))
+        cases={
+            'same_pid_occluder':('stale','occluder-overlap'),
+            'foreign_pid_occluder':('stale','occluder-overlap'),
+            'replaced_hwnd_token':('stale','overlay-generation'),
+            'token_change':('stale','overlay-generation'),
+            'extended_style_change':('stale','overlay-style'),
+            'window_style_change':('stale','overlay-style'),
+            'affinity_change':('stale','overlay-affinity'),
+            'opacity_change':('stale','overlay-opacity'),
+            'protected_target':('protected_content','display-affinity'),
+            'focus_loss':('stale','foreground-root'),
+            'geometry_loss':('stale','client-geometry'),
+        }
+        self.assertEqual(runtime.NATIVE_NEGATIVE_EXIT_CODES,
+                         {name:codes[symbol] for name,(symbol,_) in cases.items()})
+        self.assertEqual(set(runtime.NEGATIVES)-set(cases),
+                         {'owner_change','wrong_hwnd','active_affinity_change','cancel','stop'})
+        for symbol,check in set(cases.values()):
+            if check=='occluder-overlap':
+                self.assertIn('require(!order.blocked, stale, order.unreadable ? "occluder-query" : "occluder-overlap")',source)
+            else:
+                self.assertEqual(set(re.findall(r'(\w+),\s*"'+check+r'"\)',source)),{symbol})
+        self.assertIn('if (GetWindowDisplayAffinity(p.hwnd, &affinity)) require(!affinity, protected_content, "display-affinity")',source)
+        self.assertIn('if (!value) throw Failure{code, check};',source)
+        self.assertIn('catch (Failure const& error) { report_failure(error.code, error.check); return error.code; }',source)
+
+    def test_validator_requires_each_exact_native_code(self):
+        for name,expected in runtime.NATIVE_NEGATIVE_EXIT_CODES.items():
+            for code in (expected,13 if expected==12 else 12,0,14,None,True,float(expected),str(expected)):
+                value,kwargs=fixture();value['negative_results'][name]['native_exit_code']=code
+                with self.subTest(name=name,code=code):
+                    if type(code) is int and code==expected:
+                        self.assertIs(harness.validate_report(value,**kwargs),value)
+                    else:
+                        with self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+
+    def native_negative_fixture(self,code):
+        # Exercise the actual Python producer method without launching Windows.
+        diagnostic=native_diagnostic(code)
+        transport=SimpleNamespace(process=SimpleNamespace(returncode=code),
+            revoked=SimpleNamespace(is_set=lambda:True),diagnostic=json.dumps(diagnostic).encode())
+        owner=SimpleNamespace(session=SimpleNamespace(_transport=transport))
+        binding=dict(helper_pid=13,helper_created=23,session_generation=33)
+        f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+        f.records=[dict(binding,status='rejected',capture_start_100ns=101,capture_return_100ns=102)]
+        f.result=dict(negative_results={},requests=f.records,transitions=[])
+        f.fallback_calls=[];f.fresh_visible=Mock(return_value=owner)
+        f.capture=SimpleNamespace(retire_session=Mock(),last_session_receipt=None)
+        def cleanup(*args):
+            row=dict(binding,process_exit_code=code);f.result['transitions'].append(row);return row
+        f.cleanup_owner=cleanup
+        f.wait=lambda predicate,seconds,message:self.assertTrue(predicate(),message)
+        f.request_product=Mock(side_effect=RuntimeError('actual request rejected'))
+        f.pump=Mock()
+        return f,diagnostic
+
+    def test_producer_persists_exact_rejection_before_native_code_assertion(self):
+        for name,expected in runtime.NATIVE_NEGATIVE_EXIT_CODES.items():
+            for code in (expected,13 if expected==12 else 12,0,True,float(expected),None):
+                f,diagnostic=self.native_negative_fixture(code);restore=Mock()
+                with self.subTest(name=name,code=code),patch('wgc_session_capture._qpc_100ns',return_value=100):
+                    if type(code) is int and code==expected:
+                        f.negative(name,Mock(),restore)
+                    else:
+                        with self.assertRaisesRegex(AssertionError,re.escape(f'{name}: expected {expected}, observed {code!r}')):
+                            f.negative(name,Mock(),restore)
+                    row=f.result['negative_results'][name]
+                    self.assertEqual(row['native_exit_code'],code)
+                    self.assertEqual(row['request_index'],0)
+                    self.assertEqual((row['capture_start_100ns'],row['mutation_100ns']),(101,100))
+                    self.assertEqual(row['helper_created'],23)
+                    self.assertEqual(row['error_type'],'RuntimeError')
+                    self.assertEqual(f.records[0]['negative_case'],name)
+                    self.assertEqual(f.result['transitions'][0]['process_exit_code'],code)
+                    self.assertEqual(row['native_diagnostic'],diagnostic if type(code) is int and code in (12,13) else None)
+                    restore.assert_called_once_with();f.capture.retire_session.assert_called_once_with()
+
+    def test_wrong_native_code_is_saved_in_failed_report(self):
+        for name,code in (('protected_target',12),('token_change',13)):
+            f,diagnostic=self.native_negative_fixture(code)
+            def execute(result,path):
+                result.update(f.result);f.result=result
+                f.negative(name,Mock())
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as folder,\
+                    patch.object(runtime,'execute',side_effect=execute),\
+                    patch('wgc_session_capture._qpc_100ns',return_value=100):
+                path=Path(folder)/'report.json'
+                self.assertEqual(runtime.run(path),1)
+                result=json.loads(path.read_text())
+                self.assertEqual((result['status'],result['error_type']),('failed','AssertionError'))
+                self.assertIn(f'expected {runtime.NATIVE_NEGATIVE_EXIT_CODES[name]}, observed {code}',result['error'])
+                row=result['negative_results'][name]
+                self.assertEqual((row['native_exit_code'],row['native_diagnostic']),(code,diagnostic))
+                self.assertEqual(result['requests'][row['request_index']]['negative_case'],name)
+                self.assertEqual(result['transitions'][0]['process_exit_code'],code)
+
+    def test_foreign_producer_persists_observed_exit_before_assertion(self):
+        for code in (12,13):
+            f,_=self.native_negative_fixture(code)
+            f.report_path=Path('unused.json');f.target=SimpleNamespace(hwnd=5);f.rect=SimpleNamespace(x=20,y=20,width=960,height=600)
+            f.capture.info=lambda hwnd:SimpleNamespace(pid=88,hwnd=hwnd)
+            f.capture.foreground=lambda target:True;f.u=SimpleNamespace(IsWindow=lambda hwnd:False)
+            proof=dict(pid=88,hwnd=99,created=100,job_verified=True,executable_sha256='f'*64)
+            with self.subTest(code=code),patch.object(runtime,'write_report') as write,\
+                    patch.object(runtime,'poll_owned_json',return_value=proof),\
+                    patch('session_windows.process_metadata',return_value=SimpleNamespace(created=100)):
+                if code==12:runtime.foreign_negative(f)
+                else:
+                    with self.assertRaisesRegex(AssertionError,'foreign_pid_occluder: expected 12, observed 13'):
+                        runtime.foreign_negative(f)
+                row=f.result['negative_results']['foreign_pid_occluder']
+                self.assertEqual(row['native_exit_code'],code)
+                self.assertEqual(row['foreign_pid'],88)
+                self.assertEqual(row['request_index'],0)
+                self.assertEqual(f.records[0]['negative_case'],'foreign_pid_occluder')
+                self.assertEqual(f.result['transitions'][0]['process_exit_code'],code)
+                self.assertEqual(write.call_count,2 if code==12 else 1)
 
     def test_visibility_freshness_identity_pixels_lifecycle_mutations_rejected(self):
         mutations=(
