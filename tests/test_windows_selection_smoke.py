@@ -280,6 +280,156 @@ class SelectionHarnessTests(unittest.TestCase):
             'fixture_source_sha256','completed_fields','client','game')})
         return value
 
+    def producer_report(self, *, frozen, scale):
+        """Full synthetic producer shape; never evidence of a Windows run."""
+        value=self.good_report(frozen=frozen,scale=scale)
+        tree=ast.parse(Path(diagnostic.__file__).read_text())
+        checks=[node.args[0].value for node in ast.walk(tree) if isinstance(node,ast.Call)
+                and isinstance(node.func,ast.Attribute) and isinstance(node.func.value,ast.Name)
+                and node.func.value.id=='checks' and node.func.attr=='append']
+        self.assertEqual(len(checks),6)
+        # Use every current producer check verbatim, including Unicode labels.
+        value.update(checks=checks,elapsed_seconds=11.797,
+            scope='Original synthetic owned client/game processes only. Actual Windows metadata, capture and CPU OCR; no real LoL/Vanguard compatibility claim.',
+            metadata_scope='Actual PROCESS_QUERY_LIMITED_INFORMATION path/creation + FILE_READ_ATTRIBUTES canonicalization, no process memory read')
+        control=SimpleNamespace(state=SimpleNamespace(running=False,generation=16,hero='',confirmed=False),
+            ocr_busy=False,capture_pending=False,_capture_serial=15,monitor=Mock(isActive=lambda:False),
+            status=Mock(text=lambda:'未稳定识别到三个不同候选，旧叠加已隐藏'),
+            capture=SimpleNamespace(last_backend='windows-graphics-capture-session'),
+            selection_session=SimpleNamespace(active=False,generation=11,stage='idle',candidate_frames=0,
+                candidate='',assigned='',last_client_frame=None,reason='Capture stopped'))
+        value['diagnostic_state']=diagnostic.diagnostic_state(control,100.,111.797)
+        value['requested_app_scale']=float(scale)
+        value['client_hero_reference']['qt_dpr']=float(scale)
+        return value
+
+    def execute_producer_aggregate(self, root, *, frozen, extra=None):
+        """Exercise real aggregation, preservation, serialization and validation."""
+        template=self.good_aggregate(frozen=frozen)
+        template['scope']=smoke.SCOPE
+        template['source_files']={name:smoke.sha256(smoke.ROOT/name) for name in smoke.SOURCE_FILES}
+        reports=root/'reports';reports.mkdir();work=root/'work';work.mkdir();payloads={}
+        def run(original,destination,row,*,frozen,scale):
+            expected=copy.deepcopy(template['runs'][smoke.SCALES.index(scale)])
+            expected['fixture_source_sha256']=template['source_files']['tests/SessionWindowFixture.cs']
+            expected['detail']=self.producer_report(frozen=frozen,scale=scale)
+            if extra is not None:expected['detail']['additional_evidence']=extra
+            prefix=('windows-selection-' if frozen else 'windows-selection-source-')+'scale'+str(round(scale*100))+'-'
+            expected.update(cleanup='Both fixtures exited 0 after WM_CLOSE; private job empty',
+                            logs=[prefix+'last-launch-error.txt'])
+            row.update(expected)
+            path=work/row['native_report'];diagnostic.atomic_report(path,row['detail'])
+            row['native_report_sha256']=smoke.sha256(path);payloads[path.name]=path.read_bytes()
+            smoke.preserve_native_report(path,destination,row,completed=True)
+        value={key:copy.deepcopy(item) for key,item in template.items()
+               if key not in smoke.LEGACY_FIELDS and key!='runs'}
+        value['runs']=[]
+        with patch.object(smoke,'execute_run',side_effect=run):
+            smoke.execute(Path('candidate.exe') if frozen else None,reports,value)
+        smoke.validate_aggregate(value,'0.4.1',frozen=frozen,source_commit='a'*40,
+            executable_sha256='c'*64 if frozen else None,executable_size=123456 if frozen else None)
+        return value,reports,payloads
+
+    def test_full_producer_three_scale_reports_fit_pretty_json_without_duplicate_snapshots(self):
+        for frozen in (False,True):
+            with self.subTest(frozen=frozen),tempfile.TemporaryDirectory() as directory:
+                value,reports,payloads=self.execute_producer_aggregate(Path(directory),frozen=frozen)
+                original=copy.deepcopy(value)
+                for row in original['runs']:row['native_report_snapshot']=copy.deepcopy(row['detail'])
+                original.update({key:copy.deepcopy(item) for key,item in original['runs'][0].items()
+                                 if key not in ('app_scale','detail')})
+                encoded=lambda item:(json.dumps(item,ensure_ascii=False,indent=2)+'\n').encode('utf8')
+                self.assertGreater(len(encoded(original)),smoke.MAX_LOG_BYTES)  # Reproduce run38's shape.
+                self.assertLess(len(encoded(value)),smoke.MAX_LOG_BYTES)
+                name='windows-selection-smoke.json' if frozen else 'windows-selection-source.json'
+                path=reports/name;smoke.write_json(path,value)
+                self.assertEqual(path.read_bytes(),encoded(value))  # Retain readable full evidence.
+                restored=smoke.read_json(path)
+                smoke.validate_aggregate(restored,'0.4.1',frozen=frozen,source_commit='a'*40,
+                    executable_sha256='c'*64 if frozen else None,executable_size=123456 if frozen else None)
+                self.assertNotIn('native_report_snapshot',restored)
+                self.assertNotIn('focus_fixture',restored)
+                self.assertEqual(len(restored['runs']),3)
+                for key in smoke.LEGACY_FIELDS:self.assertEqual(restored[key],restored['runs'][0][key])
+                for row in restored['runs']:
+                    self.assertNotIn('native_report_snapshot',row)
+                    self.assertTrue(row['native_report_present'])
+                    self.assertEqual(row['native_report_snapshot_sha256'],row['native_report_sha256'])
+                    raw=reports/row['native_report']
+                    self.assertEqual(raw.read_bytes(),payloads[raw.name])
+                    self.assertEqual(smoke.sha256(raw),row['native_report_sha256'])
+                    self.assertEqual(json.dumps(json.loads(raw.read_bytes()),sort_keys=True),
+                                     json.dumps(row['detail'],sort_keys=True))
+                    self.assertIn('diagnostic_state',row['detail'])
+                    self.assertEqual(len(row['detail']['checks']),6)
+                    self.assertIn('focus_fixture',row);self.assertIn('cleanup',row);self.assertTrue(row['logs'])
+                # Deduplication cannot weaken a required field at any scale.
+                for index in range(3):
+                    changed=copy.deepcopy(restored)
+                    changed['runs'][index]['detail']['client_hero_reference']['visible']=1
+                    with self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(changed,'0.4.1',frozen=frozen)
+
+    def test_nonduplicate_aggregate_overflow_still_fails_closed_without_truncation(self):
+        for frozen in (False,True):
+            with self.subTest(frozen=frozen),tempfile.TemporaryDirectory() as directory:
+                value,reports,payloads=self.execute_producer_aggregate(Path(directory),frozen=frozen,extra='证'*8000)
+                path=reports/'aggregate.json';previous=b'{"status":"failed","error":"previous evidence"}\n'
+                path.write_bytes(previous)
+                with self.assertRaisesRegex(AssertionError,'size limit'):smoke.write_json(path,value)
+                self.assertEqual(path.read_bytes(),previous)
+                self.assertFalse(path.with_suffix('.tmp').exists())
+                for row in value['runs']:
+                    raw=reports/row['native_report']
+                    self.assertEqual(raw.read_bytes(),payloads[raw.name])
+                    self.assertLess(raw.stat().st_size,smoke.MAX_LOG_BYTES)
+                    self.assertEqual(row['detail']['additional_evidence'],'证'*8000)
+
+    def test_two_complete_scales_and_full_failed_current_snapshot_fit_evidence_bound(self):
+        for frozen in (False,True):
+            for status,retain_detail in (('running',False),('failed',False),('running',True),('failed',True)):
+                with self.subTest(frozen=frozen,status=status,retain_detail=retain_detail),tempfile.TemporaryDirectory() as directory:
+                    root=Path(directory)
+                    value,reports,payloads=self.execute_producer_aggregate(root,frozen=frozen)
+                    previous=copy.deepcopy(value['runs'][:2]);row=value['runs'][2]
+                    observed_detail=copy.deepcopy(row['detail']);snapshot=copy.deepcopy(observed_detail)
+                    name=row['native_report']
+                    if not retain_detail:
+                        for key in ('detail','native_report','native_report_sha256','completed_fields','cleanup'):row.pop(key)
+                        row.update(process_exited=False,owned_processes_exited=False)
+                    snapshot.update(status=status,phase='recovering-foreground',window_closed=False)
+                    snapshot['diagnostic_state']['status']=('正在等待自有窗口前台恢复；' * 40)[:400]
+                    snapshot['diagnostic_state']['session']['reason']=('Waiting for owned client foreground; ' * 10)[:240]
+                    error="[WinError 5] Access is denied: 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\vga-exe-smoke-owned\\report.json.tmp' -> 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\vga-exe-smoke-owned\\report.json'"
+                    if status=='failed':
+                        trace=('Traceback (most recent call last):\n'+
+                               '  File "D:\\a\\vga-aram-helper\\vga-aram-helper\\selection_smoke.py", line 40, in atomic_report\n'+
+                               '    temporary.replace(path)\n'+error+'\n')
+                        error=(error+'\n')*12;error=error[:2000]
+                        snapshot.update(error=error,error_type='PermissionError',
+                                        error_traceback=(trace*12)[-4000:])
+                    path=root/'work'/name;diagnostic.atomic_report(path,snapshot)
+                    payload=path.read_bytes()
+                    smoke.preserve_native_report(path,reports,row,completed=False)
+                    value.update(status='failed',error=repr(AssertionError(error if status=='failed' else
+                        'Application did not confirm selection before game launch'))[:2000])
+                    aggregate=reports/'failed-aggregate.json';smoke.write_json(aggregate,value)
+                    self.assertLess(aggregate.stat().st_size,smoke.MAX_LOG_BYTES)
+                    restored=smoke.read_json(aggregate)
+                    self.assertEqual(restored['status'],'failed')
+                    self.assertEqual(restored['error'],value['error'])
+                    self.assertEqual(restored['runs'][:2],previous)
+                    current=restored['runs'][2]
+                    if retain_detail:self.assertEqual(current['detail'],observed_detail)
+                    else:self.assertNotIn('detail',current)
+                    self.assertEqual(current['native_report_snapshot'],snapshot)
+                    self.assertEqual((reports/name).read_bytes(),payload)
+                    self.assertEqual(current['native_report_snapshot_sha256'],smoke.sha256(path))
+                    for complete in previous:
+                        self.assertEqual((reports/complete['native_report']).read_bytes(),payloads[complete['native_report']])
+                    with self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(restored,'0.4.1',frozen=frozen)
+
     def test_report_requires_every_native_identity_and_all_original_and_new_flags(self):
         smoke.validate_report(self.good_report(), '0.4.1')
         for field, value in [('status', 'running'), ('backend', 'browser'), ('qt_platform', 'offscreen'),
@@ -529,6 +679,74 @@ class SelectionHarnessTests(unittest.TestCase):
             self.assertNotIn('detail',result)
             self.assertNotIn('status',result)  # Diagnostic retention never turns a failed run into a pass.
 
+    def test_completed_snapshot_requires_exact_bytes_and_type_sensitive_full_value(self):
+        for change in ('whitespace','extra-field','bool-int','int-float','failed','name','process','cleanup'):
+            with self.subTest(change=change),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json'
+                detail=self.producer_report(frozen=True,scale=1)
+                detail['diagnostic_state']['type_probe']={'flag':True,'count':1}
+                original=(json.dumps(detail,ensure_ascii=False,indent=2)+'\n').encode('utf8')
+                path.write_bytes(original)
+                result={'detail':copy.deepcopy(detail),'native_report':path.name,
+                        'native_report_sha256':smoke.sha256(path),'process_exited':True,'owned_processes_exited':True}
+                observed=copy.deepcopy(detail)
+                if change=='whitespace':path.write_bytes(original+b'\n')
+                elif change=='name':result['native_report']='other.json'
+                elif change=='process':result['process_exited']=False
+                elif change=='cleanup':result['owned_processes_exited']=False
+                else:
+                    if change=='extra-field':observed['new_unobserved_evidence']={'message':'完整新证据'}
+                    elif change=='bool-int':observed['diagnostic_state']['type_probe']['flag']=1
+                    elif change=='int-float':observed['diagnostic_state']['type_probe']['count']=1.0
+                    else:observed.update(status='failed',error='original terminal failure',error_traceback='original trace')
+                    diagnostic.atomic_report(path,observed)
+                    # Match the raw hash to isolate the parsed-value check.
+                    result['native_report_sha256']=smoke.sha256(path)
+                if change in ('bool-int','int-float'):self.assertEqual(detail,observed)
+                payload=path.read_bytes()
+                with self.assertRaisesRegex(AssertionError,'changed after validation|lacks successful'):
+                    smoke.preserve_native_report(path,reports,result,completed=True)
+                self.assertEqual((reports/path.name).read_bytes(),payload)
+                self.assertEqual(result['native_report_snapshot'],observed)
+                self.assertEqual(result['native_report_snapshot_sha256'],smoke.sha256(path))
+                self.assertEqual(json.dumps(result['detail'],sort_keys=True),json.dumps(detail,sort_keys=True))
+                self.assertNotIn('status',result)
+
+    def test_failed_or_incomplete_cleanup_keeps_full_snapshot_even_with_matching_detail(self):
+        for status in ('running','failed','passed'):
+            with self.subTest(status=status),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json'
+                detail=self.producer_report(frozen=False,scale=1)
+                observed=copy.deepcopy(detail);observed['status']=status
+                if status=='running':observed['phase']='recovering-foreground'
+                if status=='failed':observed.update(error='original failure',error_type='RuntimeError',error_traceback='original trace')
+                diagnostic.atomic_report(path,observed);payload=path.read_bytes()
+                result={'detail':detail,'native_report':path.name,'native_report_sha256':smoke.sha256(path),
+                        'process_exited':True,'owned_processes_exited':True}
+                failure=RuntimeError('original outer cleanup failure')
+                try:raise failure
+                except RuntimeError:
+                    smoke.preserve_native_report(path,reports,result,completed=sys.exc_info()[0] is None)
+                    self.assertIs(sys.exc_info()[1],failure)
+                self.assertEqual(result['native_report_snapshot'],observed)
+                self.assertEqual((reports/path.name).read_bytes(),payload)
+                self.assertEqual(result['native_report_snapshot_sha256'],smoke.sha256(path))
+                self.assertEqual(result['detail'],detail)
+
+    def test_successful_snapshot_accepts_key_order_only_and_missing_raw_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json'
+            detail=self.producer_report(frozen=False,scale=1)
+            diagnostic.atomic_report(path,detail)
+            result={'detail':dict(reversed(list(detail.items()))),'native_report':path.name,
+                    'native_report_sha256':smoke.sha256(path),'process_exited':True,'owned_processes_exited':True}
+            smoke.preserve_native_report(path,reports,result,completed=True)
+            self.assertNotIn('native_report_snapshot',result)
+            path.unlink()
+            with self.assertRaisesRegex(AssertionError,'native report is missing'):
+                smoke.preserve_native_report(path,reports,result,completed=True)
+            self.assertFalse(result['native_report_present'])
+
     def test_native_diagnostic_rejects_oversized_invalid_and_nonobject_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);reports=root/'reports';reports.mkdir();path=root/'owned.json'
@@ -547,6 +765,7 @@ class SelectionHarnessTests(unittest.TestCase):
         self.assertIn('native.close_window(window)', source)
         self.assertIn('lambda: not native.pids()', source)
         self.assertIn('native.cleanup()', source)
+        self.assertIn('preserve_native_report(current_handoff,reports,result,completed=sys.exc_info()[0] is None)',source)
         self.assertIn('work = work.resolve()', source)
         self.assertIn('handoff_path = work / native_report_name(frozen, scale)', source)
         self.assertIn('for scale in SCALES:', source)

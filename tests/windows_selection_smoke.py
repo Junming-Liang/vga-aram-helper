@@ -39,6 +39,10 @@ FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed',
           'client_hero_reference_passed', 'client_hero_no_confirmation_passed',
           'client_hero_geometry_passed', 'client_hero_safety_passed')
 SCALES = (1, 1.5, 2)
+# These are the legacy scale100 mirrors checked by validate_aggregate. Keep
+# optional evidence in its complete per-scale row instead of copying it again.
+LEGACY_FIELDS = ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request',
+    'native_report', 'native_report_sha256', 'fixture_source_sha256', 'completed_fields', 'client', 'game')
 SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
     'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
     'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
@@ -443,11 +447,13 @@ def collect_logs(work, reports, prefix='windows-selection-'):
     return names
 
 
-def preserve_native_report(path,reports,result):
+def preserve_native_report(path,reports,result,*,completed=False):
     """Retain the exact owned diagnostic JSON on success OR failure for CI logs."""
     path=Path(path)
     result['native_report_present']=path.is_file()
-    if not result['native_report_present']:return
+    if not result['native_report_present']:
+        require(not completed, 'Completed selection native report is missing')
+        return
     if path.stat().st_size>MAX_LOG_BYTES:
         raise AssertionError('Selection handoff report exceeds 64 KiB')
     payload=path.read_bytes()
@@ -460,6 +466,20 @@ def preserve_native_report(path,reports,result):
     target.write_bytes(payload)
     result['native_report_snapshot']=value
     result['native_report_snapshot_sha256']=sha256(target)
+    if completed:
+        # Only remove an already-observed duplicate after successful cleanup.
+        # Canonical JSON is type-sensitive (unlike dict equality for True/1 or
+        # 1/1.0); the hash also binds the original bytes, including whitespace.
+        # Store the snapshot first so every mismatch keeps its full evidence.
+        detail=result.get('detail')
+        require(type(detail) is dict and detail.get('status')=='passed' and 'error' not in detail
+                and result.get('process_exited') is True and result.get('owned_processes_exited') is True,
+                'Completed selection run lacks successful native/lifecycle evidence')
+        require(result.get('native_report')==path.name
+                and result.get('native_report_sha256')==result['native_report_snapshot_sha256']
+                and json.dumps(detail,sort_keys=True,allow_nan=False)==json.dumps(value,sort_keys=True,allow_nan=False),
+                'Selection native report changed after validation')
+        del result['native_report_snapshot']
 
 
 def execute_run(original, reports, result, *, frozen=True, scale=1):
@@ -568,7 +588,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                         raise RuntimeError('Observer thread DPI context restoration failed')
                 # Read only the current run's unique temporary report; preserve it as small evidence.
                 current_handoff = work / native_report_name(frozen, scale)
-                preserve_native_report(current_handoff,reports,result)
+                preserve_native_report(current_handoff,reports,result,completed=sys.exc_info()[0] is None)
                 result['logs'] = collect_logs(work, reports, artifact_prefix)
 
 
@@ -580,9 +600,8 @@ def execute(original, reports, result):
         result['runs'].append(row)
         execute_run(original, reports, row, frozen=result['frozen'], scale=scale)
         if scale == 1:
-            for key, value in row.items():
-                if key not in ('app_scale', 'detail'):
-                    result[key] = value
+            for key in (*LEGACY_FIELDS, 'applicationVersion'):
+                result[key] = row[key]
         require(row['applicationVersion'] == result['applicationVersion'], 'Selection scale versions differ')
 
 

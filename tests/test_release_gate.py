@@ -447,6 +447,32 @@ class ReleaseFixture(unittest.TestCase):
                 with self.assertRaises(gate.VerificationError):self.verify()
             aggregate['source_files']=original
 
+    def test_selection_raw_native_types_cannot_differ_from_validated_aggregate(self):
+        for frozen in (False, True):
+            for scale in gate.selection_fixture.SCALES:
+                for field, forged in (('visible', 1), ('augment_card_count', 0.0), ('elapsed_seconds', 1.0)):
+                    self.write_reports()
+                    filename = 'windows-selection-smoke.json' if frozen else 'windows-selection-source.json'
+                    aggregate_path = self.evidence / filename
+                    aggregate = json.loads(aggregate_path.read_text(encoding='utf-8'))
+                    row = next(item for item in aggregate['runs'] if item['app_scale'] == scale)
+                    native_path = self.evidence / row['native_report']
+                    native = json.loads(native_path.read_text(encoding='utf-8'))
+                    if field == 'elapsed_seconds':
+                        row['detail']['diagnostic_state'] = {'elapsed_seconds': 1}
+                        native['diagnostic_state'] = {'elapsed_seconds': forged}
+                    else:
+                        native['client_hero_reference'][field] = forged
+                    # Ordinary Python equality conceals these JSON type changes.
+                    self.assertEqual(native, row['detail'])
+                    self.write_json(native_path, native)
+                    row['native_report_sha256'] = gate.digest(native_path)
+                    if scale == 1:
+                        aggregate['native_report_sha256'] = row['native_report_sha256']
+                    self.write_json(aggregate_path, aggregate)
+                    with self.subTest(frozen=frozen, scale=scale, field=field), self.assertRaises(gate.VerificationError):
+                        self.verify()
+
     def test_new_selection_observations_cannot_be_replaced_by_passing_flags(self):
         for aggregate in (self.selection_source,self.selection_smoke):
             for row in aggregate['runs']:
