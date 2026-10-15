@@ -109,6 +109,16 @@ class ReleaseFixture(unittest.TestCase):
             wrapper.start(); self.addCleanup(wrapper.stop)
         for name in custom_package.EVIDENCE_NAMES:
             self.write_json(self.evidence/name, adoption_timing_fixture() if name.endswith('-parity.json') else {'unit_fixture': True})
+        # The post-build validator has dedicated raw/source/EXE-proof binding tests.
+        # This all-product fixture keeps its new evidence file and publication binding explicit.
+        self.postbuild_names = ('windows-opencv-postbuild-export.json',)
+        self.write_json(self.evidence/self.postbuild_names[0], {'unit_fixture': 'postbuild-export'})
+        self.postbuild_summary = {'status': 'passed', 'fixed_order': ['A1', 'B1'],
+            'source_commit': SHA, 'custom_native_sha256': 'a'*64, 'custom_wheel_sha256': 'b'*64,
+            'restoration': 'verified', 'export_sha256': gate.digest(self.evidence/self.postbuild_names[0])}
+        wrapper = patch.object(gate, 'verify_postbuild_adoption',
+            return_value=(self.postbuild_summary, self.postbuild_names))
+        wrapper.start(); self.addCleanup(wrapper.stop)
         self.build['archive_inventory']['qt_binaries'] += ['pyside6/' + row['filename'] for row in runtime_fixture()['files']]
         proof = runtime_fixture()
         paths = ['pyside6/' + row['filename'] for row in proof['files']] + ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll']
@@ -420,7 +430,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
         self.assertTrue(all(row['overlay_layout_passed'] for row in result['native_scale_summary']))
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
-            self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES) | set(custom_package.EVIDENCE_NAMES))
+            self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES) | set(custom_package.EVIDENCE_NAMES) | set(self.postbuild_names))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)
 
     def test_selection_source_and_frozen_every_scale_and_native_bytes_are_required(self):
@@ -1233,10 +1243,25 @@ class ReleaseFixture(unittest.TestCase):
             self.verify()
             self.assertEqual(reader.call_args.kwargs, {'profile': gate.ADOPTED_PROFILE})
 
+    def test_postbuild_sequence_gate_is_mandatory_and_bound_in_publication(self):
+        with patch.object(gate, 'verify_postbuild_adoption', side_effect=gate.VerificationError('postbuild proof changed')):
+            with self.assertRaisesRegex(gate.VerificationError, 'postbuild proof changed'):
+                self.verify()
+        valid = self.verify()
+        for key, value in (('status', 'failed'), ('fixed_order', ['B1', 'A1']),
+                           ('restoration', 'failed'), ('source_commit', 'c'*40),
+                           ('export_sha256', 'c'*64)):
+            bad = copy.deepcopy(valid); bad['opencv_postbuild'][key] = value
+            with self.subTest(key=key), patch.object(gate, 'gh_api') as api:
+                with self.assertRaisesRegex(gate.VerificationError, 'Post-build'):
+                    gate.publish(bad, self.output/'release-notes.txt', current_provenance())
+                api.assert_not_called()
+
     def test_publish_requires_adopted_profile_and_rechecks_raw_speed_evidence(self):
         valid = self.verify()
         for key, value in (('package_profile', gate.OFFICIAL_PROFILE), ('opencv_build_profile', 'experimental-minimal-opencv-v1'),
-                           ('opencv_distribution_version', custom_package.OFFICIAL_VERSION), ('opencv_adoption', None)):
+                           ('opencv_distribution_version', custom_package.OFFICIAL_VERSION), ('opencv_adoption', None),
+                           ('opencv_postbuild', None)):
             with self.subTest(key=key), patch.object(gate, 'gh_api') as api, self.assertRaises(gate.VerificationError):
                 gate.publish({**valid, key: value}, self.output/'release-notes.txt', current_provenance())
             api.assert_not_called()

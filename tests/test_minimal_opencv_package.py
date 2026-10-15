@@ -323,8 +323,9 @@ class MinimalPackageTests(unittest.TestCase):
         release_workflow = (ROOT / '.github/workflows/build-native-preview.yml').read_text()
         self.assertNotIn('VGA_EXPERIMENTAL_MINIMAL_OPENCV', release_workflow)
         self.assertIn("VGA_RELEASE_PACKAGE_PROFILE: 'minimal-opencv-v1'", release_workflow)
-        for value in ('scripts/build_minimal_opencv.py', 'scripts/probe_opencv_parity.py generate',
-                      'scripts/probe_opencv_parity.py compare', 'windows_exe_smoke.py', 'windows_native_smoke.py',
+        for value in ('scripts/build_minimal_opencv.py', 'scripts/probe_opencv_postbuild.py prepare',
+                      'scripts/probe_opencv_postbuild.py run', 'scripts/probe_opencv_postbuild.py export',
+                      'windows_exe_smoke.py', 'windows_native_smoke.py',
                       '--app-scale 1.5', '--app-scale 2', 'windows_selection_smoke.py', 'windows_ota_smoke.py',
                       'scripts/verify_release.py'):
             self.assertIn(value, release_workflow)
