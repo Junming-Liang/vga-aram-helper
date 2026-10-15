@@ -1361,6 +1361,34 @@ class ReleaseFixture(unittest.TestCase):
 
 
 class AdoptedTimingTests(unittest.TestCase):
+    def test_run40_capture_samples_remain_rejected_despite_fast_supplemental_diagnostics(self):
+        # Exact numeric row from the permitted rendered run40 summary. Its
+        # loose parity flag does not supersede the stricter publication screen.
+        row = {
+            'baseline_median_seconds': 0.11452916666663289,
+            'candidate_median_seconds': 0.15629203333332953,
+            'ratio': 1.3646483064725197,
+            'delta_seconds': 0.04176286666669664,
+            'regression': False,
+            'baseline_samples_seconds': [0.11496369999997569, 0.10876619999999093,
+                0.1199700000000045, 0.10953830000001592, 0.11452916666663289,
+                0.11440919999999248, 0.1148544000000129],
+            'candidate_samples_seconds': [0.1510123333333316, 0.15629203333332953,
+                0.1563260000000355, 0.156270799999902, 0.16134846666667121,
+                0.16195260000010117, 0.15608356666659043],
+        }
+        for supplemental in (None, {'status': 'passed', 'samples_seconds': [0.000001] * 7}):
+            with self.subTest(supplemental=supplemental is not None):
+                report = adoption_timing_fixture()
+                report['performance']['capture_synthetic_window'] = copy.deepcopy(row)
+                if supplemental is not None:
+                    report['capture_diagnostics'] = copy.deepcopy(supplemental)
+                    report['performance']['capture_synthetic_window']['supplemental_diagnostics'] = copy.deepcopy(supplemental)
+                before = copy.deepcopy(report)
+                with self.assertRaisesRegex(gate.VerificationError, 'Material timing regression.*capture_synthetic_window'):
+                    gate.verify_adopted_performance(report)
+                self.assertEqual(report, before)
+
     def test_seconds_and_both_thresholds_are_required(self):
         # 20 percent but only 4ms, or 10ms but only 5 percent, must not fail.
         for baseline, candidate in ((0.020, 0.024), (0.020, 0.025), (0.2, 0.23), (0.200, 0.210), (0.2, 0.2), (0.2, 0.19)):

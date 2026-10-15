@@ -166,6 +166,10 @@ class MinimalPackageTests(unittest.TestCase):
             baseline, candidate = reports()
             candidate['native'].update(sha256=proof['native']['sha256'], size=proof['native']['size'], zlib9_size=10)
             candidate['opencv']['binary'].update(sha256=proof['native']['sha256'], raw_bytes=proof['native']['size'], zlib9_bytes=10)
+            # The synthetic package bytes also bind both supplemental loaded-module snapshots.
+            for key in ('identity_before_supplemental', 'identity_after_supplemental'):
+                candidate['performance']['capture_synthetic_window']['capture_diagnostics'][key]['loaded']['cv2_native'].update(
+                    sha256=proof['native']['sha256'], size=proof['native']['size'])
             parity = compare_reports(baseline, candidate)
             self.assertEqual(parity['status'], 'passed')
             evidence = {'windows-opencv-build.json': proof, 'windows-opencv-baseline.json': baseline,

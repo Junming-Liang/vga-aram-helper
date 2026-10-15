@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts import probe_opencv_parity as probe
+from scripts import probe_capture_phases as phases
 
 
 BUILD = '''
@@ -44,6 +45,42 @@ def sample_record(value=0.1):
     return {'samples_seconds': [value] * 7, 'median_seconds': value,
             'min_seconds': value, 'max_seconds': value, 'warmups': 2,
             'iterations_per_sample': 10, 'output_sha256': 'a' * 64}
+
+
+def capture_diagnostic(report):
+    record = report['performance']['capture_synthetic_window']
+    record['iterations_per_sample'] = 3
+    output = {'image_sha256': '8' * 64, 'width': 960, 'height': 640}
+    record['output_sha256'] = probe.sha256(probe.canonical(output).encode('utf-8'))
+    proof = {'sha256': '2' * 64, 'size': 100}
+    identity = {'loaded': {key: dict(proof) for key in ('cv2_native', 'pillow_native', 'pillow_image', 'pillow_png')},
+                'sources': {name: dict(proof) for name in phases.SOURCE_FILES},
+                'helpers': {}, 'bound_one_shot': True, 'pillow_version': report['dependencies']['Pillow']}
+    identity['loaded']['cv2_native']['sha256'] = report['opencv']['binary']['sha256']
+    for name, protocol in (('one_shot', 1), ('session', 2)):
+        identity['helpers'][name] = {'status': 'verified', 'binary': dict(proof), 'manifest': dict(proof),
+            'protocol': protocol, 'source_commit': '1' * 40, 'source_sha256': '2' * 64, 'build_recipe_sha256': '2' * 64}
+    observation = {'backend': 'windows-graphics-capture', 'cleanup_pending': False,
+                   'one_shot_helper_sha256': '2' * 64, 'fallback_reason': 'not-applicable'}
+    rows = []
+    for context in phases.CONTEXTS:
+        for index in range(phases.CALLS_PER_CONTEXT):
+            row = dict(observation, context=context, index=index, status='passed',
+                phase_seconds={'wgc_inclusive': .08, 'helper_verify': .001, 'frame_decode': .001, 'png_encode': .01},
+                phase_calls={name: 1 for name in phases.PHASES}, total_seconds=.1,
+                outer_residual_seconds=.1-.08-.01, helper_starts=1, helpers_exited=True,
+                helper_pipes_closed=True, helper_jobs_closed=True, worker_exited=True, cancelled=False,
+                qt_pumps=0 if context == 'gui_blocked' else 10, capture_on_caller_thread=context == 'gui_blocked',
+                output=dict(output), client_rect=[20, 20, 960, 640])
+            rows.append(row)
+    return {'schema_version': 1, 'status': 'passed', 'errors': [],
+        'authoritative_observations': [dict(observation) for _ in range((record['warmups'] + len(record['samples_seconds'])) * 3)],
+        'expected_output': output, 'expected_client_rect': [20, 20, 960, 640],
+        **{key: copy.deepcopy(identity) for key in ('identity_before_supplemental', 'identity_after_supplemental')},
+        'supplemental': {'schema_version': 1, 'status': 'passed', 'scope': phases.SCOPE,
+            'excluded_from_adoption': True, 'calls_per_context': phases.CALLS_PER_CONTEXT,
+            'call_timeout_seconds': phases.CALL_TIMEOUT, 'cancellation_grace_seconds': phases.CANCEL_GRACE,
+            'deadline_kind': phases.DEADLINE_KIND, 'safe_to_close_fixture': True, 'rows': rows}}
 
 
 def reports():
@@ -99,6 +136,8 @@ def reports():
     candidate['opencv']['build_features'] = probe.parse_build_information(text)
     candidate['opencv']['binary'] = {'path': 'candidate/cv2.pyd', 'sha256': '4' * 64, 'raw_bytes': 60, 'zlib9_bytes': 40}
     candidate['native'] = {'path': 'candidate/cv2.pyd', 'sha256': '4' * 64, 'size': 60, 'zlib9_size': 40}
+    for report in (baseline, candidate):
+        report['performance']['capture_synthetic_window']['capture_diagnostics'] = capture_diagnostic(report)
     return baseline, candidate
 
 
@@ -108,6 +147,9 @@ def set_timing(report, name, value):
     record['output_sha256'] = old['output_sha256']
     if 'fixture' in old:
         record['fixture'] = old['fixture']
+    if 'capture_diagnostics' in old:
+        record['capture_diagnostics'] = old['capture_diagnostics']
+        record['iterations_per_sample'] = old['iterations_per_sample']
     report['performance'][name] = record
 
 
@@ -272,6 +314,9 @@ class OpenCVParityTests(unittest.TestCase):
         baseline, candidate = reports()
         candidate['performance']['capture_synthetic_window']['fixture']['qt_version'] = 'different'
         self.assert_fails(baseline, candidate, 'capture fixture/Qt version differs')
+        baseline, candidate = reports()
+        candidate['performance']['capture_synthetic_window']['fixture']['width'] = 961
+        self.assert_fails(baseline, candidate, 'output size differs')
 
     def test_benchmark_rejects_nondeterminism_without_timing_the_fingerprint(self):
         values = iter([1, 1, 2])
@@ -281,6 +326,139 @@ class OpenCVParityTests(unittest.TestCase):
         record = probe.benchmark(lambda: 1, samples=7, warmups=2, iterations=2, fingerprint=lambda x: x)
         self.assertEqual(len(record['samples_seconds']), 7)
         self.assertEqual(record['output_sha256'], probe.sha256(b'1'))
+
+
+    def test_capture_diagnostic_sources_native_helpers_and_all_rows_are_bound(self):
+        baseline, candidate = reports()
+        self.assertTrue(set(phases.SOURCE_FILES) <= set(probe.SOURCE_FILES))
+        record = candidate['performance']['capture_synthetic_window']
+        value = record['capture_diagnostics']
+        text = phases.bounded_json(value)
+        self.assertLess(len(text.encode('utf-8')), phases.MAX_DIAGNOSTIC_BYTES)
+        self.assertEqual(json.loads(text), value)
+        with self.assertRaises(ValueError):
+            phases.bounded_json(dict(value, oversized='x' * phases.MAX_DIAGNOSTIC_BYTES))
+        self.assertEqual(len(value['authoritative_observations']), 27)
+        self.assertEqual(len(value['supplemental']['rows']), 6)
+        for change in (
+            lambda d: d['identity_after_supplemental']['loaded']['cv2_native'].update(sha256='0' * 64),
+            lambda d: d['identity_before_supplemental']['sources'].pop('scripts/probe_capture_phases.py'),
+            lambda d: d['identity_before_supplemental']['helpers']['session'].update(source_sha256='0' * 64),
+            lambda d: d['authoritative_observations'][0].update(one_shot_helper_sha256='0' * 64),
+            lambda d: d['authoritative_observations'].pop(),
+            lambda d: d['supplemental']['rows'].pop(),
+            lambda d: d['supplemental']['rows'][0].update(output={}),
+            lambda d: d['supplemental']['rows'][3].update(capture_on_caller_thread=True),
+            lambda d: d['supplemental']['rows'][3].update(qt_pumps=0),
+            lambda d: d['supplemental']['rows'][0].update(outer_residual_seconds=99),
+            lambda d: d['supplemental'].update(safe_to_close_fixture=False),
+            lambda d: d.update(schema_version=True),
+            lambda d: d['supplemental']['rows'][0].update(index=False),
+            lambda d: d['supplemental']['rows'][0].update(helper_starts=True),
+            lambda d: d['supplemental']['rows'][0].update(outer_residual_seconds=True),
+            lambda d: d['identity_before_supplemental'].update(bound_one_shot=1),
+            lambda d: d['identity_before_supplemental']['helpers']['one_shot'].update(protocol=True),
+            lambda d: d.update(expected_client_rect=[20.0, 20, 960, 640]),
+        ):
+            damaged = copy.deepcopy(candidate)
+            change(damaged['performance']['capture_synthetic_window']['capture_diagnostics'])
+            self.assertTrue(probe.validate_report(damaged))
+
+    def test_coherent_diagnostic_type_forgery_is_rejected(self):
+        for field in ('geometry', 'bound', 'protocol', 'schema', 'count'):
+            _, candidate = reports()
+            value = candidate['performance']['capture_synthetic_window']['capture_diagnostics']
+            if field == 'geometry':
+                value['expected_client_rect'][0] = 20.0
+                for row in value['supplemental']['rows']:
+                    row['client_rect'][0] = 20.0
+            elif field in {'bound', 'protocol'}:
+                for key in ('identity_before_supplemental', 'identity_after_supplemental'):
+                    if field == 'bound':
+                        value[key]['bound_one_shot'] = 1
+                    else:
+                        value[key]['helpers']['one_shot']['protocol'] = True
+            elif field == 'schema':
+                value['schema_version'] = value['supplemental']['schema_version'] = True
+            else:
+                value['supplemental']['rows'][0]['index'] = False
+                value['supplemental']['rows'][0]['helper_starts'] = True
+            self.assertTrue(probe.validate_report(candidate), field)
+
+    def test_supplemental_timings_never_replace_authoritative_samples(self):
+        baseline, candidate = reports()
+        set_timing(candidate, 'capture_synthetic_window', .2)
+        rows = candidate['performance']['capture_synthetic_window']['capture_diagnostics']['supplemental']['rows']
+        for row in rows:
+            row['phase_seconds'] = {key: value / 1000 for key, value in row['phase_seconds'].items()}
+            row['total_seconds'] /= 1000
+            row['outer_residual_seconds'] = row['total_seconds'] - row['phase_seconds']['wgc_inclusive'] - row['phase_seconds']['png_encode']
+        result = self.assert_fails(baseline, candidate, 'median regression')
+        self.assertEqual(result['performance']['capture_synthetic_window']['candidate_samples_seconds'], [.2] * 7)
+
+    def test_failed_generate_cli_keeps_capture_samples_and_prints_complete_record(self):
+        report, _ = reports()
+        report.update(status='failed', failures=['capture diagnostics failed'])
+        record = report['performance']['capture_synthetic_window']
+        record['capture_diagnostics']['status'] = 'failed'
+        with tempfile.TemporaryDirectory() as folder, patch.object(probe, 'generate_report', return_value=report), patch('builtins.print') as output:
+            target = Path(folder) / 'failed.json'
+            status = probe.main(['generate', '--output', str(target)])
+            saved = json.loads(target.read_text())
+            self.assertEqual(status, 1)
+            self.assertEqual(saved['performance']['capture_synthetic_window'], record)
+            printed = json.loads(output.call_args_list[0].args[0])
+            self.assertEqual(printed['capture_synthetic_window'], record)
+
+    def test_standalone_unconfirmed_cleanup_saves_flushes_then_exits_nonzero(self):
+        report, _ = reports()
+        record = report['performance']['capture_synthetic_window']
+        record['capture_diagnostics']['status'] = 'failed'
+        record['capture_diagnostics']['supplemental']['safe_to_close_fixture'] = False
+        with tempfile.TemporaryDirectory() as folder, patch.object(probe, 'generate_report', return_value=report), \
+                patch.object(probe, '_RETAINED_CAPTURE_FIXTURES', [object()]), \
+                patch('builtins.print') as output, patch.object(probe.sys.stdout, 'flush') as stdout_flush, \
+                patch.object(probe.sys.stderr, 'flush') as stderr_flush:
+            target = Path(folder) / 'retained.json'
+            def terminate(code):
+                self.assertEqual(code, 1)
+                saved = json.loads(target.read_text())
+                self.assertEqual(saved['status'], 'failed')
+                self.assertEqual(saved['performance']['capture_synthetic_window'], record)
+                self.assertTrue(any('unobserved' in item for item in saved['failures']))
+                self.assertEqual(json.loads(output.call_args_list[0].args[0])['capture_synthetic_window'], record)
+                self.assertTrue(all(call.kwargs.get('flush') is True for call in output.call_args_list))
+                stdout_flush.assert_called_once()
+                stderr_flush.assert_called_once()
+            with patch.object(probe.os, '_exit', side_effect=terminate) as exit_process:
+                self.assertEqual(probe.main(['generate', '--output', str(target)], standalone=True), 1)
+                exit_process.assert_called_once_with(1)
+            with patch.object(probe.os, '_exit') as exit_process:
+                self.assertEqual(probe.main(['generate', '--output', str(target)]), 1)
+                exit_process.assert_not_called()
+
+    def test_standalone_retained_fixture_write_or_stdout_failure_still_exits(self):
+        report, _ = reports()
+        with tempfile.TemporaryDirectory() as folder, patch.object(probe, 'generate_report', return_value=report), \
+                patch.object(probe, '_RETAINED_CAPTURE_FIXTURES', [object()]), \
+                patch.object(probe, 'write_json', side_effect=OSError('private filesystem detail')), \
+                patch.object(probe.sys.stdout, 'flush') as stdout_flush, \
+                patch.object(probe.sys.stderr, 'flush') as stderr_flush, patch.object(probe.os, '_exit') as exit_process:
+            with patch('builtins.print') as output:
+                self.assertEqual(probe.main(['generate', '--output', str(Path(folder) / 'failed.json')], standalone=True), 1)
+                record = json.loads(output.call_args_list[0].args[0])['capture_synthetic_window']
+                self.assertEqual(len(record['samples_seconds']), 7)
+                summary = json.loads(output.call_args_list[-1].args[0])
+                self.assertIn('Report write failed: OSError', summary['failures'])
+                self.assertNotIn('private filesystem', json.dumps(summary))
+            exit_process.assert_called_once_with(1)
+            stdout_flush.assert_called_once()
+            stderr_flush.assert_called_once()
+            exit_process.reset_mock()
+            with patch('builtins.print', side_effect=BrokenPipeError('closed stdout')):
+                with self.assertRaises(BrokenPipeError):
+                    probe.main(['generate', '--output', str(Path(folder) / 'failed.json')], standalone=True)
+            exit_process.assert_called_once_with(1)
 
     def test_icc_fixture_has_valid_declared_length_and_d50_header(self):
         self.assertEqual(int.from_bytes(probe.SRGB_ICC[:4], 'big'), len(probe.SRGB_ICC))
