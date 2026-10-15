@@ -458,7 +458,14 @@ def verify_selection_bundle(files, source_archive, version, source_commit, check
         for row in report['runs']:
             path = files[row['native_report']]
             native = read_json(path)
-            require(native == row['detail'] and row.get('native_report_sha256') == digest(path),
+            try:
+                selection_fixture.validate_report(native, version, frozen=frozen, scale=row['app_scale'],
+                    executable_sha256=checksum if frozen else None)
+                same_detail = json.dumps(native, sort_keys=True, allow_nan=False) == json.dumps(
+                    row['detail'], sort_keys=True, allow_nan=False)
+            except (AssertionError, RuntimeError, ValueError, TypeError, KeyError, AttributeError) as exc:
+                raise VerificationError('Selection ' + kind + ' native report failed: ' + str(exc)) from exc
+            require(same_detail and row.get('native_report_sha256') == digest(path),
                     'Selection aggregate does not bind exact native report bytes: ' + row['native_report'])
             if frozen:
                 require(native.get('executable_sha256') == checksum,
