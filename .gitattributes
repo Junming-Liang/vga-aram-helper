@@ -58,6 +58,7 @@ scripts/microsoft_runtime.py text eol=lf
 scripts/qt_licenses.py text eol=lf
 tests/windows_wgc_session_capture.py text eol=lf
 tests/windows_exe_smoke.py text eol=lf
+tests/windows_ota_smoke.py text eol=lf
 packaging/WGC-Session-Diagnostic.spec text eol=lf
 packaging/windows.manifest text eol=lf
 requirements-build.txt text eol=lf

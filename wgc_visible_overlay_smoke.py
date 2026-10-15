@@ -1,4 +1,4 @@
-"""Explicit, default-off Windows product-overlay acceptance diagnostic.
+"""Explicit Windows ordinary-default product-overlay acceptance diagnostic.
 
 Only original self-owned artwork is captured. This module is never imported by
 normal startup. The external runner owns the one foreign-PID occluder in its
@@ -18,15 +18,16 @@ import threading
 import time
 
 from app_version import __version__
-from wgc_session_smoke import Fixture, LIMITATIONS, require, write_report
+from wgc_session_smoke import Fixture, LIMITATIONS as SESSION_LIMITATIONS, require, write_report
 from owned_diagnostic_json import poll_owned_json
 
 SCALES = (1, 1.5, 2)
 MAX_REPORT_BYTES = 256 * 1024
 SAMPLE_FORMAT = '[offset_us, qt_visible*2+native_visible]'
-SCOPE = ('Explicit default-off real ControlWindow/Overlay and Win32Capture visible-owned-overlay '
+SCOPE = ('Explicit ordinary-default real ControlWindow/Overlay and Win32Capture visible-owned-overlay '
          'diagnostic; original owned synthetic windows only. Not live-game, exclusive-fullscreen, '
-         'Vanguard, general HWND exclusion, zero idle CPU readback, or production activation proof.')
+         'Vanguard, general HWND exclusion, zero idle CPU readback, or general production compatibility proof.')
+LIMITATIONS = dict(SESSION_LIMITATIONS, production_enabled=True)
 NEGATIVES = ('same_pid_occluder', 'foreign_pid_occluder', 'wrong_hwnd', 'replaced_hwnd_token',
              'owner_change', 'token_change', 'extended_style_change', 'window_style_change',
              'affinity_change', 'opacity_change', 'protected_target', 'focus_loss',
@@ -131,7 +132,9 @@ class ProductFixture(Fixture):
         state = Path(os.environ.get('VGA_STATE_DIR', self.report_path.parent / 'visible-state'))
         self.control = ControlWindow(lambda: load_startup_data(state / 'data', demo=True),
             state_dir=state, current_executable=sys.executable, current_version=__version__,
-            frozen=bool(getattr(sys, 'frozen', False)), enable_updates=False, enable_visible_capture=True)
+            frozen=bool(getattr(sys, 'frozen', False)), enable_updates=False)
+        require(self.control.enable_visible_capture is True,
+                'Ordinary ControlWindow construction did not enable guarded visible capture')
         self.windows.extend((self.control, self.control.overlay))
         self.control.watchdog.stop(); self.control.monitor.stop()
         self.wait(lambda: self.control.data is not None, 10, 'Synthetic product startup did not finish')
@@ -182,7 +185,7 @@ class ProductFixture(Fixture):
             client_rect=vars(self.rect), target_identity=list(self.target.identity),
             target_created=process_metadata(self.target.pid).created,
             overlay_hwnd=self.overlay_hwnd, control_hwnd=int(self.control.winId()),
-            constructor='ControlWindow(enable_visible_capture=True)',
+            constructor='ControlWindow()', visible_capture_enabled=self.control.enable_visible_capture,
             pattern='Two deterministic paint states; static between explicit changes; no animation timer',
             transitions=[], negative_results={}, requests=self.records)
         parent = self
@@ -310,9 +313,10 @@ class ProductFixture(Fixture):
         if 'error' in box: raise box['error']
         return box['result'][0]
 
-    def product_cycle(self, name, *, visible):
+    def product_cycle(self, name, *, visible, paint_state=None):
         """The real GUI route, actual matcher/OCR, and actual result handlers."""
         count = len(self.records); events = len(self.event_rows); start = time.monotonic()
+        if paint_state is not None:self.paint(paint_state)
         self.control.capture_tick()
         # A planned mode switch may first return while the prior owner drains.
         while len(self.records) == count:
@@ -519,7 +523,13 @@ def execute(result, report_path):
         ui1 = f.product_cycle('visible-product-1', visible=True)
         require(hidden_owner.revoked.is_set(), 'Product capture_tick did not drain the hidden owner')
         f.cleanup_owner(hidden_owner,'hidden-to-visible-product-planned-drain')
-        ui2 = f.product_cycle('visible-product-2', visible=True)
+        ui2 = f.product_cycle('visible-product-2', visible=True, paint_state=1)
+        require(ui1['paint_state'] == 0 and ui2['paint_state'] == 1
+                and ui1['pixels_sha256'] != ui2['pixels_sha256'],
+                'Second visible GUI cycle did not acquire changed target pixels')
+        require(all(row['product']['hero'] == second['product']['hero']
+                    and row['product']['offered'] == second['product']['offered'] for row in (ui1, ui2)),
+                'Changed target pixels did not preserve the accepted hero and ordered candidate trio')
         identity = lambda row: tuple(row[key] for key in ('helper_pid','helper_created','session_generation'))
         require(identity(ui1) == identity(ui2) and identity(first) == identity(second)
                 and identity(second) != identity(ui1), 'Cold/visible helper lifecycle or reuse differs')

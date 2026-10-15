@@ -275,12 +275,12 @@ class Overlay(QtWidgets.QWidget):
         return super().nativeEvent(event_type,message)
 
 class ControlWindow(QtWidgets.QWidget):
-    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=False):
+    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=True):
         super().__init__();self.state=RecognitionState();self.data=None;self.startup_error='';self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         self._capture_serial=0;self._accepted_frame=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
         if type(enable_visible_capture) is not bool:raise TypeError('Visible capture requires an explicit boolean')
-        # Investigation stays opt-in until source/frozen pixel-exclusion proof.
+        # Ordinary capture retains all per-request guards and strict-hidden fallback.
         self.enable_visible_capture=enable_visible_capture;self._visible_previous=False;self._mode_wait_started=None
         self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
@@ -1254,6 +1254,8 @@ class ControlWindow(QtWidgets.QWidget):
 
 def run_native(startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None):
     app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([]);app.setApplicationName(APP_NAME);app.setQuitOnLastWindowClosed(True)
-    control=ControlWindow(startup_loader,state_dir=state_dir,current_executable=current_executable,current_version=current_version,frozen=frozen,on_ready=on_ready,smoke_report=smoke_report,smoke_screenshot=smoke_screenshot,enable_updates=enable_updates,selection_smoke_input=selection_smoke_input)
+    # Keep existing native/selection diagnostic baselines strictly hidden.
+    capture_options={'enable_visible_capture':False} if smoke_report or selection_smoke_input else {}
+    control=ControlWindow(startup_loader,state_dir=state_dir,current_executable=current_executable,current_version=current_version,frozen=frozen,on_ready=on_ready,smoke_report=smoke_report,smoke_screenshot=smoke_screenshot,enable_updates=enable_updates,selection_smoke_input=selection_smoke_input,**capture_options)
     app._vga_control=control
     return app.exec()
