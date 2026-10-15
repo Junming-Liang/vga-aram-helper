@@ -82,17 +82,19 @@ jobs:
         run: python tests/windows_automatic_capture.py --reports reports
       - name: Verify exact-source overlay geometry at five app scales
         run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
-      - name: Probe official pinned OpenCV on this Windows runner
-        run: python scripts/probe_opencv_parity.py generate --output reports/windows-opencv-baseline.json
+      - name: Preserve the exact official wheel and initial identity before rebuilding
+        run: |
+          New-Item -ItemType Directory -Force build/opencv-postbuild/official | Out-Null
+          python -m pip --isolated download --index-url https://pypi.org/simple --only-binary=:all: --no-deps --dest build/opencv-postbuild/official opencv-python-headless==5.0.0.93
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/probe_opencv_postbuild.py prepare
       - name: Rebuild adopted hash-pinned OpenCV with the approved Community compiler
         run: python scripts/build_minimal_opencv.py
-      - name: Probe adopted OpenCV in a fresh interpreter and require exact parity
+      - name: Compare one fixed official-to-custom pair after the build and restore exact custom bytes
         run: |
-          python scripts/probe_opencv_parity.py generate --output reports/windows-opencv-candidate.json
+          python scripts/probe_opencv_postbuild.py run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/probe_opencv_parity.py compare reports/windows-opencv-baseline.json reports/windows-opencv-candidate.json --output reports/windows-opencv-parity.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip check
+          python scripts/probe_opencv_postbuild.py export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
       - name: Re-run Python tests with the adopted native library
@@ -127,6 +129,9 @@ jobs:
           python tests/windows_ota_smoke.py --exe dist/VGA-Aram-Helper.exe --expected-sha256 $manifest.sha256 --expected-size $manifest.size --release-source-sha "$env:GITHUB_SHA"
       - name: Verify candidate size evidence and complete image-format coverage
         run: python scripts/check_package_candidate.py
+      - name: Always print bounded post-build comparison and restoration evidence
+        if: ${{ always() }}
+        run: python scripts/probe_opencv_postbuild.py summarize
       - name: Always print bounded application session evidence
         if: ${{ always() }}
         run: python tests/windows_wgc_session_capture.py --application --summarize --reports reports
