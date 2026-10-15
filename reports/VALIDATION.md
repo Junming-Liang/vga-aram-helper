@@ -1,4 +1,52 @@
-# Published release verification: v0.4.6 (2026-10-14 UTC)
+# Current v0.4.7 release validation (2026-10-15 UTC)
+
+[Windows release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941)
+passed every mandatory gate with `publish_preview=true` at source/tag
+`1046af25d66e12c784554c38351e75ed82afa81b`, tree `74f1bcaaad84a4fd08d05360c7cd474348f2cdc5`.
+The published EXE is **106,858,822 bytes (101.91 MiB)**, SHA-256
+`96bc81fcb12dc48c45e210706b358eb5eeccc062574166b440bf1452f4000547`.
+All 15 public assets match the publishing verifier's names, sizes and SHA-256
+values. [v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7) remains a non-latest prerelease; stable OTA excludes it.
+Earlier run #46 is a separate retained diagnostic, not this release's EXE.
+
+- Source capture/lifecycle/layout and actual application-entrypoint source/frozen
+  session diagnostics passed. The same EXE's normal product pipeline separately
+  passed single-shot and persistent capture at 100%/150%/200% application scale,
+  including accepted-frame restoration, changed/unknown-input hiding, native
+  receipt identity and actual stop cleanup. Real Stop may terminate a live helper;
+  it is not a claim of graceful Stop/EOF protocol completion.
+- Source and frozen selection handoff passed at all three scales, including the
+  provisional public-source champion T1–T5 strip without augment cards or augment
+  confirmation. The B dashboard, ordered tiers, attribution, half-height bounds,
+  independent OCR confirmation, stale-state clearing and same-binary OTA
+  success/concurrency/rollback passed.
+- The fixed post-build OpenCV pair and unchanged strict timing rule, package/model
+  identities, complete Qt/Microsoft/OpenCV notices, corresponding source archives
+  and 52 evidence-file hash bindings passed the source-bound final verifier.
+  [Rejected runs and paired timing scope](../POSTBUILD_OPENCV_VALIDATION.md) remain
+  separate from product visible/hidden intervals and game latency.
+- The committed [hero report](hero-recognition-genuine.json) and
+  [selection report](champion-select-genuine.json) were actually rerun as v0.4.7
+  Linux official-wheel still-image evaluations. Hero results remain 2/3 positives,
+  one safe abstention and 3/3 negative abstentions; selection is 1/1 positive and
+  3/3 negative abstentions across two scenes. No wrong hero was observed. These
+  tiny public samples do not establish general accuracy, current stock-client
+  behavior, or Windows custom-wheel game performance; no genuine image is
+  redistributed.
+
+The product diagnostic inserts target 350 ms holds before matching and OCR;
+its observed timings are not natural gameplay latency or an old-version EXE
+benchmark. Application scaling is not physical-monitor/mixed-DPI coverage.
+True exclusive fullscreen, live LoL/Vanguard, automatic final chosen augment,
+clean Windows 10/11 and cross-version online upgrades remain unverified. Idle
+GPU surfaces and asynchronous cleanup have no zero-frame/50 ms guarantee.
+No private photos or vendor code/assets were added. The release source archive
+must remain the exact tested source; a later documentation-only update must
+not be substituted for that archived source identity.
+
+---
+
+# Historical release verification: v0.4.6 (2026-10-14 UTC)
 
 [Windows release run #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525) passed all mandatory gates and published [v0.4.6](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6) from source/tag `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`. Final EXE: **106,553,042 bytes (101.62 MiB)**, SHA-256 `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`. The release remains a non-latest prerelease; earlier tags and assets are unchanged.
 
