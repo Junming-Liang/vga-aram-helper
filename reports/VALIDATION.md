@@ -1,3 +1,36 @@
+# v0.4.8 local diagnostic candidate (2026-10-15 UTC)
+
+This checkout prepares fixes for feedback from the latest light UI in borderless
+mode: brief candidate-result visibility across multiple rounds, and the client
+hero portrait/tier presentation. The public v0.4.7 release below is unchanged.
+
+- Local Qt regressions reproduce and correct destructive four-second display
+  expiry cancelling a still-fresh, same-authority recognition job. Visible results
+  still expire at four seconds. Focus, target identity, geometry, permission and
+  Stop continue to revoke work immediately.
+- Three synthetic rounds with normal rerolls, card-free intervals, animation and
+  a new fourth title pass actual LocalOCR and production result handlers. This is
+  controlled image/Qt evidence, not live-game or Windows capture acceptance.
+- Existing verified public portrait data is displayed by canonical champion ID.
+  The chosen-ID render is a presentation check, not an automatic recognition claim.
+- An explicit diagnostic-only visible-overlay capture route is default off. Its
+  exact owned opaque HWND, token, styles, affinity and pixel-exclusion behavior
+  require fresh source and frozen Windows tests before any production activation.
+- Requested local debug mode is off by default at every launch. It retains only
+  allowlisted state/counter/timing metadata in three rotating 256 KiB files and
+  exports a local ZIP through Settings. It does not record screenshots, OCR text,
+  names, window titles, tokens or private paths, and never uploads automatically.
+- The current committed genuine-image reports were rerun as v0.4.8 from the same
+  authorized images/data. Outcomes are unchanged: hero 2/3 positives recognized,
+  one abstention, 3/3 negative abstentions; selection 1/1 positive and 3/3 negative
+  abstentions across two scenes, with no wrong prediction in these small samples.
+
+Real user timing, live multi-round game compatibility, exclusive fullscreen and
+true final chosen-augment detection remain unverified. Local diagnostic test
+results must not be described as solving the user's game session.
+
+---
+
 # Current v0.4.7 release validation (2026-10-15 UTC)
 
 [Windows release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941)
@@ -25,8 +58,8 @@ Earlier run #46 is a separate retained diagnostic, not this release's EXE.
   and 52 evidence-file hash bindings passed the source-bound final verifier.
   [Rejected runs and paired timing scope](../POSTBUILD_OPENCV_VALIDATION.md) remain
   separate from product visible/hidden intervals and game latency.
-- The committed [hero report](hero-recognition-genuine.json) and
-  [selection report](champion-select-genuine.json) were actually rerun as v0.4.7
+- The then-committed hero and selection reports (retained in the v0.4.7
+  source archive) were actually rerun as v0.4.7
   Linux official-wheel still-image evaluations. Hero results remain 2/3 positives,
   one safe abstention and 3/3 negative abstentions; selection is 1/1 positive and
   3/3 negative abstentions across two scenes. No wrong hero was observed. These
