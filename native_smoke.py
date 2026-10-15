@@ -87,20 +87,32 @@ class OverlayDutyTrace:
     Native visibility is sampled at capture boundaries, phase dispatch and Qt
     timer ticks. Durations use the preceding sample, so the maximum sample gap
     is reported alongside them. The old hide-until-final policy is an explicit
-    same-run counterfactual, not a measurement of another executable.
+    same-run counterfactual, not a measurement of another executable. All
+    diagnostic elapsed measurements share this high-resolution clock; product
+    freshness timestamps and the existing timeout deadlines keep their clocks.
     """
-    def __init__(self,name,*,clock=time.monotonic):
+    def __init__(self,name,*,clock=time.perf_counter):
         self.name=name;self.clock=clock;self.started=clock();self.events={}
+        info=time.get_clock_info('perf_counter') if clock is time.perf_counter else None
+        self.measurement_clock={'name':'perf_counter' if info else 'injected',
+            'implementation':info.implementation if info else 'caller-supplied diagnostic clock',
+            'monotonic':info.monotonic if info else None,'adjustable':info.adjustable if info else None,
+            'resolution_seconds':info.resolution if info else None}
+        self.initial_native_visible=None;self.initial_qt_visible=None
         self.samples=[];self.phases=[];self.helpers=[];self.holds={};self.hold_started={};self.hold_elapsed={}
         self.held_state_samples=0;self.qt_show_events_during_capture=0;self.capture_active=False;self.capture_count=0;self.capture_concurrency=0;self.max_capture_concurrency=0;self.finished=False;self.stopped=False;self.error=None
         self.lock=threading.Lock()
+    def elapsed_ms(self):return (self.clock()-self.started)*1000
     def mark(self,name):
-        with self.lock:self.events[name]=(self.clock()-self.started)*1000
+        with self.lock:self.events[name]=self.elapsed_ms()
     def sample(self,visible,*,capturing=False):
-        with self.lock:self.samples.append(((self.clock()-self.started)*1000,bool(visible),bool(capturing)))
+        with self.lock:self.samples.append((self.elapsed_ms(),bool(visible),bool(capturing)))
     def summary(self):
         total=self.events['final']
-        points=sorted((min(stamp,total),shown,capturing) for stamp,shown,capturing in self.samples);hidden=visible=inference_visible=gap=0.;capture_samples=capture_visible=0
+        # Preserve actual acquisition order at equal timestamps. Sorting full
+        # tuples orders False before True and can invent visibility changes;
+        # clipping before sorting can also reverse distinct final samples.
+        points=[(min(stamp,total),shown,capturing) for stamp,shown,capturing in sorted(self.samples,key=lambda point:point[0])];hidden=visible=inference_visible=gap=0.;capture_samples=capture_visible=0
         for index,(stamp,shown,capturing) in enumerate(points):
             if capturing:capture_samples+=1;capture_visible+=int(shown)
             if index+1<len(points):
@@ -110,6 +122,7 @@ class OverlayDutyTrace:
                     inference_visible+=max(0.,points[index+1][0]-max(stamp,self.events.get('capture_return',float('inf'))))
                 else:hidden+=elapsed
         return {'name':self.name,'status':'passed','timings_ms':{key:round(value,3) for key,value in self.events.items()},
+                'measurement_clock':dict(self.measurement_clock),'initial_native_visible':self.initial_native_visible,'initial_qt_visible':self.initial_qt_visible,
                 'total_ms':round(total,3),'sampled_hidden_ms':round(hidden,3),'sampled_visible_ms':round(visible,3),
                 'sampled_inference_visible_ms':round(inference_visible,3),'max_sample_gap_ms':round(gap,3),'native_visibility_samples':len(points),
                 'capture_samples':capture_samples,'capture_visible_samples':capture_visible,
@@ -359,11 +372,11 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
             assert trace is not None and 'capture_return' in trace.events and acquisition_complete(trace),'Phase preceded completed guarded capture return'
             trace.mark(name+'_emitted');mode_report['active_case']['phase_state']=name+'-emitted'
             if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
-                trace.holds[name]=threading.Event();trace.hold_started[name]=time.monotonic()
+                trace.holds[name]=threading.Event();trace.hold_started[name]=trace.clock()
             callback(*values)
             if name in trace.holds:
                 assert trace.holds[name].wait(4),'GUI did not release diagnostic phase hold'
-                trace.hold_elapsed[name]=(time.monotonic()-trace.hold_started[name])*1000
+                trace.hold_elapsed[name]=(trace.clock()-trace.hold_started[name])*1000
         return original_recognize(*arguments,before_match=lambda *values:phase('before_match',before_match,*values),
             before_ocr=lambda *values:phase('before_ocr',before_ocr,*values),**keywords)
     def observed(kind,value,generation):
@@ -425,8 +438,13 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
     def begin(name,done):
         assert not control.ocr_busy and not control.capture_pending
         trace=OverlayDutyTrace(name);trace.before=snapshot();trace.accepted=control._accepted_frame;active[0]=trace
-        mode_report['active_case']={'mode':mode,'name':name,'phase_state':'waiting-for-capture','timings_ms':trace.events,'phases':trace.phases}
-        trace.sample(native_visible());control.capture_tick();trace.sample(native_visible())
+        trace.initial_native_visible=native_visible();trace.initial_qt_visible=overlay.isVisible()
+        mode_report['active_case']={'mode':mode,'name':name,'phase_state':'waiting-for-capture','timings_ms':trace.events,'phases':trace.phases,
+            'measurement_clock':dict(trace.measurement_clock),'initial_native_visible':trace.initial_native_visible,'initial_qt_visible':trace.initial_qt_visible}
+        trace.sample(trace.initial_native_visible)
+        if name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+            assert trace.initial_native_visible and trace.initial_qt_visible,'Measured duty case must begin with the accepted overlay genuinely visible'
+        control.capture_tick();trace.sample(native_visible())
         deadline=time.monotonic()+8
         def poll():
             try:
@@ -439,9 +457,9 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                         if release.is_set() or name+'_applied' not in trace.events:continue
                         assert snapshot()==trace.before,'TTL or confirmation counters changed during diagnostic inference hold'
                         trace.held_state_samples+=1
-                        if time.monotonic()-trace.hold_started[name]<.35:continue
+                        if trace.clock()-trace.hold_started[name]<.35:continue
                         if trace.name=='stop_late' and name=='before_ocr':
-                            trace.mark('stop');started=time.monotonic();control.stop_monitor();trace.stop_ms=(time.monotonic()-started)*1000;trace.stopped=True
+                            trace.mark('stop');started=trace.clock();control.stop_monitor();trace.stop_ms=(trace.clock()-started)*1000;trace.stopped=True
                             assert not native_visible() and not overlay.isVisible() and not control.state.running and not control.state.confirmed
                             trace.sample(native_visible())
                         release.set()
@@ -450,7 +468,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 if trace.stopped and mode=='persistent':
                     mode_report['active_case']['phase_state']='stop-cleanup'
                     trace.stop_cleanup=_duty_session_cleanup(capture_adapter,trace.owner,trace.transport,trace.session_capture['receipt'],
-                        observed_ms=(time.monotonic()-trace.started)*1000)
+                        observed_ms=trace.elapsed_ms())
                     if trace.stop_cleanup is None:
                         QtCore.QTimer.singleShot(10,lambda:run(poll));return
                     mode_report['active_case']['stop_cleanup']=trace.stop_cleanup
