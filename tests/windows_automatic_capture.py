@@ -369,7 +369,7 @@ def execute(reports, result):
                 control = ControlWindow(lambda: {'data': load_data(ROOT / 'fixtures/demo.json'),
                                         'status': {'state': 'demo', 'message': 'Owned fixture only'}},
                     state_dir=work / 'state', current_executable=Path(sys.executable),
-                    current_version='source-fixture', frozen=False, enable_updates=False)
+                    current_version='source-fixture', frozen=False, enable_updates=False, enable_visible_capture=False)
                 events.wait(lambda: control.start_button.isEnabled(), 'Source control did not load the owned demo data')
                 require(control.capture is not None and control.window_list.currentIndex() == 0 and
                         control.window_list.currentData() is None and control.client_follow.isChecked() and

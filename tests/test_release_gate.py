@@ -17,6 +17,7 @@ from scripts import minimal_opencv_package as custom_package
 from scripts.probe_opencv_parity import PERFORMANCE_CASES
 from tests.test_native_packaging import overlay_duty_fixture
 from tests.test_windows_selection_smoke import SelectionHarnessTests
+from tests.test_visible_release_binding import visible_reports, write_visible_reports
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('verify_release', ROOT / 'scripts' / 'verify_release.py')
@@ -230,7 +231,7 @@ class ReleaseFixture(unittest.TestCase):
              'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
              'scripts/probe_opencv_parity.py', 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt',
              'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md')}
-        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.session_capture_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, *gate.selection_fixture.SOURCE_FILES, *gate.duty_contract.SOURCE_FILES, 'frame_ocr_cache.py'):
+        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.session_capture_fixture.SOURCE_FILES, *gate.visible_capture_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, *gate.selection_fixture.SOURCE_FILES, *gate.duty_contract.SOURCE_FILES, 'frame_ocr_cache.py'):
             self.source_entries.setdefault(name, b'Unit-test source fixture')
         for name in gate.DPI_SOURCE_FILES:
             self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
@@ -304,6 +305,10 @@ class ReleaseFixture(unittest.TestCase):
                 detail['helper']={'manifest':session_helper,'sha256':session_helper['sha256'],'size':session_helper['size']}
                 report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-session-application-{kind}-scale{round(scale*100)}.json', detail=detail))
             self.session_capture_reports[kind]=report
+        self.visible_capture_reports, visible_modules = visible_reports(self.source_entries, session_helper,
+            self.build['archive_inventory'], self.hash, self.exe.stat().st_size)
+        archive_patch = patch.object(gate, 'verify_frozen_visible_modules', return_value=visible_modules)
+        archive_patch.start(); self.addCleanup(archive_patch.stop)
         self.write_reports()
         for number, name in enumerate(name for name in gate.EVIDENCE_NAMES if name.endswith('.png')):
             (self.evidence / name).write_bytes(self.make_png(pixels=(b'\x00' + bytes([number, 34, 51]) * 2) * 2))
@@ -331,6 +336,7 @@ class ReleaseFixture(unittest.TestCase):
         path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
     def write_reports(self):
+        write_visible_reports(self.evidence, self.visible_capture_reports)
         for kind, report in self.wgc_reports.items():
             self.write_json(self.evidence / f'windows-wgc-{kind}.json', report)
         for kind, report in self.session_capture_reports.items():
@@ -429,6 +435,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertEqual(len(result['assets']), 15)
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
         self.assertTrue(all(row['overlay_layout_passed'] for row in result['native_scale_summary']))
+        self.assertEqual([row['frozen'] for row in result['wgc_visible_overlay_summary']], [False, True])
         with zipfile.ZipFile(self.output / f'windows-test-evidence-{VERSION}.zip') as archive:
             self.assertEqual(set(archive.namelist()), set(gate.EVIDENCE_NAMES) | set(custom_package.EVIDENCE_NAMES) | set(self.postbuild_names))
         self.assertEqual(json.loads((self.output / 'verified-release.json').read_text()), result)

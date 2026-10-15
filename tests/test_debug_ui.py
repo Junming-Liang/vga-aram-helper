@@ -74,7 +74,7 @@ class DebugUITests(unittest.TestCase):
     def test_default_off_toggle_and_export_are_local_and_retain_prior_logs(self):
         w = self.window
         self.assertFalse(w.debug_toggle.isChecked()); self.assertFalse(w.debug_log.enabled)
-        self.assertFalse(w.enable_visible_capture)
+        self.assertTrue(w.enable_visible_capture)
         self.assertFalse((self.root / 'local-debug').exists())
         w.debug_toggle.setChecked(True)
         self.assertTrue(w.debug_log.enabled)
@@ -85,7 +85,7 @@ class DebugUITests(unittest.TestCase):
         manifest, events, text = self.exported()
         self.assertIn('debug_enabled', [event['event'] for event in events])
         self.assertIn('debug_disabled', [event['event'] for event in events])
-        self.assertEqual(manifest['config']['visible_capture'], False)
+        self.assertEqual(manifest['config']['visible_capture'], True)
         self.assertIn(str(self.root / 'debug-exports' / 'VGA-debug.zip'), w.debug_status.text())
         self.assertNotIn(str(self.root), text + json.dumps(manifest))
         self.assertNotIn('PRIVATE_RAW_ERROR', text)

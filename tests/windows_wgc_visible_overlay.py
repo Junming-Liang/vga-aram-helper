@@ -1,7 +1,7 @@
 """Run explicit real-product visible-overlay acceptance at 100/150/200% Qt scales.
 
-This adds evidence for the opt-in investigation, never replaces strict-hidden
-acceptance and never enables ordinary application startup. Windows only.
+This checks ordinary default construction without replacing the independent
+strict-hidden acceptance diagnostics. Windows only.
 """
 from __future__ import annotations
 import argparse
@@ -21,9 +21,8 @@ import types
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT));sys.path.insert(0, str(ROOT/'tests'))
-from wgc_visible_overlay_smoke import SCALES, SCOPE, SOURCE_FILES, NEGATIVES, NATIVE_NEGATIVE_EXIT_CODES, strict_timing, MAX_REPORT_BYTES, read_live_json, report_payload, SAMPLE_FORMAT
+from wgc_visible_overlay_smoke import SCALES, SCOPE, LIMITATIONS, SOURCE_FILES, NEGATIVES, NATIVE_NEGATIVE_EXIT_CODES, strict_timing, MAX_REPORT_BYTES, read_live_json, report_payload, SAMPLE_FORMAT
 from wgc_session_smoke import write_report
-from wgc_session_smoke import LIMITATIONS
 from windows_wgc_session_capture import child_environment, read_report, positive_int, finite
 from windows_exe_smoke import smoke_workspace, terminate_tree
 from windows_ota_smoke import NativeJob
@@ -182,11 +181,12 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
                     foreign_proof=None, foreign_fixture_sha256=None):
     if (type(value) is not dict or value.get('status') != 'passed' or 'error' in value
         or value.get('schema_version') != 1 or type(value.get('schema_version')) is not int
-        or value.get('scope') != SCOPE or value.get('limitations') != LIMITATIONS
+        or value.get('scope') != SCOPE or not same_json(value.get('limitations'),LIMITATIONS)
         or value.get('applicationVersion') != __version__ or value.get('frozen') is not frozen
-        or value.get('qt_platform') != 'windows' or value.get('constructor') != 'ControlWindow(enable_visible_capture=True)'
+        or value.get('qt_platform') != 'windows' or value.get('constructor') != 'ControlWindow()'
+        or value.get('visible_capture_enabled') is not True
         or value.get('executable_sha256') != executable_sha256):
-        raise RuntimeError('Missing exact default-off real-product diagnostic identity')
+        raise RuntimeError('Missing exact ordinary-default real-product diagnostic identity')
     for field in ('requested_app_scale','measured_qt_scale'):
         if not finite(value.get(field)) or abs(value[field]-scale) > .01:raise RuntimeError('Physical Qt scale differs')
     if value.get('helper') != dict(manifest=helper,sha256=helper['sha256'],size=helper['size']):
@@ -292,6 +292,15 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
         product=row.get('product',{})
         if product.get('hide_events')!=0 or product.get('overlay_visible') is not True or product.get('confirmed') is not True:
             raise RuntimeError('Stable actual product result hid/reflowed or lost confirmation')
+    for row in (b,c,d):
+        product=row['product'];hero=product.get('hero');offered=product.get('offered')
+        if (type(hero) is not str or not 0<len(hero)<=256 or type(offered) is not list or len(offered)!=3
+            or any(type(name) is not str or not 0<len(name)<=256 for name in offered)
+            or len(set(offered))!=3 or not same_json(hero,b['product']['hero'])
+            or not same_json(offered,b['product']['offered'])):
+            raise RuntimeError('Changed GUI pixels lost the accepted hero or ordered candidate trio')
+    if (c['paint_state']!=0 or d['paint_state']!=1 or c['pixels_sha256']==d['pixels_sha256']):
+        raise RuntimeError('Second visible GUI cycle did not acquire changed target pixels')
     pairs=value.get('pixel_pairs')
     if type(pairs) is not list or [(r.get('state'),r.get('placement')) for r in pairs]!=[(0,'titles'),(1,'hud'),(1,'titles')]:
         raise RuntimeError('Moving overlay deterministic/static pixel matrix missing')
@@ -324,6 +333,8 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
             or rows[pair['request_index']].get('visible_request') is not True):
             raise RuntimeError('Hidden-reference exact pixel exclusion failed')
     if pairs[0]['hidden_sha256']==pairs[1]['hidden_sha256']:raise RuntimeError('Changed target paint state was not tested')
+    if c['pixels_sha256']!=pairs[0]['hidden_sha256'] or d['pixels_sha256']!=pairs[1]['hidden_sha256']:
+        raise RuntimeError('Visible GUI changed pixels differ from exact hidden paint-state references')
     negatives=value.get('negative_results')
     if type(negatives) is not dict or set(negatives)!=set(NEGATIVES):raise RuntimeError('Negative matrix incomplete')
     injected={'owner_change','wrong_hwnd','active_affinity_change','cancel','stop'}

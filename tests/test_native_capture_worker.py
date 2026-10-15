@@ -42,11 +42,12 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self._release_events = []
-        with patch('native_ui.Win32Capture', side_effect=CaptureUnavailable('owned portable fixture')):
+        with patch('native_ui.Win32Capture', side_effect=CaptureUnavailable('owned portable fixture')) as capture_factory:
             self.window = ControlWindow(
                 lambda: {'data': load_data(Path(__file__).resolve().parents[1] / 'fixtures/demo.json')},
                 state_dir=Path(self.directory.name), current_executable=Path('/unused.exe'),
                 current_version='test', frozen=False, enable_updates=False)
+        self.capture_constructor_options=capture_factory.call_args.kwargs
         self.addCleanup(self.dispose_window)
         self.wait(lambda: self.window.data is not None)
         self.window.watchdog.stop()
@@ -524,7 +525,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
 
     def visible_capture_fixture(self):
         from screen_capture import ClientRect
-        w=self.window;_,hero,names=self.accepted_proof_fixture();w.enable_visible_capture=True
+        w=self.window;_,hero,names=self.accepted_proof_fixture();self.assertIs(w.enable_visible_capture,True)
         class Capture:
             can_request_visible_overlay=True;cleanup_pending=False
             plans=[]
@@ -534,8 +535,9 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         w.capture=Capture();w.overlay.show();w.refresh_status_badge()
         return w.capture,hero,names
 
-    def test_visible_capture_is_opt_in_and_previous_label_does_not_refresh_evidence(self):
+    def test_guarded_visible_capture_is_default_and_previous_label_does_not_refresh_evidence(self):
         w=self.window;capture,hero,names=self.visible_capture_fixture();old_time=w.last_observation
+        self.assertEqual(self.capture_constructor_options,{'allow_visible_overlay':True})
         old_counts=(w.state.generation,w.state.automatic_frames,w.state.hero_stable_frames);calls=[]
         with patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:calls.append((delay,fn))):w.capture_tick()
         self.assertEqual(capture.plans,[True]);self.assertTrue(w.overlay.isVisible());self.assertTrue(w.capture_pending)
@@ -545,6 +547,19 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         w.capture_pending=False;w.enable_visible_capture=False
         with patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:calls.append((delay,fn))):w.capture_tick()
         self.assertFalse(w.overlay.isVisible());self.assertGreaterEqual(calls[-1][0],59)
+
+    def test_native_entrypoint_preserves_default_and_explicit_strict_hidden_diagnostics(self):
+        from native_ui import run_native
+        for options in ({},{'smoke_report':Path('native.json')},{'selection_smoke_input':Path('selection.json')},
+                        {'smoke_report':Path('selection-result.json'),'selection_smoke_input':Path('selection.json')}):
+            with self.subTest(options=options),patch('native_ui.QtWidgets.QApplication') as application,\
+                    patch('native_ui.ControlWindow') as constructor:
+                app=application.instance.return_value;app.exec.return_value=0
+                self.assertEqual(run_native(lambda:None,state_dir=Path(self.directory.name),
+                    current_executable=Path('/unused.exe'),current_version='test',frozen=False,**options),0)
+                if options:self.assertIs(constructor.call_args.kwargs['enable_visible_capture'],False)
+                else:self.assertNotIn('enable_visible_capture',constructor.call_args.kwargs)
+                self.assertIs(app._vga_control,constructor.return_value)
 
     def test_visible_capture_waits_for_planned_cleanup_without_clearing_confirmation(self):
         w=self.window;capture,_,_=self.visible_capture_fixture();capture.cleanup_pending=True;scheduled=[];generation=w.state.generation

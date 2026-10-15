@@ -32,7 +32,7 @@ def fixture():
     helper={'sha256':'a'*64,'size':2048}
     value=dict(status='passed',schema_version=1,scope=runtime.SCOPE,limitations=dict(runtime.LIMITATIONS),
         applicationVersion=harness.__version__,frozen=False,qt_platform='windows',
-        constructor='ControlWindow(enable_visible_capture=True)',executable_sha256=None,
+        constructor='ControlWindow()',visible_capture_enabled=True,executable_sha256=None,
         requested_app_scale=1,measured_qt_scale=1,helper=dict(manifest=helper,**helper),
         client_rect=dict(x=20,y=20,width=960,height=600),target_identity=[1,6,'OwnedWindow'],target_created=3,overlay_hwnd=4,control_hwnd=5,
         overlay_rendering=dict(qt_opacity=1,qt_translucent_background=False,qt_opaque_paint_event=True,
@@ -42,7 +42,7 @@ def fixture():
     for index,name in enumerate(names):
         visible=index in (2,3,5,6,7);generation=0 if index<2 else 1 if index<4 else 2 if index==4 else 3
         identity=dict(helper_pid=10+generation,helper_created=20+generation,session_generation=30+generation)
-        state=int(index in (4,6,7))
+        state=int(index in (3,4,6,7))
         start=100+index*100
         row=dict(identity,request_id=index+1,capture_start_100ns=start,request_cutoff_100ns=start+1,
             frame_100ns=start+2,idle_enter_100ns=start+3,capture_return_100ns=start+4,
@@ -56,7 +56,8 @@ def fixture():
                 sample_format=runtime.SAMPLE_FORMAT,max_sample_gap_ms=.5),
             observation=dict(identity,helper_alive=True,overlay_registration_valid=True,overlay_opaque=True,
                 overlay_hwnd=4,overlay_affinity=17,overlay_extended_style=0x080800a8,native_visible=visible))
-        if name:row.update(case=name,product=dict(confirmed=index>0,automatic_frames=2,hide_events=0,show_events=0,overlay_visible=True))
+        if name:row.update(case=name,product=dict(confirmed=index>0,automatic_frames=2,hide_events=0,show_events=0,
+            overlay_visible=True,hero='Owned hero',offered=['Title A','Title B','Title C'] if index>0 else []))
         value['requests'].append(row)
     for index,(state,placement) in enumerate(((0,'titles'),(1,'hud'),(1,'titles'))):
         value['pixel_pairs'].append(dict(state=state,placement=placement,max_channel_error=0,changed_pixels=0,
@@ -178,6 +179,68 @@ def write_scale_reports(folder, *, count=3):
 class VisibleContracts(unittest.TestCase):
     def test_complete_synthetic_report_contract(self):
         value,kwargs=fixture();self.assertIs(harness.validate_report(value,**kwargs),value)
+
+    def test_visible_limits_truthfully_enable_only_the_ordinary_product(self):
+        from wgc_session_smoke import LIMITATIONS as session_limits
+        self.assertIs(session_limits['production_enabled'],False)
+        self.assertIs(runtime.LIMITATIONS['production_enabled'],True)
+        self.assertIsNot(runtime.LIMITATIONS,session_limits)
+        self.assertIs(harness.LIMITATIONS,runtime.LIMITATIONS)
+        self.assertEqual(runtime.LIMITATIONS,dict(session_limits,production_enabled=True))
+        for reported in (False,0,1,1.0,None,'true'):
+            value,kwargs=fixture();value['limitations']['production_enabled']=reported
+            with self.subTest(reported=reported),self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+
+    def test_ordinary_default_and_changed_gui_identity_contract_is_strict(self):
+        mutations=(
+            lambda v:v.update(constructor='ControlWindow(enable_visible_capture=True)'),
+            lambda v:v.pop('visible_capture_enabled'),
+            lambda v:v.update(visible_capture_enabled=False),
+            lambda v:v.update(visible_capture_enabled=1),
+            lambda v:v['requests'][3].update(visible_request=False),
+            lambda v:v['requests'][3].update(paint_state=0),
+            lambda v:v['requests'][3].update(paint_state=True),
+            lambda v:v['requests'][2].update(paint_state=False),
+            lambda v:v['requests'][3].update(pixels_sha256=v['requests'][2]['pixels_sha256']),
+            lambda v:v['requests'][2].update(pixels_sha256='a'*64),
+            lambda v:v['requests'][3].update(pixels_sha256='b'*64),
+            lambda v:v['requests'][3]['product'].update(hide_events=1),
+            lambda v:v['requests'][3]['product'].update(hide_events=False),
+            lambda v:v['requests'][3]['product'].update(hero='Different hero'),
+            lambda v:v['requests'][3]['product'].update(offered=['Title B','Title A','Title C']),
+            lambda v:v['requests'][1]['product'].pop('hero'),
+            lambda v:v['requests'][1]['product'].pop('offered'),
+            lambda v:[row['product'].update(hero=True) for row in v['requests'][1:4]],
+            lambda v:[row['product'].update(offered=[True,'Title B','Title C']) for row in v['requests'][1:4]],
+            lambda v:[row['product'].update(offered=['Title A','Title A','Title C']) for row in v['requests'][1:4]],
+            lambda v:[row['product'].update(offered=('Title A','Title B','Title C')) for row in v['requests'][1:4]],
+        )
+        for index,mutate in enumerate(mutations):
+            value,kwargs=fixture();mutate(value)
+            with self.subTest(index=index),self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+
+    def test_changed_gui_paint_is_inside_the_zero_hide_observation(self):
+        for hide_during_paint in (False,True):
+            value,_=fixture();f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+            f.records=[];f.event_rows=[];actions=[]
+            f.overlay=SimpleNamespace(isVisible=lambda:True)
+            state=SimpleNamespace(confirmed=True,automatic_frames=2,hero='Owned hero',offered=['Title A','Title B','Title C'])
+            def paint(paint_state):
+                actions.append(('paint',paint_state));f.paint_state=paint_state
+                if hide_during_paint:f.event_rows.append(dict(event='hide'))
+            def capture():
+                actions.append(('capture',f.paint_state))
+                row=copy.deepcopy(value['requests'][3]);row['paint_state']=f.paint_state;f.records.append(row)
+            f.paint=paint;f.wait=lambda predicate,*args:self.assertTrue(predicate())
+            f.control=SimpleNamespace(capture_tick=capture,state=state,ocr_busy=False,capture_pending=False)
+            with self.subTest(hide_during_paint=hide_during_paint):
+                if hide_during_paint:
+                    with self.assertRaisesRegex(AssertionError,'hid/reflowed'):
+                        f.product_cycle('visible-product-2',visible=True,paint_state=1)
+                else:
+                    row=f.product_cycle('visible-product-2',visible=True,paint_state=1)
+                    self.assertEqual(row['product']['hide_events'],0)
+                self.assertEqual(actions,[('paint',1),('capture',1)])
 
     def test_native_negative_codes_match_actual_native_guard_sources(self):
         source=(ROOT/'native/wgc_session_capture.cpp').read_text()
