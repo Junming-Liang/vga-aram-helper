@@ -1,15 +1,219 @@
 """Portable selection-harness contracts, never actual Windows handoff proof."""
 import ast
 import copy
+import errno
 import json
 import os
 from pathlib import Path
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import windows_selection_smoke as smoke
+import selection_smoke as diagnostic
+
+
+def replace_error(code=5):
+    error=PermissionError(errno.EACCES,'Synthetic Windows report replace denial')
+    error.winerror=code
+    return error
+
+
+class SelectionReportWriterTests(unittest.TestCase):
+    def payload(self,value):
+        return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf8')
+
+    def test_transient_replace_denials_reuse_one_closed_complete_payload(self):
+        for code in (5,32,33):
+            for status in ('passed','failed'):
+                with self.subTest(winerror=code,status=status),tempfile.TemporaryDirectory() as directory:
+                    path=Path(directory)/'report.json';old={'status':'running','phase':'recovering-foreground'}
+                    path.write_bytes(self.payload(old));value={'status':status,'text':'完整证据'}
+                    if status=='failed':value.update(error='original failure',error_traceback='original trace')
+                    payload=self.payload(value);sources=[];replace=Path.replace
+                    def contended(source,target):
+                        sources.append(source)
+                        self.assertEqual(target,path)
+                        self.assertEqual(source.parent,path.parent)
+                        self.assertEqual(source.read_bytes(),payload)
+                        self.assertEqual(path.read_bytes(),self.payload(old))
+                        if len(sources)<3:raise replace_error(code)
+                        return replace(source,target)
+                    with patch.object(Path,'replace',autospec=True,side_effect=contended) as publish,\
+                         patch.object(Path,'write_bytes',autospec=True,side_effect=Path.write_bytes) as write,\
+                         patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:0.,sleep=Mock())):
+                        diagnostic.atomic_report(path,value)
+                    self.assertEqual(publish.call_count,3);write.assert_called_once_with(sources[0],payload)
+                    self.assertEqual(len(set(sources)),1)
+                    self.assertEqual(path.read_bytes(),payload)
+                    self.assertEqual(json.loads(path.read_bytes()),value)
+                    self.assertEqual(list(Path(directory).iterdir()),[path])
+
+    def test_permanent_denial_is_attempt_bounded_and_preserves_both_complete_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'report.json';previous=self.payload({'status':'running'})
+            path.write_bytes(previous);value={'status':'failed','error':'original evidence'};error=replace_error()
+            sleep=Mock()
+            with patch.object(Path,'replace',side_effect=error) as publish,\
+                 patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:0.,sleep=sleep)):
+                with self.assertRaises(PermissionError) as caught:diagnostic.atomic_report(path,value)
+            self.assertIs(caught.exception,error)
+            self.assertEqual(publish.call_count,diagnostic._REPORT_REPLACE_ATTEMPTS)
+            self.assertEqual(sleep.call_count,diagnostic._REPORT_REPLACE_ATTEMPTS-1)
+            self.assertEqual(path.read_bytes(),previous)
+            self.assertEqual(path.with_name(path.name+'.tmp').read_bytes(),self.payload(value))
+
+    def test_replace_retry_respects_monotonic_cap_and_existing_deadline(self):
+        for deadline,limit in ((None,.25),(.01,.01),(-1,0)):
+            with self.subTest(deadline=deadline),tempfile.TemporaryDirectory() as directory:
+                now=[0.];sleeps=[];error=replace_error(32)
+                def sleep(seconds):sleeps.append(seconds);now[0]+=seconds
+                with patch.object(Path,'replace',side_effect=error) as publish,\
+                     patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:now[0],sleep=sleep)):
+                    with self.assertRaises(PermissionError) as caught:
+                        diagnostic.atomic_report(Path(directory)/'report.json',{'status':'failed'},deadline=deadline)
+                self.assertIs(caught.exception,error)
+                self.assertLessEqual(sum(sleeps),limit)
+                self.assertLessEqual(publish.call_count,diagnostic._REPORT_REPLACE_ATTEMPTS)
+                if deadline is not None:self.assertEqual(publish.call_count,1)
+
+    def test_retry_does_not_run_again_after_scheduler_overshoots_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now=[0.]
+            def sleep(_):now[0]=1.
+            with patch.object(Path,'replace',side_effect=replace_error(33)) as publish,\
+                 patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:now[0],sleep=sleep)):
+                with self.assertRaises(PermissionError):
+                    diagnostic.atomic_report(Path(directory)/'report.json',{'status':'failed'})
+            self.assertEqual(publish.call_count,1)
+
+    def test_non_windows_or_unrelated_errors_are_never_retried(self):
+        for error in (PermissionError(errno.EACCES,'Denied'),replace_error(2),OSError(errno.ENOSPC,'Full')):
+            with self.subTest(error=error),tempfile.TemporaryDirectory() as directory:
+                sleep=Mock()
+                with patch.object(Path,'replace',side_effect=error) as publish,\
+                     patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:0.,sleep=sleep)):
+                    with self.assertRaises(OSError) as caught:
+                        diagnostic.atomic_report(Path(directory)/'report.json',{'status':'failed'})
+                self.assertIs(caught.exception,error);publish.assert_called_once();sleep.assert_not_called()
+
+    def test_serialization_and_temp_write_errors_are_not_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'report.json';old=self.payload({'status':'running'});path.write_bytes(old)
+            with patch.object(Path,'replace') as publish,patch.object(Path,'write_bytes') as write:
+                with self.assertRaises(TypeError):diagnostic.atomic_report(path,{'invalid':object()})
+                write.assert_not_called();publish.assert_not_called()
+            with patch.object(Path,'replace') as publish,\
+                 patch.object(Path,'write_bytes',side_effect=replace_error()) as write:
+                with self.assertRaises(PermissionError):diagnostic.atomic_report(path,{'status':'failed'})
+                write.assert_called_once();publish.assert_not_called()
+            self.assertEqual(path.read_bytes(),old)
+
+    def test_encoded_size_cap_is_exact_and_rejects_before_mutation(self):
+        self.assertEqual(diagnostic._MAX_REPORT_BYTES,smoke.MAX_LOG_BYTES)
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'report.json';overhead=len(self.payload({'text':''}))
+            value={'text':'x'*(smoke.MAX_LOG_BYTES-overhead)}
+            diagnostic.atomic_report(path,value)
+            self.assertEqual(path.stat().st_size,smoke.MAX_LOG_BYTES)
+            previous=path.read_bytes()
+            for text in (value['text']+'x','证'*(smoke.MAX_LOG_BYTES//3)):
+                with self.subTest(length=len(text)),patch.object(Path,'write_bytes') as write,\
+                     patch.object(Path,'replace') as publish:
+                    with self.assertRaisesRegex(ValueError,'64 KiB'):diagnostic.atomic_report(path,{'text':text})
+                    write.assert_not_called();publish.assert_not_called()
+                self.assertEqual(path.read_bytes(),previous)
+
+    def test_initial_publication_can_record_terminal_failure_after_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'report.json';value={'status':'failed','error':'Selection handoff timeout'}
+            diagnostic.atomic_report(path,value,deadline=time.monotonic()-1)
+            self.assertEqual(path.read_bytes(),self.payload(value))
+        source=Path(diagnostic.__file__).read_text()
+        self.assertIn('atomic_report(report_path,report,deadline=started+170)',source)
+        self.assertIn("time.monotonic()-started>170",source)
+
+    def test_terminal_report_denial_still_closes_and_exits_with_original_failure_evidence(self):
+        # Synthetic Qt lifecycle only; these objects cannot provide Windows acceptance.
+        for denied in (False,True):
+            for close_fails in (False,True):
+                with self.subTest(denied=denied,close_fails=close_fails),tempfile.TemporaryDirectory() as directory:
+                    path=Path(directory)/'report.json';control=Mock(current_version='0.4.7');app=Mock();timer=Mock()
+                    app.platformName.return_value='offscreen'  # Force the real-backend guard to fail.
+                    qt=SimpleNamespace(QtWidgets=SimpleNamespace(QApplication=Mock(instance=Mock(return_value=app))),
+                                       QtCore=SimpleNamespace(QTimer=Mock(return_value=timer)))
+                    write_error=replace_error();close_error=RuntimeError('synthetic close failure')
+                    if close_fails:control.close.side_effect=close_error
+                    replace=Path.replace;published=[]
+                    def publish(source,target):
+                        value=json.loads(source.read_bytes())
+                        if denied and value['status']=='failed':raise write_error
+                        published.append(value)
+                        return replace(source,target)
+                    with patch.dict(sys.modules,{'PySide6':qt}),\
+                         patch.object(diagnostic,'diagnostic_state',return_value={'synthetic':True}),\
+                         patch.object(diagnostic,'time',SimpleNamespace(monotonic=lambda:0.,sleep=Mock())),\
+                         patch.object(Path,'replace',autospec=True,side_effect=publish):
+                        if denied or close_fails:
+                            with self.assertRaises(Exception) as caught:
+                                diagnostic.start_selection_smoke(control,'unused-input.json',path)
+                            self.assertIs(caught.exception,write_error if denied else close_error)
+                        else:diagnostic.start_selection_smoke(control,'unused-input.json',path)
+                    timer.stop.assert_called_once();control.close.assert_called_once();app.exit.assert_called_once_with(1)
+                    terminal=path.with_name(path.name+'.tmp') if denied else path
+                    evidence=json.loads(terminal.read_bytes())
+                    self.assertEqual(evidence['status'],'failed')
+                    self.assertEqual(evidence['error'],'Requires real Windows Qt/capture backend')
+                    self.assertEqual(evidence['error_type'],'RuntimeError')
+                    self.assertIn(evidence['error'],evidence['error_traceback'])
+                    self.assertEqual(json.loads(path.read_bytes())['status'],'running' if denied else 'failed')
+                    self.assertEqual(len(published),1 if denied else 2)
+
+
+@unittest.skipUnless(os.name=='nt','Requires actual Windows file-sharing semantics')
+class WindowsSelectionReportSharingTests(unittest.TestCase):
+    def test_real_ordinary_reader_release_publishes_exact_terminal_payload(self):
+        for status in ('passed','failed'):
+            with self.subTest(status=status),tempfile.TemporaryDirectory() as directory:
+                path=Path(directory)/'report.json';previous=b'{"status":"running"}\n';path.write_bytes(previous)
+                value={'status':status,'text':'完整证据'}
+                if status=='failed':value.update(error='original failure',error_traceback='original trace')
+                replace=Path.replace;failures=[]
+                # Match the observer's ordinary Python reader, which denies delete sharing.
+                with path.open('r',encoding='utf8') as reader:
+                    def observed(source,target):
+                        try:return replace(source,target)
+                        except OSError as exc:
+                            failures.append(exc.winerror)
+                            self.assertEqual(json.load(reader),{'status':'running'})
+                            self.assertEqual(path.read_bytes(),previous)
+                            reader.close()
+                            raise
+                    with patch.object(Path,'replace',autospec=True,side_effect=observed):
+                        diagnostic.atomic_report(path,value)
+                self.assertEqual(len(failures),1)
+                self.assertIn(failures[0],(5,32,33))
+                self.assertEqual(path.read_bytes(),(json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf8'))
+                self.assertEqual(list(Path(directory).iterdir()),[path])
+
+    def test_real_permanent_reader_fails_boundedly_and_keeps_failure_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'report.json';previous=b'{"status":"running"}\n';path.write_bytes(previous)
+            value={'status':'failed','error':'original failure','error_traceback':'original trace'}
+            with path.open('r',encoding='utf8') as reader,\
+                 patch.object(Path,'replace',autospec=True,side_effect=Path.replace) as publish:
+                started=time.monotonic()
+                with self.assertRaises(OSError) as caught:diagnostic.atomic_report(path,value)
+                self.assertLess(time.monotonic()-started,2.)
+                self.assertIn(caught.exception.winerror,(5,32,33))
+                self.assertGreater(publish.call_count,1)
+                self.assertLessEqual(publish.call_count,diagnostic._REPORT_REPLACE_ATTEMPTS)
+                self.assertEqual(json.load(reader),{'status':'running'})
+                self.assertEqual(path.read_bytes(),previous)
+            self.assertEqual(json.loads(path.with_name(path.name+'.tmp').read_bytes()),value)
 
 
 class SelectionHarnessTests(unittest.TestCase):
