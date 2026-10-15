@@ -2,10 +2,11 @@
 import copy
 import hashlib
 import importlib.util
+from importlib.metadata import PackagePath
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import struct
 import sys
 import tempfile
@@ -144,6 +145,18 @@ class CrossoverTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 crossover.verify_installed(identity, wheel)
 
+    def test_distribution_package_paths_preserve_posix_metadata_separator(self):
+        name = 'opencv_python_headless-5.0.0.93.dist-info/METADATA'
+        actual_package_path = PackagePath(name)
+        self.assertIsInstance(actual_package_path, PurePosixPath)
+        self.assertEqual(str(actual_package_path), name)
+        self.assertTrue(str(actual_package_path).endswith('.dist-info/METADATA'))
+        # Portable reproduction of the incorrect native-Windows-path fixture:
+        # real importlib.metadata.PackagePath does not use this separator form.
+        native_windows_path = PureWindowsPath(name)
+        self.assertNotEqual(str(native_windows_path), str(actual_package_path))
+        self.assertFalse(str(native_windows_path).endswith('.dist-info/METADATA'))
+
     def test_real_empty_requested_and_package_payload_are_valid_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             wheel_path = fake_wheel(directory)
@@ -151,7 +164,10 @@ class CrossoverTests(unittest.TestCase):
             site = Path(directory) / 'site-packages'
             with zipfile.ZipFile(wheel_path) as archive:
                 archive.extractall(site)  # Locally generated test-only fixture.
-                files = [Path(name) for name in archive.namelist()]
+                # Distribution.files returns PackagePath (PurePosixPath), including
+                # on Windows. Native Path would turn METADATA's slash into '\\'.
+                files = [PackagePath(name) for name in archive.namelist()]
+                self.assertTrue(all(type(path) is PackagePath for path in files))
             metadata = site / ('opencv_python_headless-' + crossover.VERSIONS['A'] + '.dist-info')
             # pip._internal.operations.install.wheel._install_wheel creates
             # REQUESTED with `with open(requested_path, 'wb'): pass` for explicit installs.
