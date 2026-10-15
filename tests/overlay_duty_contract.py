@@ -184,14 +184,14 @@ def _validate_mode(report, mode, scene):
                 and 'error' not in row and row.get('mode') == mode, 'Duty case order/status/mode differs')
         timings = row.get('timings_ms')
         keys = ('capture_start', 'capture_return', 'before_match_emitted', 'before_match_applied',
-                'before_ocr_emitted', 'before_ocr_applied', 'gui_compositor_validated', 'final')
+                'before_ocr_emitted', 'before_ocr_applied', 'gui_compositor_validated', 'result_received', 'final')
         required = set(keys) | ({'stop'} if expected == 'stop_late' else set())
         require(type(timings) is dict and set(timings) == required, 'Duty event inventory differs: ' + expected)
         for key, value in timings.items():
             number(value, expected + '.' + key)
         require(timings['capture_start'] < timings['capture_return'] <= timings['before_match_emitted']
                 <= timings['before_match_applied'] <= timings['before_ocr_emitted']
-                <= timings['before_ocr_applied'] < timings['final'], 'Duty phase/capture ordering differs')
+                <= timings['before_ocr_applied'] < timings['result_received'] <= timings['final'], 'Duty phase/capture ordering differs')
         require(abs(number(row.get('capture_duration_ms'), 'capture duration') - (timings['capture_return']-timings['capture_start'])) <= .002,
                 'Duty measured capture duration differs from capture boundaries')
         require(timings['capture_return'] <= timings['gui_compositor_validated'] <= timings['before_ocr_applied'],
@@ -225,7 +225,7 @@ def _validate_mode(report, mode, scene):
         if expected == 'changed_roi':
             require(row.get('fixture_change') == 'Original 12x12 non-text patch inside candidate ROI, above title band; synthetic animation analogue, not actual gameplay measurement',
                     'Changed ROI fixture disclosure missing')
-            require(timings['final'] <= times[2] <= timings['final']+.05,
+            require(timings['result_received'] <= times[2] <= timings['final']+.05,
                     'Changed candidate ROI showed prior cards before the final result')
         if expected == 'stop_late':
             require(timings['stop'] <= times[3] <= timings['stop']+row.get('stop_return_ms', 0)+gap+.05,
@@ -236,7 +236,7 @@ def _validate_mode(report, mode, scene):
             duration=end-point['at_ms']
             if point['visible']:
                 calculated_visible+=duration
-                calculated_inference+=max(0.,end-max(point['at_ms'],timings['capture_return']))
+                calculated_inference+=max(0.,min(end,timings['result_received'])-max(point['at_ms'],timings['capture_return']))
             else:
                 calculated_hidden+=duration
         require(abs(calculated_hidden-hidden) <= .05 and abs(calculated_visible-visible) <= .05

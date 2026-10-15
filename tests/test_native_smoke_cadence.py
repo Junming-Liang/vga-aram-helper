@@ -116,10 +116,11 @@ class NativeSmokeCadenceTests(unittest.TestCase):
                      wgc_capture=SimpleNamespace(subprocess=SimpleNamespace()),
                      original_capture=object(), original_compositor=object(),
                      original_recognize=object(), original_popen=object(), original_job=object(),
-                     observed=object(), observed_error=object())
+                     result_dispatch=SimpleNamespace(restore=Mock()), observed_error=object())
         exec(compile(ast.Module(body=[cleanup], type_ignores=[]),
                      native_smoke.__file__, 'exec'), scope)
         scope['cleanup']()
+        scope['result_dispatch'].restore.assert_called_once_with()
         self.assertIs(self.control.schedule_capture, outer_schedule)
         self.complete_observation()
         self.app.processEvents()

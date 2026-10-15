@@ -8,8 +8,10 @@ import copy
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -19,13 +21,29 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6 import QtCore, QtWidgets
     from shiboken6 import isValid
-    from native_smoke import OverlayDutyTrace, _start_overlay_duty_mode
+    from native_smoke import OverlayDutyTrace, _DutyResultDispatch, _start_overlay_duty_mode
 except ImportError:
     QtWidgets = None
 
 
 @unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
 class DutyTraceTests(unittest.TestCase):
+    def test_result_received_ends_inference_but_not_final_display_measurement(self):
+        now=[0.];trace=OverlayDutyTrace('changed_roi',clock=lambda:now[0])
+        trace.sample(True);now[0]=.001;trace.sample(False)
+        now[0]=.1;trace.mark('capture_return');trace.sample(False)
+        now[0]=.8;trace.mark('result_received')
+        now[0]=.81;trace.sample(True)
+        now[0]=.85;trace.mark('final');trace.sample(True)
+        value=trace.summary()
+        self.assertEqual(value['total_ms'],850.)
+        self.assertEqual(value['sampled_hidden_ms'],809.)
+        self.assertEqual(value['sampled_visible_ms'],41.)
+        self.assertEqual(value['sampled_inference_visible_ms'],0.)
+        # Genuine visibility before the GUI receives the result still fails.
+        trace.events['result_received']=820.
+        self.assertEqual(trace.summary()['sampled_inference_visible_ms'],10.)
+
     def test_default_elapsed_clock_metadata_matches_perf_counter(self):
         trace=OverlayDutyTrace('owned')
         info=time.get_clock_info('perf_counter')
@@ -205,6 +223,104 @@ class DutyTraceTests(unittest.TestCase):
             QtCore.QCoreApplication.sendPostedEvents(None,QtCore.QEvent.Type.DeferredDelete);app.processEvents()
 
 
+@unittest.skipIf(QtWidgets is None,'Optional Qt runtime is not installed')
+class DutyResultDispatchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def wait(self,predicate):
+        deadline=time.monotonic()+3
+        while not predicate() and time.monotonic()<deadline:
+            self.app.processEvents();time.sleep(.001)
+        self.assertTrue(predicate())
+
+    def control(self,handler=lambda *_:None):
+        from native_ui import TaskSignals
+        class Control(QtCore.QObject):
+            def __init__(self):
+                super().__init__();self.calls=[];self.signals=TaskSignals(self)
+                self.signals.result.connect(self.task_result)
+            @QtCore.Slot(str,object,int)
+            def task_result(self,kind,value,generation):
+                self.calls.append((kind,value,generation,threading.get_ident()))
+                handler(kind,value,generation)
+        return Control()
+
+    def emit_queued(self,control,kind='ocr',value=None,generation=1):
+        thread=threading.Thread(target=lambda:control.signals.result.emit(kind,value,generation))
+        thread.start();thread.join()
+
+    def test_gui_dispatch_once_and_restore_pending_results_without_diagnostics(self):
+        control=self.control();events=[];gui=threading.get_ident()
+        dispatch=_DutyResultDispatch(control,lambda *args:events.append(('before',args,threading.get_ident())),
+            lambda *args:events.append(('after',args,threading.get_ident())),lambda *args:self.fail('Unexpected handler failure'))
+        original=dispatch.handler;self.assertEqual(original,control.task_result)
+        try:
+            payload={'owned':'fixture'};self.emit_queued(control,value=payload)
+            self.wait(lambda:len(control.calls)==1)
+            self.assertEqual(control.calls,[('ocr',payload,1,gui)])
+            self.assertEqual([event[0] for event in events],['before','after'])
+            self.assertTrue(all(event[2]==gui for event in events))
+            self.emit_queued(control,'late',payload,2)
+            dispatch.restore();dispatch.restore()
+            self.emit_queued(control,'other',payload,3)
+            self.wait(lambda:len(control.calls)==3)
+            self.assertEqual([call[:3] for call in control.calls],[('ocr',payload,1),('late',payload,2),('other',payload,3)])
+            self.assertEqual(len(events),2)
+        finally:dispatch.restore();control.deleteLater();self.app.processEvents()
+
+    def test_queued_handler_exception_after_state_change_cannot_be_observed_as_success(self):
+        state=[];events=[];hooks=[]
+        def fail(kind,*args):
+            state.append('updated')
+            if kind=='ocr':raise RuntimeError('owned handler failure')
+        control=self.control(fail)
+        dispatch=_DutyResultDispatch(control,lambda *args:events.append('before'),lambda *args:events.append('after'),
+            lambda kind,error,generation:events.append((kind,error,generation,list(state))))
+        try:
+            with patch.object(sys,'excepthook',side_effect=lambda *args:hooks.append(args)):
+                self.emit_queued(control);self.wait(lambda:bool(hooks))
+            self.assertEqual(events[0],'before');self.assertEqual(len(events),2)
+            self.assertEqual(events[1][0],'ocr');self.assertIsInstance(events[1][1],RuntimeError)
+            self.assertEqual(events[1][2:],(1,['updated']))
+            self.assertIs(hooks[0][1],events[1][1]);self.assertEqual(len(control.calls),1)
+            dispatch.restore();dispatch.restore();self.assertFalse(dispatch.installed)
+            self.emit_queued(control,'other');self.wait(lambda:len(control.calls)==2)
+            self.assertEqual(len(events),2)
+        finally:dispatch.restore();control.deleteLater();self.app.processEvents()
+
+    def test_separate_delayed_observer_counts_final_display_as_inference(self):
+        # Reproduce the old separate-delivery race with a real Qt timer and
+        # widget, then run the same pressure through the composed receiver.
+        for composed in (False,True):
+            with self.subTest(composed=composed):
+                widget=QtWidgets.QWidget();trace=OverlayDutyTrace('changed_roi');finished=[];samples=[]
+                trace.sample(False);trace.mark('capture_return')
+                def handler(*args):
+                    widget.show()
+                    QtCore.QTimer.singleShot(0,lambda:(trace.sample(widget.isVisible()),samples.append(True)))
+                control=self.control(handler)
+                def observed(*args):
+                    trace.mark('final');trace.sample(widget.isVisible());finished.append(True)
+                def delayed(*args):QtCore.QTimer.singleShot(40,lambda:observed(*args))
+                dispatch=None
+                if composed:
+                    dispatch=_DutyResultDispatch(control,lambda *args:trace.mark('result_received'),delayed,
+                        lambda *args:self.fail('Unexpected handler failure'))
+                else:control.signals.result.connect(delayed)
+                try:
+                    self.emit_queued(control);self.wait(lambda:bool(finished))
+                    self.assertTrue(samples);self.assertEqual(len(control.calls),1)
+                    measured=trace.summary()['sampled_inference_visible_ms']
+                    if composed:self.assertEqual(measured,0.)
+                    else:self.assertGreater(measured,0.)
+                finally:
+                    if dispatch:dispatch.restore()
+                    widget.close();widget.deleteLater();control.deleteLater();self.app.processEvents()
+
+
 @unittest.skipIf(QtWidgets is None or importlib.util.find_spec('cv2') is None or importlib.util.find_spec('rapidocr') is None,
                  'Optional Qt, OpenCV and local OCR runtime are not installed')
 class DutyProbeOrchestrationTests(unittest.TestCase):
@@ -356,6 +472,68 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
         self.assertEqual(active['timings_ms'],{})
         self.assertEqual(active['measurement_clock']['name'],'perf_counter')
         self.assertEqual(captured['report']['cases'],[])
+
+    def test_nested_qt_timer_during_final_application_keeps_exact_inference_boundary(self):
+        from native_ui import Overlay
+        captured={};start=_start_overlay_duty_mode;show=Overlay.show_at;inside=[False];reentered=[]
+        def observed_start(control,**kwargs):
+            captured['report']=kwargs['mode_report'];return start(control,**kwargs)
+        def reenter(overlay,*args,**kwargs):
+            result=show(overlay,*args,**kwargs)
+            active=captured.get('report',{}).get('active_case',{})
+            timings=active.get('timings_ms',{})
+            if active.get('name')=='changed_roi' and 'result_received' in timings and 'final' not in timings and not inside[0]:
+                inside[0]=True
+                try:
+                    time.sleep(.025);self.app.processEvents();reentered.append(True)
+                finally:inside[0]=False
+            return result
+        with patch(__name__+'._start_overlay_duty_mode',side_effect=observed_start),patch.object(Overlay,'show_at',reenter):
+            self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
+        self.assertTrue(reentered)
+        row=captured['report']['cases'][1];timings=row['timings_ms']
+        self.assertEqual(row['sampled_inference_visible_ms'],0.)
+        self.assertLess(timings['result_received'],row['sampled_visibility_transitions'][2]['at_ms'])
+        self.assertLess(row['sampled_visibility_transitions'][2]['at_ms'],timings['final'])
+        self.assertEqual(row['total_ms'],timings['final'])
+
+    def test_failed_final_predicate_keeps_all_computed_operands(self):
+        captured={};start=_start_overlay_duty_mode;summary=OverlayDutyTrace.summary
+        def observed_start(control,**kwargs):
+            captured['report']=kwargs['mode_report'];return start(control,**kwargs)
+        def failed_summary(trace):
+            value=summary(trace)
+            if trace.name=='changed_roi':value['sampled_inference_visible_ms']=1.25
+            return value
+        with patch(__name__+'._start_overlay_duty_mode',side_effect=observed_start),patch.object(OverlayDutyTrace,'summary',failed_summary):
+            with self.assertRaises(AssertionError):self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
+        active=captured['report']['active_case']
+        self.assertEqual(active['name'],'changed_roi');self.assertEqual(active['status'],'pending-validation')
+        self.assertTrue(all(active[key] for key in ('final_confirmed','final_qt_visible','final_native_visible')))
+        self.assertEqual(active['sampled_inference_visible_ms'],1.25)
+        self.assertEqual([item['visible'] for item in active['sampled_visibility_transitions']],[True,False,True])
+        self.assertEqual([item['name'] for item in captured['report']['cases']],['unchanged'])
+
+    def test_queued_production_handler_exception_is_bound_to_duty_failure(self):
+        from native_ui import ControlWindow
+        captured={};start=_start_overlay_duty_mode;check=ControlWindow.check_target;hooks=[]
+        def observed_start(control,**kwargs):
+            captured['report']=kwargs['mode_report'];return start(control,**kwargs)
+        def fails_after_application(control):
+            check(control)
+            if control.state.running and not control.ocr_busy and control.overlay.isVisible() and captured.get('report',{}).get('active_case',{}).get('name')=='changed_roi':
+                self.assertTrue(control.state.confirmed)
+                raise RuntimeError('owned post-application failure')
+        with patch(__name__+'._start_overlay_duty_mode',side_effect=observed_start), \
+                patch.object(ControlWindow,'check_target',fails_after_application), \
+                patch.object(sys,'excepthook',side_effect=lambda *args:hooks.append(args)):
+            with self.assertRaisesRegex(AssertionError,'result handler ocr failed: owned post-application failure'):
+                self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
+        self.assertEqual(len(hooks),1);self.assertIsInstance(hooks[0][1],RuntimeError)
+        active=captured['report']['active_case']
+        self.assertEqual(active['phase_state'],'handler-failed')
+        self.assertIn('result_received',active['timings_ms']);self.assertNotIn('final',active['timings_ms'])
+        self.assertEqual([item['name'] for item in captured['report']['cases']],['unchanged'])
 
 
 if __name__=='__main__':unittest.main()

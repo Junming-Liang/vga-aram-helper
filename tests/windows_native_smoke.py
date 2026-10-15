@@ -166,7 +166,7 @@ def native_failure_summary(path):
             timings=row.get('timings_ms')
             if type(timings) is dict:
                 output['timings_ms']={key:timings[key] for key in ('capture_start','capture_return','before_match_emitted',
-                    'before_match_applied','before_ocr_emitted','before_ocr_applied','gui_compositor_validated','stop','final')
+                    'before_match_applied','before_ocr_emitted','before_ocr_applied','gui_compositor_validated','stop','result_received','final')
                     if type(timings.get(key)) in (int,float) and math.isfinite(timings[key])}
             phases=row.get('phases')
             if type(phases) is list:

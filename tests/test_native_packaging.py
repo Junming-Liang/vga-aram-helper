@@ -62,7 +62,7 @@ def overlay_duty_fixture():
             measurement_clock=dict(name='perf_counter',implementation='QueryPerformanceCounter()',
                 monotonic=True,adjustable=False,resolution_seconds=1e-7),
             timings_ms=dict(capture_start=5.,capture_return=20.,before_match_emitted=21.,
-                before_match_applied=22.,before_ocr_emitted=380.,before_ocr_applied=381.,gui_compositor_validated=380.5,final=740.),
+                before_match_applied=22.,before_ocr_emitted=380.,before_ocr_applied=381.,gui_compositor_validated=380.5,result_received=740.,final=740.),
             total_ms=740.,sampled_hidden_ms=(22. if kind=='unchanged' else 27.) if restored else 740.,sampled_visible_ms=(718. if kind=='unchanged' else 713.) if restored else 0.,
             sampled_inference_visible_ms=(718. if kind=='unchanged' else 713.) if restored else 0., max_sample_gap_ms=20.,native_visibility_samples=80,
             capture_samples=3,capture_visible_samples=0,qt_show_events_during_capture=0,capture_count=1,max_capture_concurrency=1,held_state_unchanged_samples=50,
@@ -239,7 +239,7 @@ class NativePackagingTests(unittest.TestCase):
                 for bad in (None,True,-1,float('nan'),float('inf'),'700'):
                     value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index][key]=bad
                     with self.subTest(case=index,key=key,bad=bad),self.assertRaises(RuntimeError):validate_duty(value)
-            for key in ('capture_start','capture_return','before_match_emitted','before_match_applied','before_ocr_emitted','before_ocr_applied','final'):
+            for key in ('capture_start','capture_return','before_match_emitted','before_match_applied','before_ocr_emitted','before_ocr_applied','result_received','final'):
                 value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index]['timings_ms'][key]=float('nan')
                 with self.subTest(case=index,timing=key),self.assertRaises(RuntimeError):validate_duty(value)
 
@@ -282,6 +282,18 @@ class NativePackagingTests(unittest.TestCase):
             for field in ('state_before','state_at_phase'):phase[field]['accepted_observed_at']=99.9
         with self.assertRaisesRegex(RuntimeError,'previously accepted'):
             validate_duty(value)
+
+    def test_duty_result_received_boundary_preserves_end_to_end_visibility(self):
+        value=overlay_duty_fixture();row=value['overlay_duty_cycle']['cases'][1]
+        row['timings_ms']['result_received']=720.
+        row['sampled_visibility_transitions'][2]['at_ms']=730.
+        row['sampled_hidden_ms']=729.999;row['sampled_visible_ms']=10.001
+        validate_duty(value)
+        for received in (None,float('nan'),True,381.,741.,731.):
+            bad=copy.deepcopy(value);timings=bad['overlay_duty_cycle']['cases'][1]['timings_ms']
+            if received is None:timings.pop('result_received')
+            else:timings['result_received']=received
+            with self.subTest(received=received),self.assertRaises(RuntimeError):validate_duty(bad)
 
     def test_duty_requires_both_complete_independent_product_modes(self):
         changes=[lambda d:d.pop('baseline'),lambda d:d['baseline'].update(mode='persistent'),
@@ -461,6 +473,19 @@ class NativePackagingTests(unittest.TestCase):
                             'capture_samples','capture_visible_samples','final_qt_visible','final_native_visible',
                             'initial_qt_visible','initial_native_visible','measurement_clock'):
                     self.assertEqual(reported[key],original[key])
+
+    def test_failure_summary_retains_changed_roi_final_assertion_operands(self):
+        value=overlay_duty_fixture();duty=value['overlay_duty_cycle']
+        row=copy.deepcopy(duty['baseline']['cases'][1]);row['status']='pending-validation'
+        row['phase_state']='final';row['sampled_inference_visible_ms']=1.25
+        duty['baseline']['active_case']=row;duty['baseline']['cases']=duty['baseline']['cases'][:1]
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'native.json';path.write_text(json.dumps(value),encoding='utf-8')
+            result=native_smoke.native_failure_summary(path)
+        active=result['duty_baseline_active_case']
+        for key in ('final_confirmed','final_qt_visible','final_native_visible','sampled_inference_visible_ms',
+                    'sampled_visibility_transitions','timings_ms','status','phase_state'):
+            self.assertEqual(active[key],row[key])
 
     def test_failure_summary_imports_product_sanitizer_without_inherited_root_path(self):
         value=overlay_duty_fixture()
