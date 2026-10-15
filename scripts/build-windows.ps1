@@ -14,6 +14,8 @@ if (-not (Test-Path $Python)) {
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python scripts/build_wgc_capture.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $Python scripts/build_wgc_session_capture.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python scripts/build_windows.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Python tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe

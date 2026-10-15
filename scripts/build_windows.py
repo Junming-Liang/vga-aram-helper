@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT))
 from app_version import __version__
 from model_inventory import verify_models
 from scripts.build_wgc_capture import verify_built_helper, verify_archive as verify_wgc_archive
+from scripts.build_wgc_session_capture import (verify_built_helper as verify_session_helper,
+                                               verify_archive as verify_session_archive)
 from scripts.qt_licenses import QT_VERSION, copy_bundle, supply_sources
 from scripts.microsoft_runtime import verify_embedded_runtime, copy_notices
 from scripts.windows_package import EXPERIMENT_PROFILE, assert_slim_inventory, measure_archive, package_profile
@@ -127,7 +129,8 @@ def assert_archive_inventory(names):
     for name in ('PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx'):
         if 'rapidocr/models/' + name.lower() not in normalized:
             missing.append('rapidocr/models/' + name)
-    for name in ('static/index.html', 'fixtures/ocr-synthetic.png', 'fixtures/ocr-blank.png', 'assets/branding/vga.ico', 'native/vga-wgc-capture.exe', 'native/wgc-capture-build.json'):
+    for name in ('static/index.html', 'fixtures/ocr-synthetic.png', 'fixtures/ocr-blank.png', 'assets/branding/vga.ico', 'native/vga-wgc-capture.exe', 'native/wgc-capture-build.json',
+                 'native/vga-wgc-session-capture.exe', 'native/wgc-session-capture-build.json', 'launcher'):
         if name not in normalized:
             missing.append(name)
     if missing:
@@ -135,7 +138,20 @@ def assert_archive_inventory(names):
     return {'entries': len(normalized), 'required_runtime_dlls': sorted(required),
             'qt_binaries': sorted(name for name in normalized if name.endswith(('.dll', '.pyd'))
                                   and ('pyside6/' in name or name.rsplit('/', 1)[-1].startswith('qt6'))),
-            'model_assets': 3, 'icon': 'assets/branding/vga.ico'}
+            'model_assets': 3, 'icon': 'assets/branding/vga.ico', 'launch_script': 'launcher'}
+
+
+def verify_application_archive(archive, *, wgc_build=None, session_build=None):
+    """Verify the real application payload, including both exact capture helpers."""
+    wgc_build = verify_built_helper() if wgc_build is None else wgc_build
+    session_build = verify_session_helper() if session_build is None else session_build
+    if wgc_build.get('source_commit') != session_build.get('source_commit'):
+        raise RuntimeError('Application capture helpers have different source commits')
+    bundled = assert_archive_inventory(archive.toc)
+    bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
+    bundled['wgc_helper'] = verify_wgc_archive(archive, wgc_build)
+    bundled['wgc_session_helper'] = verify_session_archive(archive, session_build)
+    return bundled
 
 
 def write_version_resource(path, version):
@@ -165,6 +181,9 @@ def main():
     profile = package_profile()
     custom_build = check_build_mode()
     wgc_build = verify_built_helper()
+    session_build = verify_session_helper()
+    if session_build['source_commit'] != source_commit:
+        raise RuntimeError('Session helper does not match the exact production source commit')
     models = verify_models()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -182,11 +201,9 @@ def main():
         raise RuntimeError('Expected bundled executable missing or implausibly small')
     from PyInstaller.archive.readers import CArchiveReader
     archive = CArchiveReader(str(executable))
-    bundled = assert_archive_inventory(archive.toc)
     if custom_build:
         verify_custom_archive(archive, custom_build)
-    bundled['microsoft_runtime'] = verify_embedded_runtime(archive)
-    bundled['wgc_helper'] = verify_wgc_archive(archive, wgc_build)
+    bundled = verify_application_archive(archive, wgc_build=wgc_build, session_build=session_build)
     assert_slim_inventory(archive.toc, profile=profile)
     size_report = measure_archive(archive, executable, profile=profile)
     size_report['source_commit'] = source_commit
@@ -224,6 +241,7 @@ def main():
               'source_access': source_access, 'package_size': size_report,
               'package_profile': profile, 'experimental': profile == EXPERIMENT_PROFILE,
               'opencv_custom_build': custom_build, 'wgc_helper_build': wgc_build,
+              'wgc_session_helper_build': session_build,
               'signature': 'Unsigned; no Authenticode or SmartScreen reputation claim.'}
     validate_build_profile(report)
     reports = ROOT / 'reports'
