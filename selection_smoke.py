@@ -13,6 +13,8 @@ from PySide6 import QtCore,QtWidgets
 
 
 DEMO_HERO='星火术士（演示）'
+FOCUS_SINK_CLASS='VGAOwnedFocusSink'
+FOCUS_SINK_TITLE='VGA owned focus sink'
 DEMO_REFERENCE={'hero':DEMO_HERO,'championId':'9001','sourceTier':'T5',
     'sourceTierLabel':'虚构英雄评级（演示）','sourceLabel':'虚构演示 · 不能用于对局',
     'sourceUrl':None,'sourceDataDate':'2026-01-02','sourceVersion':'0.1',
@@ -170,11 +172,27 @@ def start_selection_smoke(control,input_path,report_path):
             assert not control.overlay.isVisible() and not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
             safety['hidden_during_recapture']=True;report['phase']='recapture-complete';return
         if phase=='testing-client-foreground-loss':
-            control.capture.u.SetForegroundWindow(int(control.winId()))
-            if int(control.capture.u.GetForegroundWindow() or 0)!=int(control.winId()):return
+            foreground=int(control.capture.u.GetForegroundWindow() or 0);pid=W.DWORD()
+            control.capture.u.GetWindowThreadProcessId(foreground,ctypes.byref(pid))
+            if pid.value!=control.client_target.pid or foreground==control.client_target.hwnd:return
+            sink=control.capture.info(foreground)
+            if sink.class_name!=FOCUS_SINK_CLASS or sink.title!=FOCUS_SINK_TITLE:return
+            actual=vars(control.capture.rect(control.client_target))
+            assert actual==report['foreground_transition']['client_rect_before']
+            assert control.capture.u.IsWindowVisible(control.client_target.hwnd)
             control.check_target();hidden_unconfirmed();safety['foreground_loss_hidden']=True
             report['foreground_recovery_start_count']=session.candidate_frames
-            control.hide();control.capture.u.SetForegroundWindow(control.client_target.hwnd)
+            report['foreground_transition'].update(sink_hwnd=sink.hwnd,sink_pid=sink.pid,
+                sink_class=sink.class_name,sink_title=sink.title,foreground_sink_hwnd=foreground,
+                client_rect_during=actual,client_visible_during=True,overlay_hidden_after=True)
+            report['phase']='requesting-client-focus-return';save();return
+        if phase=='requesting-client-focus-return':
+            transition=report['foreground_transition']
+            if control.capture.u.IsWindow(transition['sink_hwnd']):return
+            if int(control.capture.u.GetForegroundWindow() or 0)!=control.client_target.hwnd:return
+            actual=vars(control.capture.rect(control.client_target))
+            assert actual==transition['client_rect_before'] and control.capture.u.IsWindowVisible(control.client_target.hwnd)
+            transition.update(sink_destroyed=True,client_foreground_returned=True,client_rect_returned=actual)
             report['phase']='recovering-foreground';control.schedule_capture(100);save();return
         if phase=='await-game-window' and control.state.confirmed:finish();return
         if not session or session.stage!='assigned' or not control.overlay.isVisible() or control.capture_pending or control.ocr_busy:return
@@ -193,8 +211,11 @@ def start_selection_smoke(control,input_path,report_path):
             control.monitor.stop();hero=control.state.hero;control.state.hero='';control.check_target();hidden_unconfirmed()
             assert session.stage=='assigned' and session.assigned=='9001';safety['cleared_hero_hidden']=True
             control.state.hero=hero
-            report['phase']='testing-client-foreground-loss';save();control.show();control.raise_()
-            control.capture.u.SetForegroundWindow(int(control.winId()))
+            control.check_target();inspect_client_hero(control)
+            report['foreground_transition']={'client_rect_before':vars(control.capture.rect(control.client_target)),
+                'overlay_hwnd':int(control.overlay.winId()),'overlay_visible_before':control.overlay.isVisible(),
+                'overlay_native_visible_before':bool(control.capture.u.IsWindowVisible(int(control.overlay.winId())))}
+            report['phase']='testing-client-foreground-loss';save()
         elif phase=='recovering-foreground':
             # Foreground loss clears state.hero but does not erase the current
             # assignment. Measure two NEW observations without falsely claiming

@@ -46,3 +46,22 @@ tests/windows_native_smoke.py text eol=lf
 tests/overlay_duty_contract.py text eol=lf
 tests/windows_session_fixture.py text eol=lf
 fixtures/demo.json text eol=lf
+
+# Exact persistent helper and diagnostic source bytes across Windows checkout.
+native/wgc_session_capture.cpp text eol=lf
+wgc_session_capture.py text eol=lf
+wgc_session_smoke.py text eol=lf
+wgc_session_diagnostic.py text eol=lf
+app_version.py text eol=lf
+scripts/build_wgc_session_capture.py text eol=lf
+scripts/microsoft_runtime.py text eol=lf
+scripts/qt_licenses.py text eol=lf
+tests/windows_wgc_session_capture.py text eol=lf
+tests/windows_exe_smoke.py text eol=lf
+packaging/WGC-Session-Diagnostic.spec text eol=lf
+packaging/windows.manifest text eol=lf
+requirements-build.txt text eol=lf
+packaging/windows-build-constraints.txt text eol=lf
+scripts/windows_package.py text eol=lf
+
+persistent_capture_adapter.py text eol=lf

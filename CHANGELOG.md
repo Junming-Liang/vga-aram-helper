@@ -4,14 +4,15 @@
 
 **候选源码，等待 Windows 验证；尚未发布。当前可下载预览版仍为 v0.4.6。 / Candidate source awaiting Windows validation; not published. The downloadable preview remains v0.4.6.**
 
+- 后续本地集成持续 HWND 捕获、不透明浅色叠加与 GUI 外清理；新增单次/持续后端的真实产品路径配对测量和源码/实际 EXE 会话门禁。独立实验六组源码/冻结及 60 次退出检查通过，但整体任务的预算查询遇到 HTTP 403；这不代表产品集成或发布已通过。详情见 [对局反馈修正](PLAY_FEEDBACK_FIXES.md)。
 - 对局反馈候选修正：完成后调度下一轮截图，严格像素证明通过后在推理期间标注“上次候选复核中”；不刷新观察有效期或独立确认计数。选人阶段增加规范英雄 ID 对应的公开整体 T1–T5 资料；控制台单独保存“上次候选 · 最终选择未知”。实际 Windows 黑屏/显示间隔仍待诊断门禁测量。
-- 按要求使用 REA 分析官方包并交叉检查原生捕获/呈现路径；独立实现生命周期改进。真实独占全屏和自动识别最终所选强化尚无足够证据，持久捕获会话在单独默认关闭实验中验证。详见[反馈修正与边界](PLAY_FEEDBACK_FIXES.md)。
+- 按要求使用 REA 分析官方包并交叉检查原生捕获/呈现路径；独立实现生命周期改进。真实独占全屏和自动识别最终所选强化尚无足够证据，持续捕获会话先在隔离实验中验证，再进入尚待产品验收的本地集成。详见[反馈修正与边界](PLAY_FEEDBACK_FIXES.md)。
 - 按选定的 B 浅色方向实现原生仪表盘：本局英雄、监测状态及左/中/右候选为主界面；主监测按钮在“开始监测”和“停止监测”间切换。“设置”“核对资料”“关于”进入次级页面，监测期间仍可停止。
 - 叠加以候选名称和原始 T1–T4 评级为主，保留公开源/虚构演示标记、原位置、鼠标穿透及半屏高度限制。完整资料按名称查阅；来源日期、数据包、游戏资料版本与非 Riot 评级/未获批准说明可从“关于”访问。
 - 可见评级胶囊和可访问来源标签分别记录与验证：可见文本如 `T1`，可访问标签为 `虎牙公开源评级：T1` 或 `虚构源评级（演示）：T1`。未评级资料仍明确标示；查阅不会确认监测结果。
 - 有限真实公开静态截图以 v0.4.7 源码重新执行：本人 HUD 正例 2/3 识别、1 次弃权，反例 3/3 弃权；选人正例 1/1、反例 3/3（两个独立反例场景），均未出现错误英雄。仍是 Linux 小样本，不能替代 Windows、真实 LoL/Vanguard 或当前原生客户端验证。
 - Implements the selected light B direction with a champion/status/three-candidate dashboard, one Start/Stop monitoring action, and secondary Settings, Check reference and About pages. The compact overlay keeps names, literal source tiers, public/demo attribution and original order; full source metadata and non-Riot limitations remain reachable in About.
-- Visible tier pills and exact accessible source labels are separate evidence fields. Version/report bindings target v0.4.7; all release gates remain required. Existing capture, privacy, stale-result clearing and manual-confirmation boundaries are unchanged. This records implementation, not final aesthetic acceptance or Windows release success; v0.4.6 tags/assets and historical benchmarks are unchanged.
+- Visible tier pills and exact accessible source labels are separate evidence fields. Version/report bindings target v0.4.7; all release gates remain required. Target/ROI authority, stale-result clearing and manual-confirmation boundaries remain strict; the candidate documents retained idle GPU surfaces and the asynchronous cleanup limits of session reuse. This records implementation, not final aesthetic acceptance or Windows release success; v0.4.6 tags/assets and historical benchmarks are unchanged.
 
 ## v0.4.6 · 原生界面与截图识别可靠性
 

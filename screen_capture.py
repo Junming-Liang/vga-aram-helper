@@ -2,8 +2,9 @@
 
 No process-memory reading, DLL injection, input hooks, game API or input
 simulation. Only explicitly authorized visible foreground window pixels are copied.
-WGC uses a project-owned one-shot helper, with metadata-only process queries and
-ROI-only GPU readback. Unsupported systems retain the ordinary GDI backend.
+WGC uses project-owned, bounded HWND helpers, with metadata-only process queries
+and ROI-only GPU readback. The persistent path requires an exact owned opaque
+overlay exclusion; unsupported systems retain the strict one-shot/GDI path.
 The compositor fallback allocates only the verified client rectangle, never a
 whole-desktop image; every intersecting higher window makes it abstain.
 """
@@ -13,6 +14,8 @@ from ctypes import wintypes as W
 from dataclasses import dataclass
 import io
 import os
+import subprocess
+import threading
 
 class CaptureUnavailable(RuntimeError):pass
 class CapturePaused(CaptureUnavailable):
@@ -33,10 +36,16 @@ class ClientRect:
     x:int;y:int;width:int;height:int
 
 class Win32Capture:
-    def __init__(self):
+    def __init__(self,*,persistent_sessions=True):
         if os.name!='nt':raise CaptureUnavailable('窗口像素监测目前仅支持 Windows 10/11。')
         self.u=ctypes.WinDLL('user32',use_last_error=True);self.g=ctypes.WinDLL('gdi32',use_last_error=True)
         self._declare()
+        from persistent_capture_adapter import PersistentCaptureAdapter
+        self._persistent=PersistentCaptureAdapter(self._check_session_overlay,enabled=persistent_sessions)
+        self._last_session_receipt=None
+        self._last_session_epoch=None
+        self._capture_lock=threading.Lock()
+        self._overlay_hwnd=None
         self._wgc=None;self._wgc_error=None
         from wgc_capture import WgcCapture,WgcError,WgcUnavailable
         try:self._wgc=WgcCapture()
@@ -54,6 +63,8 @@ class Win32Capture:
             ('GetForegroundWindow',[],W.HWND),('GetAncestor',[W.HWND,W.UINT],W.HWND),('GetDC',[W.HWND],W.HDC),('ReleaseDC',[W.HWND,W.HDC],ctypes.c_int),
             ('WindowFromPoint',[W.POINT],W.HWND),('SetWindowDisplayAffinity',[W.HWND,W.DWORD],W.BOOL),
             ('GetWindowDisplayAffinity',[W.HWND,ctypes.POINTER(W.DWORD)],W.BOOL),
+            ('SetLayeredWindowAttributes',[W.HWND,W.DWORD,W.BYTE,W.DWORD],W.BOOL),
+            ('GetLayeredWindowAttributes',[W.HWND,ctypes.POINTER(W.DWORD),ctypes.POINTER(W.BYTE),ctypes.POINTER(W.DWORD)],W.BOOL),
             ('RegisterHotKey',[W.HWND,ctypes.c_int,W.UINT,W.UINT],W.BOOL),('UnregisterHotKey',[W.HWND,ctypes.c_int],W.BOOL),
             ('SetWindowPos',[W.HWND,W.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,W.UINT],W.BOOL)]:sig(self.u,name,args,result)
         try:
@@ -110,6 +121,7 @@ class Win32Capture:
         EnumWindows walks top-level z order. Unknown/failed geometry is denied.
         DWM-cloaked windows may be ignored only after a successful OS query.
         """
+        self._check_overlay_hidden()
         rect=self.validate(target)
         if rect!=expected:raise CapturePaused('窗口正在移动，等待画面稳定。')
         bounds=W.RECT(rect.x,rect.y,rect.x+rect.width,rect.y+rect.height)
@@ -153,7 +165,86 @@ class Win32Capture:
             if old and dc:self.g.SelectObject(dc,old)
             if bitmap:self.g.DeleteObject(bitmap)
             if dc:self.g.DeleteDC(dc)
+    def retire_session(self):
+        """GUI-safe: revoke now; the adapter owns asynchronous close/cleanup."""
+        self._last_session_receipt=None
+        adapter=getattr(self,'_persistent',None)
+        if adapter is not None:adapter.retire()
+    def set_interactive_overlay(self,enabled):
+        """Explicit UI mode, separate from all automatic fallback decisions."""
+        if type(enabled) is not bool:raise TypeError('Interactive overlay mode requires a boolean')
+        self._last_session_receipt=None
+        adapter=getattr(self,'_persistent',None)
+        if adapter is not None:adapter.set_interactive_overlay(enabled)
+    def close(self):
+        """GUI-safe permanent revocation; never waits for a native helper."""
+        self._last_session_receipt=None
+        adapter=getattr(self,'_persistent',None)
+        if adapter is not None:adapter.close()
+    @property
+    def last_session_receipt(self):
+        from types import MappingProxyType
+        value=getattr(self,'_last_session_receipt',None)
+        adapter=getattr(self,'_persistent',None)
+        epoch=getattr(self,'_last_session_epoch',None)
+        if adapter is not None and adapter.cancelled_since(epoch):return None
+        return None if value is None else MappingProxyType(dict(value))
+    @property
+    def cleanup_pending(self):
+        adapter=getattr(self,'_persistent',None)
+        backend=getattr(self,'_wgc',None)
+        return bool((adapter is not None and adapter.cleanup_pending)
+                    or getattr(backend,'_pending_cleanup',None) is not None
+                    or getattr(backend,'_pending_job',None) is not None)
+    def _check_overlay_hidden(self):
+        hwnd=getattr(self,'_overlay_hwnd',None)
+        if hwnd is not None and self.u.IsWindowVisible(hwnd):
+            raise CapturePaused('自己的叠加尚未隐藏，已跳过本帧以避免识别反馈。')
+    def _drain_one_shot_cleanup(self):
+        """Worker-only old-v1 cleanup barrier before considering a v2 helper."""
+        backend=getattr(self,'_wgc',None)
+        if backend is None:return
+        job=getattr(backend,'_pending_job',None)
+        if job is not None:
+            if not job.close():raise CapturePaused('上一次截图任务尚未确认关闭，暂不启动新截图。')
+            backend._pending_job=None
+        process=getattr(backend,'_pending_cleanup',None)
+        if process is not None:
+            try:
+                if process.poll() is None:raise subprocess.TimeoutExpired('owned capture helper',0)
+                process.communicate(timeout=0)
+            except subprocess.TimeoutExpired as exc:
+                raise CapturePaused('上一次截图任务仍在关闭，暂不启动新截图。') from exc
+            for name in ('stdout','stderr'):
+                stream=getattr(process,name,None)
+                if stream:stream.close()
+            backend._pending_cleanup=None
     def capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None):
+        """Worker-only capture. Every exit rechecks revocation, including PNG work."""
+        from wgc_capture import WgcError
+        adapter=getattr(self,'_persistent',None)
+        epoch=adapter.epoch if adapter is not None else None
+        external=(cancelled if callable(cancelled) else cancelled.is_set) if cancelled is not None else lambda:False
+        is_cancelled=lambda:external() or (adapter is not None and adapter.cancelled_since(epoch))
+        lock=getattr(self,'_capture_lock',None)
+        if lock is not None and not lock.acquire(blocking=False):raise CapturePaused('已有窗口截图请求尚未结束。')
+        try:
+            self._last_session_receipt=None
+            if adapter is not None:adapter.check_ready()
+            result=self._capture(target,roi,cancelled=is_cancelled,expected_metadata=expected_metadata)
+            if is_cancelled():raise CapturePaused('截图已取消。')
+            if adapter is not None and self.last_backend=='windows-graphics-capture-session':
+                self._last_session_receipt=adapter.last_receipt
+                self._last_session_epoch=epoch
+            if is_cancelled():raise CapturePaused('截图已取消。')
+            return result
+        except BaseException as exc:
+            self.retire_session()
+            if isinstance(exc,WgcError):raise CapturePaused(str(exc)) from exc
+            raise
+        finally:
+            if lock is not None:lock.release()
+    def _capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None):
         """Capture on a worker; WGC denial/blank frames never trigger GDI."""
         is_cancelled=(cancelled if callable(cancelled) else cancelled.is_set) if cancelled is not None else lambda:False
         def check_binding():
@@ -164,9 +255,23 @@ class Win32Capture:
                 if current!=expected_metadata:raise CapturePaused('原授权窗口进程已经变化，本帧未进行截图。')
         if is_cancelled():raise CapturePaused('截图已取消。')
         check_binding()
+        self._check_overlay_hidden()
         rect=self.validate(target);self.validate_compositor(target,rect)
         left,top,width,height=bounded_roi(rect.width,rect.height,roi)
         if getattr(self,'_wgc_error',None):raise CapturePaused(str(self._wgc_error))
+        adapter=getattr(self,'_persistent',None)
+        if adapter is not None:
+            self._drain_one_shot_cleanup()
+            image=adapter.capture(target,rect,(left,top,width,height),cancelled=is_cancelled,expected_metadata=expected_metadata)
+            if image is not None:
+                self._check_overlay_hidden();self.validate_compositor(target,rect)
+                check_binding()
+                if is_cancelled():raise CapturePaused('截图已取消。')
+                if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
+                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。')
+                self.last_backend='windows-graphics-capture-session';self._blank_frames=(None,0)
+                out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+            adapter.check_ready() # No v1/GDI while a v2 close/cleanup is pending.
         if getattr(self,'_wgc',None) is not None:
             from wgc_capture import WgcError,WgcUnavailable
             try:
@@ -207,25 +312,89 @@ class Win32Capture:
         self._blank_frames=(None,0)
         if is_cancelled():raise CapturePaused('截图已取消。')
         out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
-    def configure_overlay(self,hwnd,click_through=True):
-        ctypes.set_last_error(0)
-        current=int(self.get_long(hwnd,-20))
-        if not current and ctypes.get_last_error():raise CaptureUnavailable('无法读取叠加窗口样式，叠加已停用。')
-        style=current|0x00080000|0x08000000|0x00000080 # LAYERED,NOACTIVATE,TOOLWINDOW
-        style=(style|0x20) if click_through else (style&~0x20)
-        flags=0x0001|0x0002|0x0010 # NOSIZE,NOMOVE,NOACTIVATE
-        # Read live HWND state every time; ordinary placement refreshes do not
-        # need to rewrite styles or force another nonclient-frame recalculation.
-        if style!=current:
+    def _owned_overlay(self,hwnd):
+        pid=W.DWORD()
+        if (not self.u.IsWindow(hwnd) or int(self.u.GetAncestor(hwnd,2) or 0)!=hwnd
+                or not self.u.GetWindowThreadProcessId(hwnd,ctypes.byref(pid)) or pid.value!=os.getpid()):
+            raise CaptureUnavailable('叠加必须是本程序自己的顶层窗口。')
+    def _opaque_layered(self,hwnd):
+        color=W.DWORD();alpha=W.BYTE();flags=W.DWORD()
+        return bool(self.u.GetLayeredWindowAttributes(hwnd,ctypes.byref(color),ctypes.byref(alpha),ctypes.byref(flags))
+                    and (color.value,alpha.value,flags.value)==(0,255,2))
+    def _check_session_overlay(self,overlay):
+        from wgc_capture import WgcError
+        try:
+            self._owned_overlay(overlay.hwnd)
             ctypes.set_last_error(0)
-            previous=self.set_long(hwnd,-20,style)
-            if not previous and ctypes.get_last_error():raise CaptureUnavailable('无法设置安全叠加窗口样式，叠加已停用。')
-            flags|=0x0020 # FRAMECHANGED only after an extended-style change.
-        if not self.u.SetWindowPos(hwnd,W.HWND(-1),0,0,0,0,flags):raise CaptureUnavailable('无法设置非激活置顶叠加，叠加已停用。')
-        actual=int(self.get_long(hwnd,-20));required=0x00080000|0x08000000|0x80|0x8
-        if actual&required!=required or bool(actual&0x20)!=bool(click_through):raise CaptureUnavailable('系统未确认鼠标穿透/非激活样式，叠加已停用。')
-        # Exclusion is best effort; the UI ALWAYS hides this window before capture.
-        return bool(self.u.SetWindowDisplayAffinity(hwnd,0x11))
+            style=int(self.get_long(overlay.hwnd,-20))&0xffffffff
+            affinity=W.DWORD()
+            if (ctypes.get_last_error() or style!=overlay.extended_style or not self._opaque_layered(overlay.hwnd)
+                    or not self.u.GetWindowDisplayAffinity(overlay.hwnd,ctypes.byref(affinity)) or affinity.value!=0x11
+                    or self.u.IsWindowVisible(overlay.hwnd)):
+                raise CaptureUnavailable('叠加窗口身份、样式、排除状态或隐藏状态已变化。')
+        except (CaptureUnavailable,OSError,AttributeError) as exc:
+            raise WgcError('stale',str(exc)) from exc
+    def configure_overlay(self,hwnd,click_through=True,*,opaque=False):
+        """GUI registration only. No helper construction, file I/O or pipe waits.
+
+        opaque=True is a caller contract that Qt's translucent backing was
+        disabled before HWND creation. Win32 independently proves the redirected
+        opaque layered profile. The UI still ALWAYS hides this HWND for capture.
+        """
+        adapter=getattr(self,'_persistent',None)
+        def invalidate():
+            if adapter is not None:adapter.set_overlay()
+        try:
+            if opaque:self._owned_overlay(hwnd) # Verify before any HWND mutation.
+            previous=getattr(self,'_overlay_hwnd',None)
+            if previous is not None and previous!=hwnd:invalidate()
+            self._overlay_hwnd=hwnd
+            ctypes.set_last_error(0)
+            current=int(self.get_long(hwnd,-20))&0xffffffff
+            if not current and ctypes.get_last_error():raise CaptureUnavailable('无法读取叠加窗口样式，叠加已停用。')
+            style=current|0x00080000|0x08000000|0x00000080
+            style=(style|0x20) if click_through else (style&~0x20)
+            expected=style|0x8
+            registered=adapter.overlay if adapter is not None else None
+            if registered is not None and (registered.hwnd!=hwnd or registered.extended_style!=current):invalidate()
+            flags=0x0001|0x0002|0x0010
+            if style!=current:
+                invalidate() # Revoke before mutation, even if the OS repairs it.
+                ctypes.set_last_error(0)
+                previous=self.set_long(hwnd,-20,style)
+                if not previous and ctypes.get_last_error():raise CaptureUnavailable('无法设置安全叠加窗口样式，叠加已停用。')
+                flags|=0x0020
+            if current!=expected:invalidate()
+            if not self.u.SetWindowPos(hwnd,W.HWND(-1),0,0,0,0,flags):raise CaptureUnavailable('无法设置非激活置顶叠加，叠加已停用。')
+            ctypes.set_last_error(0)
+            actual=int(self.get_long(hwnd,-20))&0xffffffff
+            if ctypes.get_last_error() or actual!=expected:raise CaptureUnavailable('系统未确认完整的安全叠加样式，叠加已停用。')
+            if opaque:
+                if not self._opaque_layered(hwnd):
+                    invalidate()
+                    if not self.u.SetLayeredWindowAttributes(hwnd,0,255,2) or not self._opaque_layered(hwnd):
+                        raise CaptureUnavailable('系统未确认不透明叠加窗口，叠加已停用。')
+                affinity=W.DWORD()
+                exact=bool(self.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11)
+                if not exact:
+                    invalidate()
+                    exact=bool(self.u.SetWindowDisplayAffinity(hwnd,0x11)
+                               and self.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11)
+                # Recheck all live identity/style/opacity state after API writes.
+                self._owned_overlay(hwnd)
+                ctypes.set_last_error(0)
+                if (int(self.get_long(hwnd,-20))&0xffffffff)!=actual or ctypes.get_last_error() or not self._opaque_layered(hwnd):
+                    raise CaptureUnavailable('叠加窗口配置期间状态已变化，叠加已停用。')
+                exact=bool(exact and self.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11)
+                if adapter is not None:
+                    if exact and click_through:adapter.set_overlay(hwnd,actual)
+                    else:invalidate()
+                return exact
+            invalidate() # Legacy translucent UI never gets an idle exemption.
+            return bool(self.u.SetWindowDisplayAffinity(hwnd,0x11))
+        except BaseException:
+            invalidate()
+            raise
     def hotkey(self,hwnd,ident=0x5647):return bool(self.u.RegisterHotKey(hwnd,ident,0x4000|0x0002|0x0001,0x4F)) # Ctrl+Alt+O
     def release_hotkey(self,hwnd,ident=0x5647):self.u.UnregisterHotKey(hwnd,ident)
 

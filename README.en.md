@@ -62,6 +62,9 @@ python launcher.py
 
 Current source implements the selected light B direction. It is not published; downloads and successful release records above still refer to v0.4.6.
 
+
+The local integration candidate also adds completion-driven cadence, accepted-frame recheck proof, separate champion-select T1–T5 references and a last-candidates record that explicitly leaves the final choice unknown. Product Windows acceptance remains pending. The persistent frame pool can retain the authorized window’s full GPU surface while idle; CPU readback is request-ROI-only with foreground, identity, geometry and occlusion checks. Revocation starts asynchronous cleanup, without a 50 ms exit guarantee under system stalls. See [feedback fixes and evidence limits](PLAY_FEEDBACK_FIXES.md); true fullscreen and automatic final-choice detection remain unverified.
+
 - The dashboard shows the current champion, monitoring state and left/center/right candidates. One primary monitoring action switches between Start and Stop; secondary pages retain a Stop action while monitoring.
 - Settings (“设置”) contains window connection, champion correction and capture-region controls. Check reference (“核对资料”) provides candidate correction, explicit confirmation and full exact-name lookup. About (“关于”) exposes the full source date, data-package and game-data versions, update status and compatibility limits. Back (“返回”) returns to the dashboard. Lookup never confirms or replaces the current monitoring result.
 - The compact overlay shows names and literal tiers with “虎牙公开源” (Huya public source) or “虚构演示” (synthetic demo) attribution, preserving original order, click-through and the half-client-height limit. Visible tier pills (for example `T1`) and accessible source labels (`虎牙公开源评级：T1` or `虚构源评级（演示）：T1`) are separately verified evidence fields. Full source metadata and the statement that these are neither Riot ratings nor Riot approval remain reachable in About.

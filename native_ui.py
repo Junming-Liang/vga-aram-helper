@@ -93,15 +93,24 @@ class Overlay(QtWidgets.QWidget):
     def __init__(self,capture=None):
         super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
         self.capture=capture;self.click_through=True;self.cards=[];self.reference=None;self._layout_revision=0;self._placed_key=None;self._detail_labels=[];self._compact=False;self._rechecking=False
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+        # The validated redirected Windows renderer has no per-pixel alpha.
+        # Set this before winId()/show; changing it later can recreate the HWND.
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground,False)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_OpaquePaintEvent,True)
+        self.setWindowOpacity(1.0)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setWindowTitle(APP_NAME+' · 资料叠加');self.setStyleSheet(STYLE+'\nOverlay{background:transparent;}')
+        self.setWindowTitle(APP_NAME+' · 资料叠加');self.setStyleSheet(STYLE+'\nOverlay{background:#FAFCFF;}')
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,True)
         layout=QtWidgets.QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
-        self.panel=QtWidgets.QFrame();self.panel.setObjectName('overlay-panel');self.panel.setStyleSheet('#overlay-panel{background:rgba(250,252,255,250);border:1px solid #D9E0E9;border-radius:10px} #overlay-panel QLabel{background:transparent;border:0} QLabel#overlay-heading{font-size:13px;font-weight:600} QLabel#source-tier-label{color:#536075;font-size:12px;font-weight:600}')
+        self.panel=QtWidgets.QFrame();self.panel.setObjectName('overlay-panel');self.panel.setStyleSheet('#overlay-panel{background:#FAFCFF;border:1px solid #D9E0E9;border-radius:10px} #overlay-panel QLabel{background:transparent;border:0} QLabel#overlay-heading{font-size:13px;font-weight:600} QLabel#source-tier-label{color:#536075;font-size:12px;font-weight:600}')
         layout.addWidget(self.panel);inner=QtWidgets.QVBoxLayout(self.panel);inner.setContentsMargins(10,10,10,10);inner.setSpacing(8)
         self.heading=label('');self.heading.setObjectName('overlay-heading');self.footer=label('仅窗口像素 · Ctrl+Alt+O · 非 Riot 评级/批准',True);summary=QtWidgets.QHBoxLayout();self.summary_layout=summary;summary.addWidget(self.heading,1);summary.addWidget(self.footer,1);self.metadata_label=label('',True);inner.addWidget(self.metadata_label);self.row=QtWidgets.QHBoxLayout();self.row.setSpacing(8);inner.addLayout(self.row);inner.addLayout(summary)
         self.resize(820,76)
+    def paintEvent(self,event):
+        # WA_OpaquePaintEvent requires every pixel, including the rounded
+        # child's outer corners, to be painted on every resize/exposure.
+        painter=QtGui.QPainter(self);painter.fillRect(self.rect(),QtGui.QColor('#FAFCFF'));painter.end()
+        super().paintEvent(event)
     def set_cards(self,hero,cards,source_date='未知',source_version='未知',confirmation='人工确认'):
         signature=(hero,json.dumps(cards,ensure_ascii=False,sort_keys=True),source_date,source_version,confirmation)
         if self.reference is None and getattr(self,'_card_signature',None)==signature:
@@ -139,13 +148,20 @@ class Overlay(QtWidgets.QWidget):
         tier=label('英雄整体强度：'+(reference['sourceTier'] or '暂无评级'));tier.setAccessibleName(reference['sourceTierLabel']+'：'+(reference['sourceTier'] or '暂无评级'));self.tier_labels.append(tier);box.addWidget(tier);self.row.addWidget(frame)
         self._set_compact(True);self.adjustSize();self.resize(820,max(52,self.height()))
     def configure(self):
-        if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through)
+        if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through,opaque=True)
     def set_rechecking(self,value):
         value=bool(value)
         if self._rechecking==value:return
         self._rechecking=value;self._layout_revision+=1;self._placed_key=None
         if self.cards:self._set_compact(self._compact,dense=getattr(self,'_dense',False))
     def set_click_through(self,value):
+        mode=getattr(self.capture,'set_interactive_overlay',None)
+        if mode:mode(not bool(value)) # Explicit user-selected strict-hide compatibility route.
+        else:
+            retire=getattr(self.capture,'retire_session',None)
+            if retire:retire()
+        # Revoke the old HWND/style token before Qt can change it. Automatic
+        # affinity/identity failures never select the compatibility mode above.
         self.click_through=bool(value);self.hide();self._placed_key=None;self._layout_revision+=1
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,self.click_through)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -286,6 +302,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.compatibility=label('仅核验窗口的可见像素，不读取游戏内存。支持窗口 / 无边框模式；实际 LoL 与 Vanguard 兼容性尚未验证。',True);about.addWidget(self.compatibility)
         about.addWidget(label('英雄整体强度使用公开源原始 T1–T5；强化评级使用 T1–T4，缺失显示暂无评级。保留三项原位置，不展示胜率、换算等级或推荐唯一最佳选项；公开源快照并非实时评级或 Riot 批准。',True))
         about.addWidget(label('开始后控制台自动最小化；切出、被遮挡或识别不确定时清空旧结果。截图不保存、不上传。',True))
+        about.addWidget(label('持续捕获只绑定本次授权窗口；空闲帧池可能保留该窗口的 GPU 表面。仅在请求时核验前台、遮挡与身份并读回所选范围；停止或失效后清理，系统阻塞时不能保证 50 ms 内关闭。',True))
         self.portrait_diagnostics=None;self.cache_diagnostic_button=QtWidgets.QPushButton('头像缓存诊断');self.cache_diagnostic_button.hide();self.cache_diagnostic_button.clicked.connect(self.show_cache_diagnostics);about.addWidget(self.cache_diagnostic_button)
         self.capture_diagnostic=label('采集诊断：尚无画面。截图成功与全屏叠加可见是两项独立检查。',True);self.capture_diagnostic.setAccessibleName('最近采集阶段与耗时');about.addWidget(self.capture_diagnostic)
         self.update_status=label('软件更新待检查。',True);about.addWidget(self.update_status);self.update_button=QtWidgets.QPushButton('查看并安装软件更新');self.update_button.hide();about.addWidget(self.update_button)
@@ -556,20 +573,28 @@ class ControlWindow(QtWidgets.QWidget):
         dialog.setDetailedText(json.dumps(self.portrait_diagnostics,ensure_ascii=False,indent=2))
         dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok);dialog.exec()
     def hero_mode_changed(self,automatic):
+        self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         if not automatic:self.advanced_toggle.setChecked(True)
         self.hero_box.setEnabled(not automatic);self.state.clear_hero();self.refresh_card_details();self.overlay.hide();self.manual_editing=False
         self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
         self.refresh_dashboard();self.hero_status.setText('等待本人 HUD 头像，连续两帧高置信后自动使用。' if automatic else '人工纠正模式：请选择已确认的本人英雄。')
     def hero_changed(self,text):
+        self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         if text:self.advanced_toggle.setChecked(True)
         if text and self.hero_auto.isChecked():
             self.hero_auto.blockSignals(True);self.hero_auto.setChecked(False);self.hero_auto.blockSignals(False);self.hero_box.setEnabled(True)
         hero=text if self.data and text in self.data.get('heroes',{}) else getattr(self,'hero_aliases',{}).get(text,'')
         self.hero_origin='manual';self.state.select_hero(hero);self.refresh_card_details();self.overlay.hide();self.status.setText(self.state.reason)
+    def retire_capture_session(self):
+        # The adapter marks revocation immediately and performs any wrapper
+        # lock/pipe/process cleanup off-GUI. Its cleanup barrier blocks reuse.
+        retire=getattr(self.capture,'retire_session',None)
+        if retire:retire()
     def invalidate_scene(self,reason):
         self._capture_cancel.set();self.ocr_reuse.clear()
+        self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         if self.hero_auto.isChecked():
             self.state.clear_hero();self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
@@ -577,6 +602,7 @@ class ControlWindow(QtWidgets.QWidget):
     def roi_changed(self,*_):
         self.invalidate_scene('截图范围改变，请重新识别确认');self.overlay.hide()
     def edit_changed(self,*_):
+        self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         self.manual_editing=True;self.state.invalidate('候选已修改，请重新确认',clear_observed=False);self.refresh_card_details();self.overlay.hide()
     def follow_scope_changed(self,*_):
@@ -610,6 +636,7 @@ class ControlWindow(QtWidgets.QWidget):
         # different app and never restore/activate the game on the user's behalf.
         if not self.smoke_report and not self.selection_smoke_input:self.showMinimized()
     def stop_monitor(self):
+        self.retire_capture_session()
         self.last_candidates=None
         self._capture_serial+=1;self.capture_pending=False;self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         self._capture_cancel.set();self.ocr_reuse.clear();self.manual_metadata=None;self.manual_identity=None
@@ -653,6 +680,8 @@ class ControlWindow(QtWidgets.QWidget):
                 self.invalidate_scene('画面观察超过 4 秒未更新，旧资料已隐藏，请重新确认');self.overlay.hide();self.status.setText(self.state.reason)
             rect=self.capture.rect(self.target)
             if self.last_rect and rect!=self.last_rect:
+                self._capture_cancel.set();self.retire_capture_session()
+                self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if (rect.width,rect.height)!=(self.last_rect.width,self.last_rect.height):self.invalidate_scene('目标客户区大小改变，等待新画面重新识别')
                 self.overlay.hide() # Pure moves keep fresh identity/offers; only reposition.
             self.last_rect=rect
@@ -741,8 +770,10 @@ class ControlWindow(QtWidgets.QWidget):
                 def before_ocr(hero,crop):
                     if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
                     proof['_roiDigest']=hashlib.sha256(crop).hexdigest();proof['hero_observation']=hero
-                    # Pixel acquisition (including native helper cleanup) is
-                    # complete; only the GUI thread may authorize re-display.
+                    # Pixel acquisition and its final guards are complete.
+                    # Persistent capture additionally verified the exact guarded-
+                    # idle trailer; its helper may remain alive without readback.
+                    # Only the GUI thread may authorize re-display.
                     emit_phase()
                 result=detector.recognize(image) if client_phase else recognize_frame(image,roi,scoped_ocr,vocabulary,matcher,before_match=before_match,before_ocr=before_ocr)
                 result.update(proof);result['_timings']={'capture_ms':round((pixels_at-captured_at)*1000,1),'inference_ms':round((time.monotonic()-pixels_at)*1000,1)};return result
@@ -792,6 +823,7 @@ class ControlWindow(QtWidgets.QWidget):
             self.refresh_card_details();self.status.setText(self.state.reason+'；切回目标窗口后显示。');self.check_target()
         except (ValueError,KeyError) as exc:self.status.setText(str(exc))
     def toggle_clickthrough(self):
+        self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         try:self.overlay.set_click_through(not self.overlay.click_through)
         except CaptureUnavailable as exc:
             self.stop_monitor();self.overlay.hide();self.status.setText(str(exc));return
@@ -974,6 +1006,8 @@ class ControlWindow(QtWidgets.QWidget):
         return super().nativeEvent(event_type,message)
     def closeEvent(self,event):
         self._capture_cancel.set();self.ocr_reuse.clear()
+        close_capture=getattr(self.capture,'close',None)
+        if close_capture:close_capture() # Nonblocking revocation before HWND destruction.
         with self._worker_lock:self.closed=True;self._cancel_workers.set();jobs=list(self._workers)
         if self.selection_session:self.selection_session.stop()
         if self.window_policy:self.window_policy.stop()

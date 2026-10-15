@@ -76,11 +76,14 @@ def complete_startup_health(url, update_health=None):
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=f"{APP_NAME} {__version__}：双击即用的本地助手")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME} {__version__}：双击即用的本地助手", allow_abbrev=False)
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--version-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--licenses-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--wgc-smoke-report", type=Path, help=argparse.SUPPRESS)
+    session_modes = parser.add_mutually_exclusive_group()
+    session_modes.add_argument("--wgc-session-smoke-report", type=Path, help=argparse.SUPPRESS)
+    session_modes.add_argument("--wgc-session-job-owner-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--native-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-input", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-report", type=Path, help=argparse.SUPPRESS)
@@ -94,7 +97,21 @@ def main(argv=None) -> int:
     parser.add_argument("--licenses", action="store_true", help="输出随 EXE 内置的第三方许可文本")
     parser.add_argument("--apply-update", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--update-health", type=Path, help=argparse.SUPPRESS)
-    args = parser.parse_args(argv)
+    # Explicit session diagnostics accept exactly their report path. Reject every
+    # normal launch option (including otherwise harmless toggles) before parsing
+    # --version can exit or any ordinary application startup can occur.
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    session_options = {"--wgc-session-smoke-report", "--wgc-session-job-owner-report"}
+    if any(item.split("=", 1)[0] in session_options for item in raw_args):
+        options = [item.split("=", 1)[0] for item in raw_args if item.startswith("-")]
+        if len(options) != 1 or options[0] not in session_options:
+            parser.error("Session WGC diagnostic cannot be combined with another launch option")
+    args = parser.parse_args(raw_args)
+    if args.wgc_session_smoke_report or args.wgc_session_job_owner_report:
+        from wgc_session_smoke import run, job_owner
+        if args.wgc_session_job_owner_report:
+            return job_owner(args.wgc_session_job_owner_report, application=True)
+        return run(args.wgc_session_smoke_report, application=True)
     if args.wgc_smoke_report:
         if any((args.headless, args.native_smoke_report, args.selection_smoke_input, args.selection_smoke_report,
                 args.apply_update, args.update_health, args.ready_file, args.self_test, args.version_file,

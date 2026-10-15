@@ -122,7 +122,152 @@ class OverlayDutyTrace:
                 'phases':self.phases}
 
 
+def _duty_session_observation(capture, receipt, *, hidden):
+    """Independent live OS checks of the exact returned session receipt.
+
+    The registration token stays local. It is never serialized in diagnostics.
+    A receipt cannot establish its own helper identity or current HWND state.
+    """
+    from session_windows import process_metadata
+    from wgc_session_capture import _window_api, _property_name
+    owner=capture._persistent._owner;session=owner.session;transport=session._transport
+    process=transport.process;registered=session._overlay
+    assert not owner.revoked.is_set() and not transport.revoked.is_set()
+    assert process is not None and process.poll() is None
+    created=process_metadata(process.pid).created
+    assert (process.pid,created,transport.generation)==tuple(receipt[key] for key in ('helper_pid','helper_created','session_generation'))
+    assert process.poll() is None and session._transport is transport
+    hwnd=receipt['overlay_hwnd'];affinity=W.DWORD()
+    assert registered[:2]==(hwnd,receipt['overlay_extended_style'])
+    valid=_window_api().GetPropW(hwnd,_property_name(registered[2]))==registered[2]
+    actual_style=int(capture.get_long(hwnd,-20))&0xffffffff
+    assert capture.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity))
+    opaque=bool(capture._opaque_layered(hwnd));visible=bool(capture.u.IsWindowVisible(hwnd))
+    assert valid and opaque and affinity.value==0x11 and actual_style==receipt['overlay_extended_style']
+    if hidden:assert not visible,'Native overlay visible before full pixel acquisition return'
+    assert not owner.revoked.is_set() and not transport.revoked.is_set() and process.poll() is None
+    return owner,transport,dict(helper_pid=process.pid,helper_created=created,session_generation=transport.generation,
+        helper_alive=True,overlay_hwnd=hwnd,overlay_extended_style=actual_style,overlay_affinity=int(affinity.value),
+        overlay_registration_valid=bool(valid),overlay_opaque=opaque,native_visible=visible)
+
+
+def _duty_one_shot_process_closed(process):
+    """v1 closes then clears stdin; stdout/stderr remain owned closed streams."""
+    return bool(process.poll() is not None
+        and (process.stdin is None or process.stdin.closed)
+        and all(getattr(process,name) is not None and getattr(process,name).closed for name in ('stdout','stderr')))
+
+
+def _duty_process_created(process):
+    """Read creation time through the retained exact process handle, even after exit."""
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.GetProcessTimes.argtypes=[W.HANDLE,*([ctypes.POINTER(W.FILETIME)]*4)]
+    kernel.GetProcessTimes.restype=W.BOOL
+    created,exited,kernel_time,user_time=(W.FILETIME() for _ in range(4))
+    assert kernel.GetProcessTimes(int(process._handle),ctypes.byref(created),ctypes.byref(exited),
+        ctypes.byref(kernel_time),ctypes.byref(user_time)),'Exact owned helper handle identity unavailable'
+    return (int(created.dwHighDateTime)<<32)|int(created.dwLowDateTime)
+
+
+def _duty_session_cleanup(capture, owner, transport, receipt, *, observed_ms):
+    """Observe eventual cleanup independently of the nonblocking Stop return."""
+    process=transport.process
+    code=process.poll() if process is not None else None
+    streams=[getattr(process,name,None) for name in ('stdin','stdout','stderr')]
+    result=dict(helper_pid=receipt['helper_pid'],helper_created=receipt['helper_created'],
+        session_generation=receipt['session_generation'],observed_ms=round(observed_ms,3),
+        owner_revoked=owner.revoked.is_set(),transport_revoked=transport.revoked.is_set(),
+        owner_close_done=owner.close_done.is_set(),capture_call_done=owner.call_done.is_set(),
+        process_exit_code=code,process_exited=type(code) is int,
+        pipes_closed=bool(all(stream is not None and stream.closed for stream in streams)),
+        pipe_worker_done=transport.io_done.is_set(),stderr_worker_done=transport.stderr_done.is_set(),
+        job_closed=bool(transport.job is not None and transport.job_closed and transport.job.handle is None),
+        ready_for_replacement=transport.ready_for_replacement.is_set(),
+        adapter_cleanup_complete=not capture.cleanup_pending)
+    fields=('owner_revoked','transport_revoked','owner_close_done','capture_call_done','process_exited',
+        'pipes_closed','pipe_worker_done','stderr_worker_done','job_closed','ready_for_replacement','adapter_cleanup_complete')
+    if not all(result[key] is True for key in fields):return None
+    created=_duty_process_created(process)
+    assert (process.pid,created,transport.generation)==tuple(receipt[key] for key in ('helper_pid','helper_created','session_generation')), 'Stop cleanup belongs to a different helper'
+    from wgc_session_capture import decode_session_shutdown_diagnostic
+    result.update(helper_pid=process.pid,helper_created=created,session_generation=transport.generation,
+        termination_requested_while_alive=transport.termination_requested_while_alive,
+        shutdown_diagnostic=decode_session_shutdown_diagnostic(transport.diagnostic,code))
+    return result
+
+
 def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,done):
+    """Measure the full product pipeline twice against one exact owned scene."""
+    from screen_capture import Win32Capture
+    from session_windows import process_metadata
+    original=control.capture;overlay=control.overlay;baseline=[None]
+    assert type(original) is Win32Capture,'Duty persistent pass requires the actual default product adapter'
+    assert original._persistent._enabled is True
+    report['overlay_duty_cycle']={'schema_version':2,
+        'scope':'Original synthetic native Windows HWND + real capture/PortraitMatcher/OCR; controlled diagnostic holds, not live-game or user-machine latency',
+        'artificial_hold_target_ms':350,'active_mode':'initial-cleanup','mode':'persistent','adapter_constructor':'Win32Capture()',
+        'baseline':{'mode':'one-shot','adapter_constructor':'Win32Capture(persistent_sessions=False)','cases':[]},'cases':[]}
+    duty=report['overlay_duty_cycle'];control.monitor.stop();overlay.hide()
+    def restore():
+        if baseline[0] is not None:baseline[0].close()
+        control.capture=original;overlay.capture=original
+        original.retire_session();control._smoke_duty_outer_cleanup=None
+    control._smoke_duty_outer_cleanup=restore
+    def wait_cleanup(capture,next_step):
+        deadline=time.monotonic()+8
+        def poll():
+            assert time.monotonic()<deadline,'Duty adapter cleanup exceeded the existing 8-second observation bound'
+            helper=getattr(capture,'_wgc',None)
+            if capture.cleanup_pending or getattr(helper,'_pending_cleanup',None) or getattr(helper,'_pending_job',None):
+                QtCore.QTimer.singleShot(10,lambda:run(poll));return
+            next_step()
+        poll()
+    def bind(capture):
+        control.capture=capture;overlay.capture=capture;overlay.hide();overlay.configure()
+        translucent=overlay.testAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+        opaque_paint=overlay.testAttribute(QtCore.Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        format=overlay.windowHandle().format();opacity=overlay.windowOpacity()
+        image=overlay.grab().toImage()
+        corners=[list(image.pixelColor(x,y).getRgb()) for x,y in ((0,0),(image.width()-1,0),
+            (0,image.height()-1),(image.width()-1,image.height()-1))]
+        assert not translucent and opaque_paint and opacity==1 and not format.hasAlpha() and format.alphaBufferSize() in (-1,0)
+        assert corners==[[250,252,255,255]]*4,'Actual opaque product overlay has unpainted/translucent outer corners'
+        rect=capture.rect(control.target);hwnd=int(overlay.winId());affinity=W.DWORD()
+        assert capture.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11
+        assert capture._opaque_layered(hwnd)
+        scene=dict(window_identity=list(control.target.identity),target_created=process_metadata(control.target.pid).created,
+            capture_rect={key:getattr(rect,key) for key in ('x','y','width','height')},overlay_hwnd=hwnd,
+            overlay_extended_style=int(capture.get_long(hwnd,-20))&0xffffffff,overlay_affinity=int(affinity.value),overlay_opaque=True,
+            qt_translucent_background=bool(translucent),qt_opaque_paint_event=bool(opaque_paint),qt_window_opacity=opacity,
+            surface_has_alpha=bool(format.hasAlpha()),surface_alpha_buffer_size=format.alphaBufferSize(),outer_corner_rgba=corners,
+            fixture_sha256=hashlib.sha256((Path(__file__).resolve().parent/'fixtures/auto-scene.png').read_bytes()).hexdigest())
+        if 'scene_binding' not in duty:duty['scene_binding']=scene
+        assert scene==duty['scene_binding'],'Mode swap changed the actual owned scene or opaque overlay'
+        control.manual_metadata=process_metadata(control.target.pid);control.manual_identity=control.target.identity
+        control.state.start(control.target.identity);control.state.clear_hero();control._accepted_frame=None;control.ocr_reuse.clear()
+        paint_mock();app.processEvents()
+    def start_baseline():
+        duty['active_mode']='one-shot'
+        baseline[0]=Win32Capture(persistent_sessions=False);bind(baseline[0])
+        _start_overlay_duty_mode(control,app=app,u=u,paint_mock=paint_mock,mode_report=duty['baseline'],
+            save=save,run=run,done=baseline_done)
+    def baseline_done():
+        duty['active_mode']='baseline-cleanup';baseline[0].close()
+        def swapped():
+            proof=duty['baseline']['cleanup'];assert proof['complete'] is True
+            duty['baseline']['cleanup_before_persistent']=dict(proof)
+            duty['active_mode']='persistent';bind(original)
+            _start_overlay_duty_mode(control,app=app,u=u,paint_mock=paint_mock,mode_report=duty,
+                save=save,run=run,done=finish)
+        wait_cleanup(baseline[0],swapped)
+    def finish():
+        report['overlay_duty_cycle_passed']=True;duty.pop('active_mode',None);control._smoke_duty_outer_cleanup=None
+        checks.append('Measured separate strict one-shot baseline and default persistent product passes on the exact same opaque own scene; both full five-case capture/PortraitMatcher/OCR proofs, with guarded-idle reuse and independently observed Stop cleanup in persistent mode')
+        save();QtCore.QTimer.singleShot(100,lambda:run(done))
+    original.retire_session();wait_cleanup(original,start_baseline)
+
+
+def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,done):
     """Actual owned-window acquisition and handlers, with explicit phase holds.
 
     Only diagnostics wrap production recognize_frame and Popen, forwarding
@@ -137,12 +282,16 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     overlay=control.overlay;hwnd=int(overlay.winId());capture_adapter=control.capture
     original_recognize=hero_recognition.recognize_frame;original_capture=capture_adapter.capture
     original_compositor=capture_adapter.validate_compositor;original_popen=wgc_capture.subprocess.Popen
-    original_schedule=control.schedule_capture;active=[None];rows=[];main_thread=threading.get_ident()
+    original_schedule=control.schedule_capture;active=[None];rows=mode_report['cases'];main_thread=threading.get_ident()
+    mode=mode_report['mode'];assert mode in ('one-shot','persistent')
+    all_helpers=[];all_jobs=[];reuse_captures=[]
+    original_job=wgc_capture._CaptureJob
     control.monitor.stop();control.schedule_capture=lambda delay=None:None
     control.hero_auto.setChecked(True);control.state.clear_hero();control.ocr_reuse.clear()
     control._accepted_frame=None;control.overlay.hide()
-    report['overlay_duty_cycle']={'schema_version':1,'scope':'Original synthetic native Windows HWND + real capture/PortraitMatcher/OCR; controlled diagnostic holds, not live-game or user-machine latency',
-        'artificial_hold_target_ms':350,'cases':rows}
+    mode_report['fresh_state']={'confirmed':control.state.confirmed,'automatic_frames':control.state.automatic_frames,
+        'hero_stable_frames':control.state.hero_stable_frames,'stable_frames':control.state.stable_frames,
+        'accepted_frame_present':control._accepted_frame is not None,'ocr_cache_cleared':control.ocr_reuse._entry is None}
     def snapshot():
         return {'last_observation':control.last_observation,'automatic_frames':control.state.automatic_frames,
                 'hero_stable_frames':control.state.hero_stable_frames,'stable_frames':control.state.stable_frames,
@@ -150,18 +299,26 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     def native_visible():return bool(u.IsWindowVisible(hwnd))
     def helper_cleanup(trace):
         helper=getattr(capture_adapter,'_wgc',None)
-        return all(process.poll() is not None for process in trace.helpers) and not getattr(helper,'_pending_cleanup',None) and not getattr(helper,'_pending_job',None)
+        return all(_duty_one_shot_process_closed(process) for process in trace.helpers) and not getattr(helper,'_pending_cleanup',None) and not getattr(helper,'_pending_job',None)
+    def acquisition_complete(trace):
+        if mode=='one-shot':return helper_cleanup(trace)
+        receipt=trace.session_capture['receipt']
+        _duty_session_observation(capture_adapter,receipt,hidden=False)
+        return dict(capture_adapter.last_session_receipt or {})==receipt
+    def watched_job(*args,**kwargs):
+        job=original_job(*args,**kwargs);all_jobs.append(job);return job
     class VisibilityGuard(QtCore.QObject):
         def eventFilter(self,watched,event):
             trace=active[0]
             if trace is not None and trace.capture_active and event.type()==QtCore.QEvent.Type.Show:
-                trace.qt_show_events_during_capture+=1;trace.error=AssertionError('Own overlay Show event during native capture/helper lifetime')
+                trace.qt_show_events_during_capture+=1;trace.error=AssertionError('Own overlay Show event during native pixel acquisition')
             return False
     visibility_guard=VisibilityGuard(overlay);overlay.installEventFilter(visibility_guard)
     def watched_popen(args,*arguments,**keywords):
         process=original_popen(args,*arguments,**keywords);trace=active[0]
         helper=getattr(capture_adapter,'_wgc',None)
-        if trace is not None and helper is not None and args and str(args[0])==str(helper.helper_path):trace.helpers.append(process)
+        if trace is not None and helper is not None and args and str(args[0])==str(helper.helper_path):
+            trace.helpers.append(process);all_helpers.append(process)
         return process
     def watched_compositor(*arguments,**keywords):
         value=original_compositor(*arguments,**keywords);trace=active[0]
@@ -171,21 +328,36 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
         trace=active[0]
         if trace is None:return original_capture(*arguments,**keywords)
         trace.capture_active=True;trace.capture_count+=1;trace.capture_concurrency+=1;trace.max_capture_concurrency=max(trace.max_capture_concurrency,trace.capture_concurrency)
+        mode_report['active_case']['phase_state']='pixel-acquisition'
         trace.mark('capture_start');trace.sample(native_visible(),capturing=True)
+        if mode=='persistent':
+            from wgc_session_capture import _qpc_100ns
+            capture_start_qpc=_qpc_100ns()
         assert not native_visible(),'Own native overlay visible at pixel acquisition entry'
         try:
             value=original_capture(*arguments,**keywords)
             assert not native_visible(),'Own native overlay visible before capture/helper return'
-            assert helper_cleanup(trace),'Capture helper has not fully exited/cleaned up'
             trace.sample(native_visible(),capturing=True);trace.mark('capture_return')
+            mode_report['active_case']['phase_state']='capture-return'
+            if mode=='persistent':
+                receipt=dict(capture_adapter.last_session_receipt or {})
+                assert receipt,'Full capture return lacks its guarded-idle receipt'
+                capture_return_qpc=_qpc_100ns()
+                owner,transport,observation=_duty_session_observation(capture_adapter,receipt,hidden=True)
+                trace.owner=owner;trace.transport=transport
+                trace.session_capture=dict(receipt=receipt,capture_start_100ns=capture_start_qpc,
+                    capture_return_100ns=capture_return_qpc,copied_after_capture_return=True,observation=observation)
+                mode_report['active_case']['session_capture']=trace.session_capture
+                if len(reuse_captures)<2:reuse_captures.append(trace.session_capture)
+            else:assert helper_cleanup(trace),'One-shot helper has not fully exited/cleaned up'
             trace.backend=capture_adapter.last_backend;return value
         finally:trace.capture_active=False;trace.capture_concurrency-=1
     def watched_recognize(*arguments,before_match=None,before_ocr=None,**keywords):
         trace=active[0]
         assert type(arguments[4]) is PortraitMatcher,'Duty probe must exercise the concrete production matcher'
         def phase(name,callback,*values):
-            assert trace is not None and 'capture_return' in trace.events and helper_cleanup(trace),'Phase preceded completed native capture/helper cleanup'
-            trace.mark(name+'_emitted')
+            assert trace is not None and 'capture_return' in trace.events and acquisition_complete(trace),'Phase preceded completed guarded capture return'
+            trace.mark(name+'_emitted');mode_report['active_case']['phase_state']=name+'-emitted'
             if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
                 trace.holds[name]=threading.Event();trace.hold_started[name]=time.monotonic()
             callback(*values)
@@ -199,7 +371,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
         if trace is None or kind not in ('capture-proof','ocr'):return
         try:
             if kind=='capture-proof':
-                name='before_ocr' if 'hero_observation' in value else 'before_match';trace.mark(name+'_applied')
+                name='before_ocr' if 'hero_observation' in value else 'before_match';trace.mark(name+'_applied');mode_report['active_case']['phase_state']=name+'-applied'
                 current_rect=capture_adapter.rect(control.target);accepted=trace.accepted or {}
                 def rectangle(rect):return {key:getattr(rect,key) for key in ('x','y','width','height')}
                 scope=value['_frameScope']
@@ -208,7 +380,8 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
                 phase={'name':name,'emitted_ms':round(trace.events[name+'_emitted'],3),'applied_ms':round(trace.events[name+'_applied'],3),
                     'compositor_validated_ms':round(trace.events.get('gui_compositor_validated',-1),3),'restored':bool(control._restore_while_ocr),'qt_visible':overlay.isVisible(),'native_visible':native_visible(),
                     'state_unchanged':snapshot()==trace.before,'state_before':trace.before,'state_at_phase':snapshot(),
-                    'current_identity_geometry_focus':bool(current),'helper_cleanup_complete':bool(helper_cleanup(trace)),
+                    'current_identity_geometry_focus':bool(current),
+                    ('helper_cleanup_complete' if mode=='one-shot' else 'session_guarded_idle_verified'):bool(acquisition_complete(trace)),
                     'window_identity':list(value['_windowIdentity']),'current_window_identity':list(control.target.identity),
                     'capture_rect':rectangle(value['_captureRect']),'current_rect':rectangle(current_rect),
                     'candidate_roi_sha256':value.get('_roiDigest'),'accepted_candidate_roi_sha256':accepted.get('digest'),
@@ -221,14 +394,14 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
                     'capture_serial':value['_captureSerial'],'captured_at':value['_capturedAt'],
                     'compositor_checked_after_capture':trace.events.get('gui_compositor_validated',-1)>=trace.events['capture_return']}
                 trace.phases.append(phase)
-                assert helper_cleanup(trace) and current,'Native capture proof is no longer current'
+                assert acquisition_complete(trace) and current,'Native capture proof is no longer current'
                 if trace.name in ('unchanged','stop_late'):
                     assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
                 elif trace.name in ('changed_roi','changed_hud','unknown_hud'):
                     assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
                     assert phase['state_unchanged'],'Intermediate proof must not refresh TTL or confirmation counters'
             else:
-                trace.mark('final');trace.sample(native_visible());trace.finished=True
+                trace.mark('final');trace.sample(native_visible());trace.finished=True;mode_report['active_case']['phase_state']='final'
                 trace.final_generation=generation;trace.final_value=value
         except Exception as exc:trace.error=AssertionError(trace.name+': '+str(exc));trace.finished=True
     def observed_error(kind,error,generation):
@@ -236,6 +409,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
         if trace is not None and kind=='ocr':trace.error=AssertionError('Production duty capture '+trace.name+' failed: '+error);trace.finished=True
     capture_adapter.capture=watched_capture;capture_adapter.validate_compositor=watched_compositor
     hero_recognition.recognize_frame=watched_recognize;wgc_capture.subprocess.Popen=watched_popen
+    if mode=='one-shot':wgc_capture._CaptureJob=watched_job
     control.signals.result.connect(observed);control.signals.error.connect(observed_error)
     def cleanup():
         trace=active[0]
@@ -243,7 +417,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
             for release in trace.holds.values():release.set()
         overlay.removeEventFilter(visibility_guard);visibility_guard.deleteLater()
         capture_adapter.capture=original_capture;capture_adapter.validate_compositor=original_compositor
-        hero_recognition.recognize_frame=original_recognize;wgc_capture.subprocess.Popen=original_popen
+        hero_recognition.recognize_frame=original_recognize;wgc_capture.subprocess.Popen=original_popen;wgc_capture._CaptureJob=original_job
         control.signals.result.disconnect(observed);control.signals.error.disconnect(observed_error)
         control.schedule_capture=original_schedule;control.monitor.stop();active[0]=None;control._smoke_duty_cleanup=None
     # Failures release only our diagnostic holds before ordinary shutdown.
@@ -251,7 +425,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     def begin(name,done):
         assert not control.ocr_busy and not control.capture_pending
         trace=OverlayDutyTrace(name);trace.before=snapshot();trace.accepted=control._accepted_frame;active[0]=trace
-        report['overlay_duty_cycle']['active_case']={'name':name,'timings_ms':trace.events,'phases':trace.phases}
+        mode_report['active_case']={'mode':mode,'name':name,'phase_state':'waiting-for-capture','timings_ms':trace.events,'phases':trace.phases}
         trace.sample(native_visible());control.capture_tick();trace.sample(native_visible())
         deadline=time.monotonic()+8
         def poll():
@@ -273,12 +447,25 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
                         release.set()
                     QtCore.QTimer.singleShot(10,lambda:run(poll));return
                 assert not control.ocr_busy and not control.capture_pending
+                if trace.stopped and mode=='persistent':
+                    mode_report['active_case']['phase_state']='stop-cleanup'
+                    trace.stop_cleanup=_duty_session_cleanup(capture_adapter,trace.owner,trace.transport,trace.session_capture['receipt'],
+                        observed_ms=(time.monotonic()-trace.started)*1000)
+                    if trace.stop_cleanup is None:
+                        QtCore.QTimer.singleShot(10,lambda:run(poll));return
+                    mode_report['active_case']['stop_cleanup']=trace.stop_cleanup
+                    code=trace.stop_cleanup['process_exit_code']
+                    assert code&0xffffffff!=0xc0000005,'Stop observed native access-violation crash'
+                    assert code==0 or trace.stop_cleanup['termination_requested_while_alive'] is True,'Nonzero Stop exit lacks observed parent termination'
                 if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
-                    value=trace.summary();value.update(capture_backend=trace.backend,helper_count=len(trace.helpers),helper_exit_codes=[process.poll() for process in trace.helpers],
-                        helper_cleanup_complete_before_phase=all(phase['helper_cleanup_complete'] for phase in trace.phases),
+                    value=trace.summary();value.update(mode=mode,capture_backend=trace.backend,
+                        capture_duration_ms=round(trace.events['capture_return']-trace.events['capture_start'],3),
                         final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=overlay.isVisible(),final_native_visible=native_visible(),
                         final_state_generation=control.state.generation,final_result_generation=trace.final_generation,final_captured_at=trace.final_value['_capturedAt'],
                         final_last_observation=control.last_observation,final_candidate_names=[item['name'] for item in trace.final_value.get('automatic_candidates',[])],final_hero_observation={key:trace.final_value['hero_observation'].get(key) for key in ('hero','confident')})
+                    if mode=='one-shot':value.update(helper_count=len(trace.helpers),helper_exit_codes=[process.poll() for process in trace.helpers],
+                        helper_cleanup_complete_before_phase=all(phase['helper_cleanup_complete'] for phase in trace.phases))
+                    else:value.update(helper_count=1,session_capture=trace.session_capture)
                     assert value['capture_samples']>=2 and value['capture_visible_samples']==0 and value['qt_show_events_during_capture']==0
                     assert [phase['name'] for phase in value['phases']]==['before_match','before_ocr']
                     assert all(phase['state_unchanged'] for phase in value['phases'])
@@ -298,6 +485,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
                         value.update(stop_return_ms=round(trace.stop_ms,3),late_final_discarded=bool(trace.stopped and trace.events['final']>trace.events['stop']
                             and trace.final_generation!=control.state.generation and not control.state.running and not control.state.confirmed and not native_visible() and control._accepted_frame is None))
                         assert value['late_final_discarded'] and trace.stop_ms<250
+                        if mode=='persistent':value['stop_cleanup']=trace.stop_cleanup
                     rows.append(value)
                 active[0]=None;done()
             except Exception:
@@ -315,7 +503,13 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
         paint_mock();app.processEvents();control.ocr_reuse.clear()
         if restart:
             control.manual_metadata=process_metadata(control.target.pid);control.manual_identity=control.target.identity;control.state.start(control.target.identity);control.state.clear_hero()
-        begin('independent_first',lambda:assert_first_then(lambda:established(next_step)))
+        deadline=time.monotonic()+8
+        def ready():
+            assert time.monotonic()<deadline,'Retired capture cleanup exceeded the observation bound'
+            if getattr(capture_adapter,'cleanup_pending',False):
+                QtCore.QTimer.singleShot(10,lambda:run(ready));return
+            begin('independent_first',lambda:assert_first_then(lambda:established(next_step)))
+        ready()
     def changed_roi():
         paint_mock(changed_roi=True);app.processEvents();begin('changed_roi',lambda:recover(changed,reset=True))
     def changed():
@@ -325,8 +519,14 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     def stop_late():begin('stop_late',lambda:recover(finish,restart=True))
     def finish():
         assert [row['name'] for row in rows]==['unchanged','changed_roi','changed_hud','unknown_hud','stop_late']
-        cleanup();report['overlay_duty_cycle'].pop('active_case',None);report['overlay_duty_cycle_passed']=True
-        checks.append('Actual Windows capture stays hidden until helper exit; identical accepted ROI/HUD restores during two controlled 350 ms inference holds without refreshing TTL/counters; changed candidate ROI and changed/unknown HUD veto; Stop discards late actual OCR')
+        if mode=='one-shot':
+            mode_report['cleanup']=dict(helper_count=len(all_helpers),helpers_exited=all(process.poll() is not None for process in all_helpers),
+                pipes_closed=all(_duty_one_shot_process_closed(process) for process in all_helpers),
+                jobs_closed=bool(len(all_jobs)==len(all_helpers) and all(job.handle is None for job in all_jobs)),
+                adapter_cleanup_complete=not getattr(capture_adapter,'cleanup_pending',False),complete=True)
+            assert all(mode_report['cleanup'][key] is True for key in ('helpers_exited','pipes_closed','jobs_closed','adapter_cleanup_complete'))
+        else:mode_report['reuse_captures']=reuse_captures
+        cleanup();mode_report.pop('active_case',None)
         save();QtCore.QTimer.singleShot(100,lambda:run(done))
     begin('independent_first',lambda:assert_first_then(lambda:established(lambda:begin('unchanged',changed_roi))))
 
@@ -342,6 +542,10 @@ def start_smoke(control,report_path,screenshot_path):
         if cleanup:
             control._smoke_duty_cleanup=None
             try:cleanup()
+            except Exception:pass
+        outer_cleanup=getattr(control,'_smoke_duty_outer_cleanup',None)
+        if outer_cleanup:
+            try:outer_cleanup()
             except Exception:pass
         report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
         for widget in control._smoke_objects:widget.close()
