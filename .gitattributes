@@ -67,3 +67,9 @@ scripts/windows_package.py text eol=lf
 persistent_capture_adapter.py text eol=lf
 scripts/probe_capture_phases.py text eol=lf
 scripts/probe_opencv_parity.py text eol=lf
+
+# Branch-only exact crossover orchestration bytes.
+scripts/probe_opencv_capture_crossover.py text eol=lf
+.github/workflows/build-native-preview.yml text eol=lf
+.gitattributes text eol=lf
+requirements-ocr.txt text eol=lf
