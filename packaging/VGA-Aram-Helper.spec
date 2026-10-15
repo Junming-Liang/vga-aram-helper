@@ -9,15 +9,21 @@ sys.path.insert(0, str(ROOT))
 from model_inventory import verify_models
 from scripts.microsoft_runtime import replace_runtime_entries
 from scripts.build_wgc_capture import verify_built_helper, FILENAME as WGC_FILENAME, MANIFEST as WGC_MANIFEST
+from scripts.build_wgc_session_capture import (verify_built_helper as verify_session_helper,
+                                               FILENAME as SESSION_FILENAME, MANIFEST as SESSION_MANIFEST)
 from scripts.windows_package import BRANDING_FILES, EXCLUDED_IMPORTS, CUSTOM_EXCLUDED_IMPORTS, custom_package, trim_unused_binaries
 import json
 verify_models()  # Missing/changed wheel models fail the build, never download at runtime.
 
-verify_built_helper()  # No optional omission or runtime download of the capture helper.
-binaries = [(str(ROOT / 'build' / 'native' / WGC_FILENAME), 'native')]
-datas = [(str(ROOT / 'build' / 'native' / WGC_MANIFEST), 'native'), (str(ROOT / 'static'), 'static'), (str(ROOT / 'fixtures'), 'fixtures'),
+verify_built_helper()  # No optional omission or runtime download of either capture helper.
+verify_session_helper()
+binaries = [(str(ROOT / 'build' / 'native' / name), 'native')
+            for name in (WGC_FILENAME, SESSION_FILENAME)]
+datas = [(str(ROOT / 'build' / 'native' / WGC_MANIFEST), 'native'),
+         (str(ROOT / 'build' / 'native' / SESSION_MANIFEST), 'native'),
+         (str(ROOT / 'static'), 'static'), (str(ROOT / 'fixtures'), 'fixtures'),
          (str(ROOT / 'build' / 'licenses'), 'licenses'), (str(ROOT / 'LICENSE'), '.'), *[(str(ROOT / 'assets' / 'branding' / name), 'assets/branding') for name in BRANDING_FILES]]
-hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke', 'wgc_capture', 'wgc_smoke']
+hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke', 'wgc_capture', 'wgc_smoke', 'wgc_session_capture', 'wgc_session_smoke', 'persistent_capture_adapter']
 # RapidOCR exports RapidOCR lazily, so explicitly retain its entry point and
 # CPU backend. Normal import analysis then follows their real dependencies.
 # Data collection excludes duplicate .py source, while preserving all wheel
