@@ -9,7 +9,6 @@ import ctypes
 import hashlib
 import json,math,os,sys,time,traceback
 from ctypes import wintypes as W
-from PySide6 import QtCore,QtWidgets
 
 
 DEMO_HERO='星火术士（演示）'
@@ -19,12 +18,34 @@ DEMO_REFERENCE={'hero':DEMO_HERO,'championId':'9001','sourceTier':'T5',
     'sourceTierLabel':'虚构英雄评级（演示）','sourceLabel':'虚构演示 · 不能用于对局',
     'sourceUrl':None,'sourceDataDate':'2026-01-02','sourceVersion':'0.1',
     'gamePatch':'0.2','wikiDataVersion':'synthetic-selection-v1','isDemo':True}
+_MAX_REPORT_BYTES=64*1024
+_REPORT_REPLACE_ATTEMPTS=11
+_REPORT_REPLACE_SECONDS=.25
+_REPORT_REPLACE_DELAY=.025
 
 
-def atomic_report(path,value):
+def atomic_report(path,value,*,deadline=None):
+    """Publish one complete report; retry only brief Windows replace denials."""
+    payload=(json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf8')
+    if len(payload)>_MAX_REPORT_BYTES:raise ValueError('Selection handoff report exceeds 64 KiB')
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     temporary=path.with_name(path.name+'.tmp')
-    temporary.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf8');temporary.replace(path)
+    temporary.write_bytes(payload)  # Close once before replacing; never truncate the live report.
+    end=time.monotonic()+_REPORT_REPLACE_SECONDS
+    if deadline is not None:end=min(end,deadline)
+    for attempt in range(_REPORT_REPLACE_ATTEMPTS):
+        try:
+            temporary.replace(path)
+            return
+        except OSError as exc:
+            # A Windows reader without delete sharing can briefly deny rename.
+            # These codes can also be permanent: retain both complete files and
+            # propagate the original error when the short retry budget expires.
+            if getattr(exc,'winerror',None) not in (5,32,33) or attempt+1==_REPORT_REPLACE_ATTEMPTS:raise
+            remaining=end-time.monotonic()
+            if remaining<=0:raise
+            time.sleep(min(_REPORT_REPLACE_DELAY,remaining))
+            if time.monotonic()>=end:raise
 
 
 def diagnostic_state(control,started,now=None):
@@ -49,6 +70,7 @@ def diagnostic_state(control,started,now=None):
 
 def inspect_client_hero(control):
     """Measure actual displayed native widgets; never render or save an image."""
+    from PySide6 import QtCore
     overlay=control.overlay;session=control.selection_session;u=control.capture.u
     assert session.stage=='assigned' and session.assigned=='9001' and session.candidate_frames>=2
     assert control.state.hero==DEMO_HERO and control.state.confirmed is False and control.state.offered==()
@@ -97,15 +119,27 @@ def inspect_client_hero(control):
 
 
 def start_selection_smoke(control,input_path,report_path):
+    from PySide6 import QtCore,QtWidgets
     app=QtWidgets.QApplication.instance();checks=[];started=time.monotonic();safety={};last_saved=0.
     report={'schemaVersion':2,'status':'running','phase':'initializing','backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'scope':'Original synthetic owned client/game processes only. Actual Windows metadata, capture and CPU OCR; no real LoL/Vanguard compatibility claim.','checks':checks,'client_hero_safety':safety}
     control._selection_smoke_timer=QtCore.QTimer(control);timer=control._selection_smoke_timer;timer.setInterval(20)
     def save():
         nonlocal last_saved
         last_saved=time.monotonic();report['diagnostic_state']=diagnostic_state(control,started,last_saved)
-        atomic_report(report_path,report)
+        # The existing diagnostic deadline is never reset by a report retry.
+        # An initial attempt still permits publishing a terminal timeout failure.
+        atomic_report(report_path,report,deadline=started+170)
     def fail(exc):
-        timer.stop();report.update(status='failed',error=str(exc) or type(exc).__name__,error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=5)[-4000:]);save();control.close();app.exit(1)
+        timer.stop();report.update(status='failed',error=str(exc) or type(exc).__name__,error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=5)[-4000:])
+        write_error=None
+        try:save()
+        except Exception as error:write_error=error
+        finally:
+            try:
+                try:control.close()
+                finally:app.exit(1)
+            finally:
+                if write_error is not None:raise write_error
     def guarded(fn):
         try:fn()
         except Exception as exc:fail(exc)
