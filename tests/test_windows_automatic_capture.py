@@ -1,17 +1,25 @@
 """Portable fixture-image regressions; these do not claim Windows OS coverage."""
+import ast
+import gc
 import io
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from windows_automatic_capture import assert_pixels, make_original_png, make_hidden_capture_observer, force_first_copy_blank
+from windows_automatic_capture import (Events, MAX_SECONDS, assert_pixels,
+    make_original_png, make_hidden_capture_observer, force_first_copy_blank,
+    require_capture_idle, start_with_explicit_capture)
+from windows_ota_smoke import Deadline
 from windows_session_fixture import validate_png
 
 
@@ -132,6 +140,239 @@ class LegacyGdiFixtureIsolationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'cleanup'):
                 with force_first_copy_blank(capture):self.fail('Unclosed session entered GDI fixture')
         self.assertIs(capture._persistent,persistent);self.assertEqual(events,['retire'])
+
+
+class ControlledCaptureIdleTests(unittest.TestCase):
+    def test_pending_timer_capture_inference_or_worker_is_never_disguised_as_idle(self):
+        for field in ('timer', 'capture_pending', 'ocr_busy', 'vga-ocr', 'vga-selection'):
+            with self.subTest(field=field):
+                control = SimpleNamespace(monitor=Mock(isActive=lambda: field == 'timer'),
+                    capture_pending=field == 'capture_pending', ocr_busy=field == 'ocr_busy',
+                    _workers=[SimpleNamespace(name=field)] if field.startswith('vga-') else [])
+                before = (control.capture_pending, control.ocr_busy, list(control._workers))
+                with self.assertRaisesRegex(AssertionError, 'idle capture pipeline'):
+                    require_capture_idle(control)
+                self.assertEqual((control.capture_pending, control.ocr_busy, control._workers), before)
+                control.monitor.stop.assert_not_called()
+
+    def test_windows_fixture_uses_controlled_start_both_times_and_checks_before_seeding(self):
+        source = Path(__file__).with_name('windows_automatic_capture.py').read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        execute = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'execute')
+        starts = [node for node in ast.walk(execute) if isinstance(node, ast.Call) and
+                  isinstance(node.func, ast.Name) and node.func.id == 'start_with_explicit_capture']
+        self.assertEqual(len(starts), 2)
+        self.assertNotIn('control.start_button.click()', ast.get_source_segment(source, execute))
+        seed = next(node for node in ast.walk(execute) if isinstance(node, ast.FunctionDef) and node.name == 'seed_stale_state')
+        self.assertEqual(ast.unparse(seed.body[0]), 'require_capture_idle(control)')
+
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+try:
+    from PySide6 import QtCore, QtWidgets
+    from shiboken6 import isValid
+except ImportError:
+    QtWidgets = None
+
+
+@unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
+class ControlledCaptureCadenceQtTests(unittest.TestCase):
+    """Real Qt timers, Start, discovery, worker and completion; owned OS/OCR fakes."""
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        cls.app.setQuitOnLastWindowClosed(False)
+
+    def setUp(self):
+        from automatic_windows import AutomaticWindowPolicy
+        from engine import load_data
+        from native_ui import ControlWindow
+        from screen_capture import CaptureUnavailable, ClientRect, WindowInfo
+        from session_windows import ProcessMetadata
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.events = Events(self.app, Deadline(20))
+        self.game = WindowInfo(123, 456, 'Owned Qt fixture', 'RiotWindowClass')
+        self.metadata = ProcessMetadata(r'C:\owned\League of Legends\Game\League of Legends.exe', 123456)
+        self.available = []
+        self.discovery_threads, self.capture_calls, self.inference_calls = [], [], []
+        self.watchdog_ticks, self.monitor_ticks = [], []
+        self.capture_entered, self.capture_release = threading.Event(), threading.Event()
+        self.capture_release.set()
+        self.capture_error = None
+        self.overlay_visible = threading.Event()
+        self.main_thread = threading.get_ident()
+        self.rect = ClientRect(0, 0, 964, 602)
+        png = Path(self.directory.name) / 'owned.png'
+        self.expected = make_original_png(png, (self.rect.width, self.rect.height))
+        self.encoded = png.read_bytes()
+
+        def windows():
+            self.discovery_threads.append(threading.get_ident())
+            return list(self.available)
+
+        def capture(target, roi, **options):
+            self.capture_calls.append((threading.get_ident(), target, roi, options))
+            self.capture_entered.set()
+            if not self.capture_release.wait(3):
+                raise RuntimeError('Owned Qt capture release timed out')
+            if self.capture_error:
+                raise self.capture_error
+            return self.encoded, self.rect
+
+        self.hidden_captures = []
+        observer = make_hidden_capture_observer(capture, lambda hwnd: True,
+            lambda hwnd: self.overlay_visible.is_set(), 123, self.expected,
+            self.hidden_captures, self.main_thread)
+        self.capture = SimpleNamespace(windows=windows, rect=lambda target: self.rect,
+            foreground=lambda target: True, capture=observer)
+        policy = patch('automatic_windows.AutomaticWindowPolicy', side_effect=lambda **kwargs:
+            AutomaticWindowPolicy(resolver=lambda pid: self.metadata, verifier=lambda path: True, **kwargs))
+        policy.start(); self.addCleanup(policy.stop)
+
+        def recognize(image, *args, **kwargs):
+            self.inference_calls.append(threading.get_ident())
+            assert_pixels(image, self.expected)
+            return {'candidates': [], 'automatic_candidates': []}
+
+        recognition = patch('hero_recognition.recognize_frame', side_effect=recognize)
+        recognition.start(); self.addCleanup(recognition.stop)
+        with patch('native_ui.Win32Capture', side_effect=CaptureUnavailable('Owned portable fixture')):
+            self.window = ControlWindow(
+                lambda: {'data': load_data(Path(__file__).resolve().parents[1] / 'fixtures/demo.json')},
+                state_dir=Path(self.directory.name), current_executable=Path('/unused.exe'),
+                current_version='fixture-test', frozen=False, enable_updates=False)
+        self.addCleanup(self.dispose)
+        self.window.capture = self.capture
+        self.window.ocr = object()  # Recognition is synthetic; the serialized worker is real.
+        self.window.refresh_windows()
+        visible = self.overlay_visible
+
+        class VisibilityObserver(QtCore.QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QtCore.QEvent.Type.Show:
+                    visible.set()
+                elif event.type() == QtCore.QEvent.Type.Hide:
+                    visible.clear()
+                return False
+
+        self.visibility_observer = VisibilityObserver(self.window)
+        self.window.overlay.installEventFilter(self.visibility_observer)
+        self.window.watchdog.timeout.connect(lambda: self.watchdog_ticks.append(True))
+        self.window.monitor.timeout.connect(lambda: self.monitor_ticks.append(True))
+        self.events.wait(lambda: self.window.start_button.isEnabled(), 'Qt fixture did not load')
+
+    def dispose(self):
+        self.capture_release.set()
+        window, overlay = self.window, self.window.overlay
+        window.close()
+        self.events.wait(lambda: not window._workers, 'Owned Qt workers did not exit', 4)
+        overlay.deleteLater(); window.deleteLater()
+        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+        self.assertFalse(isValid(window)); self.assertFalse(isValid(overlay))
+        self.window = None
+        gc.collect(); self.app.processEvents()
+
+    def wait_idle(self):
+        self.events.wait(lambda: not self.window.ocr_busy and not self.window.capture_pending and
+            not any(job.name in ('vga-ocr', 'vga-selection') for job in self.window._workers),
+            'Owned capture did not complete')
+
+    def seed(self):
+        from native_state import display_cards
+        w = self.window
+        require_capture_idle(w)
+        hero, names = next(iter(w.data['heroes'])), list(w.data['augments'])[:3]
+        w.state.select_hero(hero); w.state.confirm(names, w.data['augments'])
+        w.last_observation = time.monotonic()
+        w.overlay.set_cards(hero, display_cards(w.data, hero, names), confirmation='Owned synthetic state')
+        w.check_target()
+        self.assertTrue(w.overlay.isVisible())
+
+    def test_both_starts_keep_discovery_and_watchdog_but_only_explicit_capture_runs(self):
+        w = self.window
+        for index in range(2):
+            with self.subTest(start=index):
+                start_with_explicit_capture(w)
+                self.assertTrue(w.state.running); self.assertTrue(w.isMinimized())
+                self.assertTrue(w.watchdog.isActive())
+                require_capture_idle(w)
+                if index == 0:
+                    self.events.wait(lambda: not w.discovery_busy, 'Initial discovery did not complete')
+                    self.assertIsNone(w.target)
+                    self.available.append(self.game)
+                self.events.wait(lambda: w.target == self.game and not w.discovery_busy,
+                                 'Unmodified watchdog/discovery did not bind owned game')
+                self.seed()
+                watchdog_before = len(self.watchdog_ticks)
+                self.events.settle(.35)
+                self.assertGreater(len(self.watchdog_ticks), watchdog_before)
+                self.assertTrue(w.overlay.isVisible())
+                self.assertEqual(len(self.capture_calls), index)
+                self.assertEqual(self.monitor_ticks, [])
+                self.capture_entered.clear(); self.capture_release.clear()
+                w.capture_tick()
+                self.assertFalse(w.overlay.isVisible()); self.assertTrue(w.capture_pending)
+                with self.assertRaisesRegex(AssertionError, 'idle capture pipeline'):
+                    require_capture_idle(w)
+                self.events.wait(self.capture_entered.is_set, 'Explicit worker never started')
+                self.assertTrue(w.ocr_busy); self.assertTrue(w.capture_pending)
+                with self.assertRaisesRegex(AssertionError, 'idle capture pipeline'):
+                    require_capture_idle(w)
+                self.assertTrue(w.ocr_busy); self.assertTrue(w.capture_pending)
+                self.capture_release.set()
+                self.events.wait(lambda: len(self.inference_calls) == index + 1, 'Explicit inference never ran')
+                self.wait_idle()
+                require_capture_idle(w)
+                self.assertEqual(len(self.hidden_captures), index + 1)
+                self.events.settle(.35)  # Exceeds the production 200 ms completion cadence.
+                self.assertEqual(len(self.capture_calls), index + 1)
+                self.assertEqual(self.monitor_ticks, [])
+                self.seed()
+                w.stop_button.click()
+                self.assertFalse(w.state.running); self.assertIsNone(w.automatic_policy)
+                w.showNormal()
+        self.assertTrue(any(thread != self.main_thread for thread in self.discovery_threads))
+        self.assertTrue(all(call[0] != self.main_thread for call in self.capture_calls))
+        self.assertTrue(all(thread != self.main_thread for thread in self.inference_calls))
+        for _, target, roi, options in self.capture_calls:
+            self.assertEqual(target, self.game); self.assertEqual(roi, (0., 0., 1., 1.))
+            self.assertEqual(options['expected_metadata'].created, self.metadata.created)
+            self.assertIsInstance(options['cancelled'], threading.Event)
+
+    def test_error_completion_cannot_rearm_automatic_capture(self):
+        self.available.append(self.game)
+        w = self.window
+        start_with_explicit_capture(w)
+        self.events.wait(lambda: w.target == self.game, 'Owned game did not bind')
+        self.capture_error = RuntimeError('Owned capture failure')
+        w.capture_tick()
+        self.events.wait(self.capture_entered.is_set, 'Explicit failed capture never ran')
+        self.wait_idle()
+        require_capture_idle(w)
+        self.events.settle(1.1)  # Exceeds the production 1000 ms error retry.
+        self.assertEqual(len(self.capture_calls), 1)
+        self.assertFalse(self.inference_calls); self.assertFalse(self.monitor_ticks)
+        self.assertTrue(w.watchdog.isActive())
+
+    def test_original_long_interval_is_overridden_on_each_start_and_on_completion(self):
+        w = self.window
+        self.available.append(self.game)
+        w.monitor.setInterval(MAX_SECONDS * 1000)
+        for index in range(2):
+            with self.subTest(start=index):
+                w.start_button.click()  # Original fixture behavior, deliberately uncontrolled.
+                self.assertTrue(w.monitor.isActive()); self.assertEqual(w.monitor.interval(), 0)
+                with self.assertRaisesRegex(AssertionError, 'idle capture pipeline'):
+                    require_capture_idle(w)
+                self.events.wait(lambda: len(self.inference_calls) >= index + 1,
+                                 'Original timer failed to launch unsolicited inference')
+                self.wait_idle()
+                self.assertTrue(w.monitor.isActive())
+                self.assertLessEqual(w.monitor.interval(), 200)
+                w.stop_button.click()
+                w.showNormal()
 
 
 

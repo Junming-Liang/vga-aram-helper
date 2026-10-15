@@ -9,7 +9,8 @@ first HWND pixel copy is made blank to exercise the unmodified bounded composito
 fallback. It then must match an original generated PNG. Independent WGC source
 and frozen-EXE acceptance must pass separately; this is never WGC evidence.
 
-OCR's timer is slowed; stale-result payloads are explicitly synthetic. This test
+Automatic OCR scheduling is disabled; one explicit real capture/inference still
+runs, and stale-result payloads are explicitly synthetic. This test
 proves neither real League signatures nor OCR/game/Vanguard compatibility. It
 adds no production launch switch, trust bypass, or private screenshot resource.
 """
@@ -58,6 +59,24 @@ SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process m
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def require_capture_idle(control):
+    """Reject pending work rather than disguising it before synthetic seeding."""
+    require(not control.monitor.isActive() and not control.capture_pending and
+            not control.ocr_busy and
+            not any(job.name in ('vga-ocr', 'vga-selection') for job in control._workers),
+            'Controlled lifecycle fixture requires an idle capture pipeline')
+
+
+def start_with_explicit_capture(control):
+    """Keep Start/discovery/watchdog; own capture cadence until this control closes."""
+    # A long timer interval is insufficient: Start uses start(0), and completion
+    # handlers schedule explicit delays. Neither may race the synthetic seeds.
+    control.schedule_capture = lambda delay=None: None
+    control.start_button.click()
+    control.monitor.stop()  # Synchronous, before any Qt event pumping, on EVERY Start.
+    require_capture_idle(control)
 
 
 class Events:
@@ -334,6 +353,7 @@ def execute(reports, result):
 
             def seed_stale_state():
                 # Synthetic state seed only: lifecycle must clear it; this is not OCR accuracy evidence.
+                require_capture_idle(control)
                 hero = next(iter(control.data['heroes']))
                 names = list(control.data['augments'])[:3]
                 control.state.select_hero(hero)
@@ -350,13 +370,11 @@ def execute(reports, result):
                                         'status': {'state': 'demo', 'message': 'Owned fixture only'}},
                     state_dir=work / 'state', current_executable=Path(sys.executable),
                     current_version='source-fixture', frozen=False, enable_updates=False)
-                # Keep production discovery/watchdog active; OCR is outside this OS mechanics test.
-                control.monitor.setInterval(MAX_SECONDS * 1000)
                 events.wait(lambda: control.start_button.isEnabled(), 'Source control did not load the owned demo data')
                 require(control.capture is not None and control.window_list.currentIndex() == 0 and
                         control.window_list.currentData() is None and control.client_follow.isChecked() and
                         control.hero_auto.isChecked(), 'Normal default AUTO controls are not selected')
-                control.start_button.click()
+                start_with_explicit_capture(control)
                 events.wait(lambda: control.state.running and control.automatic_policy is not None and
                             control.isMinimized() and control.capture.u.IsIconic(int(control.winId())),
                             'Start did not minimize its real helper HWND and enable AUTO')
@@ -401,6 +419,7 @@ def execute(reports, result):
                 events.wait(lambda: not control.ocr_busy and
                             not any(job.name == 'vga-ocr' for job in control._workers),
                             'Local inference did not release the GUI capture job', 35)
+                require_capture_idle(control)
                 result['self_overlay_hidden_before_capture'] = True
 
                 seed_stale_state()
@@ -519,7 +538,7 @@ def execute(reports, result):
                 # This game now really predates the next Start; no synthetic creation timestamps.
                 control.showNormal()
                 events.settle(.1)
-                control.start_button.click()
+                start_with_explicit_capture(control)
                 bound(game)
                 require(game['metadata'].created < control.automatic_policy.started_after,
                         'Pre-existing-game case is not older than its new Start scope')
