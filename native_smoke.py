@@ -549,10 +549,22 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
     begin('independent_first',lambda:assert_first_then(lambda:established(lambda:begin('unchanged',changed_roi))))
 
 
+def _manual_smoke_cadence(control):
+    """Keep this diagnostic's explicit captures in charge across Qt event pumps."""
+    original_schedule=control.schedule_capture
+    control.monitor.stop();control.schedule_capture=lambda delay=None:None
+    def restore():
+        control.monitor.stop();control.schedule_capture=original_schedule
+    return restore
+
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
     report={'status':'running','executable_sha256':hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest() if getattr(sys,'frozen',False) else None,'backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
     control._smoke_objects=[]
+    # Production result handlers schedule their next observation on completion.
+    # This fixture owns every capture, including the real async and duty probes.
+    restore_schedule=_manual_smoke_cadence(control)
     def save():
         report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
     def fail(exc):
@@ -565,6 +577,7 @@ def start_smoke(control,report_path,screenshot_path):
         if outer_cleanup:
             try:outer_cleanup()
             except Exception:pass
+        restore_schedule()
         report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
         for widget in control._smoke_objects:widget.close()
         control.close();app.exit(1)
@@ -771,6 +784,6 @@ def start_smoke(control,report_path,screenshot_path):
         report['resize_physical_before']={'width':before_resize.width,'height':before_resize.height};report['resize_physical_after']={'width':after_resize.width,'height':after_resize.height}
         control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Actual physical mock size changed after clearing its own artwork minimum; production watchdog hides old cards pending fresh recognition')
         control.state.confirm(names,control.data['augments']);mock.showMinimized();QtWidgets.QApplication.processEvents();control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Real mock minimization hides old cards through production watchdog')
-        control.close();mock.close();report['window_closed']=not control.isVisible() and not overlay.isVisible() and not mock.isVisible() and not control.hotkey_registered
+        restore_schedule();control.close();mock.close();report['window_closed']=not control.isVisible() and not overlay.isVisible() and not mock.isVisible() and not control.hotkey_registered
         assert report['window_closed'];report['status']='passed';checks.append('Control, overlay and mock closed; timer monitoring and registered hotkey released');save();app.exit(0)
     QtCore.QTimer.singleShot(150,lambda:run(prepare))
