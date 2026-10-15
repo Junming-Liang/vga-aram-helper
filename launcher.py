@@ -84,6 +84,7 @@ def main(argv=None) -> int:
     session_modes = parser.add_mutually_exclusive_group()
     session_modes.add_argument("--wgc-session-smoke-report", type=Path, help=argparse.SUPPRESS)
     session_modes.add_argument("--wgc-session-job-owner-report", type=Path, help=argparse.SUPPRESS)
+    session_modes.add_argument("--wgc-visible-overlay-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--native-smoke-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-input", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--selection-smoke-report", type=Path, help=argparse.SUPPRESS)
@@ -101,12 +102,15 @@ def main(argv=None) -> int:
     # normal launch option (including otherwise harmless toggles) before parsing
     # --version can exit or any ordinary application startup can occur.
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    session_options = {"--wgc-session-smoke-report", "--wgc-session-job-owner-report"}
+    session_options = {"--wgc-session-smoke-report", "--wgc-session-job-owner-report", "--wgc-visible-overlay-report"}
     if any(item.split("=", 1)[0] in session_options for item in raw_args):
         options = [item.split("=", 1)[0] for item in raw_args if item.startswith("-")]
         if len(options) != 1 or options[0] not in session_options:
             parser.error("Session WGC diagnostic cannot be combined with another launch option")
     args = parser.parse_args(raw_args)
+    if args.wgc_visible_overlay_report:
+        from wgc_visible_overlay_smoke import run
+        return run(args.wgc_visible_overlay_report)
     if args.wgc_session_smoke_report or args.wgc_session_job_owner_report:
         from wgc_session_smoke import run, job_owner
         if args.wgc_session_job_owner_report:

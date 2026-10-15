@@ -1,8 +1,8 @@
 """Narrow production owner for the separately validated, immutable WGC session.
 
-The imported protocol/native implementation is unchanged. Only one exact owned
-opaque overlay may be registered for GPU-only idle. CPU capture still requires
-that overlay hidden and all of Win32Capture's original authorization checks.
+One exact owned opaque overlay may be registered for GPU-only idle. CPU capture
+remains strict-hidden by default. A separately opted-in investigation permits
+only that exact excluded overlay while retaining every other authorization gate.
 Retirement revokes synchronously; potentially blocking close/reap work is owned
 by a daemon worker. No teardown latency or fullscreen compatibility is promised.
 """
@@ -16,9 +16,9 @@ from session_windows import process_metadata
 from wgc_capture import WgcError, WgcUnavailable
 
 
-def _new_session():
+def _new_session(*, allow_visible_overlay=False):
     from wgc_session_capture import WgcSessionCapture
-    return WgcSessionCapture(experimental=True)
+    return WgcSessionCapture(experimental=True, allow_visible_overlay=allow_visible_overlay)
 
 
 @dataclass(frozen=True)
@@ -46,10 +46,14 @@ class PersistentCaptureAdapter:
     native process/pipe/Job cleanup AND the last in-flight capture call. Never
     replace it merely because close() returned or because its helper exited.
     """
-    def __init__(self, overlay_check, *, session_factory=None, enabled=True):
+    def __init__(self, overlay_check, *, session_factory=None, enabled=True, allow_visible_overlay=False):
+        if type(allow_visible_overlay) is not bool:
+            raise TypeError('Visible overlay capability requires a boolean')
+        self._allow_visible_overlay = allow_visible_overlay
         self._overlay_check = overlay_check
         self._enabled = bool(enabled)
         self._interactive_overlay = False
+        self._prepared_visible_mode = False
         self._last_receipt = None
         self._factory = session_factory or _new_session
         self._lock = threading.Lock()
@@ -60,6 +64,59 @@ class PersistentCaptureAdapter:
         self._closed = False
         self._persistent_required = False
         self._unavailable = None
+
+    @property
+    def can_request_visible_overlay(self):
+        """GUI-safe routing hint, NOT proof of exclusion or a capture permit.
+
+        Each request must opt in again and independently pass every live guard.
+        No helper construction, metadata query, wait or native call occurs here.
+        """
+        with self._lock:
+            owner = self._owner
+            return bool(self._allow_visible_overlay and self._enabled and not self._closed
+                        and not self._interactive_overlay and self._overlay is not None
+                        and self._unavailable is None
+                        and (owner is None or self._complete(owner)
+                             or not owner.revoked.is_set() and not self._native_revoked(owner)))
+
+    def prepare_capture_mode(self, visible, *, overlay_window_style=None):
+        """GUI-safe planned transition; never constructs, captures, or falls back.
+
+        False means wait for cleanup; unavailable/closed modes raise WgcError.
+        A caller may make a NEW explicit request only after True. The optional style is
+        a routing snapshot, never authorization; native guards still prove it.
+        """
+        if type(visible) is not bool:
+            raise TypeError('Visible overlay mode requires a boolean')
+        if overlay_window_style is not None and (type(overlay_window_style) is not int
+                or not 0 <= overlay_window_style < 2**32):
+            raise TypeError('Overlay standard style requires an unsigned integer')
+        with self._lock:
+            if self._closed:
+                raise WgcError('cancelled', '窗口截图已关闭。')
+            owner = self._owner
+            changed = self._prepared_visible_mode != visible
+            if changed:
+                self._prepared_visible_mode = visible
+            mismatch = owner is not None and owner.binding[-1] != visible
+            if owner is not None and visible and owner.session is not None:
+                expected = getattr(owner.session, '_overlay_window_style', None)
+                mismatch = mismatch or (overlay_window_style is not None and expected is not None
+                                        and overlay_window_style != expected)
+            invalid = owner is not None and self._native_revoked(owner)
+            if changed or mismatch or invalid:
+                self._epoch += 1
+                self._last_receipt = None
+                self._retire_locked()
+            if owner is not None and owner.revoked.is_set():
+                if not self._complete(owner):
+                    return False
+                self._owner = None
+            if visible and (not self._allow_visible_overlay or not self._enabled
+                    or self._interactive_overlay or self._overlay is None or self._unavailable is not None):
+                raise WgcError('visible-overlay-unavailable', '可见叠加捕获未获授权或不可用；请隐藏叠加后再请求截图。')
+            return True
 
     @property
     def last_receipt(self):
@@ -231,13 +288,16 @@ class PersistentCaptureAdapter:
                     raise WgcError('cleanup-pending', '上一次窗口捕获尚未确认关闭，暂不启动新截图。')
                 self._owner = None
 
-    def capture(self, target, rect, pixel_roi, *, cancelled, expected_metadata=None):
+    def capture(self, target, rect, pixel_roi, *, cancelled, expected_metadata=None,
+                allow_visible_overlay=False):
         """Return None ONLY for an eligible pre-use compatibility route.
 
         A denied/blank/stale/timed-out session never authorizes a one-shot retry.
         An initial native unsupported result retires first; a later call may use
         compatibility capture only after complete cleanup is observed.
         """
+        if type(allow_visible_overlay) is not bool:
+            raise TypeError('Visible overlay request requires a boolean')
         if not self._call_lock.acquire(blocking=False):
             raise WgcError('busy', '已有窗口截图请求尚未结束。')
         owner = None
@@ -245,6 +305,10 @@ class PersistentCaptureAdapter:
             self.check_ready()
             with self._lock:
                 self._last_receipt = None
+                if allow_visible_overlay and (not self._allow_visible_overlay
+                        or not self._enabled or self._interactive_overlay
+                        or self._overlay is None or self._unavailable is not None):
+                    raise WgcError('visible-overlay-unavailable', '可见叠加捕获未获授权或不可用；请隐藏叠加后再请求截图。')
                 if not self._enabled or self._interactive_overlay:
                     return None
                 overlay = self._overlay
@@ -254,12 +318,15 @@ class PersistentCaptureAdapter:
                     return None
             if cancelled():
                 raise WgcError('cancelled', '截图已取消。')
-            self._overlay_check(overlay)
+            if allow_visible_overlay:
+                self._overlay_check(overlay, allow_visible_overlay=True)
+            else:
+                self._overlay_check(overlay)
             metadata = process_metadata(target.pid)
             if (type(metadata.created) is not int or metadata.created <= 0
                     or expected_metadata is not None and metadata != expected_metadata):
                 raise WgcError('stale', '原授权窗口进程已经变化。')
-            binding = (tuple(target.identity), metadata, rect, overlay)
+            binding = (tuple(target.identity), metadata, rect, overlay, allow_visible_overlay)
             with self._lock:
                 if self._closed or self._overlay != overlay:
                     raise WgcError('cancelled', '叠加注册已经变化，已跳过本帧。')
@@ -272,7 +339,8 @@ class PersistentCaptureAdapter:
                 owner.call_done.clear()
             if owner.session is None:
                 try:
-                    session = self._factory()
+                    session = (self._factory(allow_visible_overlay=True) if allow_visible_overlay
+                               else self._factory())
                 except WgcUnavailable as error:
                     was_cancelled = cancelled()
                     # The frozen constructor only verifies files; it cannot
@@ -284,7 +352,12 @@ class PersistentCaptureAdapter:
                                 or self._closed or was_cancelled):
                             raise WgcError(error.status, str(error)) from error
                         self._unavailable = error.status
-                        self._owner = None
+                        if not allow_visible_overlay:
+                            self._owner = None
+                    if allow_visible_overlay:
+                        # Even a pre-launch capability failure ends this request.
+                        # A later hidden request must pass the cleanup barrier.
+                        raise WgcError(error.status, str(error)) from error
                     return None
                 owner.session = session
                 if owner.revoked.is_set() or cancelled():
@@ -312,7 +385,10 @@ class PersistentCaptureAdapter:
                 raise WgcError(error.status, str(error)) from error
             if image is None:
                 raise WgcError('invalid-reply', '持续捕获未返回有效画面，已跳过本帧。')
-            self._overlay_check(overlay)
+            if allow_visible_overlay:
+                self._overlay_check(overlay, allow_visible_overlay=True)
+            else:
+                self._overlay_check(overlay)
             if (owner.revoked.is_set() or cancelled()
                     or process_metadata(target.pid) != metadata):
                 raise WgcError('stale', '截图期间授权或进程身份发生变化，已丢弃本帧。')

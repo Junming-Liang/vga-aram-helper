@@ -58,7 +58,7 @@ class SelectionSession:
         champion=observation.get('championId')
         if not isinstance(champion,str) or not champion.isdecimal():self.clear('Invalid canonical champion');return False
         # Returning from game/transition to client select always starts fresh.
-        if self.stage in ('transition','game-provisional','game-verified'):
+        if self.stage in ('transition','game-provisional','game-verified','game-expired'):
             self.clear('A new selection scene replaces previous match');self.game=None
         if champion!=self.candidate:
             self.clear('Own assignment changed; awaiting a second observation',stage='assigning');self.candidate=champion;self.candidate_frames=1
@@ -85,7 +85,7 @@ class SelectionSession:
             self.clear('Game scene ended or cannot be established');self.game=None;return False
         if not self._fresh(captured_at,now):self.clear('Game observation expired');return False
         if captured_at<=self.last_event_frame:return False
-        if self.stage in ('game-provisional','game-verified') and self.last_game_frame and captured_at-self.last_game_frame>4:
+        if self.stage in ('game-provisional','game-verified','game-expired') and self.last_game_frame and captured_at-self.last_game_frame>4:
             self.clear('Game observation continuity lost');return False
         self.last_event_frame=captured_at
         if self.stage=='transition' and now-self.transition_at>120:
@@ -101,9 +101,18 @@ class SelectionSession:
         self.stage='game-provisional';self.reason='From this session champion select; own HUD still unverified';return True
     def expire(self,now):
         if not valid_time(now):self.clear('Invalid clock');return
-        if self.stage in ('assigned','assigning') and now-self.last_client_frame>4:self.clear('No fresh client observation')
+        if self.stage in ('assigned','assigning') and now-self.last_client_frame>4:
+            # Age revokes presentation, not the authority of a newer capture
+            # already being processed. Keep only private pair-continuity evidence:
+            # observe_client still requires a fresh, independent result and a
+            # capture-to-capture gap <=4 s before this candidate can count again.
+            # Unknown/swap/Stop and actual authority changes still use clear().
+            self.stage='client-expired';self.assigned='';self.reason='No fresh client observation'
         elif self.stage=='transition' and now-self.transition_at>120:self.clear('Loading timeout')
-        elif self.stage in ('game-provisional','game-verified') and now-self.last_game_frame>4:self.clear('No fresh game observation')
+        elif self.stage in ('game-provisional','game-verified') and now-self.last_game_frame>4:
+            # The carried ID is private continuity evidence only. A new fresh
+            # game-scene anchor is mandatory before it can become visible again.
+            self.stage='game-expired';self.assigned='';self.verified='';self.reason='No fresh game observation'
     def visible_identity(self, *, allow_provisional=False):
         if self.stage=='game-verified':return {'championId':self.verified,'source':'client-text+own-hud','verified':True}
         if allow_provisional and self.stage=='game-provisional':return {'championId':self.carried,'source':'this-session-client-text','verified':False,'warning':'HUD未复核'}

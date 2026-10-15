@@ -73,3 +73,17 @@ scripts/probe_opencv_postbuild.py text eol=lf
 .github/workflows/build-native-preview.yml text eol=lf
 .gitattributes text eol=lf
 requirements-ocr.txt text eol=lf
+
+# v0.4.8 feedback diagnostic source correspondence.
+portrait_display.py text eol=lf
+wgc_visible_overlay_smoke.py text eol=lf
+tests/windows_wgc_visible_overlay.py text eol=lf
+tests/test_wgc_visible_overlay_smoke.py text eol=lf
+tests/test_client_feedback.py text eol=lf
+tests/test_visible_overlay_capture.py text eol=lf
+tests/test_animated_augment_rounds.py text eol=lf
+tests/fixtures/generate_animated_augment_title.py text eol=lf
+owned_diagnostic_json.py text eol=lf
+local_debug.py text eol=lf
+tests/test_local_debug.py text eol=lf
+tests/test_debug_ui.py text eol=lf

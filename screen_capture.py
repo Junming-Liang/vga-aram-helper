@@ -36,12 +36,13 @@ class ClientRect:
     x:int;y:int;width:int;height:int
 
 class Win32Capture:
-    def __init__(self,*,persistent_sessions=True):
+    def __init__(self,*,persistent_sessions=True,allow_visible_overlay=False):
         if os.name!='nt':raise CaptureUnavailable('窗口像素监测目前仅支持 Windows 10/11。')
         self.u=ctypes.WinDLL('user32',use_last_error=True);self.g=ctypes.WinDLL('gdi32',use_last_error=True)
         self._declare()
         from persistent_capture_adapter import PersistentCaptureAdapter
-        self._persistent=PersistentCaptureAdapter(self._check_session_overlay,enabled=persistent_sessions)
+        self._persistent=PersistentCaptureAdapter(self._check_session_overlay,enabled=persistent_sessions,
+                                                   allow_visible_overlay=allow_visible_overlay)
         self._last_session_receipt=None
         self._last_session_epoch=None
         self._capture_lock=threading.Lock()
@@ -115,14 +116,22 @@ class Win32Capture:
                     hit=self.u.WindowFromPoint(W.POINT(rect.x+int(rect.width*fx),rect.y+int(rect.height*fy)))
                     if int(self.u.GetAncestor(hit,2) or 0)!=target.hwnd:raise CapturePaused('游戏被其他窗口遮挡；移开后会自动继续。')
         return rect
-    def validate_compositor(self,target,expected):
+    def validate_compositor(self,target,expected,*,allow_visible_overlay=False):
         """Prove the ENTIRE client rectangle is visible, not nine sample points.
 
         EnumWindows walks top-level z order. Unknown/failed geometry is denied.
         DWM-cloaked windows may be ignored only after a successful OS query.
         """
-        self._check_overlay_hidden()
-        rect=self.validate(target)
+        overlay=None
+        if allow_visible_overlay:
+            adapter=getattr(self,'_persistent',None)
+            overlay=adapter.overlay if adapter is not None else None
+            if overlay is None or not adapter.can_request_visible_overlay:
+                raise CapturePaused('可见叠加捕获条件已变化，已跳过本帧。')
+            self._check_session_overlay(overlay,allow_visible_overlay=True)
+        else:
+            self._check_overlay_hidden()
+        rect=self.validate(target,check_occlusion=False) if allow_visible_overlay else self.validate(target)
         if rect!=expected:raise CapturePaused('窗口正在移动，等待画面稳定。')
         bounds=W.RECT(rect.x,rect.y,rect.x+rect.width,rect.y+rect.height)
         class MI(ctypes.Structure):
@@ -140,7 +149,13 @@ class Win32Capture:
                 cloaked=W.DWORD()
                 if fn(hwnd,14,ctypes.byref(cloaked),ctypes.sizeof(cloaked))==0 and cloaked.value:return True
             other=W.RECT()
-            if not self.u.GetWindowRect(hwnd,ctypes.byref(other)) or intersects_rect(bounds,other):
+            if not self.u.GetWindowRect(hwnd,ctypes.byref(other)):
+                blocked=True;return False
+            if intersects_rect(bounds,other):
+                if overlay is not None and int(hwnd)==overlay.hwnd:
+                    try:self._check_session_overlay(overlay,allow_visible_overlay=True)
+                    except Exception:blocked=True;return False
+                    return True
                 blocked=True;return False
             return True
         callback=self.enum_cb(each);self.u.EnumWindows(callback,0)
@@ -189,6 +204,51 @@ class Win32Capture:
         epoch=getattr(self,'_last_session_epoch',None)
         if adapter is not None and adapter.cancelled_since(epoch):return None
         return None if value is None else MappingProxyType(dict(value))
+    def prepare_capture_mode(self,visible):
+        """Plan a mode/style transition on the GUI thread before a NEW request.
+
+        Returns False only while the old v2 owner drains. An unavailable route
+        raises CapturePaused. No acquisition or backend retry happens here. Preserve old
+        UI evidence only within its original TTL; readiness never refreshes it.
+        """
+        if type(visible) is not bool:raise TypeError('Visible overlay mode requires a boolean')
+        adapter=getattr(self,'_persistent',None)
+        if adapter is None:
+            if visible:raise CapturePaused('可见叠加捕获未获授权或不可用。')
+            return True
+        style=None
+        if visible:
+            overlay=adapter.overlay
+            if overlay is None:
+                self.retire_session()
+                raise CapturePaused('可见叠加窗口尚未完成排除注册。')
+            try:
+                ctypes.set_last_error(0)
+                style=int(self.get_long(overlay.hwnd,-16))&0xffffffff
+                if ctypes.get_last_error():raise OSError('Overlay style unavailable')
+            except (OSError,AttributeError,ValueError,TypeError) as exc:
+                self.retire_session()
+                raise CapturePaused('无法核验可见叠加窗口的完整样式。') from exc
+        from wgc_capture import WgcError
+        try:ready=adapter.prepare_capture_mode(visible,overlay_window_style=style)
+        except WgcError as exc:
+            self._last_session_receipt=None
+            raise CapturePaused(str(exc)) from exc
+        if not ready:self._last_session_receipt=None
+        # Legacy one-shot cleanup is drained by the next capture worker before
+        # any helper acquisition. Waiting on its pending flags here would stop
+        # that worker from ever running; no native wait belongs on the GUI.
+        return ready
+    @property
+    def can_request_visible_overlay(self):
+        """GUI-safe eligibility only; callers still explicitly opt in per capture.
+
+        Keep any old candidates visibly rechecking with their original 4 s TTL.
+        This hint never refreshes evidence or proves WGC pixel exclusion.
+        """
+        adapter=getattr(self,'_persistent',None)
+        return bool(adapter is not None and adapter.can_request_visible_overlay
+                    and not self.cleanup_pending)
     @property
     def cleanup_pending(self):
         adapter=getattr(self,'_persistent',None)
@@ -219,7 +279,7 @@ class Win32Capture:
                 stream=getattr(process,name,None)
                 if stream:stream.close()
             backend._pending_cleanup=None
-    def capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None):
+    def capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None,allow_visible_overlay=False):
         """Worker-only capture. Every exit rechecks revocation, including PNG work."""
         from wgc_capture import WgcError
         adapter=getattr(self,'_persistent',None)
@@ -231,7 +291,9 @@ class Win32Capture:
         try:
             self._last_session_receipt=None
             if adapter is not None:adapter.check_ready()
-            result=self._capture(target,roi,cancelled=is_cancelled,expected_metadata=expected_metadata)
+            if type(allow_visible_overlay) is not bool:raise TypeError('Visible overlay request requires a boolean')
+            options={'allow_visible_overlay':True} if allow_visible_overlay else {}
+            result=self._capture(target,roi,cancelled=is_cancelled,expected_metadata=expected_metadata,**options)
             if is_cancelled():raise CapturePaused('截图已取消。')
             if adapter is not None and self.last_backend=='windows-graphics-capture-session':
                 self._last_session_receipt=adapter.last_receipt
@@ -244,7 +306,7 @@ class Win32Capture:
             raise
         finally:
             if lock is not None:lock.release()
-    def _capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None):
+    def _capture(self,target,roi=(0.,0.,1.,1.),*,cancelled=None,expected_metadata=None,allow_visible_overlay=False):
         """Capture on a worker; WGC denial/blank frames never trigger GDI."""
         is_cancelled=(cancelled if callable(cancelled) else cancelled.is_set) if cancelled is not None else lambda:False
         def check_binding():
@@ -255,23 +317,35 @@ class Win32Capture:
                 if current!=expected_metadata:raise CapturePaused('原授权窗口进程已经变化，本帧未进行截图。')
         if is_cancelled():raise CapturePaused('截图已取消。')
         check_binding()
-        self._check_overlay_hidden()
-        rect=self.validate(target);self.validate_compositor(target,rect)
+        adapter=getattr(self,'_persistent',None)
+        if allow_visible_overlay:
+            if not self.can_request_visible_overlay:
+                raise CapturePaused('可见叠加捕获未获授权或不可用；请隐藏叠加后再请求截图。')
+            rect=self.validate(target,check_occlusion=False)
+            self.validate_compositor(target,rect,allow_visible_overlay=True)
+        else:
+            self._check_overlay_hidden()
+            rect=self.validate(target);self.validate_compositor(target,rect)
         left,top,width,height=bounded_roi(rect.width,rect.height,roi)
         if getattr(self,'_wgc_error',None):raise CapturePaused(str(self._wgc_error))
         adapter=getattr(self,'_persistent',None)
         if adapter is not None:
             self._drain_one_shot_cleanup()
-            image=adapter.capture(target,rect,(left,top,width,height),cancelled=is_cancelled,expected_metadata=expected_metadata)
+            options={'allow_visible_overlay':True} if allow_visible_overlay else {}
+            image=adapter.capture(target,rect,(left,top,width,height),cancelled=is_cancelled,expected_metadata=expected_metadata,**options)
             if image is not None:
-                self._check_overlay_hidden();self.validate_compositor(target,rect)
+                if allow_visible_overlay:self.validate_compositor(target,rect,allow_visible_overlay=True)
+                else:self._check_overlay_hidden();self.validate_compositor(target,rect)
                 check_binding()
                 if is_cancelled():raise CapturePaused('截图已取消。')
                 if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
                 if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。')
                 self.last_backend='windows-graphics-capture-session';self._blank_frames=(None,0)
                 out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+            if allow_visible_overlay:
+                raise CapturePaused('可见叠加捕获未返回画面，已跳过本帧。')
             adapter.check_ready() # No v1/GDI while a v2 close/cleanup is pending.
+        if allow_visible_overlay:raise CapturePaused('可见叠加请求仅允许持续窗口捕获。')
         if getattr(self,'_wgc',None) is not None:
             from wgc_capture import WgcError,WgcUnavailable
             try:
@@ -321,7 +395,7 @@ class Win32Capture:
         color=W.DWORD();alpha=W.BYTE();flags=W.DWORD()
         return bool(self.u.GetLayeredWindowAttributes(hwnd,ctypes.byref(color),ctypes.byref(alpha),ctypes.byref(flags))
                     and (color.value,alpha.value,flags.value)==(0,255,2))
-    def _check_session_overlay(self,overlay):
+    def _check_session_overlay(self,overlay,*,allow_visible_overlay=False):
         from wgc_capture import WgcError
         try:
             self._owned_overlay(overlay.hwnd)
@@ -330,7 +404,7 @@ class Win32Capture:
             affinity=W.DWORD()
             if (ctypes.get_last_error() or style!=overlay.extended_style or not self._opaque_layered(overlay.hwnd)
                     or not self.u.GetWindowDisplayAffinity(overlay.hwnd,ctypes.byref(affinity)) or affinity.value!=0x11
-                    or self.u.IsWindowVisible(overlay.hwnd)):
+                    or not allow_visible_overlay and self.u.IsWindowVisible(overlay.hwnd)):
                 raise CaptureUnavailable('叠加窗口身份、样式、排除状态或隐藏状态已变化。')
         except (CaptureUnavailable,OSError,AttributeError) as exc:
             raise WgcError('stale',str(exc)) from exc
@@ -339,7 +413,8 @@ class Win32Capture:
 
         opaque=True is a caller contract that Qt's translucent backing was
         disabled before HWND creation. Win32 independently proves the redirected
-        opaque layered profile. The UI still ALWAYS hides this HWND for capture.
+        opaque layered profile. Existing callers still hide this HWND for capture;
+        visible capture requires both an explicit capability and request opt-in.
         """
         adapter=getattr(self,'_persistent',None)
         def invalidate():

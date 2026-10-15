@@ -17,6 +17,8 @@ import time
 from PySide6 import QtCore,QtGui,QtWidgets
 from native_state import RecognitionState,display_cards,automatic_candidates
 from frame_ocr_cache import FrameOCRCache
+from local_debug import LocalDebugLog
+from portrait_display import PortraitDisplayBank,cached_roster_fingerprint
 from screen_capture import Win32Capture,CaptureUnavailable,CapturePaused
 
 ROOT=Path(__file__).resolve().parent
@@ -90,9 +92,11 @@ class TaskSignals(QtCore.QObject):
     error=QtCore.Signal(str,str,int)
 
 class Overlay(QtWidgets.QWidget):
-    def __init__(self,capture=None):
+    def __init__(self,capture=None,portrait_bank=None,hero_id_lookup=None,debug_log=None):
         super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
         self.capture=capture;self.click_through=True;self.cards=[];self.reference=None;self._layout_revision=0;self._placed_key=None;self._detail_labels=[];self._compact=False;self._rechecking=False
+        self.portrait_bank=portrait_bank or PortraitDisplayBank();self.hero_id_lookup=hero_id_lookup;self._portrait_revision=None;self.hero_portrait=None
+        self._last_hidden_at=None;self.debug_log=debug_log;self._hide_reason='unknown';self._show_reason='unknown'
         # The validated redirected Windows renderer has no per-pixel alpha.
         # Set this before winId()/show; changing it later can recreate the HWND.
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground,False)
@@ -111,6 +115,22 @@ class Overlay(QtWidgets.QWidget):
         # child's outer corners, to be painted on every resize/exposure.
         painter=QtGui.QPainter(self);painter.fillRect(self.rect(),QtGui.QColor('#FAFCFF'));painter.end()
         super().paintEvent(event)
+    def hide(self,reason='unknown'):
+        self._hide_reason=reason
+        super().hide()
+        self._hide_reason='unknown'
+    def showEvent(self,event):
+        if self.debug_log:self.debug_log.record('overlay',visible=True,reason=self._show_reason,rechecking=self._rechecking,dpi=float(self.devicePixelRatioF())*96)
+        super().showEvent(event)
+    def hideEvent(self,event):
+        self._last_hidden_at=time.monotonic()
+        if self.debug_log:self.debug_log.record('overlay',visible=False,reason=self._hide_reason,rechecking=self._rechecking)
+        super().hideEvent(event)
+    def hidden_settle_ms(self):
+        # A hidden flag alone is not a DWM settling interval. Hides from Stop,
+        # expiry and other transitions share the same actual transition clock.
+        if self._last_hidden_at is None:return 0
+        return max(0,math.ceil(60-(time.monotonic()-self._last_hidden_at)*1000))
     def set_cards(self,hero,cards,source_date='未知',source_version='未知',confirmation='人工确认'):
         signature=(hero,json.dumps(cards,ensure_ascii=False,sort_keys=True),source_date,source_version,confirmation)
         if self.reference is None and getattr(self,'_card_signature',None)==signature:
@@ -120,6 +140,7 @@ class Overlay(QtWidgets.QWidget):
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
+        self._previous_heading=f'{hero} · 上次候选复核中'
         self._full_heading=f'{hero}  ·  {confirmation}'
         compact_confirmation={'英雄/候选连续高置信自动识别':'连续高置信自动识别','英雄人工纠正 · 候选自动识别':'英雄人工 · 候选自动'}.get(confirmation,confirmation)
         self._compact_heading=f'{hero} · {compact_confirmation}'
@@ -134,16 +155,25 @@ class Overlay(QtWidgets.QWidget):
             tier=card.get('sourceTier') or '暂无评级';tier_label=label(tier);tier_label.setAccessibleName(f"{card.get('sourceTierLabel','虎牙公开源评级')}：{tier}");tier_label.setObjectName('source-tier-label');tier_label.setStyleSheet('color:#536075;background:#EEF2F7;border-radius:5px;padding:3px 7px;font-size:12px;font-weight:600');self.tier_labels.append(tier_label);box.addWidget(tier_label,0,QtCore.Qt.AlignmentFlag.AlignVCenter);self.row.addWidget(frame,1)
         self._set_compact(True);self.adjustSize();self.resize(820,max(52,self.height()))
     def set_hero_reference(self,reference):
-        if self.reference==reference:return
+        portrait_id=self.hero_id_lookup(reference['hero']) if self.hero_id_lookup else None
+        if portrait_id!=reference.get('championId'):portrait_id=None
+        portrait_revision=(self.portrait_bank.revision,portrait_id)
+        if self.reference==reference and self._portrait_revision==portrait_revision:return
+        self._portrait_revision=portrait_revision
         self.cards=[];self.reference=dict(reference);self._rechecking=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
+        self._previous_heading='上次分配 · 复核中 · HUD未复核'
         self._full_heading=self._compact_heading='当前分配 · 仍可交换 · HUD未复核'
         self.heading.setStyleSheet('font-size:12px;font-weight:600;color:#8D6600')
         self._source_marker='虚构演示' if reference['isDemo'] else '虎牙公开源' if reference['sourceUrl'] else '来源待核对'
         self.metadata_label.setText(f"英雄评级快照 {reference['sourceDataDate'] or '日期未知'} · 英雄资料 {reference['sourceVersion'] or '未知'} · 游戏资料 {reference['gamePatch'] or '未知'} · 数据包 {reference['wikiDataVersion'] or '未知'}")
         frame=QtWidgets.QFrame();box=QtWidgets.QHBoxLayout(frame);box.setContentsMargins(8,4,8,4);box.setSpacing(12);self._card_layouts.append(box)
+        self.hero_portrait=label();self.hero_portrait.setFixedSize(40,40)
+        portrait=self.portrait_bank.pixmap(portrait_id,40,float(self.devicePixelRatioF()))
+        self.hero_portrait.setPixmap(portrait if portrait is not None else ControlWindow.neutral_portrait(40))
+        self.hero_portrait.setAccessibleName(reference['hero']+' · 官方基础头像' if portrait is not None else '通用身份占位图，不是英雄画像');box.addWidget(self.hero_portrait)
         title=label(reference['hero']);title.setAccessibleName('当前分配英雄：'+reference['hero']);self._title_labels.append(title);box.addWidget(title,1)
         tier=label('英雄整体强度：'+(reference['sourceTier'] or '暂无评级'));tier.setAccessibleName(reference['sourceTierLabel']+'：'+(reference['sourceTier'] or '暂无评级'));self.tier_labels.append(tier);box.addWidget(tier);self.row.addWidget(frame)
         self._set_compact(True);self.adjustSize();self.resize(820,max(52,self.height()))
@@ -152,8 +182,11 @@ class Overlay(QtWidgets.QWidget):
     def set_rechecking(self,value):
         value=bool(value)
         if self._rechecking==value:return
-        self._rechecking=value;self._layout_revision+=1;self._placed_key=None
-        if self.cards:self._set_compact(self._compact,dense=getattr(self,'_dense',False))
+        self._rechecking=value
+        if self.debug_log:self.debug_log.record('overlay',visible=self.isVisible(),rechecking=value,reason='capture_proof')
+        # The shorter status text does not change cards, source or geometry.
+        # Invalidating placement here would hide/move the HWND every cycle.
+        if self.cards or self.reference:self.heading.setText(self._previous_heading if value else self._compact_heading if self._compact else self._full_heading)
     def set_click_through(self,value):
         mode=getattr(self.capture,'set_interactive_overlay',None)
         if mode:mode(not bool(value)) # Explicit user-selected strict-hide compatibility route.
@@ -162,7 +195,7 @@ class Overlay(QtWidgets.QWidget):
             if retire:retire()
         # Revoke the old HWND/style token before Qt can change it. Automatic
         # affinity/identity failures never select the compatibility mode above.
-        self.click_through=bool(value);self.hide();self._placed_key=None;self._layout_revision+=1
+        self.click_through=bool(value);self.hide('click_through');self._placed_key=None;self._layout_revision+=1
         self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,self.click_through)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.configure()
@@ -170,7 +203,7 @@ class Overlay(QtWidgets.QWidget):
         self._compact=compact;self._dense=bool(dense)
         self.summary_layout.setDirection(QtWidgets.QBoxLayout.Direction.TopToBottom if dense else QtWidgets.QBoxLayout.Direction.LeftToRight)
         for pill in self._pill_labels:pill.setVisible(not dense)
-        self.heading.setText((self._compact_heading if compact else self._full_heading)+(' · 上次候选复核中' if self._rechecking else ''))
+        self.heading.setText(self._previous_heading if self._rechecking else self._compact_heading if compact else self._full_heading)
         for widget in self._detail_labels:widget.setVisible(not compact)
         self.metadata_label.setVisible(bool(self.reference) or not compact)
         self.panel.layout().setContentsMargins(*((1,1,1,1) if dense else (3,3,3,3) if compact else (10,10,10,10)));self.panel.layout().setSpacing(0 if dense else 2 if compact else 8);self.row.setSpacing(4 if compact else 8)
@@ -205,6 +238,7 @@ class Overlay(QtWidgets.QWidget):
             raise CaptureUnavailable(f'叠加实际范围超出客户区或半屏高度 {rect.width}×{rect.height}，已隐藏。')
     def show_at(self,rect,target):
         if not self.cards and not self.reference:return
+        self._show_reason='client_reference' if self.reference else 'confirmed'
         try:
             if not self.capture:
                 self.show();self.move(rect.x+20,rect.y+max(20,rect.height-self.height()-20));return
@@ -215,7 +249,7 @@ class Overlay(QtWidgets.QWidget):
                 if float(self.windowHandle().devicePixelRatio())==dpr:return
             # Move hidden own HWND toward the target monitor. The game's DPI
             # may be96 even when Qt is150/200%; never use it to size Qt widgets.
-            self.hide()
+            self.hide('layout')
             anchor_x=rect.x+rect.width//2-round(self.width()*dpr/2)
             anchor_y=rect.y+rect.height//2-round(self.height()*dpr/2)
             if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),anchor_x,anchor_y,0,0,0x0001|0x0010):raise CaptureUnavailable('无法定位叠加所属显示器，已隐藏。')
@@ -229,10 +263,10 @@ class Overlay(QtWidgets.QWidget):
                 final_dpr=float(self.windowHandle().devicePixelRatio())
                 if final_dpr==dpr:
                     self._placed_key=(rect,self._layout_revision,dpr);return
-                self.hide();dpr=final_dpr
+                self.hide('layout');dpr=final_dpr
             raise CaptureUnavailable('叠加跨显示器缩放持续变化，暂时隐藏，等待稳定布局。')
         except Exception:
-            self._placed_key=None;self.hide();raise
+            self._placed_key=None;self.hide('layout_error');raise
     def nativeEvent(self,event_type,message):
         if os.name=='nt':
             msg=W.MSG.from_address(int(message))
@@ -241,12 +275,17 @@ class Overlay(QtWidgets.QWidget):
         return super().nativeEvent(event_type,message)
 
 class ControlWindow(QtWidgets.QWidget):
-    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None):
+    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=False):
         super().__init__();self.state=RecognitionState();self.data=None;self.startup_error='';self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         self._capture_serial=0;self._accepted_frame=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
+        if type(enable_visible_capture) is not bool:raise TypeError('Visible capture requires an explicit boolean')
+        # Investigation stays opt-in until source/frozen pixel-exclusion proof.
+        self.enable_visible_capture=enable_visible_capture;self._visible_previous=False;self._mode_wait_started=None
         self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
+        self.debug_log=LocalDebugLog(self.state_dir/'local-debug',version=current_version);self._debug_snapshot=None;self._debug_hero=None;self._debug_candidates=None;self._debug_hero_revision=0;self._debug_candidate_revision=0
+        self.portrait_bank=PortraitDisplayBank();self._hero_portrait_key=None;self._selection_roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
         self.signals=TaskSignals(self);self.signals.result.connect(self.task_result);self.signals.error.connect(self.task_error)
         self.setWindowTitle(APP_NAME);self.setWindowIcon(QtGui.QIcon(str(ROOT/'assets/branding/vga.ico')));self.setStyleSheet(STYLE);self.resize(900,490)
         outer=QtWidgets.QVBoxLayout(self);outer.setContentsMargins(28,12,28,14);outer.setSpacing(12)
@@ -297,6 +336,10 @@ class ControlWindow(QtWidgets.QWidget):
         for name,value in [('左',15),('上',25),('宽',70),('高',35)]:
             field=QtWidgets.QWidget();column=QtWidgets.QVBoxLayout(field);column.setContentsMargins(0,0,0,0);caption=label(name,True);spin=QtWidgets.QSpinBox();spin.setRange(0,100);spin.setValue(value);spin.setSuffix('%');spin.setAccessibleName('截图范围'+name);caption.setBuddy(spin);spin.valueChanged.connect(self.roi_changed);self.roi.append(spin);column.addWidget(caption);column.addWidget(spin);self.roi_fields.append(field);roi_row.addWidget(field,0,len(self.roi_fields)-1)
         advanced.addLayout(roi_row)
+        self.debug_toggle=QtWidgets.QCheckBox('本地调试日志（仅本次启动）');self.debug_toggle.setChecked(False);self.debug_toggle.setAccessibleName('开启本机调试日志，默认关闭');advanced.addWidget(self.debug_toggle)
+        self.debug_export_button=QtWidgets.QPushButton('导出调试 ZIP');self.debug_export_button.setAccessibleName('仅在本机导出调试 ZIP');advanced.addWidget(self.debug_export_button)
+        self.debug_status=label('默认关闭。开启后最多保留 3 × 256 KiB 日志；关闭停止记录，已有日志和导出保留。无截图、识别文字、账号、窗口标题、路径或原始错误，不上传。',True);advanced.addWidget(self.debug_status)
+        self.debug_toggle.toggled.connect(self.toggle_debug);self.debug_export_button.clicked.connect(self.export_debug)
         self.about_panel=QtWidgets.QFrame();self.about_panel.setObjectName('section');about=QtWidgets.QVBoxLayout(self.about_panel);about.setContentsMargins(16,16,16,16);about.setSpacing(12);secondary.addWidget(self.about_panel);self.about_panel.hide()
         self.source=label('正在检查公开数据，首次启动可能需要数十秒…',True);about.addWidget(self.source)
         self.compatibility=label('仅核验窗口的可见像素，不读取游戏内存。支持窗口 / 无边框模式；实际 LoL 与 Vanguard 兼容性尚未验证。',True);about.addWidget(self.compatibility)
@@ -313,16 +356,57 @@ class ControlWindow(QtWidgets.QWidget):
         self.toggle_button=Switch('鼠标穿透');self.toggle_button.setChecked(True);self.toggle_button.setToolTip('Ctrl+Alt+O 切换鼠标穿透，不改变识别或叠加确认状态');footer.addWidget(self.toggle_button);footer.addStretch()
         self.footer_note=label('仅窗口像素 · 兼容性待验证',True);footer.addWidget(self.footer_note);self.shortcut_label=label('Ctrl + Alt + O',True);self.shortcut_label.setStyleSheet('border:1px solid #D9E0E9;border-radius:5px;padding:4px 8px');footer.addWidget(self.shortcut_label);outer.addLayout(footer)
         self.back_button.clicked.connect(lambda:self.show_page('main'));self.correction_button.clicked.connect(lambda:self.show_page('correction'));self.about_button.clicked.connect(lambda:self.show_page('about'))
-        order=[self.start_button,self.stop_button,self.hero_auto,self.toggle_button,self.correction_button,self.advanced_toggle,self.about_button,*self.inputs,self.confirm_button,self.details_toggle,self.window_list,self.refresh,self.client_follow,self.hero_box,*self.roi,self.cache_diagnostic_button,self.update_button]
+        order=[self.start_button,self.stop_button,self.hero_auto,self.toggle_button,self.correction_button,self.advanced_toggle,self.about_button,*self.inputs,self.confirm_button,self.details_toggle,self.window_list,self.refresh,self.client_follow,self.hero_box,*self.roi,self.debug_toggle,self.debug_export_button,self.cache_diagnostic_button,self.update_button]
         for before,after in zip(order,order[1:]):QtWidgets.QWidget.setTabOrder(before,after)
         self.refresh.clicked.connect(self.refresh_windows);self.window_list.currentIndexChanged.connect(self.target_changed);self.hero_box.currentTextChanged.connect(self.hero_changed);self.hero_auto.toggled.connect(self.hero_mode_changed);self.client_follow.toggled.connect(self.follow_scope_changed);self.start_button.clicked.connect(self.start_monitor);self.stop_button.clicked.connect(self.stop_monitor);self.toggle_button.clicked.connect(self.toggle_clickthrough);self.update_button.clicked.connect(self.install_update)
-        try:self.capture=Win32Capture()
+        try:self.capture=Win32Capture(allow_visible_overlay=True) if enable_visible_capture else Win32Capture()
         except CaptureUnavailable as exc:self.status.setText(str(exc))
-        self.overlay=Overlay(self.capture);self.overlay.winId();self.overlay.configure()
+        self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log);self.overlay.winId();self.overlay.configure()
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
         self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
         self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.spawn('load',startup_loader)
+    def toggle_debug(self,enabled):
+        active=self.debug_log.set_enabled(enabled)
+        if active!=enabled:
+            self.debug_toggle.blockSignals(True);self.debug_toggle.setChecked(active);self.debug_toggle.blockSignals(False)
+        self._debug_snapshot=None
+        self.debug_status.setText('正在本机记录，最多 768 KiB；无截图或识别文字，不上传。导出会替换本机上一份 VGA-debug.zip。' if active else '已关闭记录；已有日志和导出保留，可继续导出。' if not self.debug_log.failed else '本地日志无法写入，已停止记录；监测不受影响。')
+        self.refresh_status_badge()
+    def export_debug(self):
+        config={'hero_auto':self.hero_auto.isChecked(),'client_follow':self.client_follow.isChecked(),
+            'click_through':self.overlay.click_through,'visible_capture':self.enable_visible_capture,
+            'frozen':self.frozen,'updates_enabled':self.enable_updates,'roi_percent':[spin.value() for spin in self.roi]}
+        try:
+            path=self.debug_log.export_zip(self.state_dir/'debug-exports',config=config)
+            self.debug_status.setText('已保存到本机：'+str(path)+'。仅含版本、安全设置及已有事件；未上传。再次导出会替换此 ZIP。')
+        except (OSError,ValueError):self.debug_status.setText('本地导出失败，请检查保存目录是否可写；没有上传或更改监测。')
+    def debug_event(self,event,**fields):
+        if not self.debug_log.enabled:return
+        self.debug_log.record(event,generation=self.state.generation,serial=self._capture_serial,
+            session_generation=self.selection_session.generation if self.selection_session else 0,**fields)
+    def debug_state(self,state):
+        if not self.debug_log.enabled:return
+        # Revisions identify hero/round changes without persisting any names.
+        hero=(self.state.hero,self.state.hero_observed,self.selection_session.candidate if self.selection_session else '')
+        candidates=(tuple(self.state.observed),tuple(self.state.offered))
+        if hero!=self._debug_hero:self._debug_hero=hero;self._debug_hero_revision+=1
+        if candidates!=self._debug_candidates:self._debug_candidates=candidates;self._debug_candidate_revision+=1
+        previous=self.selection_session.last_client_frame if self.client_phase() and self.selection_session else self.last_observation
+        age=max(0.,(time.monotonic()-previous)*1000) if previous else None
+        values=dict(state=state,running=self.state.running,confirmed=self.state.confirmed,
+            generation=self.state.generation,serial=self._capture_serial,
+            session_generation=self.selection_session.generation if self.selection_session else 0,
+            stage=self.selection_session.stage if self.selection_session else 'idle',
+            ocr_busy=self.ocr_busy,capture_pending=self.capture_pending,visible=self.overlay.isVisible(),
+            rechecking=self.overlay._rechecking,hero_present=bool(self.state.hero),manual_editing=self.manual_editing,
+            hero_revision=self._debug_hero_revision,candidate_revision=self._debug_candidate_revision,
+            candidate_count=len(self.state.offered if self.state.confirmed else self.state.observed),stable_frames=self.state.stable_frames,
+            automatic_frames=self.state.automatic_frames,hero_stable_frames=self.state.hero_stable_frames,
+            fresh=bool(age is not None and age<=4000))
+        if values!=self._debug_snapshot:
+            self._debug_snapshot=values
+            self.debug_log.record('state',**values,**({'age_ms':age} if age is not None else {}))
     def resizeEvent(self,event):
         if hasattr(self,'hero_avatar'):
             narrow=self.width()<660
@@ -399,21 +483,30 @@ class ControlWindow(QtWidgets.QWidget):
         if not 0<=time.monotonic()-self.selection_session.last_client_frame<=4:return None
         from hero_strength import hero_strength_reference
         return hero_strength_reference(self.data,self.state.hero,champion_id=self.selection_session.assigned)
+    def refresh_hero_portrait(self,hero):
+        champion_id=self.portrait_bank.hero_id(self.data,hero) if hero else None
+        dpr=float(self.hero_avatar.devicePixelRatioF());key=(hero,champion_id,self.portrait_bank.revision,dpr)
+        if key==self._hero_portrait_key:return
+        self._hero_portrait_key=key;portrait=self.portrait_bank.pixmap(champion_id,108,dpr)
+        self.hero_avatar.setPixmap(portrait if portrait is not None else self.neutral_portrait(108))
+        self.hero_avatar.setAccessibleName(hero+' · 官方基础头像' if portrait is not None else '通用身份占位图，不是英雄画像')
     def refresh_dashboard(self):
         if not hasattr(self,'candidate_views'):return
         current=bool(self.state.running and self.state.confirmed and self.data and len(self.state.offered)==3 and all(name in self.data.get('augments',{}) for name in self.state.offered))
         hero=self.state.hero if self.state.running and self.state.hero else ''
-        self.hero_title.setText(hero or '等待识别')
         from hero_strength import hero_strength_reference
-        strength=self.client_strength_reference() if self.client_assignment_visible() else hero_strength_reference(self.data,hero) if hero else None
-        self.hero_caption.setText('本局英雄'+(' · 英雄整体强度 '+(strength['sourceTier'] or '暂无评级') if strength else ''))
+        client_auto=self.client_assignment_visible() and self.hero_auto.isChecked()
+        strength=self.client_strength_reference() if client_auto else hero_strength_reference(self.data,hero) if hero else None
+        if client_auto and not strength:hero=''
+        self.hero_title.setText(hero or '等待识别');self.refresh_hero_portrait(hero)
+        self.hero_caption.setText(('人工查阅英雄' if hero and not self.hero_auto.isChecked() else '本局英雄')+(' · 英雄整体强度 '+(strength['sourceTier'] or '暂无评级') if strength else ''))
         self.hero_caption.setAccessibleName((strength['sourceTierLabel']+'：'+(strength['sourceTier'] or '暂无评级')) if strength else '本局英雄尚未可靠确定')
         self.hero_provenance.setText(('人工选择 · 未自动推断' if not self.hero_auto.isChecked() else '本局选人 · 仍可交换，HUD未复核' if self.client_assignment_visible() else '来自本局选人 · HUD未复核' if self.hero_origin=='client-provisional' else '本局选人 + HUD复核' if self.hero_origin=='client-verified' else '本人 HUD 连续确认') if hero else '')
         self.hero_provenance.hide();self.secondary_stop.setVisible(self.pages.currentIndex()!=0 and self.state.running)
         if hasattr(self,'overlay'):self.toggle_button.setChecked(self.overlay.click_through)
         self.monitor_actions.setCurrentWidget(self.stop_button if self.state.running else self.start_button);self.stop_button.setEnabled(bool(self.state.running))
         cards=display_cards(self.data,hero,self.state.offered) if current else []
-        self.candidate_caption.setText(('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '虎牙公开源 · 非 Riot 评级') if current else '等待三个候选稳定确认')
+        self.candidate_caption.setText('上次候选 · 正在复核，尚非本帧结果' if current and self.overlay._rechecking else ('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '虎牙公开源 · 非 Riot 评级') if current else '等待三个候选稳定确认')
         for index,view in enumerate(self.candidate_views):
             card=cards[index] if current else None;tier=card.get('sourceTier') if card else None
             view['name'].setText(card['name'] if card else '等待识别');view['tier'].setText(tier or '—')
@@ -443,11 +536,15 @@ class ControlWindow(QtWidgets.QWidget):
     def refresh_status_badge(self):
         self.refresh_card_details()
     def _refresh_badge(self):
+        if self.debug_log.failed and self.debug_toggle.isChecked():
+            self.debug_toggle.blockSignals(True);self.debug_toggle.setChecked(False);self.debug_toggle.blockSignals(False)
+            self.debug_status.setText('本地日志无法写入，已停止记录；已有日志和导出保留，监测不受影响。')
         # Presentation only: derive from explicit state, never status-text keywords.
         if self.startup_error:state,text='error','资料加载失败 · 关于查看详情'
         elif not self.data:state,text='waiting','资料待就绪'
         elif not self.capture:state,text='waiting',('演示资料 · 未连接游戏' if self.data.get('metadata',{}).get('isDemo') else '采集不可用')
         elif not self.state.running:state,text='idle','未开始'
+        elif self.overlay._rechecking:state,text='working','上次资料 · 正在复核'
         elif self.state.confirmed:state,text='confirmed','资料已确认'
         elif self.ocr_busy:state,text='working','正在识别'
         elif self.target is None:state,text='waiting','等待连接'
@@ -457,18 +554,29 @@ class ControlWindow(QtWidgets.QWidget):
             self.status_chip.setProperty('state',state);self.status_chip.style().unpolish(self.status_chip);self.status_chip.style().polish(self.status_chip)
         if self.capture and self.state.running and self.state.hero:text=self.hero_provenance.text()+' · '+text
         self.status_chip.setText(text)
+        self.debug_state(state)
     def spawn(self,kind,fn,generation=0):
+        logger=self.debug_log
+        logger.record('job',kind=kind,phase='queued',generation=generation)
         def worker():
             value=error=None
+            logger.record('job',kind=kind,phase='started',generation=generation)
             try:
-                if self._cancel_workers.is_set():return
+                if self._cancel_workers.is_set():
+                    logger.record('job',kind=kind,phase='cancelled',generation=generation,reason='closed');return
                 try:value=fn()
-                except Exception as exc:error=str(exc)
+                except Exception as exc:
+                    error=str(exc)
+                    logger.record('job',kind=kind,phase='error',generation=generation,
+                        error_code='capture_paused' if isinstance(exc,CapturePaused) else 'capture_unavailable' if isinstance(exc,CaptureUnavailable) else 'worker_error')
                 # Serialized with closeEvent: never emit into Qt after teardown starts.
                 with self._worker_lock:
                     if not self._cancel_workers.is_set() and not self.closed:
-                        if error is None:self.signals.result.emit(kind,value,generation)
+                        if error is None:
+                            logger.record('job',kind=kind,phase='completed',generation=generation)
+                            self.signals.result.emit(kind,value,generation)
                         else:self.signals.error.emit(kind,error,generation)
+                    else:logger.record('job',kind=kind,phase='discarded',generation=generation,reason='closed')
             finally:
                 with self._worker_lock:self._workers.discard(threading.current_thread())
         job=threading.Thread(target=worker,name='vga-'+kind,daemon=True)
@@ -528,7 +636,7 @@ class ControlWindow(QtWidgets.QWidget):
         if new_confirmation and self.isMinimized():QtWidgets.QApplication.alert(self,0)
         if not value.candidate or not policy.adopt(value,windows=self.capture.windows()):
             if self.target:self.invalidate_scene('等待唯一且已核验的英雄联盟窗口。')
-            self.target=None;self.state.target=None;self.overlay.hide();self.last_rect=None
+            self.target=None;self.state.target=None;self.overlay.hide('target_unavailable');self.last_rect=None
             reason=value.reason if not value.candidate else '窗口列表已变化，正在重新检测；不会使用过期连接。'
             self.window_status.setText(reason);self.status.setText(reason);return
         candidate=policy.bound;target=candidate.window
@@ -551,7 +659,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.client_target=target if candidate.role=='client' else None
         self.target=target;self.state.target=target.identity;self.last_rect=None;self.was_target_foreground=False
         self.invalidate_scene('已自动连接'+('客户端，等待选人画面。' if candidate.role=='client' else '游戏，等待本人 HUD 与候选画面。'))
-        self.overlay.hide();self.window_status.setText(value.reason+' '+target.title);self.status.setText(self.state.reason)
+        self.overlay.hide('selection_changed');self.window_status.setText(value.reason+' '+target.title);self.status.setText(self.state.reason)
     def confirm_game_installation(self):
         candidate=self.unverified_candidate;policy=self.automatic_policy
         if not candidate or not policy or not self.state.running:return
@@ -576,7 +684,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         if not automatic:self.advanced_toggle.setChecked(True)
-        self.hero_box.setEnabled(not automatic);self.state.clear_hero();self.refresh_card_details();self.overlay.hide();self.manual_editing=False
+        self.hero_box.setEnabled(not automatic);self.state.clear_hero();self.refresh_card_details();self.overlay.hide('selection_changed');self.manual_editing=False
         self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
         self.refresh_dashboard();self.hero_status.setText('等待本人 HUD 头像，连续两帧高置信后自动使用。' if automatic else '人工纠正模式：请选择已确认的本人英雄。')
     def hero_changed(self,text):
@@ -586,25 +694,30 @@ class ControlWindow(QtWidgets.QWidget):
         if text and self.hero_auto.isChecked():
             self.hero_auto.blockSignals(True);self.hero_auto.setChecked(False);self.hero_auto.blockSignals(False);self.hero_box.setEnabled(True)
         hero=text if self.data and text in self.data.get('heroes',{}) else getattr(self,'hero_aliases',{}).get(text,'')
-        self.hero_origin='manual';self.state.select_hero(hero);self.refresh_card_details();self.overlay.hide();self.status.setText(self.state.reason)
+        self.hero_origin='manual';self.state.select_hero(hero);self.refresh_card_details();self.overlay.hide('selection_changed');self.status.setText(self.state.reason)
     def retire_capture_session(self):
+        self.debug_event('session',phase='retired')
+        self._visible_previous=False;self._mode_wait_started=None
         # The adapter marks revocation immediately and performs any wrapper
         # lock/pipe/process cleanup off-GUI. Its cleanup barrier blocks reuse.
         retire=getattr(self.capture,'retire_session',None)
         if retire:retire()
-    def invalidate_scene(self,reason):
+    def invalidate_scene(self,reason,*,debug_reason='invalidate'):
+        self.debug_event('invalidate',reason=debug_reason)
+        self.debug_event('cancel',reason=debug_reason,cancelled=True)
+        self._visible_previous=False
         self._capture_cancel.set();self.ocr_reuse.clear()
         self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         if self.hero_auto.isChecked():
             self.state.clear_hero();self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
-        self.state.invalidate(reason);self.overlay.hide();self.status.setText(reason);self.refresh_card_details()
+        self.state.invalidate(reason);self.overlay.hide(debug_reason);self.status.setText(reason);self.refresh_card_details()
     def roi_changed(self,*_):
-        self.invalidate_scene('截图范围改变，请重新识别确认');self.overlay.hide()
+        self.invalidate_scene('截图范围改变，请重新识别确认',debug_reason='geometry_changed');self.overlay.hide('geometry_changed')
     def edit_changed(self,*_):
         self.retire_capture_session()
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
-        self.manual_editing=True;self.state.invalidate('候选已修改，请重新确认',clear_observed=False);self.refresh_card_details();self.overlay.hide()
+        self.manual_editing=True;self.state.invalidate('候选已修改，请重新确认',clear_observed=False);self.refresh_card_details();self.overlay.hide('unconfirmed')
     def follow_scope_changed(self,*_):
         self.stop_monitor();self.status.setText("接续窗口范围已改变；本局授权已停止，请重新点击开始。")
     def start_monitor(self):
@@ -629,13 +742,16 @@ class ControlWindow(QtWidgets.QWidget):
                 except (OSError,ValueError) as exc:return self.status.setText('无法核验客户端所属安装目录，本局监测未开始：'+str(exc))
             self.state.start(self.target.identity)
         if self.hero_auto.isChecked():self.state.clear_hero()
-        self.monitor.start(0);self.overlay.hide();self.stop_button.setEnabled(True);self.confirm_button.setEnabled(True)
+        self.debug_event('session',phase='started',reason='start')
+        self.monitor.start(0);self.overlay.hide('start');self.stop_button.setEnabled(True);self.confirm_button.setEnabled(True)
         self.refresh_status_badge();self.status.setText('已开始自动监测。控制台将最小化，恢复它可随时停止。')
         self.queue_discovery(force=True)
         # On the GUI thread, minimize only after Start succeeds. Never hide a
         # different app and never restore/activate the game on the user's behalf.
         if not self.smoke_report and not self.selection_smoke_input:self.showMinimized()
     def stop_monitor(self):
+        self.debug_event('cancel',reason='stop',cancelled=True)
+        self._visible_previous=False
         self.retire_capture_session()
         self.last_candidates=None
         self._capture_serial+=1;self.capture_pending=False;self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
@@ -648,24 +764,39 @@ class ControlWindow(QtWidgets.QWidget):
         self.selection_session=None;self.window_policy=None;self.client_target=None;self.hero_origin='hud'
         self.monitor.stop();self.state.stop();self.refresh_card_details()
         if self.hero_auto.isChecked():self.state.clear_hero()
-        self.overlay.hide();self.stop_button.setEnabled(False);self.confirm_button.setEnabled(False)
+        self.overlay.hide('stop');self.stop_button.setEnabled(False);self.confirm_button.setEnabled(False)
         self.status.setText(self.state.reason);self.refresh_status_badge()
     def advance_session_window(self):
         if self.automatic_policy:
             if self.selection_session:
-                old=self.selection_session.generation;self.selection_session.expire(time.monotonic())
+                old=self.selection_session.generation;stage=self.selection_session.stage;self.selection_session.expire(time.monotonic())
                 if old!=self.selection_session.generation:self.invalidate_scene('选人记录已过期，等待当前画面重新识别。')
+                elif stage!=self.selection_session.stage and self.selection_session.stage=='client-expired':self.expire_client_display()
+                elif stage!=self.selection_session.stage and self.selection_session.stage=='game-expired':self.expire_game_display()
             return
         if not self.selection_session or not self.window_policy:return
-        now=time.monotonic();old=self.selection_session.generation;self.selection_session.expire(now)
+        now=time.monotonic();old=self.selection_session.generation;stage=self.selection_session.stage;self.selection_session.expire(now)
         if old!=self.selection_session.generation:self.invalidate_scene('本局选人记录因画面断档失效，等待重新识别')
+        elif stage!=self.selection_session.stage and self.selection_session.stage=='client-expired':self.expire_client_display()
+        elif stage!=self.selection_session.stage and self.selection_session.stage=='game-expired':self.expire_game_display()
         if self.target.identity!=self.window_policy.client_identity or self.selection_session.stage!='assigned' or now-self.last_window_discovery<.5:return
         self.last_window_discovery=now;windows=self.capture.windows();candidate=self.window_policy.discover_game(windows)
         if not candidate or not self.capture.foreground(candidate[0]):return
         token=self.selection_session.generation
         if not self.window_policy.adopt_game(candidate,windows=self.capture.windows(),confirmed_handoff=True):return
         if not self.selection_session.begin_handoff(candidate[0].identity,now,generation=token,new_game_window=True):return
-        self.target=candidate[0];self.state.target=self.target.identity;self.window_list.blockSignals(True);self.window_list.addItem('本局游戏：'+self.target.title,self.target);self.window_list.setCurrentIndex(self.window_list.count()-1);self.window_list.blockSignals(False);self.last_rect=None;self.was_target_foreground=False;self.invalidate_scene('已接续本局新游戏窗口，选人记录等待局内复核');self.overlay.hide()
+        self.target=candidate[0];self.state.target=self.target.identity;self.window_list.blockSignals(True);self.window_list.addItem('本局游戏：'+self.target.title,self.target);self.window_list.setCurrentIndex(self.window_list.count()-1);self.window_list.blockSignals(False);self.last_rect=None;self.was_target_foreground=False;self.invalidate_scene('已接续本局新游戏窗口，选人记录等待局内复核');self.overlay.hide('target_unavailable')
+    def expire_client_display(self):
+        self.debug_event('expiry',reason='ttl_client',ttl_ms=4000)
+        # The older selection is no longer displayable. Do not cancel or change
+        # the generation of a newer same-authority inference solely for age.
+        # Permission/focus/geometry/Stop still follow the hard invalidation path.
+        if self.hero_auto.isChecked():
+            self.state.hero='';self.state.hero_observed='';self.state.hero_stable_frames=0
+            self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
+        self.state.confirmed=False;self.state.offered=();self.state.confirmed_observation=()
+        self.state.reason='选人资料超过 4 秒，已隐藏；等待当前画面复核。'
+        self.overlay.hide('ttl_client');self.status.setText(self.state.reason);self.refresh_card_details()
     def check_target(self):
         if not self.state.running or not self.capture:return
         self.queue_discovery()
@@ -675,51 +806,110 @@ class ControlWindow(QtWidgets.QWidget):
             if not self.target_allowed():raise CapturePaused('等待重新连接已核验的英雄联盟窗口。')
             now=time.monotonic()
             if self.ocr_busy and now-self.ocr_started>8 and not self.ocr_timed_out:
-                self.ocr_timed_out=True;self.invalidate_scene('OCR 超时，旧资料已隐藏；等待任务结束或停止并重启助手');self.overlay.hide();self.status.setText(self.state.reason)
+                self.debug_event('expiry',reason='ocr_timeout',ttl_ms=8000,age_ms=max(0.,(now-self.ocr_started)*1000))
+                self.ocr_timed_out=True;self.invalidate_scene('OCR 超时，旧资料已隐藏；等待任务结束或停止并重启助手',debug_reason='ocr_timeout');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
             if self.state.confirmed and now-self.last_observation>4:
-                self.invalidate_scene('画面观察超过 4 秒未更新，旧资料已隐藏，请重新确认');self.overlay.hide();self.status.setText(self.state.reason)
+                self.expire_game_display()
             rect=self.capture.rect(self.target)
             if self.last_rect and rect!=self.last_rect:
+                self.debug_event('cancel',reason='geometry_changed',cancelled=True)
                 self._capture_cancel.set();self.retire_capture_session()
                 self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
-                if (rect.width,rect.height)!=(self.last_rect.width,self.last_rect.height):self.invalidate_scene('目标客户区大小改变，等待新画面重新识别')
-                self.overlay.hide() # Pure moves keep fresh identity/offers; only reposition.
+                if (rect.width,rect.height)!=(self.last_rect.width,self.last_rect.height):self.invalidate_scene('目标客户区大小改变，等待新画面重新识别',debug_reason='geometry_changed')
+                self.overlay.hide('geometry_changed') # Pure moves keep fresh identity/offers; only reposition.
             self.last_rect=rect
             if not self.capture.foreground(self.target):
-                if self.was_target_foreground:self.invalidate_scene('离开目标窗口，旧资料已隐藏；重新确认后再显示')
-                self.was_target_foreground=False;self.overlay.hide();self.status.setText('等待切回游戏；恢复前台后自动继续。');return
+                if self.was_target_foreground:self.invalidate_scene('离开目标窗口，旧资料已隐藏；重新确认后再显示',debug_reason='focus_lost')
+                self.was_target_foreground=False;self.overlay.hide('focus_lost');self.status.setText('等待切回游戏；恢复前台后自动继续。');return
             self.was_target_foreground=True
             reference=self.client_strength_reference()
-            if reference and not self.capture_pending and not self.ocr_busy:
+            if self._visible_previous and self.overlay.isVisible() and (reference or self.state.confirmed and 0<=now-self.last_observation<=4):
+                self.overlay.set_rechecking(True)
+            elif reference and not self.capture_pending and not self.ocr_busy:
                 self.overlay.set_hero_reference(reference);self.overlay.show_at(rect,self.target)
             elif self.state.confirmed and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
-            elif self.overlay.reference:self.overlay.hide()
+            elif self.overlay.reference:self.overlay.hide('unconfirmed')
         except CapturePaused as exc:
-            if self.state.reason!=str(exc):self.invalidate_scene(str(exc))
-            self.overlay.hide();self.status.setText(str(exc))
+            if self.state.reason!=str(exc):self.invalidate_scene(str(exc),debug_reason='target_unavailable')
+            self.overlay.hide('target_unavailable');self.status.setText(str(exc))
         except Exception as exc:
-            self.invalidate_scene('目标窗口状态异常：'+str(exc));self.overlay.hide();self.status.setText(self.state.reason)
+            self.invalidate_scene('目标窗口状态异常：'+str(exc));self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
+    def expire_game_display(self):
+        self.debug_event('expiry',reason='ttl_game',ttl_ms=4000,age_ms=max(0.,(time.monotonic()-self.last_observation)*1000))
+        # Presentation age is not an authority change. A newer capture may
+        # still be within its own freshness budget while inference is running.
+        # Keep only private observation continuity; never cancel that worker or
+        # advance its generation merely because the previous display expired.
+        self._visible_previous=False
+        self.state.confirmed=False;self.state.offered=();self.state.confirmed_observation=()
+        if self.hero_auto.isChecked():
+            self.state.hero=''
+            self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
+        self._accepted_frame=None;self._restore_while_ocr=False;self.ocr_reuse.clear()
+        self.overlay.set_rechecking(False);self.overlay.hide('ttl_game')
+        self.state.reason='画面观察超过 4 秒，旧资料已隐藏；等待当前画面复核。'
+        self.status.setText(self.state.reason);self.refresh_card_details()
     def schedule_capture(self,delay=None):
         # Schedule from completion, not a fixed grid that can hide a just-shown
         # result on the next timer tick. One acquisition/inference job at a time.
         if self.closed or not self.state.running or self.ocr_busy or self.capture_pending:return
-        self.monitor.start((700 if self.state.confirmed or self.client_strength_reference() else 200) if delay is None else delay)
+        if delay is None:
+            delay=700 if self.state.confirmed or self.client_strength_reference() else 200
+            previous=self.selection_session.last_client_frame if self.client_phase() and self.selection_session else self.last_observation
+            age=time.monotonic()-previous if previous else None
+            if age is not None and 0<=age<=4:
+                # A slow but still-fresh observation must not become incapable
+                # of a consecutive confirmation solely due to our idle delay.
+                # Leave room for the strict-hide settle when it is needed.
+                delay=min(delay,max(0,int((4-age)*1000)-80))
+        self.monitor.start(delay)
     def capture_tick(self):
         if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:return
         if not self.target or not self.capture.foreground(self.target):self.schedule_capture(400);return
-        self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False;self.overlay.set_rechecking(False);self.overlay.hide();generation=self.state.generation
+        was_visible=self.overlay.isVisible() or bool(self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId())))
+        fresh_previous=bool(self.client_strength_reference() or self.state.confirmed and 0<=time.monotonic()-self.last_observation<=4)
+        previous=bool(self.enable_visible_capture and was_visible and fresh_previous and self.overlay.click_through)
+        visible=bool(previous and getattr(self.capture,'can_request_visible_overlay',False))
+        try:
+            # Only this v2 preparation owns a GUI-safe drain barrier. Pending
+            # legacy v1 process/pipe cleanup must be drained by the subsequent
+            # strict-hidden capture worker, never polled indefinitely on Qt.
+            prepare=getattr(self.capture,'prepare_capture_mode',None)
+            pending=bool(self.enable_visible_capture and prepare and not prepare(visible))
+            if pending:
+                now=time.monotonic()
+                if self._mode_wait_started is None:self._mode_wait_started=now
+                if now-self._mode_wait_started>8:
+                    self.stop_monitor();self.status.setText('上一次截图尚未确认关闭；监测已停止，请检查后重新开始。');return
+                self.debug_event('capture',phase='requested',reason='mode_wait',visible_capture=visible)
+                self._visible_previous=previous;self.overlay.set_rechecking(previous)
+                self.refresh_status_badge();self.schedule_capture(50);return
+            self._mode_wait_started=None
+        except (CapturePaused,CaptureUnavailable) as exc:
+            self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.schedule_capture(1000);return
+        self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False;self._visible_previous=visible;self.overlay.set_rechecking(visible)
+        if not visible:
+            self.overlay.hide('capture_pending')
+            if was_visible:self.overlay._last_hidden_at=time.monotonic()
+        self.refresh_status_badge();generation=self.state.generation
         self._capture_serial+=1;serial=self._capture_serial
-        # Always hide our own HWND before capturing, even if display exclusion succeeds.
-        QtCore.QTimer.singleShot(60,lambda:self.capture_hidden(generation,serial))
-    def capture_hidden(self,generation,serial=None):
-        if serial is not None and serial!=self._capture_serial:return
+        self.debug_event('capture',phase='requested',reason='capture_wait',visible_capture=visible)
+        # Legacy/unsupported paths remain strict-hide. The explicit experiment
+        # uses only the exact registered opaque v2 window, never v1/GDI.
+        QtCore.QTimer.singleShot(self.overlay.hidden_settle_ms() if not visible else 0,lambda:self.capture_hidden(generation,serial,allow_visible_overlay=visible))
+    def capture_hidden(self,generation,serial=None,*,allow_visible_overlay=False):
+        if serial is not None and serial!=self._capture_serial:
+            self.debug_event('cancel',reason='serial_changed',cancelled=True);return
         if self.closed or not self.state.running or generation!=self.state.generation:
+            self.debug_event('cancel',reason='generation_changed',cancelled=True)
             self.capture_pending=False;self.schedule_capture();return
         if serial is None:self._capture_serial+=1;serial=self._capture_serial
         self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False
         try:
             if not self.target_allowed():raise CapturePaused('窗口连接正在更新，稍后自动继续。')
-            if self.overlay.isVisible() or (self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId()))):raise CaptureUnavailable('自己的叠加尚未隐藏，已跳过本帧以避免识别反馈。')
+            if allow_visible_overlay and (not self.enable_visible_capture or not self._visible_previous or not getattr(self.capture,'can_request_visible_overlay',False)):
+                raise CaptureUnavailable('可见叠加采集资格已变化，已跳过本帧。')
+            if not allow_visible_overlay and (self.overlay.isVisible() or (self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId())))):raise CaptureUnavailable('自己的叠加尚未隐藏，已跳过本帧以避免识别反馈。')
             roi=tuple(spin.value()/100 for spin in self.roi)
             self.ocr_busy=True;self.ocr_started=time.monotonic();self.ocr_timed_out=False;self.status.setText('正在本机处理所选窗口截图，图片不保存、不上传…')
             from local_ocr import LocalOCR
@@ -752,12 +942,21 @@ class ControlWindow(QtWidgets.QWidget):
             scoped_ocr=self.ocr_reuse.scoped(self.ocr,(frame_window.identity,roi,'game'),allow_reuse=reuse_allowed)
             source_key=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
             matcher_key=(matcher,matcher.proof_identity() if matcher and hasattr(matcher,'proof_identity') else None)
+            logger=self.debug_log;debug_dpi=float(self.overlay.devicePixelRatioF())*96
+            debug_identity=logger.identity(frame_window.hwnd,frame_window.pid,getattr(expected_metadata,'created',None)) if logger.enabled else {}
             def infer():
                 from hero_recognition import recognize_frame
-                if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
-                captured_at=time.monotonic();image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata)
+                if self._cancel_workers.is_set() or cancelled.is_set():
+                    logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
+                    raise CapturePaused('监测已结束。')
+                options={'allow_visible_overlay':True} if allow_visible_overlay else {}
+                captured_at=time.monotonic();image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
                 pixels_at=time.monotonic()
-                if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
+                logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=(pixels_at-captured_at)*1000,
+                    backend=getattr(capture,'last_backend','unknown'),width=rect.width,height=rect.height,dpi=debug_dpi,visible_capture=allow_visible_overlay,**debug_identity)
+                if self._cancel_workers.is_set() or cancelled.is_set():
+                    logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
+                    raise CapturePaused('监测已结束。')
                 proof={'_capturedAt':captured_at,'_sessionGeneration':session_generation,'_windowIdentity':frame_window.identity,'_captureRect':rect,'_captureSerial':serial,
                     '_frameScope':(frame_window.identity,expected_metadata,rect,roi,vocabulary,source_key,matcher_key)}
                 def emit_phase():
@@ -776,14 +975,16 @@ class ControlWindow(QtWidgets.QWidget):
                     # Only the GUI thread may authorize re-display.
                     emit_phase()
                 result=detector.recognize(image) if client_phase else recognize_frame(image,roi,scoped_ocr,vocabulary,matcher,before_match=before_match,before_ocr=before_ocr)
-                result.update(proof);result['_timings']={'capture_ms':round((pixels_at-captured_at)*1000,1),'inference_ms':round((time.monotonic()-pixels_at)*1000,1)};return result
+                result.update(proof);result['_timings']={'capture_ms':round((pixels_at-captured_at)*1000,1),'inference_ms':round((time.monotonic()-pixels_at)*1000,1)}
+                logger.record('capture',phase='completed',generation=generation,serial=serial,ocr_reused=result.get('ocr_reused') is True,**result['_timings'])
+                return result
             self.spawn('selection' if client_phase else 'ocr',infer,generation)
         except CapturePaused as exc:
             self.ocr_busy=False;self.capture_pending=False
-            if self.state.reason!=str(exc):self.invalidate_scene(str(exc))
-            self.status.setText(str(exc));self.overlay.hide();self.schedule_capture(1000)
+            if self.state.reason!=str(exc):self.invalidate_scene(str(exc),debug_reason='target_unavailable')
+            self.status.setText(str(exc));self.overlay.hide('target_unavailable');self.schedule_capture(1000)
         except Exception as exc:
-            self.ocr_busy=False;self.capture_pending=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc));self.status.setText(self.state.reason);self.overlay.hide();self.schedule_capture(1000)
+            self.ocr_busy=False;self.capture_pending=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc));self.status.setText(self.state.reason);self.overlay.hide('target_unavailable');self.schedule_capture(1000)
     def may_restore_accepted_frame(self,value):
         reference=self._accepted_frame;hero=value.get('hero_observation',{});now=time.monotonic()
         scope=value.get('_frameScope');current_source=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False)) if self.data else None
@@ -805,17 +1006,18 @@ class ControlWindow(QtWidgets.QWidget):
             # Only explicit self-owned diagnostic launch modes inject synthetic
             # handler results. Ordinary monitoring requires capture provenance.
             if self.smoke_report or self.selection_smoke_input:return True
-            self.invalidate_scene('截图来源信息缺失，已丢弃识别结果。');self.overlay.hide();return False
+            self.invalidate_scene('截图来源信息缺失，已丢弃识别结果。');self.overlay.hide('target_unavailable');return False
         try:
             if not self.target or tuple(value.get('_windowIdentity',()))!=self.target.identity or not self.target_allowed() or not self.capture.foreground(self.target) or self.capture.rect(self.target)!=rect:
                 raise CapturePaused('识别期间窗口身份、位置或大小变化，已丢弃旧画面。')
             self.last_rect=rect
             return True
         except (CapturePaused,CaptureUnavailable) as exc:
-            self.invalidate_scene(str(exc));self.overlay.hide();self.status.setText(str(exc));return False
+            self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.overlay.hide('target_unavailable');self.status.setText(str(exc));return False
     def confirm(self, *, automatic=False, captured_at=None):
         try:
             self.state.confirm([edit.text() for edit in self.inputs],self.data['augments'],automatic=automatic);self.last_observation=captured_at if captured_at is not None else time.monotonic()
+            self.manual_editing=False
             metadata=self.data.get('metadata',{})
             source_version=f"数据包 {metadata.get('wikiDataVersion') or '未知'} / 游戏资料 {metadata.get('gamePatch') or '未知'}"
             self.overlay.set_cards(self.state.hero,display_cards(self.data,self.state.hero,self.state.offered),metadata.get('sourceDataDate') or '未知',source_version,('来自本局选人 · HUD未复核' if self.hero_origin=='client-provisional' else '本局选人 + HUD复核' if self.hero_origin=='client-verified' else '英雄/候选连续高置信自动识别' if self.hero_auto.isChecked() else '英雄人工纠正 · 候选自动识别') if automatic else '人工确认')
@@ -826,11 +1028,13 @@ class ControlWindow(QtWidgets.QWidget):
         self._accepted_frame=None;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
         try:self.overlay.set_click_through(not self.overlay.click_through)
         except CaptureUnavailable as exc:
-            self.stop_monitor();self.overlay.hide();self.status.setText(str(exc));return
+            self.stop_monitor();self.overlay.hide('target_unavailable');self.status.setText(str(exc));return
         self.toggle_button.setChecked(self.overlay.click_through);self.check_target()
     @QtCore.Slot(str,object,int)
     def task_result(self,kind,value,generation):
         if self.closed:return
+        if kind in ('ocr','selection','capture-proof') and (not self.state.running or generation!=self.state.generation):
+            self.debug_log.record('job',kind=kind,phase='discarded',generation=generation,reason='generation_changed')
         try:
             if kind=='windows':
                 self.apply_discovery(value,generation);return
@@ -861,37 +1065,53 @@ class ControlWindow(QtWidgets.QWidget):
                 if not self.state.running or generation!=self.state.generation or value.get('_captureSerial')!=self._capture_serial:return
                 self.capture_pending=False;self._restore_while_ocr=False
                 if not self.captured_frame_current(value):return
+                if self._visible_previous:
+                    # The label describes the original accepted observation,
+                    # never this still-unrecognized frame or a selected choice.
+                    self.overlay.set_rechecking(True);self.check_target();return
                 if not self.overlay.isVisible() and hasattr(self.capture,'validate_compositor'):
                     try:self.capture.validate_compositor(self.target,value['_captureRect'])
                     except (CapturePaused,CaptureUnavailable) as exc:
-                        self.invalidate_scene(str(exc));self.overlay.hide();return
+                        self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.overlay.hide('target_unavailable');return
                 self._restore_while_ocr=self.may_restore_accepted_frame(value)
                 self.overlay.set_rechecking(self._restore_while_ocr)
-                if not self._restore_while_ocr:self.overlay.hide()
+                if not self._restore_while_ocr:self.overlay.hide('capture_proof')
                 self.check_target()
             elif kind=='selection':
+                self._visible_previous=False
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
                 if not self.captured_frame_current(value):return
                 if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                     self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
                 now=time.monotonic();stable=self.selection_session.observe_client(value,self.target.identity,value.get('_capturedAt'),now,generation=value.get('_sessionGeneration'))
-                self.overlay.hide();self.state.confirmed=False;self.state.offered=();self.refresh_card_details()
+                self.state.confirmed=False;self.state.offered=()
                 hero=next((name for name,row in self.data['heroes'].items() if self.selection_session.assigned and str(row.get('championId'))==self.selection_session.assigned),'')
                 if self.hero_auto.isChecked():
                     self.state.hero=hero;self.hero_box.blockSignals(True);self.hero_box.setCurrentText(hero);self.hero_box.blockSignals(False)
+                reference=self.client_strength_reference()
+                if not stable or not reference or self.overlay.reference!=reference:self.overlay.hide('selection_changed')
+                self.refresh_card_details()
                 self.hero_status.setText(('当前分配：'+hero+'；仍可交换，切入本局游戏后复核') if stable and hero else '选人文字尚不确定：'+value.get('reason',''))
                 self.status.setText(self.hero_status.text());self.check_target()
             elif kind=='ocr':
+                self._visible_previous=False
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation:return
                 if not self.captured_frame_current(value):return
                 if (self.window_policy or self.automatic_policy) and (not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity):
                     if self.selection_session:self.selection_session.clear('Game permission changed during inference')
-                    self.invalidate_scene('游戏窗口身份变化，旧资料已清空');self.overlay.hide();return
+                    self.invalidate_scene('游戏窗口身份变化，旧资料已清空');self.overlay.hide('target_unavailable');return
                 captured_at=value.get('_capturedAt',0)
                 if not isinstance(captured_at,(int,float)) or not math.isfinite(captured_at) or time.monotonic()-captured_at>4 or captured_at>time.monotonic():
-                    self.invalidate_scene('识别完成时截图已过期，旧资料隐藏；等待新截图');self.overlay.hide();self.status.setText(self.state.reason);return
+                    self.invalidate_scene('识别完成时截图已过期，旧资料隐藏；等待新截图',debug_reason='stale_frame');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason);return
+                if self.last_observation and captured_at-self.last_observation>4:
+                    # A fresh result after a long observation gap is useful,
+                    # but cannot borrow old private confirmation counters.
+                    self.expire_game_display()
+                    self.state.observed=();self.state.stable_frames=0
+                    self.state.automatic_observed=();self.state.automatic_frames=0
+                    self.state.hero_observed='';self.state.hero_stable_frames=0
                 auto_candidates=value.get('automatic_candidates',[])
                 candidates=auto_candidates if len(auto_candidates)==3 else value.get('candidates',[])
                 names=[item['name'] for item in candidates]
@@ -902,7 +1122,7 @@ class ControlWindow(QtWidgets.QWidget):
                         game_scene=bool(observation.get('confident') is True or automatic_candidates(auto_candidates,value.get('image_size')) )
                         if game_scene:
                             self.selection_session.observe_game(self.target.identity,captured_at,time.monotonic(),generation=value.get('_sessionGeneration'),game_scene=True,hud_hero=observation.get('championId') if observation.get('confident') is True else None)
-                        elif self.selection_session.stage in ('game-provisional','game-verified'):
+                        elif self.selection_session.stage in ('game-provisional','game-verified','game-expired'):
                             self.selection_session.observe_game(self.target.identity,captured_at,time.monotonic(),generation=value.get('_sessionGeneration'),game_scene=False)
                         carried=self.selection_session.visible_identity(allow_provisional=True)
                         if carried:
@@ -914,12 +1134,12 @@ class ControlWindow(QtWidgets.QWidget):
                     self.hero_status.setText((self.state.hero+' · '+observation.get('reason','')) if hero_stable else observation.get('reason','本人头像尚不确定')+'；等待新画面或人工纠正')
                 safe_candidates=automatic_candidates(auto_candidates,value.get('image_size'))
                 if value.get('ocr_reused') is True and not self.state.confirmed:
-                    self.ocr_reuse.clear();self.refresh_card_details();self.overlay.hide();return
+                    self.ocr_reuse.clear();self.refresh_card_details();self.overlay.hide('unconfirmed');return
                 if self.state.confirmed and self.state.confirmation_mode=='automatic' and not safe_candidates:self.state.invalidate('候选置信度或三卡布局不足，旧资料已隐藏')
                 stable=self.state.observe(names,generation=self.state.generation)
                 automatic_stable=(self.state.confirmed and self.state.confirmation_mode=='automatic') if value.get('ocr_reused') is True else self.state.observe_automatic_candidates(names,safe_candidates)
                 self.last_observation=captured_at
-                if not self.state.confirmed:self.refresh_card_details();self.overlay.hide()
+                if not self.state.confirmed:self.refresh_card_details();self.overlay.hide('unconfirmed')
                 if stable and not self.state.confirmed and not self.manual_editing:
                     for edit,name in zip(self.inputs,names):edit.setText(name)
                 uncertainty=any(item.get('match_method')!='exact' or item.get('ocr_confidence',0)<.85 for item in candidates)
@@ -930,11 +1150,16 @@ class ControlWindow(QtWidgets.QWidget):
                 self.check_target()
             elif kind=='portraits':
                 portraits,status=value
+                self.portrait_bank.replace(portraits);self._hero_portrait_key=None
+                roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
+                if roster_fingerprint!=self._selection_roster_fingerprint:
+                    self._selection_roster_fingerprint=roster_fingerprint;self.selection_detector=None
                 self.portrait_diagnostics=status.get('cacheDiagnostics');self.cache_diagnostic_button.setVisible(isinstance(self.portrait_diagnostics,dict))
                 if portraits:
                     from hero_recognition import PortraitMatcher
                     self.hero_matcher=PortraitMatcher(portraits,self.data['heroes'])
                 self.hero_status.setText(status.get('message','头像模板状态未知'))
+                if self.overlay.reference:self.overlay.set_hero_reference(self.overlay.reference)
             elif kind=='update':
                 self.update_status.setText('软件更新：'+value.get('message',value.get('state','未知')))
                 self.release=value.get('release') if value.get('state')=='available' else None
@@ -954,9 +1179,10 @@ class ControlWindow(QtWidgets.QWidget):
                 self.discovery_busy=False;self.window_status.setText('窗口检测暂未完成，稍后自动重试。')
             return
         if kind in ('ocr','selection'):
+            self._visible_previous=False
             self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
             if kind=='selection' and self.selection_session:self.selection_session.clear('Client recognition failure')
-            if generation==self.state.generation:self.invalidate_scene('识别失败：'+error);self.overlay.hide();self.status.setText(self.state.reason)
+            if generation==self.state.generation:self.invalidate_scene('识别失败：'+error,debug_reason='worker_error');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
             self.schedule_capture(1000)
         elif kind=='portraits':self.hero_status.setText('自动英雄模板加载失败：'+error+'；可人工纠正。')
         elif kind=='load':self.startup_error=error or '未提供错误详情';self.source.setText('资料加载失败：'+error);self.status.setText('未加载真实资料，不使用演示数据代替。')
@@ -977,7 +1203,7 @@ class ControlWindow(QtWidgets.QWidget):
                 from native_smoke import start_smoke
                 start_smoke(self,Path(self.smoke_report),Path(self.smoke_screenshot) if self.smoke_screenshot else Path(self.smoke_report).with_suffix('.png'))
         except Exception as exc:
-            self.stop_monitor();self.start_button.setEnabled(False);self.overlay.hide()
+            self.stop_monitor();self.start_button.setEnabled(False);self.overlay.hide('target_unavailable')
             self.status.setText('启动健康验证失败：'+str(exc))
             try:
                 folder=self.state_dir/'logs';folder.mkdir(parents=True,exist_ok=True);(folder/'native-ready-error.txt').write_text(traceback.format_exc(),encoding='utf8')
@@ -1005,6 +1231,8 @@ class ControlWindow(QtWidgets.QWidget):
             if msg.message==0x0312 and msg.wParam==0x5647:self.toggle_clickthrough();return True,0
         return super().nativeEvent(event_type,message)
     def closeEvent(self,event):
+        self.debug_event('close',reason='close');self.debug_event('cancel',reason='close',cancelled=True)
+        self.overlay._hide_reason='close'
         self._capture_cancel.set();self.ocr_reuse.clear()
         close_capture=getattr(self.capture,'close',None)
         if close_capture:close_capture() # Nonblocking revocation before HWND destruction.
@@ -1020,6 +1248,7 @@ class ControlWindow(QtWidgets.QWidget):
         deadline=time.monotonic()+.2
         for job in jobs:
             if job is not threading.current_thread():job.join(max(0,deadline-time.monotonic()))
+        self.debug_log.set_enabled(False)
         event.accept()
 
 

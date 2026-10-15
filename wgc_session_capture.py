@@ -7,8 +7,10 @@ workers. Native guards are scheduled at 25 ms; that is not a measured teardown
 latency guarantee. Parent deadlines operate independently of pipe/driver waits.
 
 One immutable target/process/client geometry and one immutable owned-overlay
-registration per instance. The overlay may be exempt only during GPU-only idle;
-EVERY CPU readback rejects all overlapping windows, including our own overlay.
+registration per instance. Strict-hidden CPU capture is the default. The explicit
+allow_visible_overlay investigation permits only the exact registered excluded
+opaque HWND, with fresh native guards around GPU/CPU copies and output. It is
+not enabled by the production UI and is not Windows pixel-parity evidence.
 """
 from __future__ import annotations
 
@@ -47,10 +49,10 @@ PROCESS_TIMEOUT = 2.0
 IDLE_LEASE = 4.0
 WATCHDOG_INTERVAL = .025
 REQUIRED_OVERLAY_STYLE = 0x00080000 | 0x08000000 | 0x80 | 0x8 | 0x20
-SESSION_PHASES = DIAGNOSTIC_PHASES | {'validate-idle'}
+SESSION_PHASES = DIAGNOSTIC_PHASES | {'validate-idle', 'validate-after-copy'}
 SESSION_CHECKS = DIAGNOSTIC_CHECKS | {
     'parent-lifetime', 'overlay-support', 'overlay-owner', 'overlay-generation',
-    'overlay-style', 'overlay-affinity', 'overlay-hidden', 'qpc-clock', 'pipe-write', 'pipe-read',
+    'overlay-style', 'overlay-opacity', 'overlay-affinity', 'overlay-hidden', 'qpc-clock', 'pipe-write', 'pipe-read',
     'request-protocol', 'request-roi', 'idle-lease', 'frame-timestamp', 'capture-module-pin'}
 SESSION_CLOCK_KEYS = frozenset(('qpc_counter', 'qpc_frequency', 'cutoff_100ns',
                               'frame_100ns', 'observed_now_100ns', 'previous_frame_100ns'))
@@ -562,9 +564,13 @@ class _Transport:
 
 
 class WgcSessionCapture:
-    def __init__(self, *, experimental=False):
+    def __init__(self, *, experimental=False, allow_visible_overlay=False):
         if experimental is not True:
             raise WgcError('experiment-disabled', '持续窗口捕获实验默认关闭。')
+        if type(allow_visible_overlay) is not bool:
+            raise TypeError('Visible overlay capability requires a boolean')
+        self._allow_visible_overlay = allow_visible_overlay
+        self._overlay_window_style = None
         directory = helper_directory()
         self.helper_path = directory / HELPER_NAME
         self.manifest_path = directory / MANIFEST_NAME
@@ -622,6 +628,18 @@ class WgcSessionCapture:
             # destruction/reuse plus a repeated UI generation cannot revive it.
             token = secrets.randbits(63) or 1
             _register_owned_overlay(hwnd, expected_extended_style, token, parent_pid)
+            try:
+                if self._allow_visible_overlay:
+                    # Capture the complete standard style as well as EXSTYLE;
+                    # visibility/style changes retire this immutable enrollment.
+                    user = _window_api()
+                    ctypes.set_last_error(0)
+                    self._overlay_window_style = int(user.GetWindowLongPtrW(hwnd, -16)) & 0xffffffff
+                    if ctypes.get_last_error():
+                        raise WgcError('stale', '无法核验叠加窗口的完整样式。')
+            except BaseException:
+                _remove_owned_overlay(hwnd, token, parent_pid)
+                raise
             self._parent = (parent_pid, parent.created)
             self._overlay_generation = generation
             self._overlay = (hwnd, expected_extended_style, token)
@@ -663,6 +681,9 @@ class WgcSessionCapture:
                     raise WgcError('stale', '持续捕获会话不可重定向或改变原窗口几何。')
                 if self._parent is not None and self._parent != (parent_pid, parent.created):
                     raise WgcError('stale', '本进程生命周期已变化。')
+                if self._allow_visible_overlay and (self._overlay is None
+                        or not _integer(self._overlay_window_style, 0, 2**32 - 1)):
+                    raise WgcError('stale', '可见叠加捕获必须先注册本次窗口生命周期。')
                 self._binding, self._parent = binding, (parent_pid, parent.created)
                 transport = self._transport
                 if transport is not None and transport.revoked.is_set():
@@ -672,8 +693,12 @@ class WgcSessionCapture:
                 if transport is None:
                     self._verify_helper()
                     generation = secrets.randbelow(2**63 - 1) + 1
-                    args = [str(self.helper_path), '--session-v2', *binding,
+                    mode = ('--session-v2-visible-owned-overlay' if self._allow_visible_overlay
+                            else '--session-v2')
+                    args = [str(self.helper_path), mode, *binding,
                             *self._parent, *(self._overlay or (0, 0, 0)), generation]
+                    if self._allow_visible_overlay:
+                        args.append(self._overlay_window_style)
                     transport = self._transport = _Transport([str(v) for v in args], generation)
                     self._last_frame = 0
                 self._request_id += 1
