@@ -42,13 +42,14 @@ from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, vali
 
 MAX_SECONDS = 240
 SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'screen_capture.py', 'session_windows.py',
-                'wgc_capture.py', 'native/wgc_capture.cpp',
+                'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
+                'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
                 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs')
 WM_RECREATE_OWNED = 0x8000 + 73
 SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process metadata, '
          'Qt lifecycle, z-order guards and bounded OS pixels. Publisher verification '
          'is injected only for exact freshly compiled owned fixture paths/hashes. '
-         'Legacy check explicitly disables WGC in source and forces first HWND copy blank; '
+         'Legacy check explicitly retires persistent WGC, verifies cleanup, disables both WGC routes in source and forces first HWND copy blank; '
          'compositor pixels are real. Separate WGC source/frozen gates required. Stale OCR '
          'payloads/state are synthetic. No real League signature, real game, live-match '
          'accuracy or Vanguard compatibility claim. No private screenshots saved.')
@@ -140,7 +141,17 @@ def force_first_copy_blank(capture):
             return Image.new('RGB', (width, height), 'black')
         return original(source, width, height, left, top)
 
-    with patch.object(capture, '_wgc', None, create=True), \
+    # This source-only negative deliberately selects the legacy GDI backend.
+    # First retire/drain the actual persistent helper; disabling a field while
+    # that helper still owns a session would bypass its cleanup barrier.
+    retire=getattr(capture,'retire_session',None)
+    if retire:retire()
+    deadline=time.monotonic()+3
+    while getattr(capture,'cleanup_pending',False):
+        if time.monotonic()>=deadline:raise RuntimeError('Persistent cleanup did not finish before the GDI-only fixture')
+        time.sleep(.01)
+    with patch.object(capture, '_persistent', None, create=True), \
+         patch.object(capture, '_wgc', None, create=True), \
          patch.object(capture, '_copy_pixels', side_effect=copy):
         yield calls
 

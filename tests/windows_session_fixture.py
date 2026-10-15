@@ -14,6 +14,18 @@ import subprocess
 SOURCE = Path(__file__).with_name('SessionWindowFixture.cs')
 TITLES = {'client': 'League of Legends', 'game': 'VGA owned game fixture'}
 CLASSES = {'client': 'Chrome_WidgetWin_1', 'game': 'RiotWindowClass'}
+# SendMessageTimeoutW to the current verified Job-owned client HWND only, with
+# wParam=lParam=0 and a pointer-sized LRESULT. Return 0 means rejected/failed;
+# otherwise +74 returns the exact sink HWND and +75 returns 1 after destroying
+# the sink and checking the original client is foreground. +75 without a live
+# sink returns 0. The +74 HWND result proves neither ownership nor foreground
+# success. Verify exact Job PID/class/title and actual foreground independently.
+# Repeating +74 reuses the live sink; +75 closes it without hiding/moving client.
+WM_FOCUS_OWNED_SINK = 0x8000 + 74
+WM_RETURN_OWNED_CLIENT = 0x8000 + 75
+FOCUS_SINK_CLASS = 'VGAOwnedFocusSink'
+FOCUS_SINK_TITLE = 'VGA owned focus sink'
+FOCUS_SINK_BOUNDS = (0, 0, 160, 96)
 MAX_PNG_BYTES = 8 * 1024 * 1024
 MAX_LOG_BYTES = 64 * 1024
 

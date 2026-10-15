@@ -29,7 +29,7 @@ SOURCE_FILES=('native_ui.py','overlay_geometry.py','native_smoke.py','tests/nati
 
 class PresentationCapture:
     """Only existing window setup hooks; no pixels, discovery or OS calls."""
-    def configure_overlay(self,*_):pass
+    def configure_overlay(self,*_,**__):pass
     def hotkey(self,*_):return True
     def unhotkey(self,*_):pass
     def windows(self):return []

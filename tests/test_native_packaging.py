@@ -1,5 +1,6 @@
 """Native-launch routing and acceptance gates; no game or Windows claims here."""
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -27,11 +28,15 @@ native_smoke = module('windows_native_smoke', ROOT / 'tests' / 'windows_native_s
 budget = module('artifact_budget', ROOT / 'scripts' / 'check_artifact_budget.py')
 
 
+def validate_duty(value):
+    return native_smoke.validate_overlay_duty(value,expected_fixture_sha256=hashlib.sha256((ROOT/'fixtures/auto-scene.png').read_bytes()).hexdigest())
+
+
 def overlay_duty_fixture():
     """Complete synthetic validator input; not observed Windows evidence."""
     contract = native_smoke.validate_overlay_duty.__globals__
     report = {'overlay_duty_cycle_passed': True,
-        'overlay_duty_cycle': {'schema_version': 1, 'scope': contract['SCOPE'],
+        'overlay_duty_cycle': {'schema_version': 2, 'scope': contract['SCOPE'],
             'artificial_hold_target_ms': 350, 'cases': []}}
     for kind in contract['CASES']:
         before = dict(last_observation=100., automatic_frames=2, hero_stable_frames=2,
@@ -69,6 +74,40 @@ def overlay_duty_fixture():
         if kind=='changed_roi':row['fixture_change']='Original 12x12 non-text patch inside candidate ROI, above title band; synthetic animation analogue, not actual gameplay measurement'
         if kind=='stop_late':row.update(stop_return_ms=1.,late_final_discarded=True);row['timings_ms']['stop']=735.
         report['overlay_duty_cycle']['cases'].append(row)
+    duty=report['overlay_duty_cycle']
+    fresh=dict(confirmed=False,automatic_frames=0,hero_stable_frames=0,stable_frames=0,
+               accepted_frame_present=False,ocr_cache_cleared=True)
+    scene=dict(window_identity=[100,200,'Owned fixture'],target_created=100000,overlay_hwnd=300,
+        overlay_extended_style=0x080800A8,overlay_affinity=17,overlay_opaque=True,
+        qt_translucent_background=False,qt_opaque_paint_event=True,qt_window_opacity=1.,
+        surface_has_alpha=False,surface_alpha_buffer_size=-1,outer_corner_rgba=[[250,252,255,255]]*4,
+        capture_rect=dict(x=20,y=20,width=960,height=600),fixture_sha256=hashlib.sha256((ROOT/'fixtures/auto-scene.png').read_bytes()).hexdigest())
+    cleanup=dict(helper_count=15,helpers_exited=True,pipes_closed=True,jobs_closed=True,
+                 adapter_cleanup_complete=True,complete=True)
+    baseline=dict(mode='one-shot',adapter_constructor='Win32Capture(persistent_sessions=False)',fresh_state=copy.deepcopy(fresh),
+        cases=copy.deepcopy(duty['cases']),cleanup=copy.deepcopy(cleanup),cleanup_before_persistent=copy.deepcopy(cleanup))
+    duty.update(mode='persistent',adapter_constructor='Win32Capture()',fresh_state=fresh,scene_binding=scene,baseline=baseline)
+    def captured(request):
+        tick=1_000_000_000+request*10_000_000
+        receipt=dict(request_cutoff_100ns=tick+1,frame_100ns=tick+10000,idle_enter_100ns=tick+20000,
+            request_id=request,session_generation=7,helper_pid=789,helper_created=999000,
+            overlay_hwnd=scene['overlay_hwnd'],overlay_extended_style=scene['overlay_extended_style'],
+            overlay_affinity=17,overlay_registration_valid=True)
+        observation={key:receipt[key] for key in ('helper_pid','helper_created','session_generation','overlay_hwnd',
+            'overlay_extended_style','overlay_affinity','overlay_registration_valid')}
+        observation.update(helper_alive=True,overlay_opaque=True,native_visible=False)
+        return dict(receipt=receipt,capture_start_100ns=tick,capture_return_100ns=tick+150000,
+            copied_after_capture_return=True,observation=observation)
+    duty['reuse_captures']=[captured(1),captured(2)]
+    for index,(base,row) in enumerate(zip(baseline['cases'],duty['cases'])):
+        base.update(mode='one-shot',capture_duration_ms=15.)
+        row.update(mode='persistent',capture_duration_ms=15.,capture_backend='windows-graphics-capture-session',session_capture=captured(index+3))
+        row.pop('helper_exit_codes');row.pop('helper_cleanup_complete_before_phase')
+        for phase in row['phases']:
+            phase.pop('helper_cleanup_complete');phase['session_guarded_idle_verified']=True
+        if row['name']=='stop_late':
+            row['stop_cleanup']={key:True for key in contract['CLEANUP_FIELDS']}
+            row['stop_cleanup'].update(helper_pid=789,helper_created=999000,session_generation=7,observed_ms=745.,process_exit_code=1,termination_requested_while_alive=True,shutdown_diagnostic=None)
     return report
 
 
@@ -173,7 +212,7 @@ class NativePackagingTests(unittest.TestCase):
                 native_smoke.validate_report(result, '0.4.2')
 
     def test_duty_contract_rejects_missing_forged_or_unbounded_observations(self):
-        native_smoke.validate_overlay_duty(overlay_duty_fixture())
+        validate_duty(overlay_duty_fixture())
         mutations = [lambda d:d.update(overlay_duty_cycle_passed=1),
             lambda d:d.pop('overlay_duty_cycle'),
             lambda d:d['overlay_duty_cycle'].update(schema_version=True),
@@ -182,7 +221,7 @@ class NativePackagingTests(unittest.TestCase):
             lambda d:d['overlay_duty_cycle']['cases'].pop()]
         for mutation in mutations:
             value=overlay_duty_fixture();mutation(value)
-            with self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+            with self.assertRaises(RuntimeError):validate_duty(value)
         for index in range(5):
             for key,bad in [('capture_count',2),('qt_show_events_during_capture',1),('qt_show_events_during_capture',False),('capture_count',True),('max_capture_concurrency',2),
                 ('capture_backend','hwnd-gdi'),('helper_count',0),('helper_exit_codes',[None]),
@@ -190,21 +229,21 @@ class NativePackagingTests(unittest.TestCase):
                 ('capture_visible_samples',1),('capture_visible_samples',False),('native_visibility_samples',0),
                 ('final_captured_at',99.),('final_result_generation',999),('final_native_visible','true')]:
                 value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index][key]=bad
-                with self.subTest(case=index,key=key),self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+                with self.subTest(case=index,key=key),self.assertRaises(RuntimeError):validate_duty(value)
             for key in ('total_ms','sampled_hidden_ms','sampled_visible_ms','sampled_inference_visible_ms','max_sample_gap_ms'):
                 for bad in (None,True,-1,float('nan'),float('inf'),'700'):
                     value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index][key]=bad
-                    with self.subTest(case=index,key=key,bad=bad),self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+                    with self.subTest(case=index,key=key,bad=bad),self.assertRaises(RuntimeError):validate_duty(value)
             for key in ('capture_start','capture_return','before_match_emitted','before_match_applied','before_ocr_emitted','before_ocr_applied','final'):
                 value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index]['timings_ms'][key]=float('nan')
-                with self.subTest(case=index,timing=key),self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+                with self.subTest(case=index,timing=key),self.assertRaises(RuntimeError):validate_duty(value)
 
     def test_duty_contract_rejects_forged_restoration_ttl_scope_and_stop(self):
         for index in range(5):
             for phase_index in range(2):
                 mutations=[lambda p:p.update(state_unchanged=1),lambda p:p['state_at_phase'].update(last_observation=100.1),
                     lambda p:p['state_at_phase'].update(automatic_frames=3),lambda p:p.update(restored=not p['restored']),
-                    lambda p:p.update(native_visible=not p['native_visible']),lambda p:p.update(helper_cleanup_complete=False),
+                    lambda p:p.update(native_visible=not p['native_visible']),lambda p:p.update(session_guarded_idle_verified=False),
                     lambda p:p.update(scope_matches_accepted=False),lambda p:p.update(matcher_instance_matches_accepted=False),
                     lambda p:p.update(captured_at=99.),lambda p:p.update(capture_serial=True),
                     lambda p:p.update(current_window_identity=[101,200,'Owned fixture']),
@@ -215,16 +254,16 @@ class NativePackagingTests(unittest.TestCase):
                     lambda p:p.update(roi=[True,.25,.7,.35]),lambda p:p.update(compositor_checked_after_capture=False)]
                 for mutate in mutations:
                     value=overlay_duty_fixture();mutate(value['overlay_duty_cycle']['cases'][index]['phases'][phase_index])
-                    with self.subTest(case=index,phase=phase_index),self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+                    with self.subTest(case=index,phase=phase_index),self.assertRaises(RuntimeError):validate_duty(value)
         for index,key,bad in [(0,'sampled_inference_visible_ms',499),(1,'sampled_inference_visible_ms',1),
                              (3,'sampled_inference_visible_ms',1),(4,'late_final_discarded',1),
                              (4,'stop_return_ms',250),(4,'final_last_observation',100.1),(4,'final_state_generation',3)]:
             value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index][key]=bad
-            with self.subTest(case=index,key=key),self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+            with self.subTest(case=index,key=key),self.assertRaises(RuntimeError):validate_duty(value)
         value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][0]['artificial_holds_ms']['before_match']=349
-        with self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+        with self.assertRaises(RuntimeError):validate_duty(value)
         value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][4]['timings_ms']['stop']=741
-        with self.assertRaises(RuntimeError):native_smoke.validate_overlay_duty(value)
+        with self.assertRaises(RuntimeError):validate_duty(value)
 
     def test_duty_freshness_cannot_be_forged_with_coherent_stale_snapshots(self):
         for captured in (105.,103.9):
@@ -232,12 +271,98 @@ class NativePackagingTests(unittest.TestCase):
             for phase in row['phases']:phase['captured_at']=captured
             row.update(final_captured_at=captured,final_last_observation=captured)
             with self.subTest(captured=captured),self.assertRaisesRegex(RuntimeError,'stale|freshness'):
-                native_smoke.validate_overlay_duty(value)
+                validate_duty(value)
         value=overlay_duty_fixture();row=value['overlay_duty_cycle']['cases'][0]
         for phase in row['phases']:
             for field in ('state_before','state_at_phase'):phase[field]['accepted_observed_at']=99.9
         with self.assertRaisesRegex(RuntimeError,'previously accepted'):
-            native_smoke.validate_overlay_duty(value)
+            validate_duty(value)
+
+    def test_duty_requires_both_complete_independent_product_modes(self):
+        changes=[lambda d:d.pop('baseline'),lambda d:d['baseline'].update(mode='persistent'),
+            lambda d:d['baseline'].update(adapter_constructor='Win32Capture()'),
+            lambda d:d.update(mode='one-shot'),lambda d:d['baseline']['cases'].pop(),
+            lambda d:d['baseline'].pop('cleanup_before_persistent'),
+            lambda d:d['baseline']['cleanup_before_persistent'].update(pipes_closed=False),
+            lambda d:d['baseline']['cleanup'].update(helper_count=14),
+            lambda d:d['fresh_state'].update(accepted_frame_present=True),
+            lambda d:d['baseline']['fresh_state'].update(automatic_frames=2),
+            lambda d:d['baseline']['cases'][0].update(capture_visible_samples=1),
+            lambda d:d['baseline']['cases'][0]['phases'][0].update(helper_cleanup_complete=False),
+            lambda d:d['baseline']['cases'][0].update(helper_exit_codes=[None]),
+            lambda d:d['baseline']['cases'][0].update(mode='persistent'),
+            lambda d:d['baseline']['cases'][0]['phases'][0].update(vocabulary_sha256='f'*64),
+            lambda d:d['scene_binding'].update(fixture_sha256='0'*64),
+            lambda d:d['scene_binding']['window_identity'].__setitem__(0,100.),
+            lambda d:d['scene_binding']['window_identity'].__setitem__(1,200.),
+            lambda d:d['scene_binding']['capture_rect'].update(width=960.),
+            lambda d:d['baseline']['cleanup'].update(helper_count=15.),
+            lambda d:d['baseline']['cleanup'].update(complete=1),
+            lambda d:d['baseline']['cleanup_before_persistent'].update(complete=1)]
+        for change in changes:
+            value=overlay_duty_fixture();change(value['overlay_duty_cycle'])
+            with self.subTest(change=change),self.assertRaises(RuntimeError):validate_duty(value)
+
+    def test_duty_receipt_requires_exact_typed_current_helper_and_native_exclusion(self):
+        for index in range(5):
+            mutations=[lambda c:c.pop('receipt'),lambda c:c.update(copied_after_capture_return=False),
+                lambda c:c['receipt'].pop('idle_enter_100ns'),lambda c:c['receipt'].update(raw_token=123),
+                lambda c:c['receipt'].update(request_id=True),lambda c:c['receipt'].update(frame_100ns=0),
+                lambda c:c['receipt'].update(request_cutoff_100ns=c['capture_start_100ns']-1),
+                lambda c:c['receipt'].update(idle_enter_100ns=c['capture_return_100ns']+1),
+                lambda c:c['receipt'].update(helper_pid=123456),lambda c:c['receipt'].update(helper_created=1),
+                lambda c:c['receipt'].update(session_generation=100),lambda c:c['receipt'].update(overlay_registration_valid=False),
+                lambda c:c['observation'].update(helper_alive=False),lambda c:c['observation'].update(native_visible=True),
+                lambda c:c['observation'].update(overlay_opaque=False),lambda c:c['observation'].update(helper_pid=True),
+                lambda c:c['observation'].update(overlay_affinity=0)]
+            for mutate in mutations:
+                value=overlay_duty_fixture();mutate(value['overlay_duty_cycle']['cases'][index]['session_capture'])
+                with self.subTest(case=index,mutate=mutate),self.assertRaises(RuntimeError):validate_duty(value)
+        for field,bad in [('qt_translucent_background',True),('qt_opaque_paint_event',False),('qt_window_opacity',.99),
+            ('surface_has_alpha',True),('surface_alpha_buffer_size',8),('outer_corner_rgba',[[0,0,0,255]]*4)]:
+            value=overlay_duty_fixture();value['overlay_duty_cycle']['scene_binding'][field]=bad
+            with self.subTest(field=field),self.assertRaises(RuntimeError):validate_duty(value)
+
+    def test_duty_reuse_is_sequential_exact_identity_and_stop_cleanup_is_not_an_ack(self):
+        changes=[lambda d:d.pop('reuse_captures'),lambda d:d['reuse_captures'].pop(),
+            lambda d:d['reuse_captures'].__setitem__(1,copy.deepcopy(d['reuse_captures'][0])),
+            lambda d:d['reuse_captures'][1]['receipt'].update(helper_pid=999),
+            lambda d:d['cases'][0].update(session_capture=copy.deepcopy(d['reuse_captures'][0])),
+            lambda d:d['cases'][4].pop('stop_cleanup'),
+            lambda d:d['cases'][4]['stop_cleanup'].update(process_exit_code=None),
+            lambda d:d['cases'][4]['stop_cleanup'].update(process_exit_code=False),
+            lambda d:d['cases'][4]['stop_cleanup'].update(helper_created=1),
+            lambda d:d['cases'][4]['stop_cleanup'].update(observed_ms=735.),
+            lambda d:d['cases'][4]['stop_cleanup'].update(process_exit_code=3221225477),
+            lambda d:d['cases'][4]['stop_cleanup'].update(process_exit_code=-1073741819),
+            lambda d:d['cases'][4]['stop_cleanup'].update(termination_requested_while_alive=1),
+            lambda d:d['cases'][4]['stop_cleanup'].update(termination_requested_while_alive=False),
+            lambda d:d['cases'][4]['stop_cleanup'].update(shutdown_diagnostic={'raw':'bad'})]
+        for field in native_smoke.validate_overlay_duty.__globals__['CLEANUP_FIELDS']:
+            changes.append(lambda d,field=field:d['cases'][4]['stop_cleanup'].update({field:False}))
+        for change in changes:
+            value=overlay_duty_fixture();change(value['overlay_duty_cycle'])
+            with self.subTest(change=change),self.assertRaises(RuntimeError):validate_duty(value)
+        # A coherently changed helper observation still cannot fake same-helper reuse.
+        value=overlay_duty_fixture();capture=value['overlay_duty_cycle']['reuse_captures'][1]
+        for key in ('receipt','observation'):capture[key]['helper_created']+=1
+        with self.assertRaisesRegex(RuntimeError,'reuse'):validate_duty(value)
+
+    def test_stop_shutdown_diagnostic_preserves_uncertainty_and_rejects_crash(self):
+        value=overlay_duty_fixture();cleanup=value['overlay_duty_cycle']['cases'][4]['stop_cleanup']
+        cleanup.update(shutdown_diagnostic=dict(schema_version=1,exit_code=1,checkpoints=[1,2,3],last_started_stage='session-close'))
+        validate_duty(value)
+        for bad in (dict(schema_version=True,exit_code=1,checkpoints=[1],last_started_stage='frame-arrived-revoke'),
+                    dict(schema_version=1,exit_code=2,checkpoints=[1],last_started_stage='frame-arrived-revoke'),
+                    dict(schema_version=1,exit_code=1,checkpoints=[True],last_started_stage='frame-arrived-revoke'),
+                    dict(schema_version=1,exit_code=1,checkpoints=[1],last_started_stage='private raw contents')):
+            changed=copy.deepcopy(value);changed['overlay_duty_cycle']['cases'][4]['stop_cleanup']['shutdown_diagnostic']=bad
+            with self.subTest(bad=bad),self.assertRaises(RuntimeError):validate_duty(changed)
+        cleanup.update(shutdown_diagnostic=None,process_exit_code=0)
+        for termination in (False,None,True):
+            cleanup['termination_requested_while_alive']=termination;validate_duty(value)
+        cleanup.update(process_exit_code=1,termination_requested_while_alive=None)
+        with self.assertRaisesRegex(RuntimeError,'parent termination'):validate_duty(value)
 
     @staticmethod
     def geometry_fixture(scale=1):
@@ -302,13 +427,29 @@ class NativePackagingTests(unittest.TestCase):
             self.assertTrue(result['capture_passed']);self.assertNotIn('ocr_passed',result)
             self.assertNotIn('image_base64',result);self.assertNotIn('environment',result)
             self.assertEqual(len(result['native_report_sha256']),64)
-            self.assertEqual(result['duty_case_count'],9);self.assertEqual(len(result['duty_cases']),5)
+            self.assertEqual(result['duty_case_count'],9);self.assertEqual(len(result['duty_cases']),9)
             self.assertEqual(len(result['duty_cases'][0]['name']),80)
             self.assertNotIn('total_ms',result['duty_cases'][0]);self.assertNotIn('private',result['duty_cases'][0])
             path.write_bytes(b'X'*(128*1024+1))
             self.assertIn('128 KiB',native_smoke.native_failure_summary(path)['diagnostic_error'])
             path.write_text('{invalid',encoding='utf-8')
             self.assertIn('diagnostic_error',native_smoke.native_failure_summary(path))
+
+    def test_failure_summary_retains_both_modes_and_exact_active_phase(self):
+        value=overlay_duty_fixture();duty=value['overlay_duty_cycle']
+        duty['active_mode']='persistent';duty['active_case']=copy.deepcopy(duty['cases'][4])
+        duty['active_case']['phase_state']='stop-cleanup'
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'native.json';path.write_text(json.dumps(value),encoding='utf-8')
+            result=native_smoke.native_failure_summary(path)
+        self.assertEqual(result['duty_active_mode'],'persistent')
+        self.assertEqual(len(result['duty_cases']),5);self.assertEqual(len(result['duty_baseline_cases']),5)
+        active=result['duty_active_case']
+        self.assertEqual((active['mode'],active['name'],active['phase_state']),('persistent','stop_late','stop-cleanup'))
+        self.assertEqual([p['name'] for p in active['phases']],['before_match','before_ocr'])
+        self.assertEqual(active['phases'][0]['state_before'],duty['cases'][4]['phases'][0]['state_before'])
+        self.assertTrue(active['stop_cleanup']['pipes_closed'])
+        self.assertEqual(active['guarded_idle_receipt']['helper_pid'],789)
 
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')

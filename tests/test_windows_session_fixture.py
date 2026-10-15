@@ -117,6 +117,69 @@ class SessionFixtureTests(unittest.TestCase):
                           'AttachThreadInput', 'keybd_event', 'mouse_event'):
             self.assertNotIn(forbidden, source)
 
+    def test_focus_sink_protocol_is_exact_and_separate_from_game_identity(self):
+        self.assertEqual(fixture.WM_FOCUS_OWNED_SINK, 0x804A)
+        self.assertEqual(fixture.WM_RETURN_OWNED_CLIENT, 0x804B)
+        self.assertEqual(fixture.FOCUS_SINK_CLASS, 'VGAOwnedFocusSink')
+        self.assertEqual(fixture.FOCUS_SINK_TITLE, 'VGA owned focus sink')
+        self.assertEqual(fixture.FOCUS_SINK_BOUNDS, (0, 0, 160, 96))
+        self.assertNotIn(fixture.FOCUS_SINK_CLASS, fixture.CLASSES.values())
+        self.assertNotIn(fixture.FOCUS_SINK_TITLE, fixture.TITLES.values())
+        source = fixture.SOURCE.read_text()
+        for expected in ('WM_FOCUS_OWNED_SINK = 0x8000 + 74;',
+                         'WM_RETURN_OWNED_CLIENT = 0x8000 + 75;',
+                         'FocusSinkClass = "' + fixture.FOCUS_SINK_CLASS + '";',
+                         'FocusSinkTitle = "' + fixture.FOCUS_SINK_TITLE + '";'):
+            self.assertIn(expected, source)
+
+    def test_focus_commands_require_exact_activating_client_and_no_parameters(self):
+        source = fixture.SOURCE.read_text()
+        opened = source.split('case WM_FOCUS_OWNED_SINK:', 1)[1].split('case WM_RETURN_OWNED_CLIENT:', 1)[0]
+        returned = source.split('case WM_RETURN_OWNED_CLIENT:', 1)[1].split('case WM_TIMER:', 1)[0]
+        for command in (opened, returned):
+            self.assertIn('hwnd != window || role != "client" || noActivate ||', command)
+            self.assertIn('wParam != UIntPtr.Zero || lParam != IntPtr.Zero', command)
+            # Focus-only commands cannot mutate the original PNG client state.
+            self.assertNotRegex(command, r'\bwindow\s*=(?!=)')
+            for forbidden in ('DestroyWindow(window)', 'ShowWindow(window',
+                              'ShowOwnedWindow(', 'CreateOwnedWindow(', 'Ready(',
+                              'SetWindowPos', 'MoveWindow', 'bitmap', 'width =', 'height ='):
+                self.assertNotIn(forbidden, command)
+        self.assertIn('if (focusSink == IntPtr.Zero)', opened)
+        self.assertEqual(opened.count('CreateWindowExW('), 1)
+        self.assertIn('CreateWindowExW(0, FocusSinkClass, FocusSinkTitle, 0x00C80000u,', opened)
+        self.assertIn('0, 0, 160, 96, IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero)', opened)
+        self.assertIn('ShowWindow(focusSink, 5)', opened)
+        self.assertIn('SetForegroundWindow(focusSink);', opened)
+        self.assertIn('return focusSink;', opened)
+        self.assertIn('focusSink == IntPtr.Zero) return IntPtr.Zero;', returned)
+        self.assertLess(returned.index('SetForegroundWindow(window);'), returned.index('CloseOwnedFocusSink();'))
+        self.assertIn('return window == hwnd && focusSink == IntPtr.Zero && GetForegroundWindow() == hwnd ? new IntPtr(1) : IntPtr.Zero;', returned)
+
+    def test_focus_sink_dispatch_cannot_quit_or_paint_the_main_fixture(self):
+        source = fixture.SOURCE.read_text()
+        sink = source.split('private static IntPtr DispatchFocusSink(', 1)[1].split('private static void CloseOwnedFocusSink()', 1)[0]
+        self.assertIn('if (message == WM_DESTROY)', sink)
+        self.assertIn('if (hwnd == focusSink) focusSink = IntPtr.Zero;', sink)
+        self.assertIn('return DefWindowProcW(hwnd, message, wParam, lParam);', sink)
+        for forbidden in ('PostQuitMessage', 'RecordError(', 'bitmap', 'WM_TIMER', 'CreateOwnedWindow(',
+                          'Ready(', 'SetForegroundWindow(', 'case WM_RECREATE_OWNED:'):
+            self.assertNotIn(forbidden, sink)
+        self.assertIn('if (role == "client" && !noActivate)', source)
+        self.assertIn('wc.lpfnWndProc = FocusSinkProcedure; wc.lpszClassName = FocusSinkClass;', source)
+        self.assertIn('wc.hbrBackground = new IntPtr(6);', source)
+
+    def test_focus_sink_cleanup_covers_recreation_and_unconditional_finally(self):
+        source = fixture.SOURCE.read_text()
+        recreate = source.split('case WM_RECREATE_OWNED:', 1)[1].split('case WM_FOCUS_OWNED_SINK:', 1)[0]
+        self.assertLess(recreate.index('CloseOwnedFocusSink();'), recreate.index('CreateOwnedWindow();'))
+        close = source.split('private static void CloseOwnedFocusSink()', 1)[1].split('private static IntPtr CreateOwnedWindow()', 1)[0]
+        self.assertIn('if (focusSink != IntPtr.Zero && !DestroyWindow(focusSink))', close)
+        final = source.split('catch (Exception error) { RecordError(error); return 1; }', 1)[1]
+        self.assertIn('finally', final)
+        self.assertLess(final.index('DestroyWindow(focusSink)'), final.index('DestroyWindow(window)'))
+        self.assertIn('GC.KeepAlive(FocusSinkProcedure);', final)
+
     def test_ready_path_must_be_fresh(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

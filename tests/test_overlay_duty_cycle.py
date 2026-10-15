@@ -4,6 +4,7 @@ The native smoke separately calls this same diagnostic with real HWNDs, actual
 capture/helper processes, and the concrete PortraitMatcher plus local OCR.
 """
 import gc
+import copy
 import importlib.util
 import json
 import os
@@ -18,7 +19,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PySide6 import QtCore, QtWidgets
     from shiboken6 import isValid
-    from native_smoke import OverlayDutyTrace, start_overlay_duty_probe
+    from native_smoke import OverlayDutyTrace, _start_overlay_duty_mode
 except ImportError:
     QtWidgets = None
 
@@ -61,6 +62,87 @@ class DutyTraceTests(unittest.TestCase):
         value=trace.summary()
         self.assertEqual(value['capture_visible_samples'],1)
         self.assertEqual(value['capture_samples'],2)
+    def test_v1_cleanup_accepts_only_documented_cleared_stdin(self):
+        from native_smoke import _duty_one_shot_process_closed
+        process=SimpleNamespace(poll=lambda:0,stdin=None,stdout=SimpleNamespace(closed=True),stderr=SimpleNamespace(closed=True))
+        self.assertTrue(_duty_one_shot_process_closed(process))
+        process.stdin=SimpleNamespace(closed=True);self.assertTrue(_duty_one_shot_process_closed(process))
+        process.stdin.closed=False;self.assertFalse(_duty_one_shot_process_closed(process));process.stdin=None
+        for key in ('stdout','stderr'):
+            original=getattr(process,key);setattr(process,key,None)
+            self.assertFalse(_duty_one_shot_process_closed(process));setattr(process,key,original)
+            original.closed=False;self.assertFalse(_duty_one_shot_process_closed(process));original.closed=True
+        process.poll=lambda:None;self.assertFalse(_duty_one_shot_process_closed(process))
+
+    def test_eventual_stop_cleanup_requires_process_pipes_job_and_owner(self):
+        from native_smoke import _duty_session_cleanup
+        import threading
+        def event():
+            result=threading.Event();result.set();return result
+        owner=SimpleNamespace(revoked=event(),close_done=event(),call_done=event())
+        process=SimpleNamespace(pid=22,poll=lambda:1,stdin=SimpleNamespace(closed=True),
+            stdout=SimpleNamespace(closed=True),stderr=SimpleNamespace(closed=True))
+        transport=SimpleNamespace(process=process,generation=4,revoked=event(),io_done=event(),stderr_done=event(),
+            ready_for_replacement=event(),job=SimpleNamespace(handle=None),job_closed=True,termination_requested_while_alive=True,diagnostic=bytearray())
+        capture=SimpleNamespace(cleanup_pending=False)
+        receipt=dict(helper_pid=22,helper_created=333,session_generation=4)
+        def observed():
+            with patch('native_smoke._duty_process_created',return_value=333):
+                return _duty_session_cleanup(capture,owner,transport,receipt,observed_ms=800.)
+        self.assertIsNotNone(observed())
+        for obj,key in ((owner,'revoked'),(owner,'close_done'),(owner,'call_done'),(transport,'revoked'),
+                        (transport,'io_done'),(transport,'stderr_done'),(transport,'ready_for_replacement')):
+            getattr(obj,key).clear();self.assertIsNone(observed());getattr(obj,key).set()
+        process.poll=lambda:None;self.assertIsNone(observed());process.poll=lambda:1
+        for key in ('stdin','stdout','stderr'):
+            getattr(process,key).closed=False;self.assertIsNone(observed());getattr(process,key).closed=True
+        transport.job.handle=123;self.assertIsNone(observed());transport.job.handle=None
+        transport.job_closed=False;self.assertIsNone(observed());transport.job_closed=True
+        capture.cleanup_pending=True;self.assertIsNone(observed());capture.cleanup_pending=False
+        process.pid=23
+        with self.assertRaisesRegex(AssertionError,'different helper'):observed()
+
+    def test_full_two_mode_report_with_actual_widget_layout_fits_original_budget(self):
+        # Real Qt layout, synthetic report envelope. This is a budget regression,
+        # not an observed Windows capture/process acceptance report.
+        from engine import load_data
+        from native_ui import Overlay
+        from native_state import display_cards
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        from synthetic_vision import configure_data
+        from tests.test_native_packaging import overlay_duty_fixture,NativePackagingTests
+        app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        data=load_data(Path(__file__).resolve().parents[1]/'fixtures/demo.json');configure_data(data)
+        overlay=Overlay();names=['星火共鸣','晶盾回路','风步微光']
+        try:
+            overlay.set_cards('星火术士（演示）',display_cards(data,'星火术士（演示）',names),
+                '2026-10-14','数据包 演示 / 游戏资料 演示','英雄/候选连续高置信自动识别')
+            overlay._fit_layout(ClientRect(20,20,960,600),1);overlay.show();app.processEvents()
+            value=overlay_duty_fixture();value.update(NativePackagingTests.geometry_fixture())
+            value.update(overlay_layout_widgets=inspect_smoke_layout(overlay),
+                status='failed',error='X'*2000,error_traceback='T'*4000,error_type='AssertionError',
+                checks=['Completed exact owned-native diagnostic check '+str(i)+' x'*80 for i in range(25)],
+                screenshot='C:/owned-synthetic-report/windows-native-scale200-overlay.png',
+                screenshot_method='Qt QWidget.grab of our synthetic mock and overlay only, composited locally; OS capture/OCR separately asserted',
+                hero_transition_observations=[dict(hero='星火术士（演示）',confident=True)]*2)
+            duty=value['overlay_duty_cycle']
+            # Real Windows handles/creation/QPC values are wider than tiny fixture IDs.
+            for section in (duty,duty['baseline']):
+                for row in section['cases']:
+                    for phase in row['phases']:
+                        phase['window_identity']=[4294967295,4294967295,'Q'*256]
+                        phase['current_window_identity']=phase['window_identity']
+                        for state in ('state_before','state_at_phase'):
+                            for key in phase[state]:phase[state][key]=1000000000.123456
+            duty['active_mode']='persistent';duty['active_case']=copy.deepcopy(duty['cases'][-1])
+            duty['active_case']['phase_state']='stop-cleanup'
+            encoded=(json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
+            self.assertGreater(len(encoded),100_000)
+            self.assertLessEqual(len(encoded),128*1024)
+        finally:
+            overlay.close();overlay.deleteLater()
+            QtCore.QCoreApplication.sendPostedEvents(None,QtCore.QEvent.Type.DeferredDelete);app.processEvents()
 
 
 @unittest.skipIf(QtWidgets is None or importlib.util.find_spec('cv2') is None or importlib.util.find_spec('rapidocr') is None,
@@ -127,17 +209,18 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 control.target=WindowInfo(123,456,'Owned portable fixture','OwnedFixture')
                 control.target_allowed=lambda:True;control.capture_metadata=lambda:None
                 control.state.start(control.target.identity)
-                finished=[];errors=[];report={};checks=[]
+                finished=[];errors=[];report={'mode':'one-shot','cases':[]}
                 def guarded(fn):
                     try:fn()
                     except Exception as exc:errors.append(exc)
                 with patch('session_windows.process_metadata',return_value=object()):
-                    start_overlay_duty_probe(control,app=self.app,u=u,paint_mock=paint,report=report,checks=checks,
+                    _start_overlay_duty_mode(control,app=self.app,u=u,paint_mock=paint,mode_report=report,
                                              save=lambda:None,run=guarded,done=lambda:finished.append(True))
                     self.wait(lambda:finished or errors,seconds=45)
                 if errors:raise errors[0]
-                self.assertTrue(report['overlay_duty_cycle_passed'])
-                rows=report['overlay_duty_cycle']['cases']
+                # Portable plumbing never sets the full two-mode native acceptance flag.
+                self.assertNotIn('overlay_duty_cycle_passed',report)
+                rows=report['cases']
                 self.assertEqual([row['name'] for row in rows],['unchanged','changed_roi','changed_hud','unknown_hud','stop_late'])
                 for row in rows:
                     self.assertEqual(row['capture_backend'],'owned-portable-fixture')

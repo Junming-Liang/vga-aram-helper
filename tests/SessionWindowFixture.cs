@@ -1,6 +1,7 @@
 // Original diagnostic fixture, not a League/Riot implementation or compatibility test.
-// It paints only its supplied local PNG, owns one window, and never opens another
-// process, sends input, installs hooks, accesses the network, or changes OS settings.
+// It paints only its supplied local PNG and can own one tiny diagnostic focus
+// sink. It never opens another process, sends input, installs hooks, accesses the
+// network, or changes OS settings.
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -17,12 +18,21 @@ internal static class SessionWindowFixture
     private const uint WM_ERASEBKGND = 0x0014, WM_TIMER = 0x0113;
     // Test harness may request recreation of this process's own HWND only.
     private const uint WM_RECREATE_OWNED = 0x8000 + 73;
+    // Zero-parameter commands accepted only by the activating CLIENT window.
+    // OPEN returns the exact owned sink HWND after a foreground attempt; RETURN
+    // returns 1 only after sink destruction and verified client foreground.
+    // The harness independently verifies ownership, geometry, and foreground.
+    private const uint WM_FOCUS_OWNED_SINK = 0x8000 + 74;
+    private const uint WM_RETURN_OWNED_CLIENT = 0x8000 + 75;
+    private const string FocusSinkClass = "VGAOwnedFocusSink";
+    private const string FocusSinkTitle = "VGA owned focus sink";
     private static readonly WndProc WindowProcedure = Dispatch;
+    private static readonly WndProc FocusSinkProcedure = DispatchFocusSink;
     private static Bitmap bitmap;
     private static string imagePath, readyPath, role, className;
     private static int x, y, width, height, lifetime, paintCount;
     private static bool recreating, noActivate;
-    private static IntPtr window;
+    private static IntPtr window, focusSink;
     private static readonly Stopwatch Clock = new Stopwatch();
 
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int x, y; }
@@ -100,6 +110,7 @@ internal static class SessionWindowFixture
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);
     [DllImport("user32.dll", ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll", ExactSpelling = true)] private static extern IntPtr GetForegroundWindow();
 
     private static int Number(string value, int min, int max)
     {
@@ -169,6 +180,7 @@ internal static class SessionWindowFixture
                     finally { EndPaint(hwnd, ref paint); }
                     return IntPtr.Zero;
                 case WM_RECREATE_OWNED:
+                    CloseOwnedFocusSink();
                     // Allocate while the old HWND still exists, so the new handle
                     // cannot equal the old one. Keep PID/creation time unchanged.
                     IntPtr previous = window;
@@ -183,6 +195,28 @@ internal static class SessionWindowFixture
                     ShowOwnedWindow();
                     Ready();
                     return IntPtr.Zero;
+                case WM_FOCUS_OWNED_SINK:
+                    if (hwnd != window || role != "client" || noActivate ||
+                        wParam != UIntPtr.Zero || lParam != IntPtr.Zero) return IntPtr.Zero;
+                    if (focusSink == IntPtr.Zero)
+                    {
+                        // Ordinary, independent top-level window in this same
+                        // foreground process. Never resize/hide the PNG client.
+                        focusSink = CreateWindowExW(0, FocusSinkClass, FocusSinkTitle, 0x00C80000u,
+                            0, 0, 160, 96, IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
+                        if (focusSink == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                    ShowWindow(focusSink, 5); // SW_SHOW
+                    SetForegroundWindow(focusSink);
+                    return focusSink;
+                case WM_RETURN_OWNED_CLIENT:
+                    if (hwnd != window || role != "client" || noActivate ||
+                        wParam != UIntPtr.Zero || lParam != IntPtr.Zero || focusSink == IntPtr.Zero) return IntPtr.Zero;
+                    // Switch while our sink still holds foreground permission,
+                    // then close only that sink. No external window is targeted.
+                    SetForegroundWindow(window);
+                    CloseOwnedFocusSink();
+                    return window == hwnd && focusSink == IntPtr.Zero && GetForegroundWindow() == hwnd ? new IntPtr(1) : IntPtr.Zero;
                 case WM_TIMER:
                     if (Clock.ElapsedMilliseconds >= lifetime * 1000L) DestroyWindow(hwnd);
                     return IntPtr.Zero;
@@ -191,6 +225,7 @@ internal static class SessionWindowFixture
                     return IntPtr.Zero;
                 case WM_DESTROY:
                     KillTimer(hwnd, new UIntPtr(1));
+                    if (hwnd == window) window = IntPtr.Zero;
                     if (!recreating) PostQuitMessage(0);
                     return IntPtr.Zero;
             }
@@ -202,6 +237,25 @@ internal static class SessionWindowFixture
             PostQuitMessage(1); // Never propagate a managed exception through USER32.
             return IntPtr.Zero;
         }
+    }
+
+    private static IntPtr DispatchFocusSink(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
+    {
+        // Separate callback: closing this window cannot terminate the PNG fixture
+        // or execute its paint, timer, recreation, or diagnostic commands.
+        if (message == WM_DESTROY)
+        {
+            if (hwnd == focusSink) focusSink = IntPtr.Zero;
+            return IntPtr.Zero;
+        }
+        // DefWindowProc handles ordinary painting and WM_CLOSE/DestroyWindow.
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    private static void CloseOwnedFocusSink()
+    {
+        if (focusSink != IntPtr.Zero && !DestroyWindow(focusSink))
+            throw new Win32Exception("Fixture focus sink destroy failed.");
     }
 
     private static IntPtr CreateOwnedWindow()
@@ -270,6 +324,12 @@ internal static class SessionWindowFixture
             wc.hInstance = GetModuleHandleW(null); wc.lpszClassName = className;
             wc.hCursor = LoadCursorW(IntPtr.Zero, new IntPtr(32512));
             if (RegisterClassExW(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (role == "client" && !noActivate)
+            {
+                wc.lpfnWndProc = FocusSinkProcedure; wc.lpszClassName = FocusSinkClass;
+                wc.hbrBackground = new IntPtr(6); // COLOR_WINDOW + 1; no PNG rendering.
+                if (RegisterClassExW(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
             window = CreateOwnedWindow();
             Clock.Start();
             ShowOwnedWindow();
@@ -286,9 +346,12 @@ internal static class SessionWindowFixture
         catch (Exception error) { RecordError(error); return 1; }
         finally
         {
+            // Cleanup also runs after startup/message-loop errors or main close.
+            if (focusSink != IntPtr.Zero) DestroyWindow(focusSink);
             if (window != IntPtr.Zero) DestroyWindow(window);
             if (bitmap != null) bitmap.Dispose();
             GC.KeepAlive(WindowProcedure);
+            GC.KeepAlive(FocusSinkProcedure);
         }
     }
 }

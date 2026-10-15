@@ -26,7 +26,7 @@ class Adapter:
   app.processEvents();return True
  def rect(self,hwnd,pointer):
   actual=pointer._obj;actual.left=self.x;actual.top=self.y;actual.right=self.x+round(self.overlay.width()*self.ratio())+(10000 if self.fail_bounds else 0);actual.bottom=self.y+round(self.overlay.height()*self.ratio());return True
- def configure_overlay(self,*args):return True
+ def configure_overlay(self,*args,**kwargs):return True
 capture=Adapter();overlay=Overlay(capture);capture.overlay=overlay
 records=load_data(ROOT/'fixtures/demo.json');names=['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']
 cards=display_cards(records,'星火术士（演示）',names)

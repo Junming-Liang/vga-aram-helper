@@ -220,7 +220,7 @@ class ReleaseFixture(unittest.TestCase):
              'packaging/VGA-Aram-Helper.spec', 'scripts/build_minimal_opencv.py', 'scripts/minimal_opencv_package.py',
              'scripts/probe_opencv_parity.py', 'packaging/opencv-minimal-patch.py', 'packaging/opencv-build-requirements.txt',
              'WINDOWS_MINIMAL_OPENCV_EXPERIMENT.md')}
-        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, *gate.selection_fixture.SOURCE_FILES, *gate.duty_contract.SOURCE_FILES, 'frame_ocr_cache.py'):
+        for name in (*gate.wgc_fixture.SOURCE_FILES, *gate.session_capture_fixture.SOURCE_FILES, *gate.HERO_GENUINE_FILES, *gate.SELECTION_GENUINE_FILES, *gate.selection_fixture.SOURCE_FILES, *gate.duty_contract.SOURCE_FILES, 'frame_ocr_cache.py'):
             self.source_entries.setdefault(name, b'Unit-test source fixture')
         for name in gate.DPI_SOURCE_FILES:
             self.source_entries[name] = ('Distinct unit-test source: ' + name + '\r\n').encode()
@@ -234,7 +234,8 @@ class ReleaseFixture(unittest.TestCase):
             for row in aggregate['runs']:
                 row['fixture_source_sha256'] = aggregate['source_files']['tests/SessionWindowFixture.cs']
             aggregate['fixture_source_sha256'] = aggregate['runs'][0]['fixture_source_sha256']
-        for _, _, smoke, _ in self.native_reports():
+        for _, _, smoke, native in self.native_reports():
+            native['overlay_duty_cycle']['scene_binding']['fixture_sha256'] = hashlib.sha256(self.source_entries['fixtures/auto-scene.png']).hexdigest()
             smoke.update(executable_size=self.exe.stat().st_size, source_commit=SHA,
                 source_files={name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.duty_contract.SOURCE_FILES})
         self.access = {'source_commit': SHA, 'application_source': {'filename': source.name,
@@ -270,6 +271,29 @@ class ReleaseFixture(unittest.TestCase):
                 detail['helper']={'manifest':helper,'sha256':helper['sha256'],'size':helper['size']}
                 report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-{kind}-scale{round(scale*100)}.json', detail=detail))
             self.wgc_reports[kind]=report
+        from test_wgc_session_build import manifest as session_manifest, passing_report as session_report
+        session_helper = session_manifest()
+        session_helper.update(source_commit=SHA, source_files={name:{'sha256':hashlib.sha256(self.source_entries[name]).hexdigest(),
+            'size':len(self.source_entries[name])} for name in gate.session_capture_fixture.SOURCE_FILES})
+        session_helper['source_sha256'] = session_helper['source_files']['native/wgc_session_capture.cpp']['sha256']
+        session_helper['build_recipe_sha256'] = session_helper['source_files']['scripts/build_wgc_session_capture.py']['sha256']
+        self.build['wgc_session_helper_build'] = session_helper
+        self.build['archive_inventory'].update(wgc_session_helper=session_helper, launch_script='launcher')
+        archive_patch=patch.object(gate,'verify_frozen_session_archive',return_value=session_helper)
+        archive_patch.start();self.addCleanup(archive_patch.stop)
+        self.session_capture_reports = {}
+        for frozen, kind in ((False,'source'), (True,'frozen')):
+            report = dict(schema_version=1, status='passed', frozen=frozen, source_commit=SHA,
+                applicationVersion=VERSION, scales=[1,1.5,2], helper_build=session_helper,
+                **gate.session_capture_fixture.diagnostic_contract(True),
+                source_files={name:row['sha256'] for name,row in session_helper['source_files'].items()}, runs=[])
+            if frozen:report.update(executable_sha256=self.hash, executable_size=self.exe.stat().st_size,
+                                    archive_inventory=copy.deepcopy(self.build['archive_inventory']))
+            for scale in (1,1.5,2):
+                detail=session_report(scale=scale,frozen=frozen,application=True)
+                detail['helper']={'manifest':session_helper,'sha256':session_helper['sha256'],'size':session_helper['size']}
+                report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-session-application-{kind}-scale{round(scale*100)}.json', detail=detail))
+            self.session_capture_reports[kind]=report
         self.write_reports()
         for number, name in enumerate(name for name in gate.EVIDENCE_NAMES if name.endswith('.png')):
             (self.evidence / name).write_bytes(self.make_png(pixels=(b'\x00' + bytes([number, 34, 51]) * 2) * 2))
@@ -299,6 +323,8 @@ class ReleaseFixture(unittest.TestCase):
     def write_reports(self):
         for kind, report in self.wgc_reports.items():
             self.write_json(self.evidence / f'windows-wgc-{kind}.json', report)
+        for kind, report in self.session_capture_reports.items():
+            self.write_json(self.evidence / f'windows-wgc-session-application-{kind}.json', report)
         self.write_json(self.evidence / 'windows-automatic-capture.json', self.automatic_capture)
         self.write_json(self.evidence / 'windows-package-size.json', self.package_size)
         self.write_json(self.evidence / 'windows-ota-smoke.json', self.ota)
@@ -454,6 +480,15 @@ class ReleaseFixture(unittest.TestCase):
             original_hash=native['executable_sha256'];native['executable_sha256']='0'*64;self.write_reports()
             with self.assertRaises(gate.VerificationError):self.verify()
             native['executable_sha256']=original_hash
+
+    def test_native_duty_scene_requires_the_source_archive_fixture_bytes(self):
+        for scale, _, _, native in self.native_reports():
+            original = native['overlay_duty_cycle']['scene_binding']['fixture_sha256']
+            native['overlay_duty_cycle']['scene_binding']['fixture_sha256'] = '0'*64
+            self.write_reports()
+            with self.subTest(scale=scale), self.assertRaisesRegex(gate.VerificationError, 'externally verified source bytes'):
+                self.verify()
+            native['overlay_duty_cycle']['scene_binding']['fixture_sha256'] = original
 
     def test_native_duty_evidence_cannot_be_replaced_by_success_flag(self):
         for scale,_,_,native in self.native_reports():
@@ -807,6 +842,34 @@ class ReleaseFixture(unittest.TestCase):
             self.write_reports()
             with self.subTest(error=error), self.assertRaises(gate.VerificationError):
                 self.verify()
+
+    def test_application_session_requires_source_and_exact_frozen_acceptance(self):
+        for kind in ('source', 'frozen'):
+            self.write_reports();(self.evidence/f'windows-wgc-session-application-{kind}.json').unlink()
+            with self.assertRaises(gate.VerificationError):self.verify()
+
+    def test_application_session_rejects_standalone_missing_guard_and_forged_native_exit(self):
+        original=copy.deepcopy(self.session_capture_reports)
+        edits=(lambda reports:reports['source'].update(diagnostic_entrypoint='standalone'),
+               lambda reports:reports['frozen'].update(executable_sha256='0'*64),
+               lambda reports:reports['source']['runs'][0]['detail'].update(idle_overlay_passed=False),
+               lambda reports:reports['frozen']['runs'][1]['detail']['shutdown_stress']['rows'][0].__setitem__(13,True),
+               lambda reports:reports['source']['runs'][2].update(report='unobserved-scale.json'))
+        for edit in edits:
+            self.session_capture_reports=copy.deepcopy(original);edit(self.session_capture_reports);self.write_reports()
+            with self.assertRaises(gate.VerificationError):self.verify()
+
+    def test_application_session_rereads_exact_source_lengths_and_final_helper(self):
+        helper=self.build['wgc_session_helper_build']
+        helper['source_files']['wgc_session_capture.py']['size']+=1
+        self.session_capture_reports['frozen']['archive_inventory']=copy.deepcopy(self.build['archive_inventory'])
+        self.write_reports()
+        with self.assertRaisesRegex(gate.VerificationError,'source bytes'):self.verify()
+        helper['source_files']['wgc_session_capture.py']['size']-=1
+        self.session_capture_reports['frozen']['archive_inventory']=copy.deepcopy(self.build['archive_inventory'])
+        self.write_reports()
+        with patch.object(gate,'verify_frozen_session_archive',side_effect=gate.VerificationError('Owned helper mismatch')):
+            with self.assertRaisesRegex(gate.VerificationError,'Owned helper mismatch'):self.verify()
 
     def test_reject_missing_document_and_bad_sums(self):
         (self.release / 'LICENSE').unlink()

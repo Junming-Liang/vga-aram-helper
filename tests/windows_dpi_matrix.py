@@ -388,9 +388,9 @@ def run_child(args):
             # Only geometry/style methods are exposed; no capture, enumeration,
             # hotkey, game-window discovery, input, OCR, or network actions.
             u = native.u
-            def configure_overlay(self, hwnd, click_through):
+            def configure_overlay(self, hwnd, click_through, *, opaque=False):
                 native.require_owned(hwnd)
-                return delegate.configure_overlay(hwnd, click_through)
+                return delegate.configure_overlay(hwnd, click_through, opaque=opaque)
         overlay = module.Overlay(OwnedCapture())
         overlay.set_cards('原创测试英雄', [dict(slot=i, name=f'原创候选{i}', sourceTier=f'T{i}',
             sourceTierLabel='原创测试评级', description='原创尺寸测试说明，验证三项文字是否完整显示。' * 3,

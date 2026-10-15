@@ -6,12 +6,12 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from windows_automatic_capture import assert_pixels, make_original_png, make_hidden_capture_observer
+from windows_automatic_capture import assert_pixels, make_original_png, make_hidden_capture_observer, force_first_copy_blank
 from windows_session_fixture import validate_png
 
 
@@ -95,6 +95,7 @@ class WorkerCaptureObserverTests(unittest.TestCase):
             self.call_worker(observer, object(), (0.,0.,1.,1.))
         self.assertFalse(observed)
 
+
     def test_wrong_pixels_still_fail(self):
         observer, capture, _, _, observed, _ = self.fixture()
         stream = io.BytesIO(); Image.new('RGB', (64,64), 'black').save(stream,format='PNG')
@@ -102,6 +103,36 @@ class WorkerCaptureObserverTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, 'did not match'):
             self.call_worker(observer, object(), (0.,0.,1.,1.))
         self.assertFalse(observed)
+
+
+class LegacyGdiFixtureIsolationTests(unittest.TestCase):
+    def fixture(self):
+        events=[]
+        class Capture:
+            _persistent=object();_wgc=object();cleanup_pending=False
+            def retire_session(self):events.append('retire')
+            def _copy_pixels(self,*args):
+                events.append('actual-copy');return Image.new('RGB',(64,64),'white')
+        return Capture(),events
+
+    def test_retirement_precedes_explicit_legacy_backend_and_restores_it(self):
+        capture,events=self.fixture();persistent,one_shot=capture._persistent,capture._wgc
+        with force_first_copy_blank(capture) as calls:
+            self.assertEqual(events,['retire'])
+            self.assertIsNone(capture._persistent);self.assertIsNone(capture._wgc)
+            self.assertEqual(capture._copy_pixels(1,64,64,0,0).getpixel((0,0)),(0,0,0))
+            self.assertEqual(capture._copy_pixels(1,64,64,0,0).getpixel((0,0)),(255,255,255))
+            self.assertEqual(len(calls),2)
+        self.assertIs(capture._persistent,persistent);self.assertIs(capture._wgc,one_shot)
+        self.assertEqual(events,['retire','actual-copy'])
+
+    def test_pending_session_cannot_be_bypassed_to_force_gdi(self):
+        capture,events=self.fixture();capture.cleanup_pending=True;persistent=capture._persistent
+        with patch('windows_automatic_capture.time.monotonic',side_effect=[0,4]):
+            with self.assertRaisesRegex(RuntimeError,'cleanup'):
+                with force_first_copy_blank(capture):self.fail('Unclosed session entered GDI fixture')
+        self.assertIs(capture._persistent,persistent);self.assertEqual(events,['retire'])
+
 
 
 if __name__ == '__main__':

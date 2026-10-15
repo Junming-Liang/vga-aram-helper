@@ -24,6 +24,7 @@ from windows_exe_smoke import isolated_windows_environment, smoke_workspace
 from windows_ota_smoke import Deadline, NativeJob, read_json, sha256, write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from windows_session_fixture import CLASSES, TITLES, compile_fixture, fixture_argv, validate_ready
+from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT
 
 CLIENT_PNG = ROOT / 'fixtures' / 'champselect-synthetic.png'
 GAME_PNG = ROOT / 'fixtures' / 'auto-scene.png'
@@ -42,6 +43,7 @@ SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
     'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
     'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
 SOURCE_FILES = ('native_ui.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
+    'persistent_capture_adapter.py', 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
     'hero_strength.py', 'champion_select.py', 'selection_session.py', 'session_windows.py',
     'selection_smoke.py', 'synthetic_vision.py', 'launcher.py', 'tests/windows_selection_smoke.py',
     'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs',
@@ -91,6 +93,9 @@ def declare_desktop(native):
         'GetForegroundWindow': ([], W.HWND),
         'SetForegroundWindow': ([W.HWND], W.BOOL),
         'ShowWindow': ([W.HWND, ctypes.c_int], W.BOOL),
+        'IsWindow': ([W.HWND], W.BOOL),
+        'SendMessageTimeoutW': ([W.HWND,W.UINT,W.WPARAM,W.LPARAM,W.UINT,W.UINT,ctypes.POINTER(ctypes.c_size_t)],ctypes.c_ssize_t),
+        'ClientToScreen': ([W.HWND,ctypes.POINTER(W.POINT)],W.BOOL),
         'SystemParametersInfoW': ([W.UINT, W.UINT, ctypes.c_void_p, W.UINT], W.BOOL),
         'SetThreadDpiAwarenessContext': ([ctypes.c_void_p], ctypes.c_void_p),
         'GetThreadDpiAwarenessContext': ([], ctypes.c_void_p),
@@ -128,6 +133,54 @@ def foreground_owned(native, process, executable, role, window, dimensions):
         native.u.ShowWindow(window['hwnd'], 5)
         native.u.SetForegroundWindow(window['hwnd'])
     return int(native.u.GetForegroundWindow() or 0) == window['hwnd']
+
+
+def client_physical_rect(native,window):
+    rect=W.RECT();point=W.POINT(0,0)
+    require(native.u.GetClientRect(window['hwnd'],ctypes.byref(rect))
+            and native.u.ClientToScreen(window['hwnd'],ctypes.byref(point)), 'Owned client geometry query failed')
+    return {'x':point.x,'y':point.y,'width':rect.right-rect.left,'height':rect.bottom-rect.top}
+
+
+def drive_focus_fixture(native,process,executable,window,dimensions,phase,result):
+    """Only the exact Job-owned foreground fixture switches its own two HWNDs."""
+    assert_owned_window(native,process,executable,'client',window,dimensions)
+    evidence=result.setdefault('focus_fixture',{})
+    before=client_physical_rect(native,window)
+    if phase=='testing-client-foreground-loss':
+        if evidence.get('sink'):return
+        require(foreground_owned(native,process,executable,'client',window,dimensions),
+                'Owned client must be foreground before its focus-sink request')
+        response=ctypes.c_size_t()
+        sent=bool(native.u.SendMessageTimeoutW(window['hwnd'],WM_FOCUS_OWNED_SINK,0,0,0x2,1000,ctypes.byref(response)))
+        evidence.update(request_message=WM_FOCUS_OWNED_SINK,request_sent=sent,response_hwnd=response.value,
+                        client_rect_before=before)
+        require(sent and response.value>0,'Owned focus-sink request failed or timed out')
+        sinks=native.windows(executable,title=FOCUS_SINK_TITLE)
+        expected={'hwnd':response.value,'pid':process['pid']}
+        require(sinks==[expected],'Focus sink is not the exact Job-owned fixture window')
+        name=ctypes.create_unicode_buffer(256)
+        require(native.u.GetClassNameW(response.value,name,len(name)) and name.value==FOCUS_SINK_CLASS,
+                'Owned focus-sink class differs')
+        require(int(native.u.GetForegroundWindow()or 0)==response.value,'Owned focus sink did not receive foreground')
+        require(client_physical_rect(native,window)==before and native.u.IsWindowVisible(window['hwnd']),
+                'Focus sink changed or hid original client geometry')
+        evidence.update(sink=expected,sink_class=name.value,sink_title=FOCUS_SINK_TITLE,
+                        client_rect_during=before,client_visible_during=True,foreground_sink_hwnd=response.value)
+    elif phase=='requesting-client-focus-return':
+        if evidence.get('sink_destroyed'):return
+        sink=evidence.get('sink');require(type(sink)is dict,'Missing owned focus-sink identity')
+        require(native.windows(executable,title=FOCUS_SINK_TITLE)==[sink]
+                and int(native.u.GetForegroundWindow()or 0)==sink['hwnd'], 'Owned focus sink changed before return')
+        response=ctypes.c_size_t()
+        sent=bool(native.u.SendMessageTimeoutW(window['hwnd'],WM_RETURN_OWNED_CLIENT,0,0,0x2,1000,ctypes.byref(response)))
+        evidence.update(return_message=WM_RETURN_OWNED_CLIENT,return_sent=sent,return_response_hwnd=response.value)
+        require(sent and response.value==1,'Owned client return request failed or timed out')
+        require(not native.u.IsWindow(sink['hwnd']) and int(native.u.GetForegroundWindow()or 0)==window['hwnd'],
+                'Owned sink did not close and restore original client foreground')
+        require(client_physical_rect(native,window)==evidence['client_rect_before']
+                and native.u.IsWindowVisible(window['hwnd']),'Original client geometry changed on return')
+        evidence.update(sink_destroyed=True,client_foreground_returned=True,client_rect_returned=before)
 
 
 def wait_fixture(native, process, executable, role, ready_path, dimensions, budget):
@@ -176,6 +229,23 @@ def contains(outer, inner):
     return (inner['x'] >= outer['x'] and inner['y'] >= outer['y']
             and inner['x'] + inner['width'] <= outer['x'] + outer['width']
             and inner['y'] + inner['height'] <= outer['y'] + outer['height'])
+
+
+def validate_focus_transition(value,client_hwnd,client_pid,client_rect,overlay_hwnd):
+    require(type(value)is dict,'Actual owned focus-transition evidence missing')
+    require(type(value.get('sink_hwnd'))is int and value['sink_hwnd']>0 and value['sink_hwnd']!=client_hwnd
+            and type(value.get('sink_pid'))is int and value['sink_pid']==client_pid
+            and value.get('sink_class')==FOCUS_SINK_CLASS and value.get('sink_title')==FOCUS_SINK_TITLE
+            and type(value.get('foreground_sink_hwnd'))is int and value['foreground_sink_hwnd']==value['sink_hwnd'],
+            'Focus loss must be observed on the exact same-process diagnostic sink')
+    require(type(value.get('overlay_hwnd'))is int and value['overlay_hwnd']==overlay_hwnd,
+            'Focus transition changed hero overlay identity')
+    for field in ('overlay_visible_before','overlay_native_visible_before','client_visible_during',
+                  'overlay_hidden_after','sink_destroyed','client_foreground_returned'):
+        require(value.get(field)is True,'Actual focus transition missing: '+field)
+    for field in ('client_rect_before','client_rect_during','client_rect_returned'):
+        require(rectangle(value.get(field),field)==client_rect,'Focus transition changed original client geometry')
+    return value
 
 
 def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=None):
@@ -273,6 +343,7 @@ def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=N
     safety = value.get('client_hero_safety')
     require(type(safety) is dict and all(safety.get(key) is True for key in SAFETY_FIELDS),
             'Hero reference revocation/recovery evidence missing')
+    validate_focus_transition(value.get('foreground_transition'),value['clientHwnd'],value['clientPid'],client,detail['overlay_hwnd'])
     return value
 
 
@@ -331,6 +402,20 @@ def validate_aggregate(value, version, *, frozen, source_commit=None, executable
                     and type(observed.get('hwnd')) is int and observed['hwnd'] == row['detail'][role+'Hwnd']
                     and type(observed.get('pid')) is int and observed['pid'] == row['detail'][role+'Pid'],
                     'Selection owned process/window evidence differs: ' + role)
+        observed=row.get('focus_fixture');transition=row['detail']['foreground_transition']
+        require(type(observed)is dict and observed.get('sink')=={'hwnd':transition['sink_hwnd'],'pid':transition['sink_pid']}
+                and all(type(observed['sink'].get(k))is int for k in ('hwnd','pid')),
+                'Outer Job-owned focus sink differs from native observation')
+        for key,expected in (('request_message',WM_FOCUS_OWNED_SINK),('response_hwnd',transition['sink_hwnd']),
+                             ('return_message',WM_RETURN_OWNED_CLIENT),('return_response_hwnd',1)):
+            require(type(observed.get(key))is int and observed[key]==expected,'Owned focus command evidence differs: '+key)
+        for key in ('request_sent','return_sent','client_visible_during','sink_destroyed','client_foreground_returned'):
+            require(observed.get(key)is True,'Owned focus command did not complete: '+key)
+        for key in ('sink_class','sink_title','foreground_sink_hwnd'):
+            require(type(observed.get(key))is type(transition[key]) and observed[key]==transition[key],
+                    'Outer focus identity differs: '+key)
+        for key in ('client_rect_before','client_rect_during','client_rect_returned'):
+            require(rectangle(observed.get(key),key)==transition[key],'Outer focus geometry differs: '+key)
     for key in ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request'):
         require(value.get(key) is True, 'Legacy selection lifecycle missing: ' + key)
     for key in ('process_exited', 'owned_processes_exited', 'game_launched_after_selection_request',
@@ -431,7 +516,9 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 if value:
                     return value
                 current = read_json(handoff_path) if handoff_path.is_file() else {}
-                if current.get('phase') != 'testing-client-foreground-loss':
+                if current.get('phase') in ('testing-client-foreground-loss','requesting-client-focus-return'):
+                    drive_focus_fixture(native,client,fixture['client_exe'],client_window,sizes['client'],current['phase'],result)
+                else:
                     foreground_owned(native, client, fixture['client_exe'], 'client', client_window, sizes['client'])
                 return None
 

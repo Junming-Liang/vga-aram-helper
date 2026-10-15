@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import windows_selection_smoke as smoke
@@ -38,6 +38,11 @@ class SelectionHarnessTests(unittest.TestCase):
                     clientHwnd=100,clientPid=101,gameHwnd=200,gamePid=201,clientGeneration=2,
                     client_hero_reference=reference, client_hero_safety=dict.fromkeys(smoke.SAFETY_FIELDS,True),
                     **dict.fromkeys(smoke.FIELDS, True))
+        result['foreground_transition']={'sink_hwnd':400,'sink_pid':101,'sink_class':smoke.FOCUS_SINK_CLASS,
+            'sink_title':smoke.FOCUS_SINK_TITLE,'foreground_sink_hwnd':400,'client_visible_during':True,
+            'overlay_hwnd':300,'overlay_visible_before':True,'overlay_native_visible_before':True,
+            'overlay_hidden_after':True,'sink_destroyed':True,'client_foreground_returned':True,
+            **{key:dict(reference['client_rect']) for key in ('client_rect_before','client_rect_during','client_rect_returned')}}
         if frozen:
             result['executable_sha256']='c'*64
         return result
@@ -57,6 +62,12 @@ class SelectionHarnessTests(unittest.TestCase):
                    'completed_fields':list(smoke.FIELDS),
                    'client':{'hwnd':100,'pid':101,'class_name':smoke.CLASSES['client'],'client_size':[964,602]},
                    'game':{'hwnd':200,'pid':201,'class_name':smoke.CLASSES['game'],'client_size':[964,602]}}
+            row['focus_fixture']={key:copy.deepcopy(val) for key,val in row['detail']['foreground_transition'].items()
+                                  if key not in ('sink_hwnd','sink_pid','overlay_hidden_after','overlay_hwnd',
+                                                 'overlay_visible_before','overlay_native_visible_before')}
+            row['focus_fixture'].update(sink={'hwnd':400,'pid':101},request_message=smoke.WM_FOCUS_OWNED_SINK,
+                response_hwnd=400,request_sent=True,return_message=smoke.WM_RETURN_OWNED_CLIENT,
+                return_response_hwnd=1,return_sent=True)
             if frozen:
                 row['executable_sha256']='c'*64
             value['runs'].append(row)
@@ -224,6 +235,58 @@ class SelectionHarnessTests(unittest.TestCase):
         native.u.ShowWindow.assert_not_called()
         native.u.SetForegroundWindow.assert_not_called()
 
+    def test_focus_sink_evidence_rejects_foreign_identity_geometry_or_unobserved_return(self):
+        for key,new in (('sink_hwnd',100),('sink_hwnd',True),('sink_pid',999),('sink_pid',101.),
+                        ('sink_class','RiotWindowClass'),('sink_title','other'),('foreground_sink_hwnd',100),
+                        ('overlay_hwnd',400),('overlay_visible_before',False),('overlay_native_visible_before',False),
+                        ('overlay_hidden_after',False),('client_visible_during',False),
+                        ('sink_destroyed',False),('client_foreground_returned',False),
+                        ('client_rect_during',{'x':20.,'y':20,'width':964,'height':602}),
+                        ('client_rect_returned',{'x':21,'y':20,'width':964,'height':602})):
+            value=self.good_report();value['foreground_transition'][key]=new
+            with self.subTest(key=key),self.assertRaises(AssertionError):smoke.validate_report(value,'0.4.1')
+        for key,new in (('sink',{'hwnd':400,'pid':999}),('request_message',smoke.WM_RETURN_OWNED_CLIENT),
+                        ('request_sent',False),('response_hwnd',True),('return_sent',False),
+                        ('return_response_hwnd',100),('sink_destroyed',False),('foreground_sink_hwnd',100)):
+            value=self.good_aggregate();value['runs'][0]['focus_fixture'][key]=new
+            with self.subTest(key=key),self.assertRaises(AssertionError):smoke.validate_aggregate(value,'0.4.1',frozen=True)
+
+    def test_focus_request_checks_exact_fixture_ownership_before_sending(self):
+        native=Mock()
+        with patch.object(smoke,'assert_owned_window',side_effect=AssertionError('unowned')):
+            with self.assertRaisesRegex(AssertionError,'unowned'):
+                smoke.drive_focus_fixture(native,{},Path('owned.exe'),{'hwnd':100,'pid':101},(964,602),
+                                          'testing-client-foreground-loss',{})
+        native.u.SendMessageTimeoutW.assert_not_called()
+
+    def test_focus_sink_commands_are_bounded_same_process_and_idempotent(self):
+        import ctypes
+        rect={'x':20,'y':20,'width':964,'height':602};window={'hwnd':100,'pid':101};sink={'hwnd':400,'pid':101}
+        native=Mock();result={};foreground=[400];live=[True]
+        native.windows.return_value=[sink];native.u.IsWindowVisible.return_value=True
+        native.u.GetForegroundWindow.side_effect=lambda:foreground[0]
+        native.u.IsWindow.side_effect=lambda hwnd:live[0]
+        def send(hwnd,message,wparam,lparam,flags,timeout,response):
+            self.assertEqual((hwnd,wparam,lparam,flags,timeout),(100,0,0,2,1000))
+            if message==smoke.WM_FOCUS_OWNED_SINK:answer=400
+            else:
+                self.assertEqual(message,smoke.WM_RETURN_OWNED_CLIENT);answer=1;foreground[0]=100;live[0]=False
+            ctypes.cast(response,ctypes.POINTER(ctypes.c_size_t)).contents.value=answer
+            return 1
+        native.u.SendMessageTimeoutW.side_effect=send
+        def get_class(hwnd,buffer,size):buffer.value=smoke.FOCUS_SINK_CLASS;return len(buffer.value)
+        native.u.GetClassNameW.side_effect=get_class
+        with patch.object(smoke,'assert_owned_window'),patch.object(smoke,'client_physical_rect',return_value=rect),\
+             patch.object(smoke,'foreground_owned',return_value=True):
+            for _ in range(2):smoke.drive_focus_fixture(native,{'pid':101},Path('own.exe'),window,(964,602),
+                                                       'testing-client-foreground-loss',result)
+            self.assertEqual(native.u.SendMessageTimeoutW.call_count,1)
+            for _ in range(2):smoke.drive_focus_fixture(native,{'pid':101},Path('own.exe'),window,(964,602),
+                                                       'requesting-client-focus-return',result)
+            self.assertEqual(native.u.SendMessageTimeoutW.call_count,2)
+        self.assertTrue(result['focus_fixture']['sink_destroyed'])
+        self.assertTrue(result['focus_fixture']['client_foreground_returned'])
+
     def test_exited_owned_fixture_blocks_before_window_mutation(self):
         native = Mock()
         native.poll.return_value = 0
@@ -283,7 +346,7 @@ class SelectionHarnessTests(unittest.TestCase):
         self.assertIn('work = work.resolve()', source)
         self.assertIn('handoff_path = work / native_report_name(frozen, scale)', source)
         self.assertIn('for scale in SCALES:', source)
-        self.assertIn("current.get('phase') != 'testing-client-foreground-loss'",source)
+        self.assertIn("current.get('phase') in ('testing-client-foreground-loss','requesting-client-focus-return')",source)
         self.assertIn('print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)', source)
         self.assertLessEqual(smoke.MAX_SECONDS + smoke.DIRECTORY_CLEANUP_SECONDS, 270)
         self.assertEqual(smoke.JOB_CLEANUP_SECONDS, 15)
