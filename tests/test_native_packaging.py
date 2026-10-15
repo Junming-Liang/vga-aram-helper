@@ -4,7 +4,9 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -56,7 +58,10 @@ def overlay_duty_fixture():
                 roi=[.15,.25,.7,.35], capture_serial=10, captured_at=100.1,
                 emitted_ms=21. if name=='before_match' else 380.,applied_ms=22. if name=='before_match' else 381.,
                 compositor_validated_ms=21.5 if name=='before_match' else 380.5))
-        row=dict(name=kind,status='passed',timings_ms=dict(capture_start=5.,capture_return=20.,before_match_emitted=21.,
+        row=dict(name=kind,status='passed',initial_native_visible=True,initial_qt_visible=True,
+            measurement_clock=dict(name='perf_counter',implementation='QueryPerformanceCounter()',
+                monotonic=True,adjustable=False,resolution_seconds=1e-7),
+            timings_ms=dict(capture_start=5.,capture_return=20.,before_match_emitted=21.,
                 before_match_applied=22.,before_ocr_emitted=380.,before_ocr_applied=381.,gui_compositor_validated=380.5,final=740.),
             total_ms=740.,sampled_hidden_ms=(22. if kind=='unchanged' else 27.) if restored else 740.,sampled_visible_ms=(718. if kind=='unchanged' else 713.) if restored else 0.,
             sampled_inference_visible_ms=(718. if kind=='unchanged' else 713.) if restored else 0., max_sample_gap_ms=20.,native_visibility_samples=80,
@@ -450,6 +455,40 @@ class NativePackagingTests(unittest.TestCase):
         self.assertEqual(active['phases'][0]['state_before'],duty['cases'][4]['phases'][0]['state_before'])
         self.assertTrue(active['stop_cleanup']['pipes_closed'])
         self.assertEqual(active['guarded_idle_receipt']['helper_pid'],789)
+        for prefix,mode in (('duty',duty),('duty_baseline',duty['baseline'])):
+            for reported,original in zip(result[prefix+'_cases'],mode['cases']):
+                for key in ('sampled_visibility_transitions','native_visibility_samples','held_state_unchanged_samples',
+                            'capture_samples','capture_visible_samples','final_qt_visible','final_native_visible',
+                            'initial_qt_visible','initial_native_visible','measurement_clock'):
+                    self.assertEqual(reported[key],original[key])
+
+    def test_failure_summary_imports_product_sanitizer_without_inherited_root_path(self):
+        value=overlay_duty_fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);path=root/'native.json'
+            path.write_text(json.dumps(value),encoding='utf-8')
+            code=('import json,runpy,sys;from pathlib import Path;'
+                  'module=runpy.run_path(sys.argv[1],run_name="fixture_import");'
+                  'print(json.dumps(module["native_failure_summary"](Path(sys.argv[2]))))')
+            env=dict(os.environ);env.pop('PYTHONPATH',None)
+            completed=subprocess.run([sys.executable,'-I','-c',code,str(ROOT/'tests/windows_native_smoke.py'),str(path)],
+                cwd=root,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=15,check=True)
+            observed=json.loads(completed.stdout)
+            expected=native_smoke.native_failure_summary(path)
+            self.assertEqual(observed,expected)
+            self.assertEqual(len(observed['duty_cases']),5)
+            self.assertEqual(len(observed['duty_baseline_cases']),5)
+            self.assertIn('shutdown_diagnostic',observed['duty_cases'][-1]['stop_cleanup'])
+
+    def test_failure_summary_retains_invalid_transitions_without_private_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'native.json'
+            path.write_text(json.dumps({'overlay_duty_cycle':{'cases':[{
+                'sampled_visibility_transitions':[{'at_ms':1.,'visible':False,'private':'not-to-print'},
+                    {'at_ms':True,'visible':1},None,{'at_ms':float('inf'),'visible':True}]}]}}),encoding='utf-8')
+            result=native_smoke.native_failure_summary(path)
+            self.assertEqual(result['duty_cases'][0]['sampled_visibility_transitions'],[
+                {'at_ms':1.,'visible':False},{'invalid_transition':True},{'invalid_transition':True},{'visible':True}])
 
     def test_spec_has_native_dpi_and_no_console(self):
         spec = (ROOT/'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')

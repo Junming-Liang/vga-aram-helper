@@ -26,6 +26,58 @@ except ImportError:
 
 @unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
 class DutyTraceTests(unittest.TestCase):
+    def test_default_elapsed_clock_metadata_matches_perf_counter(self):
+        trace=OverlayDutyTrace('owned')
+        info=time.get_clock_info('perf_counter')
+        self.assertIs(trace.clock,time.perf_counter)
+        self.assertEqual(trace.measurement_clock,{'name':'perf_counter','implementation':info.implementation,
+            'monotonic':info.monotonic,'adjustable':info.adjustable,'resolution_seconds':info.resolution})
+
+    def test_equal_timestamps_preserve_sample_order_without_inventing_visibility(self):
+        now=[20.];trace=OverlayDutyTrace('owned',clock=lambda:now[0])
+        trace.sample(True);trace.sample(False)
+        now[0]=20.06;trace.mark('capture_start');trace.sample(False,capturing=True)
+        now[0]=20.20;trace.mark('capture_return');trace.sample(False,capturing=True)
+        now[0]=20.22;trace.sample(True)
+        now[0]=20.94;trace.mark('final');trace.sample(True)
+        value=trace.summary()
+        self.assertEqual(value['sampled_visibility_transitions'],[
+            {'at_ms':0.,'visible':True},{'at_ms':0.,'visible':False},{'at_ms':220.,'visible':True}])
+        self.assertEqual(value['sampled_hidden_ms'],220.)
+        self.assertEqual(value['sampled_visible_ms'],720.)
+        self.assertEqual(value['capture_visible_samples'],0)
+        # Coincident times remain coincident. The strict native contract may
+        # reject them; diagnostics must not fabricate a passing time offset.
+        self.assertEqual(value['sampled_visibility_transitions'][0]['at_ms'],
+            value['sampled_visibility_transitions'][1]['at_ms'])
+
+    def test_final_clamping_preserves_raw_sample_order_and_hidden_observation(self):
+        for earlier_restore in (False,True):
+            with self.subTest(earlier_restore=earlier_restore):
+                now=[0.];trace=OverlayDutyTrace('owned',clock=lambda:now[0])
+                trace.sample(True);now[0]=.001;trace.sample(False)
+                now[0]=.2;trace.mark('capture_return');trace.sample(False,capturing=True)
+                if earlier_restore:now[0]=.22;trace.sample(True)
+                now[0]=.8;trace.mark('final');trace.sample(True)
+                now[0]=.801;trace.sample(False,capturing=True)
+                value=trace.summary();points=value['sampled_visibility_transitions']
+                self.assertEqual([point['visible'] for point in points],[True,False,True,False])
+                self.assertEqual(points[-1],{'at_ms':800.,'visible':False})
+                self.assertEqual(points[-2]['at_ms'],220. if earlier_restore else 800.)
+                self.assertEqual(value['capture_samples'],2)
+                self.assertEqual(value['capture_visible_samples'],0)
+
+    def test_injected_clock_elapsed_time_has_no_monotonic_origin_dependency(self):
+        now=[1_000_000.];trace=OverlayDutyTrace('owned',clock=lambda:now[0])
+        now[0]+=.25
+        with patch('native_smoke.time.monotonic',return_value=-1_000_000.):
+            self.assertEqual(trace.elapsed_ms(),250.)
+            trace.mark('final');trace.sample(False)
+        self.assertEqual(trace.events['final'],250.)
+        self.assertEqual(trace.samples,[(250.,False,False)])
+        self.assertEqual(trace.measurement_clock['name'],'injected')
+        self.assertIsNone(trace.measurement_clock['resolution_seconds'])
+
     def test_sampled_durations_do_not_claim_an_old_executable_baseline(self):
         now=[20.]
         trace=OverlayDutyTrace('owned',clock=lambda:now[0])
@@ -62,6 +114,14 @@ class DutyTraceTests(unittest.TestCase):
         value=trace.summary()
         self.assertEqual(value['capture_visible_samples'],1)
         self.assertEqual(value['capture_samples'],2)
+    def test_tied_visible_acquisition_sample_cannot_disappear_in_summary(self):
+        now=[0.];trace=OverlayDutyTrace('bad_capture',clock=lambda:now[0])
+        trace.sample(False,capturing=True);trace.sample(True,capturing=True)
+        now[0]=.2;trace.mark('capture_return');trace.mark('final');trace.sample(False)
+        value=trace.summary()
+        self.assertEqual(value['capture_visible_samples'],1)
+        self.assertEqual(value['capture_samples'],2)
+        self.assertEqual([point['visible'] for point in value['sampled_visibility_transitions']],[False,True,False])
     def test_v1_cleanup_accepts_only_documented_cleared_stdin(self):
         from native_smoke import _duty_one_shot_process_closed
         process=SimpleNamespace(poll=lambda:0,stdin=None,stdout=SimpleNamespace(closed=True),stderr=SimpleNamespace(closed=True))
@@ -222,8 +282,13 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 self.assertNotIn('overlay_duty_cycle_passed',report)
                 rows=report['cases']
                 self.assertEqual([row['name'] for row in rows],['unchanged','changed_roi','changed_hud','unknown_hud','stop_late'])
-                for row in rows:
+                patterns=([True,False,True],[True,False,True],[True,False],[True,False],[True,False,True,False])
+                for row,pattern in zip(rows,patterns):
                     self.assertEqual(row['capture_backend'],'owned-portable-fixture')
+                    self.assertIs(row['initial_native_visible'],True)
+                    self.assertIs(row['initial_qt_visible'],True)
+                    self.assertEqual([point['visible'] for point in row['sampled_visibility_transitions']],pattern)
+                    self.assertEqual(set(row['measurement_clock']),{'name','implementation','monotonic','adjustable','resolution_seconds'})
                     self.assertEqual(row['capture_count'],1)
                     self.assertEqual(row['max_capture_concurrency'],1)
                     self.assertEqual(row['capture_visible_samples'],0)
@@ -254,6 +319,43 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 QtCore.QCoreApplication.sendPostedEvents(None,QtCore.QEvent.Type.DeferredDelete)
                 self.app.processEvents();self.assertFalse(isValid(overlay));self.assertFalse(isValid(control))
                 gc.collect()
+
+    def test_probe_elapsed_measurements_use_one_disjoint_clock_origin(self):
+        traces=[];clock=time.perf_counter
+        def shifted_trace(name):
+            trace=OverlayDutyTrace(name,clock=lambda:clock()+1_000_000.)
+            traces.append(trace)
+            return trace
+        with patch('native_smoke.OverlayDutyTrace',side_effect=shifted_trace):
+            self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
+        measured=[trace for trace in traces if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late')]
+        self.assertEqual(len(measured),5)
+        for trace in measured:
+            self.assertGreater(trace.started,1_000_000.)
+            self.assertLess(trace.elapsed_ms(),45_000.)
+            self.assertTrue(all(350<=duration<4000 for duration in trace.hold_elapsed.values()))
+        self.assertLess(measured[-1].stop_ms,250.)
+
+    def test_hidden_measured_start_fails_with_truthful_active_case_evidence(self):
+        captured={};start=_start_overlay_duty_mode
+        def observed_start(control,**kwargs):
+            captured.update(overlay=control.overlay,report=kwargs['mode_report'])
+            return start(control,**kwargs)
+        def hide_before_measured_case(name):
+            if name=='unchanged':captured['overlay'].hide()
+            return OverlayDutyTrace(name)
+        with patch(__name__+'._start_overlay_duty_mode',side_effect=observed_start), \
+                patch('native_smoke.OverlayDutyTrace',side_effect=hide_before_measured_case):
+            with self.assertRaisesRegex(AssertionError,'must begin with the accepted overlay genuinely visible'):
+                self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
+        active=captured['report']['active_case']
+        self.assertEqual(active['name'],'unchanged')
+        self.assertIs(active['initial_native_visible'],False)
+        self.assertIs(active['initial_qt_visible'],False)
+        self.assertEqual(active['phase_state'],'waiting-for-capture')
+        self.assertEqual(active['timings_ms'],{})
+        self.assertEqual(active['measurement_clock']['name'],'perf_counter')
+        self.assertEqual(captured['report']['cases'],[])
 
 
 if __name__=='__main__':unittest.main()

@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace, terminate_tree
 from overlay_duty_contract import SOURCE_FILES, SCOPE as DUTY_SCOPE, validate_overlay_duty
@@ -135,10 +136,33 @@ def native_failure_summary(path):
             for key in ('mode','name','status','capture_backend','phase_state'):
                 if type(row.get(key)) is str:output[key]=row[key][:80]
             for key in ('total_ms','capture_duration_ms','sampled_hidden_ms','sampled_visible_ms','sampled_inference_visible_ms',
-                        'max_sample_gap_ms','capture_count','max_capture_concurrency','qt_show_events_during_capture','helper_count','stop_return_ms'):
+                        'max_sample_gap_ms','native_visibility_samples','held_state_unchanged_samples',
+                        'capture_samples','capture_visible_samples','capture_count','max_capture_concurrency',
+                        'qt_show_events_during_capture','helper_count','stop_return_ms'):
                 if type(row.get(key)) in (int,float) and math.isfinite(row[key]):output[key]=row[key]
-            for key in ('final_confirmed','final_running','late_final_discarded'):
+            for key in ('initial_qt_visible','initial_native_visible','final_confirmed','final_running',
+                        'final_qt_visible','final_native_visible','late_final_discarded'):
                 if type(row.get(key)) is bool:output[key]=row[key]
+            measurement=row.get('measurement_clock')
+            if type(measurement) is dict:
+                clock={}
+                for key in ('name','implementation'):
+                    if type(measurement.get(key)) is str:clock[key]=measurement[key][:120]
+                for key in ('monotonic','adjustable'):
+                    if type(measurement.get(key)) is bool:clock[key]=measurement[key]
+                resolution=measurement.get('resolution_seconds')
+                if type(resolution) in (int,float) and math.isfinite(resolution):clock['resolution_seconds']=resolution
+                output['measurement_clock']=clock
+            transitions=row.get('sampled_visibility_transitions')
+            if type(transitions) is list:
+                output['sampled_visibility_transitions']=[]
+                for transition in transitions:
+                    item={}
+                    if type(transition) is dict:
+                        stamp=transition.get('at_ms');shown=transition.get('visible')
+                        if type(stamp) in (int,float) and math.isfinite(stamp):item['at_ms']=stamp
+                        if type(shown) is bool:item['visible']=shown
+                    output['sampled_visibility_transitions'].append(item or {'invalid_transition':True})
             timings=row.get('timings_ms')
             if type(timings) is dict:
                 output['timings_ms']={key:timings[key] for key in ('capture_start','capture_return','before_match_emitted',
