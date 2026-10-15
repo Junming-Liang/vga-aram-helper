@@ -1,6 +1,17 @@
 # Windows 测试
 
-## v0.4.7：完整发布验收已通过
+## v0.4.8：完整发布验收已通过
+
+[发布运行 #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) 在 `publish_preview=true` 下通过全部必需门禁并发布 [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8)。源码/标签 `00bbf5affc02c32cbd9bf367199047eefdf208f8`，树 `cae3f15c3916f146c26d2d2d966efffe7169f886`；最终 EXE **106,925,126 字节**，SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`。发布校验绑定 60 项证据与 15 项资产，公开 EXE 身份一致，见[下载与身份](WINDOWS_EXECUTABLE.md#下载与发布状态)。
+
+- 源码与同一冻结 EXE 分别在 100%/150%/200% 正常应用入口通过精确自有不透明叠加的可见捕获检查，覆盖变化 ROI、像素排除、身份/样式/排除读回、拒绝与清理。不是仅有独立辅助程序或隐藏窗口测试。
+- 原有严格隐藏单次/持续产品管线、独立 OCR 确认、原顺序/来源标签/半屏边界、过期清除、选人衔接、自动窗口生命周期及同二进制 OTA 成功/并发/回滚均通过；原生停止仍允许撤销后终止存活辅助进程，不等于优雅 Stop/EOF 证明。
+- 固定后构建 OpenCV 官方/自编译配对、原始计时门限、EXE/模型/体积、源码与 Qt/Microsoft/OpenCV 许可门禁通过。没有将运行 #46/#48 的历史时序当作 #55 的数据。
+- 同树 Linux 本地回归共运行 1312 项，结果为 OK，其中 14 项平台/依赖跳过；本地 Qt/合成多轮回归覆盖四秒显示过期不误取消同授权新鲜推理、真实缓存头像呈现、默认关闭的本地日志与 ZIP 隐私边界。Linux 跳过数不代表 Windows 结果。
+
+用户最新浅色界面、无边框且未在助手中修改名称或人工确认时的后续轮次闪现仍待真实对局复验。受控测试和带人工保持的产品时序不证明自然对局延迟、实战 LoL/Vanguard、真正独占全屏或自动最终已选强化。真实显示器/混合 DPI、干净 Windows 10/11、跨版本在线升级与应用内确认交接仍未验证。
+
+## v0.4.7：完整发布验收已通过（历史）
 
 [发布运行 #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941) 在 `publish_preview=true` 下通过全部必需门禁并发布 v0.4.7。源码/标签为 `1046af25d66e12c784554c38351e75ed82afa81b`，树为 `74f1bcaaad84a4fd08d05360c7cd474348f2cdc5`；最终 EXE 与 15 项公开资产身份已核验，见[下载与身份](WINDOWS_EXECUTABLE.md#下载与发布状态)。此前运行 #46 是独立保留的非发布诊断。
 

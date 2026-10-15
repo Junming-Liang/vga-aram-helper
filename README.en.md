@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.7-0891b2" alt="Source version v0.4.7"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.7 preview"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.8-0891b2" alt="Source version v0.4.8"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.8 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -31,7 +31,7 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 - **Champion-specific augment tiers**: displays Huya's public-source T1–T4 tiers in the original three-choice order. Missing data is labeled “暂无评级” (no rating available).
 - **Automatic own champion**: matches only the bottom own-HUD portrait against Riot Data Dragon templates and requires two consistent observations.
 - **Local OCR**: three exact, distinct, spatially aligned, high-confidence card titles automatically display after two consecutive safe observations; uncertainty keeps manual correction available.
-- **Compact native UI**: v0.4.7 has a light dashboard, reachable Start/Stop, secondary Settings/Check reference/About pages, and three screen-ordered name+tier cards with click-through and `Ctrl+Alt+O`. Overlays exceeding half the client height hide. A separate exact-name dictionary view provides complete descriptions without claiming recognition or confirmation.
+- **Compact native UI**: v0.4.8 has a light dashboard, reachable Start/Stop, secondary Settings/Check reference/About pages, and three screen-ordered name+tier cards with click-through and `Ctrl+Alt+O`. Overlays exceeding half the client height hide. A separate exact-name dictionary view provides complete descriptions without claiming recognition or confirmation.
 - **Data refresh and cache**: checks public data at startup and uses validated cached data offline.
 - **Software updates**: checks stable GitHub Releases, then downloads, verifies, and installs after confirmation.
 
@@ -39,13 +39,13 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 
 ### Windows
 
-1. Download the [v0.4.7 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.7/vga-aram-helper-0.4.7-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.7/SHA256SUMS.txt).
+1. Download the [v0.4.8 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/vga-aram-helper-0.4.8-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Keep automatic League discovery selected and click Start. The helper minimizes and waits for or follows your client/game without selecting a window. The first launch prepares about 5 MB of public portrait templates.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) includes test evidence and corresponding source.
 
-The v0.4.7 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+The v0.4.8 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -58,13 +58,15 @@ python launcher.py
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
-## v0.4.7: light dashboard and capture improvements
+## v0.4.8: display expiry and guarded visible capture
 
-[v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7) was published on 2026-10-15 after [Windows release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941) passed every required source, frozen EXE, 100%/150%/200% product capture/overlay, selection, update, performance, size and source/license gate. It unifies the dashboard and compact overlay in the selected light B direction. The exact tested EXE is **106,858,822 bytes (101.91 MiB)**; see [release identity and limits](WINDOWS_EXECUTABLE.md).
+[v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) was published on 2026-10-15 after [Windows release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed every required source, frozen EXE, 100%/150%/200% product capture/overlay, selection, update, performance, size and source/license gate. The exact tested EXE is **106,925,126 bytes (101.97 MiB)**; see [release identity and limits](WINDOWS_EXECUTABLE.md).
 
-- Each capture cycle schedules the next after completion. Strict pixel and identity rechecks can restore an explicitly labeled previous-candidates view during inference, avoiding unnecessary prolonged hiding. Confirmed references wait 700 ms before another cycle; unstable observations wait 200 ms. These are scheduling intervals, not guaranteed capture latency or game frame rates.
-- Champion select has a separate public-source overall champion T1–T5 reference labeled provisional and not HUD-verified; augment tiers remain T1–T4. The control panel retains “Last candidates · final choice unknown.” A disappearing selection screen never identifies the chosen augment.
-- Persistent capture reuses the verified window session and still hides the overlay before readback. The idle frame pool may retain the authorized window's full GPU surface; CPU readback is request-ROI-only. Revocation starts asynchronous cleanup without a 50 ms exit guarantee under system stalls. The normal Windows capture border remains enabled. True exclusive fullscreen, live LoL/Vanguard and automatic final-choice detection remain unverified. See [feedback fixes and evidence limits](PLAY_FEEDBACK_FIXES.md).
+- Four-second presentation expiry hides old references without cancelling a newer, still-fresh inference under unchanged authority. Focus, identity, geometry, permission and Stop still revoke work. Completion-driven scheduling can shorten the usual 700/200 ms waits to preserve observation freshness.
+- Guarded visible capture is enabled by default at the normal entry point, subject to runtime proof for the exact owned opaque overlay, token/styles, `WDA_EXCLUDEFROMCAPTURE=0x11`, target identity, foreground and ROI. Previous candidates stay explicitly labeled while rechecking; completed fresh recognition hides them when it reports changed candidate/champion identity or uncertainty; harmless ROI animation with unchanged recognized identity does not require hiding. Legacy strict-hidden paths and refusal/cleanup rules remain. Source and the same frozen EXE passed three-scale normal-entry changed-ROI and pixel-exclusion checks.
+- The dashboard uses verified cached champion portraits and public-source overall T1–T5 tiers. Champion-select identity stays provisional until HUD verification; augment tiers remain T1–T4. “Last candidates · final choice unknown” never infers the final choice from a disappearing screen.
+- Settings adds “本地调试日志（仅本次启动）” (local debug logs, this launch only) and “导出调试 ZIP” (export debug ZIP). Logging defaults off each launch and keeps three rotating 256 KiB files of allowlisted state/counter/timing data, excluding screenshots, recognized text, names, accounts, tokens and private paths. Export stays local and never uploads automatically.
+- The normal Windows capture border, request-ROI-only CPU readback, idle GPU surfaces and asynchronous cleanup limits remain. The reported later-round flashing in borderless gameplay, live LoL/Vanguard, true exclusive fullscreen and automatic final-choice detection remain unverified. See [feedback fixes and evidence limits](PLAY_FEEDBACK_FIXES.md).
 
 - The dashboard shows the current champion, monitoring state and left/center/right candidates. One primary monitoring action switches between Start and Stop; secondary pages retain a Stop action while monitoring.
 - Settings (“设置”) contains window connection, champion correction and capture-region controls. Check reference (“核对资料”) provides candidate correction, explicit confirmation and full exact-name lookup. About (“关于”) exposes the full source date, data-package and game-data versions, update status and compatibility limits. Back (“返回”) returns to the dashboard. Lookup never confirms or replaces the current monitoring result.
@@ -79,7 +81,7 @@ python launcher.py
 
 ### Start in champion select
 
-In v0.4.7, keep the default automatic League discovery and click Start. The helper minimizes and follows the same installation’s client/game, including an already running match or later launch. The highlighted own champion row, central exact name and post-choice skin thumbnails must agree in two observations. Initial cards, hovered previews and bench choices are not treated as your assignment. Changed assignments require new evidence; this is not an irrevocable lock.
+In v0.4.8, keep the default automatic League discovery and click Start. The helper minimizes and follows the same installation’s client/game, including an already running match or later launch. The highlighted own champion row, central exact name and post-choice skin thumbnails must agree in two observations. Initial cards, hovered previews and bench choices are not treated as your assignment. Changed assignments require new evidence; this is not an irrevocable lock.
 
 Champion-select identity carries only into a unique newly started game process from the same installation. An already running game can still be bound automatically, but requires fresh own-HUD confirmation. Changing the handoff option or stopping revokes the session. Conflicting HUD identity, uncertain scenes and observation timeouts clear carried evidence; manual correction remains available. Cards explicitly identify selection-derived identity until own-HUD verification. See [champion-select scope](CHAMPION_SELECTION.md).
 
@@ -93,9 +95,11 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
-[v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7) is available as a non-latest prerelease and requires manual download. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
+[v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) is available as a non-latest prerelease and requires manual download. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
 
-### Historical v0.4.6 and earlier releases
+### Historical v0.4.7 and earlier releases
+
+[v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7) passed [release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941), introducing the light dashboard and accepted-frame capture rechecks. Its original identity and measurements remain in the [validation history](reports/VALIDATION.md).
 
 [v0.4.6 preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.6) passed every gate in [Windows release run #23](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38531070525). It adds explicit-HWND Windows Graphics Capture, asynchronous capture, exact-first Chinese matching, bounded unchanged-crop OCR reuse, and a redesigned native control panel with compact cards. See [implementation and validation scope](REFERENCE_OPTIMIZATION.md).
 
@@ -111,14 +115,14 @@ v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rig
 
 The [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029) passed at controlled 100%, 150% and 200% application process scaling using the same EXE and a fixed 960×600-pixel original mock window. Checks cover capture/OCR, automatic champion and three-choice display, card bounds and text layout, stale-state clearing and shutdown cleanup. Champion-select recognition and session handoff also passed. The same build’s source matrix passed 35 window cases at 100%–250% scaling, including small-window hiding and recovery. Actual OS DPI, mixed-monitor transitions, fully visible 4K layouts and the cause of the reported user error remain unconfirmed.
 
-In the small public screenshot sample actually rerun with current v0.4.7 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
+In the small public screenshot sample actually rerun with current v0.4.8 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 
 The following are **historical v0.3.0 baseline checks**, not proof of the new automatic champion feature:
 
 - [Native EXE tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38235785410): window capture, OCR, tier rendering, mouse click-through, and process lifecycle.
 - [Updater transaction tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38239627458): local replacement of the same EXE, health checks, concurrency locking, and failure rollback.
 
-Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. v0.4.7 passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
+Real LoL/Vanguard, exclusive fullscreen, and clean Windows 10/11 environments remain unverified. v0.4.8 passed same-binary native update success/concurrency/rollback; cross-version online upgrades and the in-app confirmation handoff remain untested. Public-snapshot tiers may differ from Huya's private live model; the rating methodology and applicable game policies are not fully verified, and this project has no Riot/Tencent approval. See [WINDOWS_TESTING.md](WINDOWS_TESTING.md) for detailed scope.
 
 The EXE is not Authenticode-signed, so Windows may show an unknown-publisher warning. Verify the file hash and keep system security protections enabled.
 
@@ -134,6 +138,6 @@ Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helpe
 
 Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.7/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
 
 This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.

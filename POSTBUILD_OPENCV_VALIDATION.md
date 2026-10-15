@@ -96,3 +96,8 @@ including the same fixed post-build pair and unchanged strict rule. It published
 source/tag `1046af25d66e12c784554c38351e75ed82afa81b` as [v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7). The public EXE is 106,858,822 bytes,
 SHA-256 `96bc81fcb12dc48c45e210706b358eb5eeccc062574166b440bf1452f4000547`; all 15 public assets match the publishing verifier. The table
 above remains run #46's historical measurement, not run #48's timing values.
+
+
+## Current v0.4.8 release
+
+[Release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed the same fixed post-build pair, unchanged timing rule and all subsequent gates, publishing [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) from source/tag `00bbf5affc02c32cbd9bf367199047eefdf208f8`, tree `cae3f15c3916f146c26d2d2d966efffe7169f886`. Its EXE is **106,925,126 bytes**, SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`; the final verifier binds 60 evidence files and 15 release assets. The run #46 table and run #48 identity above remain historical; no run #55 per-workload timing or live-game speed claim is inferred from them.

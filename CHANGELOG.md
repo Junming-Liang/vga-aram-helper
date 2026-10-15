@@ -1,5 +1,16 @@
 # Changelog / 变更日志
 
+## v0.4.8 · 显示过期与可见捕获修正 / Display expiry and guarded visible capture
+
+**2026-10-15 已发布预览版 / Prerelease published.** [完整发布运行 #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) 通过全部必需门禁并发布 [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8)；源码/标签 `00bbf5affc02c32cbd9bf367199047eefdf208f8`，源码树 `cae3f15c3916f146c26d2d2d966efffe7169f886`。EXE **106,925,126 字节（101.97 MiB）**，SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`。发布校验绑定 15 项资产与 60 项证据，保持非 latest，稳定 OTA 不自动发现。
+
+- 四秒显示过期仍隐藏旧资料，但不再取消授权未变且自身仍新鲜的在途推理；失焦、身份/几何/权限变化和停止仍立即撤销。完成驱动的间隔会按剩余新鲜度缩短，不延长旧观察有效期。
+- 正常入口默认启用受保护的可见叠加捕获：只有精确属于助手的不透明 HWND、令牌/样式、`WDA_EXCLUDEFROMCAPTURE=0x11` 与运行时身份/前台/ROI 证明均成立时，才保留标注的旧资料；原有严格隐藏路径及拒绝边界不变。源码与同一冻结 EXE 的三档正常入口、变化 ROI 和像素排除检查通过。
+- 仪表盘按规范英雄 ID 显示已核验缓存中的真实英雄头像及公开源评级；头像呈现不等于新的自动识别证明。
+- 设置新增默认关闭、每次启动重新授权的“本地调试日志（仅本次启动）”和“导出调试 ZIP”。三份 256 KiB 轮转文件只记录白名单状态/计数/耗时，排除截图、识别文字、名称、账号、令牌与私有路径；导出仅在本机，不自动上传。
+- v0.4.8 公开静态截图小样本已重跑，结果仍为本人 HUD 正例 2/3、1 次弃权、反例 3/3 弃权；选人正例 1/1、反例 3/3（两个场景）。这是 Linux 官方 wheel 小样本。用户无边框模式下的后续轮次闪现、实际 LoL/Vanguard、真正独占全屏及自动最终已选强化仍待实战验证。
+- Separates presentation expiry from valid same-authority inference, enables exact-owned guarded visible capture after source/frozen acceptance, displays cached champion portraits/tiers, and adds per-launch opt-in bounded local debug ZIP export. Run #55 passes all release gates; controlled Windows and public still-image evidence do not establish that the reported live-game issue is resolved.
+
 ## v0.4.7 · 浅色仪表盘与捕获复核 / Light dashboard and capture rechecks
 
 **2026-10-15 已发布预览版 / Prerelease published.** [完整发布运行 #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941) 通过全部必需门禁并发布 [v0.4.7](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.7)；源码/标签 `1046af25d66e12c784554c38351e75ed82afa81b`。EXE **106,858,822 字节**，SHA-256 `96bc81fcb12dc48c45e210706b358eb5eeccc062574166b440bf1452f4000547`。15 项公开资产与校验一致，保持非 latest，稳定 OTA 不自动发现。

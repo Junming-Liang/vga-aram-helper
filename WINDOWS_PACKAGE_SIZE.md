@@ -1,7 +1,19 @@
 # Windows package size
 
-v0.4.7 retains the reviewed `minimal-opencv-v1` recipe adopted in v0.4.4.
+v0.4.8 retains the reviewed `minimal-opencv-v1` recipe adopted in v0.4.4.
 Earlier release and experimental measurements are preserved separately below.
+
+## Measured final v0.4.8 release
+
+[Windows release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed all required gates and published [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8).
+
+- Source/tag: `00bbf5affc02c32cbd9bf367199047eefdf208f8`; tree `cae3f15c3916f146c26d2d2d966efffe7169f886`
+- Final EXE: **106,925,126 bytes (101.97 MiB)**
+- SHA-256: `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`
+- Change from v0.4.7: **+66,304 bytes**; below the unchanged **110,000,000-byte** ceiling
+- The final verifier binds 15 release assets and 60 evidence files; public EXE identity matches; prerelease / non-latest
+
+The original models and `minimal-opencv-v1` recipe are unchanged. This is not a live-game latency or speed claim; all measurements below retain their original version/run scope.
 
 ## Measured final v0.4.7 release
 
