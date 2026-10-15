@@ -1,37 +1,58 @@
-# v0.4.8 local diagnostic candidate (2026-10-15 UTC)
+# Current v0.4.8 release validation (2026-10-15 UTC)
 
-This checkout prepares fixes for feedback from the latest light UI in borderless
-mode: brief candidate-result visibility across multiple rounds, and the client
-hero portrait/tier presentation. The public v0.4.7 release below is unchanged.
+[Windows release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed every mandatory gate with `publish_preview=true` and published [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) from source/tag `00bbf5affc02c32cbd9bf367199047eefdf208f8`, tree `cae3f15c3916f146c26d2d2d966efffe7169f886`. The final EXE is **106,925,126 bytes (101.97 MiB)**, SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`. The final verifier binds 60 evidence files and 15 release assets; public EXE identity matches. It remains a non-latest prerelease, excluded from stable OTA.
 
-- Local Qt regressions reproduce and correct destructive four-second display
-  expiry cancelling a still-fresh, same-authority recognition job. Visible results
-  still expire at four seconds. Focus, target identity, geometry, permission and
-  Stop continue to revoke work immediately.
-- Three synthetic rounds with normal rerolls, card-free intervals, animation and
-  a new fourth title pass actual LocalOCR and production result handlers. This is
-  controlled image/Qt evidence, not live-game or Windows capture acceptance.
-- Existing verified public portrait data is displayed by canonical champion ID.
-  The chosen-ID render is a presentation check, not an automatic recognition claim.
-- An explicit diagnostic-only visible-overlay capture route is default off. Its
-  exact owned opaque HWND, token, styles, affinity and pixel-exclusion behavior
-  require fresh source and frozen Windows tests before any production activation.
-- Requested local debug mode is off by default at every launch. It retains only
-  allowlisted state/counter/timing metadata in three rotating 256 KiB files and
-  exports a local ZIP through Settings. It does not record screenshots, OCR text,
-  names, window titles, tokens or private paths, and never uploads automatically.
-- The current committed genuine-image reports were rerun as v0.4.8 from the same
-  authorized images/data. Outcomes are unchanged: hero 2/3 positives recognized,
-  one abstention, 3/3 negative abstentions; selection 1/1 positive and 3/3 negative
-  abstentions across two scenes, with no wrong prediction in these small samples.
+This release addresses feedback from the latest light UI in borderless mode,
+without editing names or manually confirming in the helper: brief candidate-result visibility across
+later rounds, and champion portrait/tier presentation. The reported live-game
+outcome has not been reverified.
 
-Real user timing, live multi-round game compatibility, exclusive fullscreen and
-true final chosen-augment detection remain unverified. Local diagnostic test
-results must not be described as solving the user's game session.
+- Four-second presentation expiry still hides old results, but no longer cancels
+  a newer, still-fresh inference under unchanged authority. Focus, target identity,
+  geometry, permission and Stop still revoke work. Completion-driven scheduling
+  shortens waits when needed without extending observation freshness.
+- Normal-entry guarded visible capture defaults on, subject to runtime proof for
+  the exact owned opaque HWND, token/styles, `WDA_EXCLUDEFROMCAPTURE=0x11`, target
+  identity, foreground and ROI. Source and the same frozen EXE passed normal-entry
+  changed-ROI, pixel-exclusion, rejection and cleanup checks at 100%/150%/200%.
+  Previous references remain labeled while rechecking. Completed fresh recognition
+  hides them when it reports changed candidate/champion identity or uncertainty;
+  harmless ROI animation with unchanged recognized identity does not require
+  hiding. Existing strict-hidden paths and safety boundaries are unchanged.
+- The original native product duty, layout, independent OCR confirmation,
+  selection handoff, automatic-window lifecycle, same-binary OTA
+  success/concurrency/rollback, fixed post-build OpenCV pair, original timing
+  rule, size/model and source/license gates all passed. Earlier run timings are
+  not reused as run #55 measurements.
+- The same-tree Linux suite ran 1312 tests: OK, with 14 platform/dependency skips;
+  those skips are not a Windows test count. Local Qt/synthetic multi-round
+  regressions use actual LocalOCR and production result handlers. They remain
+  controlled evidence rather than live-game acceptance.
+- The dashboard renders verified cached portraits by canonical champion ID and
+  public-source champion tiers. Chosen-ID rendering is presentation evidence,
+  not an automatic recognition claim.
+- Settings provides “本地调试日志（仅本次启动）” and “导出调试 ZIP”. Logging defaults
+  off each launch and keeps only allowlisted state/counter/timing metadata in
+  three rotating 256 KiB files. It excludes screenshots, recognized text, names,
+  accounts, tokens and private paths. ZIP export stays local and never uploads
+  automatically; disabling logging retains existing files.
+- The committed genuine-image reports were rerun as v0.4.8 on Linux with the
+  official wheel using the same authorized images/data. Hero results remain
+  2/3 positives recognized, one abstention and 3/3 negative abstentions; selection
+  is 1/1 positive and 3/3 negative abstentions across two scenes, with no wrong
+  prediction in these small samples. They do not establish general game accuracy
+  or Windows custom-wheel live-game performance; genuine images are not bundled.
+
+Real user timing, live multi-round LoL/Vanguard compatibility, true exclusive
+fullscreen, automatic final chosen-augment detection, clean Windows 10/11,
+physical/mixed-monitor DPI and cross-version online upgrades remain unverified.
+Controlled timing holds are not natural gameplay latency; idle GPU surfaces and
+asynchronous cleanup have no zero-frame/50 ms guarantee. The release source
+archive remains the exact tested source, not this later documentation-only tree.
 
 ---
 
-# Current v0.4.7 release validation (2026-10-15 UTC)
+# Historical v0.4.7 release validation (2026-10-15 UTC)
 
 [Windows release run #48](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38707221941)
 passed every mandatory gate with `publish_preview=true` at source/tag
