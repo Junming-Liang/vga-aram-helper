@@ -34,10 +34,16 @@ import uuid
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 SCHEMA_VERSION = 1
 # Stable for this imported process, unlike per-report IDs. Numeric PIDs can be
 # reused by the OS or identical in distinct executor PID namespaces.
 PROCESS_NONCE = str(uuid.uuid4())
+# Fail-closed diagnostics retain an owned fixture until this standalone probe
+# exits if a daemon capture worker/helper has not confirmed cleanup. Never
+# destroy its HWND or start another capture while that uncertainty remains.
+_RETAINED_CAPTURE_FIXTURES = []
 OFFICIAL_VERSION = '5.0.0.93'
 CUSTOM_VERSION = '5.0.0.93+vga1'
 CUSTOM_MODULES = {'core', 'flann', 'geometry', 'imgcodecs', 'imgproc', 'python3'}
@@ -52,7 +58,10 @@ HERO_CASES = {'1280x720', '1920x1080', '2560x1440', '3440x1440',
 FIXTURE_NAMES = ['珠光护手', '炼狱导管', '双刀流']
 DEMO_NAMES = ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）']
 SOURCE_FILES = ('local_ocr.py', 'hero_recognition.py', 'synthetic_vision.py',
-                'model_inventory.py', 'ocr_privacy.py', 'screen_capture.py', 'scripts/probe_opencv_parity.py')
+                'model_inventory.py', 'ocr_privacy.py', 'screen_capture.py', 'scripts/probe_opencv_parity.py',
+                'wgc_capture.py', 'wgc_session_capture.py', 'persistent_capture_adapter.py', 'session_windows.py',
+                'native/wgc_capture.cpp', 'native/wgc_session_capture.cpp',
+                'scripts/build_wgc_capture.py', 'scripts/build_wgc_session_capture.py', 'scripts/probe_capture_phases.py')
 DEPENDENCIES = ('numpy', 'Pillow', 'rapidocr', 'onnxruntime')
 SCOPE = ('Exact deterministic sample parity and same-host warmed regression screen only; '
          'not proof for all screenshots, CPU families, real gameplay accuracy, or performance. '
@@ -357,11 +366,14 @@ def benchmark(operation, *, samples, warmups, iterations, fingerprint):
 
 
 def capture_benchmark(*, samples, warmups):
-    """Measure actual GDI capture of this process's own synthetic window only."""
+    """Measure normal bounded capture of this process's own synthetic window only."""
+    if _RETAINED_CAPTURE_FIXTURES:
+        raise RuntimeError('Prior capture cleanup is unconfirmed; refusing a replacement fixture')
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QPainter
     from PySide6.QtWidgets import QApplication, QWidget
     from screen_capture import Win32Capture
+    from scripts import probe_capture_phases as phases
 
     class FixtureWindow(QWidget):
         def paintEvent(self, event):
@@ -389,6 +401,8 @@ def capture_benchmark(*, samples, warmups):
     window.show()
     window.raise_()
     window.activateWindow()
+    safe_to_close = True
+    capture = None
     try:
         for _ in range(5):
             app.processEvents()
@@ -400,19 +414,56 @@ def capture_benchmark(*, samples, warmups):
         if target.pid != os.getpid():
             raise RuntimeError('Capture fixture does not belong to this process')
         initial = capture.validate(target)
+        diagnostic = {'schema_version': 1, 'status': 'failed', 'errors': [],
+                      'authoritative_observations': [], 'expected_output': None,
+                      'expected_client_rect': [initial.x, initial.y, initial.width, initial.height]}
+        bound_helper = getattr(capture, '_wgc', None)
+        def identity(label):
+            try:
+                diagnostic[label] = phases.identity_snapshot(ROOT, bound_helper)
+            except Exception as error:
+                diagnostic[label] = None
+                diagnostic['errors'].append({'stage': label, **phases.error_record(error)})
         def fingerprint(value):
             raw, rect = value
-            return {'image_sha256': sha256(raw), 'width': rect.width, 'height': rect.height}
+            output = {'image_sha256': sha256(raw), 'width': rect.width, 'height': rect.height}
+            # benchmark() calls this only AFTER stopping the operation timer.
+            diagnostic['authoritative_observations'].append(phases.observation(capture))
+            if diagnostic['expected_output'] is None:
+                diagnostic['expected_output'] = output
+            return output
         result = benchmark(lambda: capture.capture(target), samples=samples, warmups=warmups,
                            iterations=3, fingerprint=fingerprint)
         result['fixture'] = {'kind': 'own-process synthetic painted Qt window',
                              'width': initial.width, 'height': initial.height,
                              'device_pixel_ratio': dpr,
                              'qt_version': importlib.metadata.version('PySide6-Essentials')}
+        # Tracing is installed only after all original warmed/measured operations.
+        # A diagnostic failure retains those original raw samples for inspection.
+        identity('identity_before_supplemental')
+        try:
+            diagnostic['supplemental'] = (phases.skipped_supplemental(capture) if diagnostic['errors'] else
+                phases.run_supplemental(capture, target, diagnostic['expected_output'], app.processEvents))
+        except Exception as error:
+            diagnostic['supplemental'] = {'status': 'failed'}
+            diagnostic['errors'].append({'stage': 'supplemental', **phases.error_record(error)})
+        safe_to_close = diagnostic['supplemental'].get('safe_to_close_fixture') is True
+        identity('identity_after_supplemental')
+        diagnostic['status'] = 'passed' if (not diagnostic['errors']
+            and diagnostic['supplemental']['status'] == 'passed') else 'failed'
+        result['capture_diagnostics'] = diagnostic
+        if safe_to_close:
+            capture.close()
         return result
     finally:
-        window.close()
-        app.processEvents()
+        # Includes failure in an original authoritative call, before diagnostics.
+        if capture is not None and phases.observation(capture)['cleanup_pending'] is not False:
+            safe_to_close = False
+        if safe_to_close:
+            window.close()
+            app.processEvents()
+        else:
+            _RETAINED_CAPTURE_FIXTURES.append((app, window, capture))
 
 
 def collect_metadata(cv):
@@ -563,7 +614,10 @@ def generate_report(repo, *, samples=7, warmups=2):
                            'ocr_formats': sorted(FORMATS), 'icc_formats': list(ICC_FORMATS)}}
     errors = validate_report(report)
     if errors:
-        raise RuntimeError('; '.join(errors))
+        # Retain already-collected authoritative samples even if supplemental
+        # identity, output, cleanup, or validation fails. The CLI exits nonzero.
+        report['status'] = 'failed'
+        report['failures'] = errors
     return report
 
 
@@ -624,6 +678,10 @@ def validate_report(report):
                         or min(fixture['width'], fixture['height']) < 64
                         or not math.isfinite(fixture['device_pixel_ratio']) or fixture['device_pixel_ratio'] <= 0):
                     errors.append('Windows capture fixture metadata is invalid')
+                from scripts.probe_capture_phases import validate_diagnostics
+                errors.extend(validate_diagnostics(record.get('capture_diagnostics', {}), record,
+                    inputs=report['inputs'], native_sha256=report['opencv']['binary']['sha256'],
+                    pillow_version=report['dependencies']['Pillow']))
         cv = report['opencv']
         if cv['build_features'] != parse_build_information(cv['build_information']):
             errors.append('build feature metadata disagrees with getBuildInformation')
@@ -739,6 +797,15 @@ def compare_reports(baseline, candidate, *, allow_non_windows=False, regression_
             failures.append(f'performance {name}: capture fixture/Qt version differs')
         if old['output_sha256'] != new['output_sha256']:
             failures.append(f'performance {name}: exact warmed output differs')
+        if name == 'capture_synthetic_window':
+            a_identity = dict(old['capture_diagnostics']['identity_before_supplemental'])
+            b_identity = dict(new['capture_diagnostics']['identity_before_supplemental'])
+            a_identity['loaded'] = {k: v for k, v in a_identity['loaded'].items() if k != 'cv2_native'}
+            b_identity['loaded'] = {k: v for k, v in b_identity['loaded'].items() if k != 'cv2_native'}
+            from scripts.probe_capture_phases import same_value
+            if (not same_value(a_identity, b_identity) or old['capture_diagnostics']['authoritative_observations'][0]['backend']
+                    != new['capture_diagnostics']['authoritative_observations'][0]['backend']):
+                failures.append('performance capture_synthetic_window: backend/helper/source/Pillow identity differs')
         a, b = old['median_seconds'], new['median_seconds']
         regression = b > a * regression_ratio and b > a + noise_floor_seconds
         result['performance'][name] = {'baseline_median_seconds': a, 'candidate_median_seconds': b,
@@ -758,7 +825,7 @@ def write_json(path, report):
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
 
 
-def main(argv=None):
+def main(argv=None, *, standalone=False):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='operation', required=True)
     generate = commands.add_parser('generate', help='Measure the currently installed wheel in this fresh process')
@@ -785,11 +852,46 @@ def main(argv=None):
     except Exception as exc:
         report = {'schema_version': SCHEMA_VERSION, 'status': 'failed', 'scope': SCOPE,
                   'failures': [f'{type(exc).__name__}: {exc}']}
-    write_json(args.output, report)
-    print(json.dumps({'status': report['status'], 'output': str(args.output),
-                      'coverage': report.get('coverage'), 'failures': report.get('failures', [])}, ensure_ascii=False))
+    if _RETAINED_CAPTURE_FIXTURES:
+        report['status'] = 'failed'
+        report.setdefault('failures', []).append('Unconfirmed capture cleanup; owned fixture retained until process exit; Job termination is unobserved')
+    capture_text = None
+    if args.operation == 'generate':
+        capture_record = report.get('performance', {}).get('capture_synthetic_window')
+        if capture_record is not None:
+            from scripts.probe_capture_phases import bounded_json
+            try:
+                # Readable complete rows in rendered CI logs; never truncate them.
+                capture_text = bounded_json({'capture_synthetic_window': capture_record})
+            except ValueError:
+                report['status'] = 'failed'
+                report.setdefault('failures', []).append('Capture diagnostic exceeds bounded output budget; full evidence retained in report')
+    try:
+        try:
+            write_json(args.output, report)
+        except Exception as error:
+            # If file output fails, still attempt the complete bounded stdout
+            # evidence, then report the write failure without exposing raw paths.
+            report['status'] = 'failed'
+            report.setdefault('failures', []).append('Report write failed: ' + type(error).__name__)
+        if capture_text is not None:
+            print(capture_text, flush=True)
+        print(json.dumps({'status': report['status'], 'output': str(args.output),
+                          'coverage': report.get('coverage'), 'failures': report.get('failures', [])}, ensure_ascii=False), flush=True)
+    finally:
+        if standalone and _RETAINED_CAPTURE_FIXTURES:
+            # Even failed file/stdout/flush attempts cannot enter normal Qt
+            # destruction with an unconfirmed worker. Only this CLI process exits.
+            # Owned Job-on-exit termination is not observed graceful cleanup.
+            try:
+                sys.stdout.flush()
+            finally:
+                try:
+                    sys.stderr.flush()
+                finally:
+                    os._exit(1)
     return 1 if report['status'] == 'failed' else 0
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    raise SystemExit(main(standalone=True))
