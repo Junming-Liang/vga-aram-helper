@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -545,8 +546,10 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.assertNotIn('资料已确认',w.status_chip.text());self.assertEqual(w.last_observation,old_time)
         self.assertEqual((w.state.generation,w.state.automatic_frames,w.state.hero_stable_frames),old_counts);self.assertEqual(calls[0][0],0)
         w.capture_pending=False;w.enable_visible_capture=False
-        with patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:calls.append((delay,fn))):w.capture_tick()
-        self.assertFalse(w.overlay.isVisible());self.assertGreaterEqual(calls[-1][0],59)
+        with patch('native_ui.time',SimpleNamespace(monotonic=lambda:old_time)), \
+             patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:calls.append((delay,fn))):
+            w.capture_tick()
+        self.assertFalse(w.overlay.isVisible());self.assertEqual(calls[-1][0],60)
 
     def test_native_entrypoint_preserves_default_and_explicit_strict_hidden_diagnostics(self):
         from native_ui import run_native

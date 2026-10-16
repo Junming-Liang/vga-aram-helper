@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -141,12 +142,25 @@ class NativePersistentIntegrationTests(unittest.TestCase):
         from screen_capture import WindowInfo
         w = self.window; w.target = WindowInfo(123, 456, 'Owned fixture', 'OwnedClass')
         w.state.start(w.target.identity); self.capture.foreground = lambda _: True
-        w.overlay.show(); self.app.processEvents()
-        with patch.object(QtCore.QTimer, 'singleShot') as delayed:
-            w.capture_tick()
-        self.assertFalse(w.overlay.isVisible()); self.assertTrue(w.capture_pending)
-        self.assertNotIn('retire', self.events)
-        self.assertEqual(delayed.call_args.args[0], 60)
+        original_settle = w.overlay.hidden_settle_ms
+        for elapsed, expected_delay in ((0.,60), (.015625,45), (.03125,29), (.0625,0)):
+            with self.subTest(elapsed=elapsed):
+                w.capture_pending=False
+                w.overlay.show(); self.app.processEvents()
+                clock=[100.]
+                def settle():
+                    clock[0]=100.+elapsed
+                    return original_settle()
+                # Replace this module's clock, not the shared time module used by
+                # worker/deadline fixtures. Binary-exact ticks avoid float noise.
+                with patch('native_ui.time',SimpleNamespace(monotonic=lambda:clock[0])), \
+                     patch.object(w.overlay,'hidden_settle_ms',side_effect=settle), \
+                     patch.object(QtCore.QTimer,'singleShot') as delayed:
+                    w.capture_tick()
+                self.assertFalse(w.overlay.isVisible());self.assertTrue(w.capture_pending)
+                self.assertNotIn('retire',self.events)
+                delayed.assert_called_once()
+                self.assertEqual(delayed.call_args.args[0],expected_delay)
 
 
 if __name__ == '__main__':
