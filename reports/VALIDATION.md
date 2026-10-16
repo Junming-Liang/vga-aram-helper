@@ -1,4 +1,8 @@
-# v0.4.9 merged candidate (2026-10-16 UTC)
+# v0.4.9 published preview (2026-10-16 UTC)
+
+[Complete Windows release run #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) passed every required gate and published [v0.4.9](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9). Source/tag: `9a45c8d7a8cc476cd7c22081c1363f767f271553`; tree `c987e998d3c0d9530d0cc2111053df5939b516e7`. EXE: **106,971,324 bytes (102.02 MiB)**; SHA-256: `a4ba18b95697195eb56635fec4a5779e6d9b6fd911f7db43fd1f69a8eafbcdf2`.
+
+It remains a non-latest prerelease. Stable `/releases/latest` OTA excludes it; manual download is required.
 
 This candidate addresses both sequential offers/rerolls and individual unknown
 slots. The user's current game window, version, and diagnostic ZIP have not been
@@ -31,8 +35,8 @@ observed; these are reproducible code fixes, not a proven incident diagnosis.
 - Legacy browser/server output now uses public grade-only projections too;
   internal statistical calculations are unchanged.
 - New packaged Windows acceptance requirements exercise actual OCR partial-slot
-  display and full recovery at each required application scale. The final
-  Windows executable has not yet been built or tested for this candidate.
+  display and full recovery at each required application scale. The same final
+  Windows executable passed these checks at 100%/150%/200% in run #62.
 
 The genuine-image evaluations were rerun from the same source-bound public
 fixtures: own hero 2/3 positives, one abstention, 3/3 negatives withheld; selection
@@ -55,7 +59,7 @@ worker is a latency optimization, not a substitute for lifecycle correctness.
 
 ---
 
-# Current v0.4.8 release validation (2026-10-15 UTC)
+# Historical v0.4.8 release validation (2026-10-15 UTC)
 
 [Windows release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed every mandatory gate with `publish_preview=true` and published [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) from source/tag `00bbf5affc02c32cbd9bf367199047eefdf208f8`, tree `cae3f15c3916f146c26d2d2d966efffe7169f886`. The final EXE is **106,925,126 bytes (101.97 MiB)**, SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`. The final verifier binds 60 evidence files and 15 release assets; public EXE identity matches. It remains a non-latest prerelease, excluded from stable OTA.
 

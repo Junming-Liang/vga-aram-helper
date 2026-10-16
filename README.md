@@ -9,7 +9,7 @@
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.9-0891b2" alt="源码版本 v0.4.9"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.8 预览版"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.9 预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -26,7 +26,7 @@ VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or 
 
 VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海克斯大乱斗（ARAM: Mayhem）的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
 
-当前源码为 v0.4.9 候选，尚未完成本版 Windows EXE 验收，不能据此认定已解决真实对局问题。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
+v0.4.9 预览版已通过完整 Windows EXE 发布验收；真实对局反馈仍待验证。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
 
 默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
 
@@ -36,8 +36,8 @@ VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海
 
 - **英雄专属海克斯评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
 - **自动本人英雄**：只在底部本人 HUD 区域匹配 Riot Data Dragon 头像，连续两帧一致后使用；不会从记分板或全屏人名猜英雄。
-- **本地 OCR**：三个不同候选名称精确匹配、布局和置信度通过且连续两帧一致时自动显示；不确定时人工修正。
-- **紧凑原生界面**：v0.4.8 采用浅色仪表盘，开始/停止保持可达；设置、核对资料、关于位于次级页面，叠加按原三栏显示名称与评级，超过半屏高度则隐藏，支持鼠标穿透和 `Ctrl+Alt+O`。完整说明可在控制台按名称查阅，查阅不代表识别或确认。
+- **本地 OCR**：布局和置信度通过、连续两帧独立确认的候选栏可先显示；未知栏保持无评级，不借用旧结果。不确定时人工修正。
+- **紧凑原生界面**：v0.4.9 采用浅色仪表盘，开始/停止保持可达；设置、核对资料、关于位于次级页面，叠加按原三栏显示名称与评级，超过半屏高度则隐藏，支持鼠标穿透和 `Ctrl+Alt+O`。完整说明可在控制台按名称查阅，查阅不代表识别或确认。
 - **数据刷新与缓存**：启动时检查公开资料，离线时使用已验证缓存。
 - **软件更新**：检查稳定版 GitHub Release，确认后下载并校验安装。
 
@@ -45,13 +45,13 @@ VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海
 
 ### Windows
 
-1. 下载 [v0.4.8 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/vga-aram-helper-0.4.8-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/SHA256SUMS.txt)。
+1. 下载 [v0.4.9 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/vga-aram-helper-0.4.9-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/SHA256SUMS.txt)。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
 3. 保持默认“自动识别英雄联盟”，点击“开始本局监测”。助手会最小化，自动等待或接续客户端/游戏，无需选择窗口。首次启动会准备约 5 MB 的公开头像缓存。
 
-单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8)提供测试证据和对应源码。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9)提供测试证据和对应源码。
 
-v0.4.8 预览版已发布，需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
+v0.4.9 预览版已发布，需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -63,6 +63,14 @@ python launcher.py
 ```
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## v0.4.9：窗口衔接、分栏识别与诊断
+
+[v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布，[Windows 完整发布运行 #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) 通过全部必需门禁，包括同一 EXE 的 100%/150%/200% 捕获、部分候选栏及恢复、选人衔接、同二进制更新和最终源码/许可校验。
+
+修正可变标题/无标题窗口的连接、补充受身份校验约束的客户端窗口类；复用有界 HUD/OCR 工作线程，逐栏展示独立确认结果，未知栏不借用旧评级。两项本机只读 API 身份辅助需分别主动开启，仅限本次会话。诊断区分窗口、截图、英雄、文字与评级缺失。
+
+实际 EXE 为 **106,971,324 字节（102.02 MiB）**。真实 LoL/Vanguard、用户实际对局与可选 API 的现行客户端兼容性仍未验证；不能据此认定用户的慢识别或闪烁已解决。保持非 latest 预览版，稳定 `/releases/latest` OTA 不会发现，需手动下载。详见[发布身份](WINDOWS_EXECUTABLE.md)与[验证范围](reports/VALIDATION.md)。
 
 ## v0.4.8：显示过期与受保护的可见捕获
 
@@ -101,7 +109,7 @@ v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，�
 
 ## 预览版与兼容性
 
-[v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) 已可下载，保持非 latest 预览版，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
+[v0.4.9](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已可下载，保持非 latest 预览版，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
 
 ### v0.4.7 与更早版本的历史记录
 
@@ -121,7 +129,7 @@ v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以�
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
 
-当前 v0.4.8 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+当前 v0.4.9 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 
 以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 
@@ -144,6 +152,6 @@ EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对
 
 原创代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项；OCR 依赖、模型及其他第三方组件遵循各自许可。Release 附完整许可、对应 Qt 源码和同提交应用源码，详见[第三方声明](THIRD_PARTY_NOTICES.md)。第三方游戏资料不在本项目 MIT 许可范围内。
 
-使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。自编译 OpenCV 与 WGC 辅助程序的 `/MT` 还包含微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可，更新这部分需要重建；详见[运行库范围说明](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)。
+使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。自编译 OpenCV 与 WGC 辅助程序的 `/MT` 还包含微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可，更新这部分需要重建；详见[运行库范围说明](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)。
 
 本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。

@@ -2,12 +2,12 @@
 
 ## 下载与发布状态
 
-[v0.4.8 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) 已于 2026-10-15 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/vga-aram-helper-0.4.8-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.8/SHA256SUMS.txt)。
+[v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/vga-aram-helper-0.4.9-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/SHA256SUMS.txt)。
 
-- 完整发布运行：[Windows #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284)，全部必需门禁通过。
-- 最终源码 / 标签：`00bbf5affc02c32cbd9bf367199047eefdf208f8` / `v0.4.8`；源码树：`cae3f15c3916f146c26d2d2d966efffe7169f886`。
-- 最终 EXE：**106,925,126 字节（101.97 MiB）**；SHA-256：`d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`。
-- 发布校验绑定 15 项资产与 60 项证据，公开 EXE 身份与校验一致；保持 prerelease / 非 latest，稳定 OTA 不自动发现。对应源码、许可与证据见同版 Release。
+- 完整发布运行：[Windows #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944)，全部必需门禁通过。
+- 最终源码 / 标签：`9a45c8d7a8cc476cd7c22081c1363f767f271553` / `v0.4.9`；源码树：`c987e998d3c0d9530d0cc2111053df5939b516e7`。
+- 最终 EXE：**106,971,324 字节（102.02 MiB）**；SHA-256：`a4ba18b95697195eb56635fec4a5779e6d9b6fd911f7db43fd1f69a8eafbcdf2`。
+- 发布校验绑定 15 项资产与 60 项证据，公开 EXE 身份与校验一致；保持 prerelease / 非 latest，稳定 `/releases/latest` OTA 不自动发现，需手动下载。对应源码、许可与证据见同版 Release。
 
 ### v0.4.6 已发布预览版（历史构建说明）
 

@@ -1,5 +1,14 @@
 # Windows 测试
 
+## v0.4.9：窗口衔接、分栏识别与诊断
+
+[v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布，[Windows 完整发布运行 #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) 通过全部必需门禁，包括同一 EXE 的 100%/150%/200% 捕获、部分候选栏及恢复、选人衔接、同二进制更新和最终源码/许可校验。
+
+修正可变标题/无标题窗口的连接、补充受身份校验约束的客户端窗口类；复用有界 HUD/OCR 工作线程，逐栏展示独立确认结果，未知栏不借用旧评级。两项本机只读 API 身份辅助需分别主动开启，仅限本次会话。诊断区分窗口、截图、英雄、文字与评级缺失。
+
+实际 EXE 为 **106,971,324 字节（102.02 MiB）**。真实 LoL/Vanguard、用户实际对局与可选 API 的现行客户端兼容性仍未验证；不能据此认定用户的慢识别或闪烁已解决。保持非 latest 预览版，稳定 `/releases/latest` OTA 不会发现，需手动下载。详见[发布身份](WINDOWS_EXECUTABLE.md)与[验证范围](reports/VALIDATION.md)。
+
+
 ## v0.4.8：完整发布验收已通过
 
 [发布运行 #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) 在 `publish_preview=true` 下通过全部必需门禁并发布 [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8)。源码/标签 `00bbf5affc02c32cbd9bf367199047eefdf208f8`，树 `cae3f15c3916f146c26d2d2d966efffe7169f886`；最终 EXE **106,925,126 字节**，SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`。发布校验绑定 60 项证据与 15 项资产，公开 EXE 身份一致，见[下载与身份](WINDOWS_EXECUTABLE.md#下载与发布状态)。

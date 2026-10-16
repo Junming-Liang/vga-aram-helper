@@ -1,7 +1,15 @@
 # Windows package size
 
-v0.4.8 retains the reviewed `minimal-opencv-v1` recipe adopted in v0.4.4.
+v0.4.9 retains the reviewed `minimal-opencv-v1` recipe adopted in v0.4.4.
 Earlier release and experimental measurements are preserved separately below.
+
+## Measured final v0.4.9 release
+
+[Windows release run #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) passed all required gates and published [v0.4.9](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9).
+
+Source/tag: `9a45c8d7a8cc476cd7c22081c1363f767f271553`; tree `c987e998d3c0d9530d0cc2111053df5939b516e7`. EXE: **106,971,324 bytes (102.02 MiB)**; SHA-256: `a4ba18b95697195eb56635fec4a5779e6d9b6fd911f7db43fd1f69a8eafbcdf2`.
+
+This non-latest prerelease requires manual download; stable OTA excludes it. Earlier measurements below remain historical.
 
 ## Measured final v0.4.8 release
 
