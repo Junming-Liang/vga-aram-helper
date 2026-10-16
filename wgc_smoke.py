@@ -41,7 +41,7 @@ def failure_evidence(error):
     Never publish arbitrary stderr or attributes from unrelated exceptions.
     The short visited chain also handles malformed/cyclic exception causes.
     """
-    from wgc_capture import WgcError, sanitize_native_diagnostic
+    from wgc_capture import WgcError, sanitize_native_diagnostic, sanitize_process_evidence
     seen = set()
     for _ in range(8):
         if not isinstance(error, BaseException) or id(error) in seen:
@@ -49,8 +49,11 @@ def failure_evidence(error):
         seen.add(id(error))
         if isinstance(error, WgcError):
             diagnostic = sanitize_native_diagnostic(getattr(error, 'diagnostic', None))
-            if diagnostic is not None:
-                return {'native_diagnostic': diagnostic}
+            process = sanitize_process_evidence(getattr(error, 'process_evidence', None))
+            evidence = {}
+            if diagnostic is not None: evidence['native_diagnostic'] = diagnostic
+            if process is not None: evidence['helper_process_evidence'] = process
+            if evidence: return evidence
         error = error.__cause__
     return {}
 

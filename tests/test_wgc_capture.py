@@ -318,6 +318,19 @@ class WgcDiagnosticTests(unittest.TestCase):
             self.assertIsNone(error.exception.diagnostic)
             self.assertNotIn('private', str(error.exception))
 
+    def test_unknown_native_exit_remains_failure_with_numeric_evidence(self):
+        harness = WgcTests(); harness.setUp()
+        process = harness.process(3221225477)
+        process.communicate.return_value = (b'partial-packet', b'private stderr')
+        with self.assertRaises(WgcError) as error:
+            harness.invoke(harness.wrapper(), process)
+        self.assertEqual(error.exception.status, 'backend-error')
+        self.assertEqual(error.exception.process_evidence,
+            {'returncode':3221225477, 'stdout_bytes':14, 'stderr_bytes':14})
+        self.assertIsNone(error.exception.diagnostic)
+        self.assertNotIn('private', str(error.exception))
+        process.stdout.close.assert_called_once(); process.stderr.close.assert_called_once()
+
     def test_success_ignores_stderr_and_closes_both_pipes(self):
         harness = WgcTests(); harness.setUp()
         process = harness.process()

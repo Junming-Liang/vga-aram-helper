@@ -94,5 +94,26 @@ class OwnedWindowRestorationTests(unittest.TestCase):
         api.SetWindowPos.assert_not_called()
 
 
+
+class NumericProcessEvidenceTests(unittest.TestCase):
+    def test_routed_unknown_exit_retains_only_bounded_numbers(self):
+        proof={'returncode':3221225477,'stdout_bytes':1234,'stderr_bytes':0}
+        error=WgcError('backend-error','generic',process_evidence=proof)
+        routed=RuntimeError('routed');routed.__cause__=error
+        self.assertEqual(wgc_smoke.failure_evidence(routed),{'helper_process_evidence':proof})
+        proof['returncode']=0
+        self.assertEqual(error.process_evidence['returncode'],3221225477)
+
+    def test_invalid_fields_types_bounds_and_raw_stderr_never_escape(self):
+        from wgc_capture import sanitize_process_evidence
+        proof={'returncode':-1073741819,'stdout_bytes':0,'stderr_bytes':42}
+        self.assertEqual(sanitize_process_evidence(proof),proof)
+        for bad in (dict(proof,stderr='private'),dict(proof,returncode=True),
+                    dict(proof,returncode=2**32),dict(proof,stdout_bytes=-1),
+                    dict(proof,stderr_bytes='private'),dict(proof,stdout_bytes=2**31)):
+            with self.subTest(bad=bad):
+                self.assertIsNone(sanitize_process_evidence(bad))
+                self.assertEqual(wgc_smoke.failure_evidence(WgcError('backend-error','generic',process_evidence=bad)),{})
+
 if __name__ == '__main__':
     unittest.main()

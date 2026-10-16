@@ -85,10 +85,25 @@ def decode_native_diagnostic(data, returncode):
     return value if value is not None and value['code'] == returncode else None
 
 
+
+def sanitize_process_evidence(value):
+    """Numeric child-exit evidence only; no raw output, paths, IDs or pixels."""
+    fields = {'returncode', 'stdout_bytes', 'stderr_bytes'}
+    if type(value) is not dict or set(value) != fields:
+        return None
+    if type(value['returncode']) is not int or not -(2**31) <= value['returncode'] <= 2**32-1:
+        return None
+    if any(type(value[key]) is not int or not 0 <= value[key] <= 2**31-1
+           for key in ('stdout_bytes', 'stderr_bytes')):
+        return None
+    return dict(value)
+
+
 class WgcError(RuntimeError):
-    def __init__(self, status, message, diagnostic=None):
+    def __init__(self, status, message, diagnostic=None, *, process_evidence=None):
         self.status = status
         self.diagnostic = sanitize_native_diagnostic(diagnostic)
+        self.process_evidence = sanitize_process_evidence(process_evidence)
         super().__init__(message)
 
 
@@ -293,7 +308,10 @@ class WgcCapture:
             if process.returncode:
                 status, message = statuses.get(process.returncode, ('backend-error', '系统图形捕获组件未正常完成。'))
                 exception = WgcUnavailable if status == 'unsupported' else WgcError
-                raise exception(status, message, decode_native_diagnostic(diagnostic_data, process.returncode))
+                raise exception(status, message, decode_native_diagnostic(diagnostic_data, process.returncode),
+                    process_evidence=({'returncode': process.returncode, 'stdout_bytes': len(data),
+                                      'stderr_bytes': len(diagnostic_data)}
+                                      if type(data) is bytes and type(diagnostic_data) is bytes else None))
             if cancelled():
                 raise WgcError('cancelled', '截图已取消。')
             try:
