@@ -1,4 +1,5 @@
 """Offline release gate tests. No GitHub request or external mutation is made."""
+import ast
 import copy
 import importlib.util
 import json
@@ -855,6 +856,28 @@ class ReleaseFixture(unittest.TestCase):
                 self.write_json(self.release / 'update-manifest.json', manifest)
                 with self.assertRaises(gate.VerificationError): self.verify()
         self.write_json(self.release / 'update-manifest.json', self.manifest)
+
+    def test_actual_producer_receipts_satisfy_entire_release_gate(self):
+        # Derive receipts from the actual producer, not the verifier's constants:
+        # otherwise a stale expectation creates a self-consistent fake fixture.
+        producer = ast.parse((ROOT / 'tests/windows_exe_smoke.py').read_text(encoding='utf-8'))
+        receipts = [node.args[0].value for node in ast.walk(producer)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == 'checks'
+            and node.func.attr == 'append' and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)]
+        self.assertTrue(gate.BASELINE_CHECKS.issubset(receipts),
+                        gate.BASELINE_CHECKS.difference(receipts))
+        self.smoke['checks'] = receipts
+        self.write_reports()
+        self.verify()
+
+    def test_obsolete_priority_receipt_cannot_replace_grade_only_contract(self):
+        self.smoke['checks'].remove(gate.COMPARE_CHECK)
+        self.smoke['checks'].append('Frozen comparison API: same three slots produce different hero-specific priorities')
+        self.write_reports()
+        with self.assertRaisesRegex(gate.VerificationError, 'browser/comparison/OCR'):
+            self.verify()
 
     def test_reject_missing_browser_comparison_or_actual_ocr(self):
         checks = self.smoke['checks'][:]

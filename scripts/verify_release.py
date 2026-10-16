@@ -73,7 +73,7 @@ SELECTION_GENUINE_FILES = ('champion_select.py','local_ocr.py','ocr_privacy.py',
 SELECTION_FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed', 'champion_select_session_carry_passed', 'champion_select_stale_clear_passed', 'champion_select_window_scope_passed', 'metadata_query_passed')
 
 BROWSER_CHECK = 'Actual EXE Chromium UI: hero + 3 slots, switch hero, recompute, clear round; screenshot saved'
-COMPARE_CHECK = 'Frozen comparison API: same three slots produce different hero-specific priorities'
+COMPARE_CHECK = 'Frozen comparison API: exact hero-specific source grades in original slots, with no rates, rankings or unique recommendation'
 OCR_CHECK = 'Actual bundled ONNX inference: Chinese fixture 3/3; blank fixture 0; all model SHA256 match'
 MODEL_HASHES = {
     'PP-OCRv6_det_small.onnx': '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
