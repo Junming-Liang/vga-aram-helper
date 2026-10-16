@@ -10,6 +10,7 @@ import ntpath
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,50 @@ from urllib.request import ProxyHandler, Request, build_opener
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_session_fixture import poll_owned_json
+
+
+
+DEMO_OFFERED = ('星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）')
+DEMO_HERO_GRADES = {'星火术士（演示）': ('T1', 'T2', 'T3'),
+                    '磐石守卫（演示）': ('T3', 'T1', 'T2')}
+FORBIDDEN_PUBLIC_FIELDS = frozenset(('recommendedName', 'recommended', 'preferred',
+    'recommendationRank', 'rank', 'score', 'winRate', 'pairWinRate', 'globalWinRate',
+    'pickRate', 'numGames', 'sampleSize', 'officialRank', 'sourceRank',
+    'recommendedIndex', 'officialStats'))
+
+
+def assert_grade_only_comparison(comparison, hero, offered, expected_grades):
+    """Validate actual EXE JSON, independently of the product projection code."""
+    def inspect(value):
+        if isinstance(value, dict):
+            assert not FORBIDDEN_PUBLIC_FIELDS.intersection(value), value
+            for child in value.values(): inspect(child)
+        elif isinstance(value, list):
+            for child in value: inspect(child)
+    inspect(comparison)
+    assert comparison['policy'] == 'literal-source-grades-v1', comparison
+    assert comparison['hero'] == hero and comparison['offered'] == list(offered), comparison
+    cards = comparison['cards']
+    assert len(cards) == 3, comparison
+    assert [card['slot'] for card in cards] == [1, 2, 3], comparison
+    assert [card['name'] for card in cards] == list(offered), comparison
+    assert [card['sourceTier'] for card in cards] == list(expected_grades), comparison
+
+
+def assert_grade_only_browser(page, expect, offered, expected_grades):
+    """Inspect all three rendered cards without permitting a unique-best card."""
+    cards = page.locator('.comparison-card')
+    expect(cards).to_have_count(3)
+    expect(page.locator('.comparison-card.preferred')).to_have_count(0)
+    for index, (name, grade) in enumerate(zip(offered, expected_grades)):
+        card = cards.nth(index)
+        expect(card.locator('h3')).to_have_text(name)
+        expect(card.locator('.card-top .badge')).to_have_text(f'原选项 {index + 1}')
+        expect(card.locator(':scope > .badge')).to_have_text(f'源评级 {grade}')
+    text = page.locator('#choice-result').inner_text()
+    assert not any(word in text for word in ('胜率', '选取率', '样本量', '优先选择', '唯一推荐', '源顺位', '推荐首选')), text
+    # These original synthetic descriptions contain no effect percentages.
+    assert not re.search(r'\d+(?:[.,]\d+)?\s*[%％]', text), text
 
 
 def supported_image_payloads(path):
@@ -232,14 +277,13 @@ def main():
                 for path in ('/favicon.ico', '/brand.png'):
                     status, raw, _ = fetch(path)
                     assert status == 200 and len(raw) > 0, path
-                offered = ['星火共鸣（演示）', '晶盾回路（演示）', '风步微光（演示）']
-                for hero, preferred in [('星火术士（演示）', offered[0]), ('磐石守卫（演示）', offered[1])]:
+                offered = list(DEMO_OFFERED)
+                for hero, grades in DEMO_HERO_GRADES.items():
                     status, raw, _ = fetch('/api/compare', {'hero': hero, 'offered': offered})
                     comparison = json.loads(raw)
-                    assert status == 200 and comparison['recommendedName'] == preferred, comparison
-                    assert comparison['hero'] == hero and comparison['offered'] == offered
-                    assert len(comparison['cards']) == 3
-                checks.append('Frozen comparison API: same three slots produce different hero-specific priorities')
+                    assert status == 200, comparison
+                    assert_grade_only_comparison(comparison, hero, offered, grades)
+                checks.append('Frozen comparison API: exact hero-specific source grades in original slots, with no rates, rankings or unique recommendation')
                 if args.browser:
                     from playwright.sync_api import sync_playwright, expect
                     with sync_playwright() as playwright:
@@ -256,12 +300,12 @@ def main():
                             page.locator(f'#choice-{index}').fill(name)
                         expect(page.locator('#compare-choices')).to_be_enabled()
                         page.locator('#compare-choices').click()
-                        expect(page.locator('.comparison-card.preferred')).to_contain_text(offered[0])
+                        assert_grade_only_browser(page, expect, offered, DEMO_HERO_GRADES['星火术士（演示）'])
                         page.locator('#hero-search').fill('磐石守卫')
                         page.locator('.hero-row').first.click()
                         expect(page.locator('#choice-result')).to_be_empty()
                         page.locator('#compare-choices').click()
-                        expect(page.locator('.comparison-card.preferred')).to_contain_text(offered[1])
+                        assert_grade_only_browser(page, expect, offered, DEMO_HERO_GRADES['磐石守卫（演示）'])
                         page.screenshot(path=str(reports / 'windows-exe-ui.png'), full_page=True)
                         page.locator('#clear-choices').click()
                         expect(page.locator('#choice-result')).to_be_empty()

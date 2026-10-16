@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from engine import load_data
 from server import make_server
+from tests.windows_exe_smoke import assert_grade_only_browser
 from playwright.sync_api import sync_playwright,expect
 parser=argparse.ArgumentParser();parser.add_argument('--browser-executable',default=os.environ.get('HEX_BROWSER_EXECUTABLE'));parser.add_argument('--screenshots',action='store_true');args=parser.parse_args()
 checks=[]
@@ -25,8 +26,8 @@ try:
         page.locator('#hero-search').fill('小星');expect(page.locator('.hero-row')).to_have_count(1);page.locator('.hero-row').click();passed('Hero alias lookup and selection')
         names=['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']
         for i,name in enumerate(names):page.locator(f'#choice-{i}').fill(name)
-        page.locator('#compare-choices').click();expect(page.locator('.comparison-card')).to_have_count(3);expect(page.locator('.comparison-card.preferred')).to_contain_text(names[0]);expect(page.locator('#choice-result')).to_contain_text('虚构演示');passed('Confirmed hero plus three names renders synthetic source-ordered comparison')
-        page.locator('#hero-search').fill('小石');page.locator('.hero-row').click();expect(page.locator('#choice-result')).to_be_empty();page.locator('#compare-choices').click();expect(page.locator('.comparison-card.preferred')).to_contain_text(names[1]);passed('Hero change clears old result and changes recommendation')
+        page.locator('#compare-choices').click();assert_grade_only_browser(page,expect,names,['T1','T2','T3']);expect(page.locator('#choice-result')).to_contain_text('虚构演示');passed('Confirmed hero preserves three original slots with literal synthetic grades only')
+        page.locator('#hero-search').fill('小石');page.locator('.hero-row').click();expect(page.locator('#choice-result')).to_be_empty();page.locator('#compare-choices').click();assert_grade_only_browser(page,expect,names,['T3','T1','T2']);passed('Hero change clears old result and changes literal grades without reordering slots')
         page.locator('#choice-2').fill(names[0]);expect(page.locator('#compare-choices')).to_be_disabled();expect(page.locator('#choice-result')).to_be_empty();passed('Duplicate/manual edit blocks compare and clears result')
         page.locator('#clear-choices').click();expect(page.locator('#choice-0')).to_have_value('');passed('New round clears slots')
         page.locator('.reference-details>summary').click();expect(page.locator('.card')).to_have_count(3);page.locator('#rarity').select_option('gold');expect(page.locator('.card')).to_have_count(1);page.locator('#show-deleted').check();expect(page.locator('.card')).to_have_count(2);passed('Reference rarity/deleted filters remain usable')
