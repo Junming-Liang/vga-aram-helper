@@ -78,6 +78,31 @@ class RecognizeFrameCallbackTests(unittest.TestCase):
             recognize_frame(self.payload, self.roi, OCR(), self.vocabulary,
                             before_ocr=before_ocr)
 
+    def test_resolver_runs_after_match_and_before_proof_and_result(self):
+        from hero_recognition import recognize_frame
+        events = []
+        observed = {'hero': None, 'confident': False}
+        resolved = {'hero': 'Owned resolved hero', 'confident': True}
+        class Matcher:
+            def recognize(inner, image):
+                events.append('match')
+                return observed
+        class OCR:
+            def recognize(inner, *args):
+                events.append('ocr')
+                return {'ocr_lines': [], 'candidates': []}
+        def resolve(hero):
+            self.assertIs(hero, observed)
+            events.append('resolve')
+            return resolved
+        def proof(hero, crop):
+            self.assertIs(hero, resolved)
+            events.append('proof')
+        result = recognize_frame(self.payload, self.roi, OCR(), self.vocabulary,
+                                 Matcher(), resolve_hero=resolve, before_ocr=proof)
+        self.assertEqual(events, ['match', 'resolve', 'proof', 'ocr'])
+        self.assertIs(result['hero_observation'], resolved)
+
 
 if __name__ == '__main__':
     unittest.main()

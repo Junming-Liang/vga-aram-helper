@@ -72,7 +72,7 @@ class SessionWindowPolicy:
         self.started_after=started_after if started_after is not None else int(time.time()*10_000_000)+116444736000000000
         self.resolver=resolver;meta=resolver(client.pid);path=PureWindowsPath(normalized_path(meta.path))
         if path.name not in ('leagueclientux.exe','leagueclient.exe'):raise ValueError('Selected window is not a supported League client executable')
-        self.client_identity=tuple(client.identity);self.client_meta=ProcessMetadata(str(path),meta.created);self.root=path.parent
+        self.client_identity=tuple(client.identity);self.client_meta=ProcessMetadata(str(path),meta.created);self.root=path.parent.parent if path.parent.name=='leagueclient' else path.parent
         self.game_identity=None;self.game_meta=None;self.active=True
     def stop(self):self.active=False;self.game_identity=None;self.game_meta=None
     def _matches(self,window,saved_identity,saved_meta):

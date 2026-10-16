@@ -53,6 +53,16 @@ class LocalDebugTests(unittest.TestCase):
         self.assertEqual(manifest['config'], {'hero_auto': True, 'roi_percent': [15, 25, 70, 35]})
         self.assertEqual(manifest['app_version'], '0.4.9')
 
+    def test_recognition_diagnostics_keep_only_bounded_categories_and_timings(self):
+        self.log.set_enabled(True)
+        self.log.record('recognition',reason='hero_unknown',candidate_count=2,
+            queue_ms=1.1,prepare_ms=2.2,hud_ms=3.3,ocr_ms=4.4,dispatch_ms=5.5,
+            hero='PRIVATE_HERO',recognized_text='PRIVATE_TITLE',scores=[.99])
+        _,events=self.read_export();value=json.loads(events.splitlines()[-1])
+        self.assertEqual(value['reason'],'hero_unknown');self.assertEqual(value['candidate_count'],2)
+        for field in ('queue_ms','prepare_ms','hud_ms','ocr_ms','dispatch_ms'):self.assertIn(field,value)
+        self.assertNotIn('PRIVATE',events);self.assertNotIn('scores',value)
+
     def test_identifiers_are_stable_only_for_same_launch_and_process_lifetime(self):
         first = self.log.identity(123, 456, 789)
         self.assertEqual(first, self.log.identity(123, 456, 789))

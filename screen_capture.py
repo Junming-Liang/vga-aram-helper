@@ -17,10 +17,14 @@ import os
 import subprocess
 import threading
 
-class CaptureUnavailable(RuntimeError):pass
+class CaptureUnavailable(RuntimeError):
+    default_reason_code='capture_unavailable'
+    def __init__(self,message,*,reason_code=None):
+        super().__init__(message)
+        self.reason_code=reason_code or self.default_reason_code
 class CapturePaused(CaptureUnavailable):
     """Expected lifecycle/focus condition; retry automatically, not a setup error."""
-    pass
+    default_reason_code='capture_paused'
 
 @dataclass(frozen=True)
 class WindowInfo:
@@ -79,42 +83,42 @@ class Win32Capture:
         self.set_long=getattr(self.u,'SetWindowLongPtrW',self.u.SetWindowLongW);self.set_long.argtypes=[W.HWND,ctypes.c_int,ptr];self.set_long.restype=ptr
         for name,args,result in [('CreateCompatibleDC',[W.HDC],W.HDC),('CreateCompatibleBitmap',[W.HDC,ctypes.c_int,ctypes.c_int],W.HBITMAP),('SelectObject',[W.HDC,W.HANDLE],W.HANDLE),('DeleteObject',[W.HANDLE],W.BOOL),('DeleteDC',[W.HDC],W.BOOL),('BitBlt',[W.HDC,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,W.HDC,ctypes.c_int,ctypes.c_int,W.DWORD],W.BOOL),('GetDIBits',[W.HDC,W.HBITMAP,W.UINT,W.UINT,ctypes.c_void_p,ctypes.c_void_p,W.UINT],ctypes.c_int)]:sig(self.g,name,args,result)
     def info(self,hwnd):
-        if not self.u.IsWindow(hwnd):raise CapturePaused('等待英雄联盟窗口重新启动。')
+        if not self.u.IsWindow(hwnd):raise CapturePaused('等待英雄联盟窗口重新启动。',reason_code='window_gone')
         count=self.u.GetWindowTextLengthW(hwnd);title=ctypes.create_unicode_buffer(count+1);self.u.GetWindowTextW(hwnd,title,count+1)
         cls=ctypes.create_unicode_buffer(256);self.u.GetClassNameW(hwnd,cls,256);pid=W.DWORD();self.u.GetWindowThreadProcessId(hwnd,ctypes.byref(pid))
         return WindowInfo(int(hwnd),int(pid.value),title.value,cls.value)
-    def windows(self,include_own=False):
+    def windows(self,include_own=False,*,include_untitled=False):
         result=[]
         def each(hwnd,_):
             if self.u.IsWindowVisible(hwnd):
                 try:
                     item=self.info(hwnd)
-                    if item.title and (include_own or item.pid!=os.getpid()):result.append(item)
+                    if (item.title or include_untitled) and (include_own or item.pid!=os.getpid()):result.append(item)
                 except CaptureUnavailable:pass
             return True
         cb=self.enum_cb(each);self.u.EnumWindows(cb,0);return sorted(result,key=lambda x:x.title.casefold())
     def rect(self,target):
         current=self.info(target.hwnd)
-        if current.identity!=target.identity:raise CapturePaused('窗口已重建，等待重新连接。')
-        if not self.u.IsWindowVisible(target.hwnd) or self.u.IsIconic(target.hwnd):raise CapturePaused('游戏已隐藏或最小化；恢复窗口后自动继续。')
+        if current.identity!=target.identity:raise CapturePaused('窗口已重建，等待重新连接。',reason_code='window_identity_changed')
+        if not self.u.IsWindowVisible(target.hwnd) or self.u.IsIconic(target.hwnd):raise CapturePaused('游戏已隐藏或最小化；恢复窗口后自动继续。',reason_code='window_hidden')
         rect=W.RECT();point=W.POINT(0,0)
-        if not self.u.GetClientRect(target.hwnd,ctypes.byref(rect)) or not self.u.ClientToScreen(target.hwnd,ctypes.byref(point)):raise CaptureUnavailable('无法读取目标窗口客户区。')
+        if not self.u.GetClientRect(target.hwnd,ctypes.byref(rect)) or not self.u.ClientToScreen(target.hwnd,ctypes.byref(point)):raise CaptureUnavailable('无法读取目标窗口客户区。',reason_code='client_rect_failed')
         width,height=rect.right-rect.left,rect.bottom-rect.top
-        if min(width,height)<64:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，宽和高需至少64像素。')
-        if width*height>16_000_000:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，超过当前1600万像素预算。')
+        if min(width,height)<64:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，宽和高需至少64像素。',reason_code='client_rect_unsupported')
+        if width*height>16_000_000:raise CaptureUnavailable(f'目标客户区尺寸不支持：{width}×{height} 像素，超过当前1600万像素预算。',reason_code='client_rect_unsupported')
         return ClientRect(point.x,point.y,width,height)
     def foreground(self,target):return int(self.u.GetAncestor(self.u.GetForegroundWindow(),2) or 0)==target.hwnd
     def validate(self,target,*,check_occlusion=True):
         rect=self.rect(target)
-        if not self.foreground(target):raise CapturePaused('等待切回英雄联盟；旧资料已隐藏。')
+        if not self.foreground(target):raise CapturePaused('等待切回英雄联盟；旧资料已隐藏。',reason_code='focus_rejected')
         affinity=W.DWORD();query=getattr(self.u,'GetWindowDisplayAffinity',None)
         if query and query(target.hwnd,ctypes.byref(affinity)) and affinity.value:
-            raise CapturePaused('目标窗口已设置画面保护，本帧不进行截图。')
+            raise CapturePaused('目标窗口已设置画面保护，本帧不进行截图。',reason_code='capture_protected')
         if check_occlusion:
             for fx in (.1,.5,.9):
                 for fy in (.1,.5,.9):
                     hit=self.u.WindowFromPoint(W.POINT(rect.x+int(rect.width*fx),rect.y+int(rect.height*fy)))
-                    if int(self.u.GetAncestor(hit,2) or 0)!=target.hwnd:raise CapturePaused('游戏被其他窗口遮挡；移开后会自动继续。')
+                    if int(self.u.GetAncestor(hit,2) or 0)!=target.hwnd:raise CapturePaused('游戏被其他窗口遮挡；移开后会自动继续。',reason_code='foreign_occlusion')
         return rect
     def validate_compositor(self,target,expected,*,allow_visible_overlay=False):
         """Prove the ENTIRE client rectangle is visible, not nine sample points.
@@ -132,13 +136,13 @@ class Win32Capture:
         else:
             self._check_overlay_hidden()
         rect=self.validate(target,check_occlusion=False) if allow_visible_overlay else self.validate(target)
-        if rect!=expected:raise CapturePaused('窗口正在移动，等待画面稳定。')
+        if rect!=expected:raise CapturePaused('窗口正在移动，等待画面稳定。',reason_code='geometry_changed')
         bounds=W.RECT(rect.x,rect.y,rect.x+rect.width,rect.y+rect.height)
         class MI(ctypes.Structure):
             _fields_=[('size',W.DWORD),('monitor',W.RECT),('work',W.RECT),('flags',W.DWORD)]
         monitor=self.u.MonitorFromRect(ctypes.byref(bounds),0);info=MI();info.size=ctypes.sizeof(info)
         if not monitor or not self.u.GetMonitorInfoW(monitor,ctypes.byref(info)) or not contains_rect(info.monitor,bounds):
-            raise CapturePaused('游戏客户区需完整位于一个显示器内；移动后自动继续。')
+            raise CapturePaused('游戏客户区需完整位于一个显示器内；移动后自动继续。',reason_code='monitor_bounds')
         found=False;blocked=False
         def each(hwnd,_):
             nonlocal found,blocked
@@ -159,7 +163,7 @@ class Win32Capture:
                 blocked=True;return False
             return True
         callback=self.enum_cb(each);self.u.EnumWindows(callback,0)
-        if blocked or not found:raise CapturePaused('游戏上方仍有其他窗口；移开后会自动继续。')
+        if blocked or not found:raise CapturePaused('游戏上方仍有其他窗口；移开后会自动继续。',reason_code='foreign_occlusion')
         return rect
     def _copy_pixels(self,source,width,height,left,top):
         dc=bitmap=old=None
@@ -339,7 +343,7 @@ class Win32Capture:
                 check_binding()
                 if is_cancelled():raise CapturePaused('截图已取消。')
                 if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
-                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。')
+                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。',reason_code='blank_frame')
                 self.last_backend='windows-graphics-capture-session';self._blank_frames=(None,0)
                 out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
             if allow_visible_overlay:
@@ -354,7 +358,7 @@ class Win32Capture:
                 check_binding()
                 if is_cancelled():raise CapturePaused('截图已取消。')
                 if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
-                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。')
+                if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。',reason_code='blank_frame')
                 self.last_backend='windows-graphics-capture';self._blank_frames=(None,0)
                 out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
             except WgcUnavailable:self._wgc=None # Unsupported API only; exact GDI bounds remain below.
@@ -382,7 +386,7 @@ class Win32Capture:
         else:self.last_backend='window-dc'
         if blank_image(image):
             key=tuple(target.identity);previous,count=getattr(self,'_blank_frames',(None,0));count=count+1 if previous==key else 1;self._blank_frames=(key,count)
-            raise CapturePaused('游戏画面持续为空；仍会重试，独占全屏可尝试无边框模式。' if count>=5 else '等待游戏画面；当前帧为空白，稍后自动重试。')
+            raise CapturePaused('游戏画面持续为空；仍会重试，独占全屏可尝试无边框模式。' if count>=5 else '等待游戏画面；当前帧为空白，稍后自动重试。',reason_code='blank_frame')
         self._blank_frames=(None,0)
         if is_cancelled():raise CapturePaused('截图已取消。')
         out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect

@@ -146,7 +146,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None):
             hero_calls.append(image)
             if before_ocr:before_ocr({'hero': hero, 'confident': True},b'exact-title-crop')
             result = ocr.recognize(b'exact-title-crop', vocabulary)
@@ -190,7 +190,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None):
             if before_ocr:before_ocr({'hero': selected[0], 'confident': True},b'unchanged-owned-titles')
             result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
             result['hero_observation'] = {'hero': selected[0], 'confident': True}
@@ -346,7 +346,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def foreground(inner,target):return True
         w.capture=Capture()
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
             before_match('a'*64,b'owned-crop')
             if not release.wait(2):raise RuntimeError('owned inference timeout')
             before_ocr({'hero':hero,'confident':True},b'owned-crop')
@@ -586,7 +586,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         capture.capture=acquire
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,
             'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
             before_match('changed-HUD-animation',b'changed-whole-ROI-animation')
             if not release.wait(2):raise RuntimeError('owned timeout')
             before_ocr({'hero':hero,'confident':True},b'changed-whole-ROI-animation')
@@ -599,6 +599,46 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             self.assertIn('上次候选复核中',w.overlay.heading.text());self.assertTrue(requests[0]['allow_visible_overlay'])
             release.set();self.wait(lambda:not w.ocr_busy)
         self.assertTrue(w.state.confirmed);self.assertFalse(w._visible_previous);self.assertNotIn('复核中',w.overlay.heading.text())
+
+    def test_resolved_hero_conflict_hides_while_title_ocr_is_still_held(self):
+        w=self.window;capture,hero,names=self.visible_capture_fixture()
+        release=threading.Event();resolved=threading.Event();self._release_events.append(release)
+        capture.capture=lambda *args,**kwargs:(b'owned synthetic conflict',capture.rect(w.target))
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
+            before_match('owned-digest',b'owned-crop')
+            observation={'hero':None,'confident':False,'method':'game-client-api'}
+            before_ocr(observation,b'owned-crop');resolved.set()
+            if not release.wait(2):raise RuntimeError('owned timeout')
+            return {'hero_observation':observation,'automatic_candidates':[],'candidates':[]}
+        generation=w.state.generation;w._visible_previous=True
+        with patch('hero_recognition.recognize_frame',side_effect=recognize):
+            w.capture_hidden(generation,allow_visible_overlay=True)
+            self.wait(lambda:resolved.is_set() and not w.state.confirmed)
+            self.assertTrue(w.ocr_busy);self.assertFalse(w.overlay.isVisible())
+            self.assertFalse(w.state.hero);self.assertIsNone(w._accepted_frame)
+            self.assertEqual(w.state.generation,generation)
+            release.set();self.wait(lambda:not w.ocr_busy)
+        self.assertFalse(w.state.confirmed);self.assertFalse(w.overlay.isVisible())
+
+    def test_early_hero_proof_preserves_manual_and_valid_carried_unknown(self):
+        for manual,origin in ((True,'manual'),(False,'client-provisional')):
+            with self.subTest(manual=manual):
+                w=self.window;value,hero,names=self.accepted_proof_fixture()
+                w.hero_auto.blockSignals(True);w.hero_auto.setChecked(not manual);w.hero_auto.blockSignals(False)
+                w.hero_origin=origin;w.overlay.show();w._visible_previous=True;w.ocr_busy=True
+                generation=w.state.generation
+                w.task_result('capture-proof',dict(value,hero_observation={'confident':False,'method':'own-hud-portrait'}),generation)
+                self.assertTrue(w.state.confirmed);self.assertEqual(w.state.generation,generation)
+                self.assertTrue(w.overlay.isVisible());self.assertTrue(w.ocr_busy)
+                w.ocr_busy=False
+
+    def test_changed_confident_hero_proof_revokes_prior_grade_immediately(self):
+        w=self.window;value,hero,names=self.accepted_proof_fixture()
+        w.overlay.show();w._visible_previous=True;w.ocr_busy=True
+        generation=w.state.generation
+        w.task_result('capture-proof',dict(value,hero_observation={'hero':'different hero','confident':True}),generation)
+        self.assertFalse(w.state.confirmed);self.assertFalse(w.overlay.isVisible());self.assertTrue(w.ocr_busy)
+        self.assertEqual(w.state.generation,generation);w.ocr_busy=False
 
     def test_visible_pending_unknown_or_expired_result_clears_previous_display(self):
         w=self.window;_,_,_=self.visible_capture_fixture();generation=w.state.generation

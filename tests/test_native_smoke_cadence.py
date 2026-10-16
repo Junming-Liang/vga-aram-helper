@@ -36,7 +36,8 @@ class NativeSmokeCadenceTests(unittest.TestCase):
             # The production scheduler selects zero delay near the freshness
             # boundary. The fixed clock below avoids a test-machine timing race.
             last_observation=100., selection_session=None,
-            client_phase=lambda: False, client_strength_reference=lambda: None,
+            client_phase=lambda: False, client_selection_reference=lambda: None,
+            current_partial_names=lambda: ('', '', ''),
             overlay=SimpleNamespace(set_rechecking=lambda value: None),
             captured_frame_current=lambda value: False,
             refresh_status_badge=lambda: None)

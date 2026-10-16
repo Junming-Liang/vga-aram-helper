@@ -19,11 +19,11 @@ verify_built_helper()  # No optional omission or runtime download of either capt
 verify_session_helper()
 binaries = [(str(ROOT / 'build' / 'native' / name), 'native')
             for name in (WGC_FILENAME, SESSION_FILENAME)]
-datas = [(str(ROOT / 'build' / 'native' / WGC_MANIFEST), 'native'),
+datas = [(str(ROOT / 'assets' / 'riotgames.pem'), 'assets'), (str(ROOT / 'build' / 'native' / WGC_MANIFEST), 'native'),
          (str(ROOT / 'build' / 'native' / SESSION_MANIFEST), 'native'),
          (str(ROOT / 'static'), 'static'), (str(ROOT / 'fixtures'), 'fixtures'),
          (str(ROOT / 'build' / 'licenses'), 'licenses'), (str(ROOT / 'LICENSE'), '.'), *[(str(ROOT / 'assets' / 'branding' / name), 'assets/branding') for name in BRANDING_FILES]]
-hiddenimports = ['server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'portrait_display', 'local_debug', 'owned_diagnostic_json', 'wgc_visible_overlay_smoke', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke', 'wgc_capture', 'wgc_smoke', 'wgc_session_capture', 'wgc_session_smoke', 'persistent_capture_adapter']
+hiddenimports = ['frame_inference_worker', 'partial_candidates', 'public_payload', 'lcu_selection', 'live_client_identity', 'server', 'engine', 'local_ocr', 'model_inventory', 'app_version', 'updates', 'data_updates', 'update_network', 'native_ui', 'portrait_display', 'local_debug', 'owned_diagnostic_json', 'wgc_visible_overlay_smoke', 'native_state', 'overlay_geometry', 'screen_capture', 'native_smoke', 'hero_portraits', 'hero_recognition', 'champion_select', 'selection_session', 'session_windows', 'selection_smoke', 'wgc_capture', 'wgc_smoke', 'wgc_session_capture', 'wgc_session_smoke', 'persistent_capture_adapter']
 # RapidOCR exports RapidOCR lazily, so explicitly retain its entry point and
 # CPU backend. Normal import analysis then follows their real dependencies.
 # Data collection excludes duplicate .py source, while preserving all wheel

@@ -26,11 +26,12 @@ class WindowsOtaHarnessTests(unittest.TestCase):
             self.assertEqual(smoke.control_title_for_version(version), smoke.CONTROL_TITLE)
         self.assertEqual(smoke.control_title_for_version('0.4.7'), 'VGA乱斗助手')
         self.assertEqual(smoke.control_title_for_version('0.4.8'), 'VGA乱斗助手')
+        self.assertEqual(smoke.control_title_for_version('0.4.9'), 'VGA乱斗助手')
         self.assertEqual(inspect.signature(smoke.NativeJob.windows).parameters['title'].default, smoke.CONTROL_TITLE)
         self.assertEqual(inspect.signature(smoke.NativeJob.close_application).parameters['title'].default, smoke.CONTROL_TITLE)
 
     def test_control_title_rejects_unknown_and_noncanonical_versions(self):
-        for version in ('', '0.3', 'v0.4.7', '0.4.07', '0.4.7-rc1', '0.4.9', '99.0.0', None, True):
+        for version in ('', '0.3', 'v0.4.7', '0.4.07', '0.4.7-rc1', '0.4.10', '99.0.0', None, True):
             with self.subTest(version=version), self.assertRaises(AssertionError):
                 smoke.control_title_for_version(version)
 

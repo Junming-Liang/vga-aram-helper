@@ -12,12 +12,12 @@
     <aside class="hero-panel">
       <div class="section-heading"><div><span class="eyebrow">01 / 选择英雄</span><h1>从你的英雄开始</h1></div><button id="clear-hero" class="subtle" hidden>清除</button></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="hero-search" placeholder="英雄名 / 别名" autocomplete="off" aria-label="搜索英雄"></label>
-      <div class="inline-controls"><select id="hero-role" aria-label="英雄定位"><option value="">全部定位</option><option>战士</option><option>法师</option><option>坦克</option><option>刺客</option><option>射手</option><option>辅助</option></select><select id="hero-sort" aria-label="英雄排序"><option value="rate">参考值排序</option><option value="name">名称排序</option></select></div>
+      <div class="inline-controls"><select id="hero-role" aria-label="英雄定位"><option value="">全部定位</option><option>战士</option><option>法师</option><option>坦克</option><option>刺客</option><option>射手</option><option>辅助</option></select><select id="hero-sort" aria-label="英雄排序"><option value="name">名称排序</option></select></div>
       <div id="hero-count" class="muted result-count"></div><div id="heroes" class="hero-list"></div><button id="more-heroes" class="load-more" hidden>再显示 28 位英雄</button>
       <div class="aside-note">手动选择，边玩边查。<br>不连接游戏；只处理你选取的截图。</div>
     </aside>
     <section class="workspace">
-      <div class="workspace-intro"><span class="eyebrow">02 / 当前回合，三选一</span><h2>选好英雄，比对这三张牌。</h2><p>按官方英雄专属海克斯表比较当前三个选项，显示评级、配对胜率、选取率与样本量；未收录的资料不猜。</p></div>
+      <div class="workspace-intro"><span class="eyebrow">02 / 当前回合，三选一</span><h2>选好英雄，比对这三张牌。</h2><p>按官方英雄专属海克斯表比较当前三个选项，保留候选原位置，仅显示原始评级；未收录的资料不猜。</p></div>
       <section id="hero-context" class="hero-context" hidden></section>
       <section class="choice-panel" aria-labelledby="choice-title">
         <div class="choice-heading"><div><span class="eyebrow">03 / 确认游戏中出现的三个选项</span><h3 id="choice-title">当前可选海克斯</h3></div><button id="clear-choices" class="subtle">换一轮 / 清空</button></div>
@@ -46,6 +46,7 @@
       <section id="update-panel" class="update-panel"><p id="update-status" class="muted" role="status">正在读取启动更新状态…</p><button id="install-update" hidden>查看并安装更新</button></section>
       <footer><button id="about" class="subtle">数据来源与规则说明 ↗</button><span id="storage-status">收藏仅保存在当前浏览器</span></footer>
     </section>
+    <p class="muted">VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
   </main>
   <dialog id="detail" aria-labelledby="detail-title"><div class="dialog-top"><span class="eyebrow">参考详情</span><button id="close-detail" class="close" aria-label="关闭详情">×</button></div><div id="detail-content"></div></dialog>
   <noscript>此本地工具需要启用 JavaScript。它不会加载任何外部脚本。</noscript>

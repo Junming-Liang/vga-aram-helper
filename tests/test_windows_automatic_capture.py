@@ -207,7 +207,7 @@ class ControlledCaptureCadenceQtTests(unittest.TestCase):
         self.expected = make_original_png(png, (self.rect.width, self.rect.height))
         self.encoded = png.read_bytes()
 
-        def windows():
+        def windows(**kwargs):
             self.discovery_threads.append(threading.get_ident())
             return list(self.available)
 

@@ -44,14 +44,13 @@
   };
   function display(response){
     const synthetic=data.metadata.isDemo;
-    const official=response.policy==='official-hero-source-order-v1';
-    const sourceTitle=synthetic?'虚构演示统计':official?'官方英雄专属统计':'英雄资料依据';
-    result.innerHTML=`<div class="comparison-summary"><span class="eyebrow">${escapeText(hero)} · ${sourceTitle}</span><h3>${escapeText(response.decision)}</h3><p class="muted">${escapeText(response.policyExplanation)}</p></div><div class="comparison-cards">${response.cards.map(card=>{
-      const observed=card.numGames===0?'0（未有样本）':Number.isFinite(card.numGames)?card.numGames.toLocaleString('zh-CN'):'未提供';
-      const notes=[...card.positiveEvidence.map(note=>`<p class="rule-note">英雄说明：${escapeText(note.reason||'来源未给理由')}</p>`),...card.trapEvidence.map(note=>`<p class="notice error">陷阱提醒：${escapeText(note.reason||'来源未给理由')}</p>`)];
-      return `<article class="comparison-card ${response.recommendedName===card.name?'preferred':''}"><div class="card-top"><span class="badge">原选项 ${card.slot}</span>${card.officialRank?`<span class="muted">源顺位 #${card.officialRank}</span>`:''}</div><h3>${escapeText(card.name)}</h3>${response.recommendedName===card.name?'<span class="badge">优先考虑</span>':''}${card.officialStats?`<span class="badge">源评级 ${escapeText(card.tier||'未提供')}</span><dl class="pair-stats"><div><dt>该英雄 + 海克斯胜率</dt><dd>${rate(card.pairWinRate)}</dd></div><div><dt>源配对选取率</dt><dd>${rate(card.pickRate)}</dd></div><div><dt>源样本量</dt><dd>${observed}</dd></div></dl>${card.pairWinRate===null?'<p class="notice">来源未提供有效配对胜率，不能视为 0%。</p>':''}`:'<p class="notice">当前数据没有该英雄与此海克斯的配对统计。未收录不代表弱。</p>'}${card.category!=='unknown'?`<p class="muted">${escapeText(card.label)}</p>`:''}${notes.join('')}${card.conditionFlags.length||card.cautionFlags.length?'<p class="notice">说明中存在条件或风险用语，请阅读原文；软件没有判断这些条件已经满足。</p>':''}${card.matchingTags.length?`<p class="tiny">重合标签：${escapeText(card.matchingTags.join('、'))}（不作硬性限制）</p>`:''}<details><summary>全局参考与来源</summary><p class="tiny">海克斯全局参考值：${rate(card.globalReferenceWinRate)}。不参与本次英雄排序。</p><p class="tiny">${escapeText(card.globalRateNote)}</p></details></article>`;
-    }).join('')}</div><p class="tiny">${escapeText((response.warnings||[]).join(' '))}</p>`;
+    const sourceTitle=synthetic?'虚构演示评级':'公开源英雄配对评级';
+    result.innerHTML=`<div class="comparison-summary"><span class="eyebrow">${escapeText(hero)} · ${sourceTitle}</span><h3>三个候选原位置 · 仅展示原始评级</h3><p class="muted">公开源快照，并非实时评级或 Riot 批准。</p></div><div class="comparison-cards">${response.cards.map(card=>{
+      const literal=['T1','T2','T3','T4'].includes(card.sourceTier)?card.sourceTier:'暂无评级';
+      return `<article class="comparison-card"><div class="card-top"><span class="badge">原选项 ${escapeText(card.slot)}</span></div><h3>${escapeText(card.name)}</h3><span class="badge">源评级 ${literal}</span><p>${escapeText(card.description||'')}</p></article>`;
+    }).join('')}</div>`;
   }
+
   compare.addEventListener('click',async()=>{
     if(!valid())return refresh();
     const current=++generation, selectedHero=hero, offered=values();

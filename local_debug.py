@@ -24,7 +24,7 @@ FILE_COUNT = 3
 EXPORT_OVERHEAD_BYTES = 64 * 1024
 MAX_EXPORT_BYTES = MAX_BYTES * FILE_COUNT + EXPORT_OVERHEAD_BYTES
 _EVENTS = frozenset({'debug_enabled', 'debug_disabled', 'state', 'job', 'capture',
-                     'overlay', 'expiry', 'invalidate', 'cancel', 'session', 'close'})
+                     'recognition', 'overlay', 'expiry', 'invalidate', 'cancel', 'session', 'close'})
 _ENUMS = {
     'kind': frozenset({'load', 'portraits', 'update', 'install', 'windows', 'ocr',
                        'selection', 'capture-proof', 'unknown'}),
@@ -42,7 +42,16 @@ _ENUMS = {
                          'target_unavailable', 'layout', 'layout_error', 'click_through',
                          'ttl_client', 'ttl_game', 'ocr_timeout', 'generation_changed',
                          'serial_changed', 'stopped', 'closed', 'worker_error',
-                         'selection_changed', 'stale_frame', 'mode_wait', 'unknown'}),
+                         'selection_changed', 'stale_frame', 'mode_wait', 'hero_unknown',
+                         'candidate_missing', 'candidate_untrusted', 'candidate_layout',
+                         'partial_confirmed', 'title_dictionary_miss', 'title_low_confidence',
+                         'awaiting_confirmation', 'source_tier_missing', 'recognized',
+                         'discovery_stopped', 'window_not_found', 'window_identity_unverified',
+                         'multiple_installations', 'multiple_windows', 'signature_unverified',
+                         'client_connected', 'game_connected', 'window_gone', 'window_identity_changed',
+                         'window_hidden', 'client_rect_failed', 'client_rect_unsupported', 'focus_rejected',
+                         'capture_protected', 'foreign_occlusion', 'monitor_bounds', 'blank_frame',
+                         'capture_unavailable', 'capture_paused', 'unknown'}),
     'error_code': frozenset({'capture_paused', 'capture_unavailable', 'worker_error'}),
 }
 _BOOLS = frozenset({'running', 'confirmed', 'ocr_busy', 'capture_pending', 'visible',
@@ -52,7 +61,7 @@ _BOOLS = frozenset({'running', 'confirmed', 'ocr_busy', 'capture_pending', 'visi
 _INTS = frozenset({'generation', 'session_generation', 'serial', 'width', 'height',
                    'stable_frames', 'automatic_frames', 'hero_stable_frames',
                    'hero_revision', 'candidate_revision', 'candidate_count'})
-_FLOATS = frozenset({'capture_ms', 'inference_ms', 'elapsed_ms', 'age_ms', 'ttl_ms', 'dpi'})
+_FLOATS = frozenset({'capture_ms', 'inference_ms', 'queue_ms', 'prepare_ms', 'hud_ms', 'ocr_ms', 'dispatch_ms', 'elapsed_ms', 'age_ms', 'ttl_ms', 'dpi'})
 _IDENTITIES = frozenset({'window_id', 'process_id'})
 _CONFIG_BOOLS = frozenset({'hero_auto', 'client_follow', 'click_through',
                            'visible_capture', 'frozen', 'updates_enabled'})

@@ -15,7 +15,7 @@ client=WindowInfo(1,10,'英雄联盟','Chrome_WidgetWin_1');game=WindowInfo(2,20
 meta={10:ProcessMetadata(r'C:\Riot\LeagueClient\LeagueClientUx.exe',100),20:ProcessMetadata(r'C:\Riot\Game\League of Legends.exe',200)}
 class Capture:
     visible=[]
-    def windows(self):return list(self.visible)
+    def windows(self, **kwargs):return list(self.visible)
     def foreground(self,target):return False
     def rect(self,target):return ClientRect(0,0,960,600)
 def wait(predicate,why):

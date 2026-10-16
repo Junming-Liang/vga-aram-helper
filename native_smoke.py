@@ -449,7 +449,8 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
                 elif trace.name in ('changed_roi','changed_hud','unknown_hud'):
                     assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
-                    assert phase['state_unchanged'],'Intermediate proof must not refresh TTL or confirmation counters'
+                    expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if trace.name in ('changed_hud','unknown_hud') and name=='before_ocr' else trace.before
+                    assert phase['state_at_phase']==expected_state,'Intermediate proof may only revoke unsafe evidence, never refresh TTL or promote counters'
             else:
                 trace.mark('final');trace.sample(native_visible());trace.finished=True;mode_report['active_case']['phase_state']='final'
                 trace.final_generation=generation;trace.final_value=value
@@ -498,7 +499,8 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     control.check_target();trace.sample(native_visible(),capturing=trace.capture_active)
                     for name,release in list(trace.holds.items()):
                         if release.is_set() or name+'_applied' not in trace.events:continue
-                        assert snapshot()==trace.before,'TTL or confirmation counters changed during diagnostic inference hold'
+                        held_phase=next(phase for phase in trace.phases if phase['name']==name)
+                        assert snapshot()==held_phase['state_at_phase'],'TTL or confirmation counters changed after the applied diagnostic phase'
                         trace.held_state_samples+=1
                         if trace.clock()-trace.hold_started[name]<.35:continue
                         if trace.name=='stop_late' and name=='before_ocr':
@@ -532,7 +534,9 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     mode_report['active_case'].update(value,status='pending-validation')
                     assert value['capture_samples']>=2 and value['capture_visible_samples']==0 and value['qt_show_events_during_capture']==0
                     assert [phase['name'] for phase in value['phases']]==['before_match','before_ocr']
-                    assert all(phase['state_unchanged'] for phase in value['phases'])
+                    for phase in value['phases']:
+                        expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if trace.name in ('changed_hud','unknown_hud') and phase['name']=='before_ocr' else trace.before
+                        assert phase['state_at_phase']==expected_state and phase['state_unchanged']==(expected_state==trace.before)
                     if trace.name=='unchanged':
                         assert control.state.confirmed and control.state.confirmation_mode=='automatic' and value['sampled_inference_visible_ms']>=500
                         assert trace.final_value['hero_observation']['hero']=='星火术士（演示）'
@@ -693,12 +697,19 @@ def start_smoke(control,report_path,screenshot_path):
         def observe_current():
             control.overlay.hide();assert not control.overlay.isVisible()
             assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
-            captured_at=time.monotonic();pixels,_=control.capture.capture(target)
+            captured_at=time.monotonic();pixels,capture_rect=control.capture.capture(target)
             scoped=control.ocr_reuse.scoped(engine,(target.identity,(.15,.25,.7,.35),'game'),allow_reuse=control.state.confirmed and control.state.confirmation_mode=='automatic')
             value=recognize_frame(pixels,(.15,.25,.7,.35),scoped,control.data['augments'],control.hero_matcher)
             if time.monotonic()-captured_at>3:
-                captured_at=time.monotonic();pixels,_=control.capture.capture(target);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
-            value['_capturedAt']=captured_at
+                captured_at=time.monotonic();pixels,capture_rect=control.capture.capture(target);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
+                value['ocr_reused']=False # This branch called the actual engine, never its reuse cache.
+            control._capture_serial+=1
+            roi=(.15,.25,.7,.35)
+            source=(id(control.data),json.dumps(control.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
+            value.update(_capturedAt=captured_at,_captureSerial=control._capture_serial,
+                _windowIdentity=target.identity,_captureRect=capture_rect,
+                _frameScope=(target.identity,control.capture_metadata(),capture_rect,roi,tuple(control.data['augments']),source,
+                    (control.hero_matcher,control.hero_matcher.proof_identity())))
             control.task_result('ocr',value,control.state.generation)
             return value
         result=observe_current();assert not control.state.confirmed
@@ -714,6 +725,27 @@ def start_smoke(control,report_path,screenshot_path):
         assert control.state.confirmed and control.state.automatic_frames==independent_frames
         report['unchanged_frame_ocr_reuse_passed']=True
         checks.append('A third fresh owned-window capture reuses byte-identical title OCR only after two independent confirmations; reused OCR does not increase confirmation counters')
+        # Deliberately withhold just the middle title from the dictionary, not
+        # from the pixels. Real captured OCR must still prove three title rows;
+        # the known outer cards remain in their true positions without guessing
+        # a grade/name for the unsupported middle slot.
+        middle=control.data['augments'].pop(expected[1]);control.ocr_reuse.clear()
+        try:
+            observe_current();assert not control.state.confirmed
+            observe_current()
+            assert control.current_partial_names()==(expected[0],'',expected[2]),control.current_partial_names()
+            assert not control.state.confirmed and control.state.offered==()
+            assert len(control.overlay.cards)==3
+            assert control.overlay.cards[0]['sourceTier']=='T1' and control.overlay.cards[2]['sourceTier']=='T3'
+            assert control.overlay.cards[1]['name']=='待识别' and control.overlay.cards[1]['sourceTier'] is None
+            assert control.overlay.isVisible() and u.IsWindowVisible(int(control.overlay.winId()))
+            report['partial_candidate_slots_passed']=True
+            checks.append('Actual OS capture and local OCR retain known left/right grades after two independent frames while an unsupported middle title stays ungraded in its fixed slot')
+        finally:
+            control.data['augments'][expected[1]]=middle;control.ocr_reuse.clear()
+        observe_current();observe_current()
+        assert control.state.confirmed and control.state.offered==tuple(expected)
+        report['partial_to_full_recovery_passed']=True
         report['targetForegroundBefore']=int(control.capture.u.GetForegroundWindow() or 0)
         unknown={**result,'hero_observation':{'hero':None,'confident':False,'reason':'Synthetic unknown portrait'},'_capturedAt':time.monotonic()}
         control.task_result('ocr',unknown,control.state.generation);assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True

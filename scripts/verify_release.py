@@ -25,9 +25,9 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.8'
+PREVIEW_VERSION = '0.4.9'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
-NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
                          'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                          'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
@@ -1168,8 +1168,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
-             'Native overlay PREVIEW with screenshot-only automatic identification of the player’s own bottom-HUD portrait. '
-             'When the hero and three candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. '
+             'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate default-off, current-session local API identity options. '
+             'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
              'This candidate combines the selected light dashboard with bounded HWND-only Windows Graphics Capture, off-GUI capture and cleanup, '
              'fixes Chinese exact-title matching and reuses identical title OCR only after two independent confirmations. '
              'The persistent helper reuses one explicitly authorized target and permits visible CPU acquisition only for the exact enrolled owned opaque overlay with WDA_EXCLUDEFROMCAPTURE (17), after all registration and freshness checks pass. '
@@ -1179,6 +1179,9 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'The normal system capture border stays enabled. Idle GPU frame-pool surfaces may continue until revocation is detected; scheduled checks do not guarantee a 50 ms close under a blocked driver. '
              'Foreign occlusion, changed identities and missing/minimized windows pause safely and retry. '
              'The unchanged OCR models and approved minimal OpenCV package profile are retained. '
+             'This candidate adds stable window-identity comparisons independent of caption changes, verified untitled-window discovery, and bounded window/focus/capture diagnostic reasons. '
+             'One reusable bounded worker overlaps same-frame HUD and OCR processing; this is not a guaranteed live-game speedup. '
+             'Two separate opt-in controls permit verified local HTTPS read-only selection/bench IDs and current-self identity; failure falls back to screenshot recognition, with no raw identities or credentials logged. '
              'The confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout fixes remain included. '
              'The historical cache-lock owner is not established; current diagnostics distinguish observed write failures without inventing their owner. '
              'Screenshot-only champion-select name detection now exposes the exact assigned hero’s public T1–T5 overall tier as a separate provisional reference, without confirming augment choices. '
@@ -1215,7 +1218,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'each with a fixed physical 960x600 owned mock client fully inside the work area and an overlay strictly inside that client. '
              'Each scale independently exercises frozen QtWidgets native windows, local capture/portrait matching/OCR, automatic hero and three-choice flow, '
              'unknown/changed-hero clearing, manual fallback, hide-before-capture, click-through, close/cleanup, source-tier rendering '
-             '(including missing-grade fallback, original slot order and no displayed win rate/rank), and visible child/text layout checks. '
+             '(including missing-grade fallback, original slot order and no displayed win rate/rank), partial two-slot rendering with an unknown middle slot and fresh full recovery, and visible child/text layout checks. '
              'Baseline HTTP/browser tests also ran once on that same EXE; frozen OCR independently decoded PNG, JPEG, WebP and BMP. '
              'The same exact candidate also passed local native OTA success/concurrency and mismatched-version rollback with OCR health checks. '
              'This is a same-binary fixture test, not a genuine two-version upgrade, live GitHub download/discovery or UI confirmation handoff. '

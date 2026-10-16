@@ -58,6 +58,9 @@ def overlay_duty_fixture():
                 roi=[.15,.25,.7,.35], capture_serial=10, captured_at=100.1,
                 emitted_ms=21. if name=='before_match' else 380.,applied_ms=22. if name=='before_match' else 381.,
                 compositor_validated_ms=21.5 if name=='before_match' else 380.5))
+        if kind in ('changed_hud','unknown_hud'):
+            phases[1]['state_unchanged']=False
+            phases[1]['state_at_phase'].update(automatic_frames=0,stable_frames=0,accepted_observed_at=None)
         row=dict(name=kind,status='passed',initial_native_visible=True,initial_qt_visible=True,
             measurement_clock=dict(name='perf_counter',implementation='QueryPerformanceCounter()',
                 monotonic=True,adjustable=False,resolution_seconds=1e-7),
@@ -242,6 +245,19 @@ class NativePackagingTests(unittest.TestCase):
             for key in ('capture_start','capture_return','before_match_emitted','before_match_applied','before_ocr_emitted','before_ocr_applied','result_received','final'):
                 value=overlay_duty_fixture();value['overlay_duty_cycle']['cases'][index]['timings_ms'][key]=float('nan')
                 with self.subTest(case=index,timing=key),self.assertRaises(RuntimeError):validate_duty(value)
+
+    def test_duty_revocation_never_permits_promotion_or_ttl_refresh(self):
+        validate_duty(overlay_duty_fixture())
+        for index in (2,3):
+            for key,bad in [('automatic_frames',1),('stable_frames',1),('hero_stable_frames',3),
+                            ('generation',4),('last_observation',100.1),('accepted_observed_at',100.)]:
+                value=overlay_duty_fixture()
+                value['overlay_duty_cycle']['cases'][index]['phases'][1]['state_at_phase'][key]=bad
+                with self.subTest(case=index,key=key),self.assertRaises(RuntimeError):validate_duty(value)
+        for index in (0,1,4):
+            value=overlay_duty_fixture();phase=value['overlay_duty_cycle']['cases'][index]['phases'][1]
+            phase['state_at_phase'].update(automatic_frames=0,stable_frames=0,accepted_observed_at=None);phase['state_unchanged']=False
+            with self.subTest(nonrevoking_case=index),self.assertRaises(RuntimeError):validate_duty(value)
 
     def test_duty_contract_rejects_forged_restoration_ttl_scope_and_stop(self):
         for index in range(5):

@@ -1,3 +1,60 @@
+# v0.4.9 merged candidate (2026-10-16 UTC)
+
+This candidate addresses both sequential offers/rerolls and individual unknown
+slots. The user's current game window, version, and diagnostic ZIP have not been
+observed; these are reproducible code fixes, not a proven incident diagnosis.
+
+- The project owner confirmed product registration on 2026-10-16. No portal
+  login, registration or terms acceptance was performed here; this is not Riot
+  approval. The required non-endorsement notice is visible in the product.
+- The exact client class RCLIENT is now accepted under existing process and
+  signature guards, based on third-party authored window artifacts, not an
+  official class-name guarantee. Owned Windows client fixtures exercise it.
+- Automatic binding now compares stable HWND/PID/class/process creation identity,
+  not mutable window captions. Explicit automatic discovery includes untitled
+  windows while preserving executable/path/signature/uniqueness constraints.
+  Client and game remain distinct roles and HWNDs; selection-to-game transitions
+  retain fresh process identity and installation binding checks.
+- HUD and OCR share one immutable capture and one reusable bounded worker.
+  Cancellation still drains accepted work, and shutdown cannot strand futures.
+  Timing diagnostics distinguish queue, capture preparation, HUD, OCR and GUI
+  dispatch; bounded reason codes distinguish missing window, focus rejection,
+  capture failure, uncertain hero, unknown title, and missing source tier.
+- Independently verified title slots can appear after two fresh OCR observations
+  while an unknown middle slot remains ungraded. Changed or uncertain slots do
+  not reuse prior suggestions. Cache-only observations cannot promote or revive
+  partial results. Geometry, identity, focus and four-second expiry gates remain.
+- Two separate default-off, session-only permissions add verified local HTTPS
+  read-only selection/team/bench IDs and fresh current-self champion identity.
+  Pure/mocked tests do not establish actual client TLS/API compatibility. See
+  LCU_SELECTION.md for endpoint, consent, privacy and support limitations.
+- Legacy browser/server output now uses public grade-only projections too;
+  internal statistical calculations are unchanged.
+- New packaged Windows acceptance requirements exercise actual OCR partial-slot
+  display and full recovery at each required application scale. The final
+  Windows executable has not yet been built or tested for this candidate.
+
+The genuine-image evaluations were rerun from the same source-bound public
+fixtures: own hero 2/3 positives, one abstention, 3/3 negatives withheld; selection
+1/1 positive and 3/3 negatives withheld across two negative scenes. No wrong hero
+was observed in this small sample. These stills do not prove present-day stock
+client, real-match, Vanguard, fullscreen, mixed-DPI, or user-session compatibility.
+
+---
+
+## v0.4.9 inference comparison
+
+`parallel-inference-comparison.json` binds this candidate's inference module,
+worker and driver hashes to 14 existing-output parity cases (public and original
+synthetic images). Nine alternating sequential/parallel pairs on one public
+augment-modal still measured medians of 1391 ms and 943 ms on this Linux host.
+This excludes window capture, GUI dispatch, repeated live matches and the user's
+CPU. It does not establish a guaranteed speedup or resolved flicker. Previously
+run constrained two-CPU experiments showed much smaller benefit, so the bounded
+worker is a latency optimization, not a substitute for lifecycle correctness.
+
+---
+
 # Current v0.4.8 release validation (2026-10-15 UTC)
 
 [Windows release run #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284) passed every mandatory gate with `publish_preview=true` and published [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8) from source/tag `00bbf5affc02c32cbd9bf367199047eefdf208f8`, tree `cae3f15c3916f146c26d2d2d966efffe7169f886`. The final EXE is **106,925,126 bytes (101.97 MiB)**, SHA-256 `d682d42478f1489395bd35ed933c1b6eda7fed00ef9d1315f564d5e4cd89958b`. The final verifier binds 60 evidence files and 15 release assets; public EXE identity matches. It remains a non-latest prerelease, excluded from stable OTA.

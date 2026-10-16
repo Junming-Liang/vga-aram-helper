@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const escapeText = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const normalized = value => String(value ?? '').toLocaleLowerCase('zh-CN').replace(/\s/g, '');
 const collator = new Intl.Collator('zh-CN');
-const rateSort = (a, b) => (b.winRate ?? -1) - (a.winRate ?? -1) || collator.compare(a.name, b.name);
+const nameSort = (a, b) => collator.compare(a.name, b.name);
 const rarityNames = {prismatic:'棱彩', gold:'黄金', silver:'白银', unknown:'未分类'};
 const storageKey = 'hex-reference-original:favorites:v1';
 let data, hero = '', tab = 'augments', favoriteOnly = false, heroLimit = 28, cardLimit = 28, detailGeneration = 0;
@@ -24,8 +24,7 @@ function favoriteButton(kind, name) {
   const saved = favorites.has(`${kind}:${name}`);
   return `<button class="star ${saved ? 'saved' : ''}" data-favorite="${escapeText(kind)}" data-name="${escapeText(name)}" aria-pressed="${saved}" aria-label="${saved ? '取消收藏' : '收藏'} ${escapeText(name)}">${saved ? '★' : '☆'}</button>`;
 }
-function rate(value) { return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '暂无数据'; }
-function rateLabel() { return data.metadata.isDemo ? '虚构演示值' : '公开参考胜率'; }
+function grade(value, hero=false) { return (hero ? ['T1','T2','T3','T4','T5'] : ['T1','T2','T3','T4']).includes(value) ? value : '暂无评级'; }
 function relation(name, field) { return (data.relations[hero]?.[field] || []).filter(x => x.name === name); }
 function badges(name) {
   return `${relation(name, 'specialAugments').length ? '<span class="badge">英雄联动</span>' : ''}${relation(name, 'trapAugments').length ? '<span class="badge danger">英雄陷阱</span>' : ''}`;
@@ -33,9 +32,9 @@ function badges(name) {
 function renderHeroes() {
   const query = normalized($('hero-search').value), role = $('hero-role').value;
   const list = Object.values(data.heroes).filter(item => (!query || [item.name, ...item.alias].some(x => normalized(x).includes(query))) && (!role || item.position.includes(role) || (role === '辅助' && item.position.some(x => ['软辅','硬辅'].includes(x)))));
-  list.sort($('hero-sort').value === 'name' ? (a,b) => collator.compare(a.name,b.name) : rateSort);
-  $('hero-count').textContent = `${list.length} 位英雄 · ${rateLabel()}仅作参考`;
-  $('heroes').innerHTML = list.length ? list.slice(0,heroLimit).map(item => `<button class="hero-row ${hero === item.name ? 'selected' : ''}" data-hero="${escapeText(item.name)}" aria-pressed="${hero === item.name}"><span class="avatar" aria-hidden="true">${escapeText(item.name.slice(0,1))}</span><span><span class="hero-name">${escapeText(item.name)}</span><span class="hero-role">${escapeText(item.position.slice(0,2).join(' · ')) || '定位未提供'}</span></span><span class="hero-score">${rate(item.winRate)}</span></button>`).join('') : '<div class="empty">没有找到英雄<br>试试名称或别名</div>';
+  list.sort(nameSort);
+  $('hero-count').textContent = `${list.length} 位英雄 · 公开源评级快照`;
+  $('heroes').innerHTML = list.length ? list.slice(0,heroLimit).map(item => `<button class="hero-row ${hero === item.name ? 'selected' : ''}" data-hero="${escapeText(item.name)}" aria-pressed="${hero === item.name}"><span class="avatar" aria-hidden="true">${escapeText(item.name.slice(0,1))}</span><span><span class="hero-name">${escapeText(item.name)}</span><span class="hero-role">${escapeText(item.position.slice(0,2).join(' · ')) || '定位未提供'}</span></span><span class="hero-score">${grade(item.overallTier,true)}</span></button>`).join('') : '<div class="empty">没有找到英雄<br>试试名称或别名</div>';
   $('more-heroes').hidden = list.length <= heroLimit;
   $('clear-hero').hidden = !hero;
   $('hero-context').hidden = !hero;
@@ -49,7 +48,7 @@ function getMainList() {
   let list = tab === 'combinations' ? data.combinations : Object.values(data[tab]);
   list = list.filter(item => (!query || normalized([item.name, item.description, ...(item.alias || [])].join(' ')).includes(query)) && (!favoriteOnly || favorites.has(`${tab}:${item.name}`)));
   if (tab === 'augments') list = list.filter(item => (!$('rarity').value || item.rarity === $('rarity').value) && ($('show-deleted').checked || !item.isDeleted));
-  if (tab === 'augments') list.sort(rateSort); else list.sort((a,b) => collator.compare(a.name,b.name));
+  list.sort(nameSort);
   return list;
 }
 function renderCards() {
@@ -57,7 +56,7 @@ function renderCards() {
   $('result-count').textContent = `${list.length} 条结果${hero && tab === 'augments' ? ' · 英雄联动与陷阱已标注；未标注不代表无效或安全' : ''}`;
   $('cards').innerHTML = list.length ? list.slice(0,cardLimit).map(item => {
     const chip = tab === 'augments' ? `<span class="rarity ${item.rarity}">${rarityNames[item.rarity]}</span>` : `<span class="badge">${tab === 'items' ? '装备资料' : `${item.combinations.length} 个分支`}</span>`;
-    const value = tab === 'augments' ? `<span class="rate">${rate(item.winRate)}<small>${rateLabel()}</small></span>` : `<span class="muted">${tab === 'items' ? (item.total ? `${escapeText(item.total)} 金币 · 源标价` : '价格未提供') : (item.last_update ? `源更新时间 ${escapeText(item.last_update)}` : '更新时间未提供')}</span>`;
+    const value = tab === 'augments' ? `<span class="rate">${grade(item.overallTier)}<small>公开源评级</small></span>` : `<span class="muted">${tab === 'items' ? (item.total ? `${escapeText(item.total)} 金币 · 源标价` : '价格未提供') : (item.last_update ? `源更新时间 ${escapeText(item.last_update)}` : '更新时间未提供')}</span>`;
     return `<article class="card"><div class="card-top">${chip}${favoriteButton(tab,item.name)}</div><button class="card-title" data-detail-kind="${tab}" data-name="${escapeText(item.name)}">${escapeText(item.name)}</button><div>${tab === 'augments' ? badges(item.name) : ''}${item.isDeleted ? '<span class="badge danger">源数据标记已移除</span>' : ''}</div><p class="description">${escapeText(item.description || '源资料未提供描述。')}</p><div class="card-bottom">${value}<button class="details-link" data-detail-kind="${tab}" data-name="${escapeText(item.name)}">查看详情 ↗</button></div></article>`;
   }).join('') : '<div class="empty">没有匹配结果<br>可以更换关键词、筛选，或关闭“只看收藏”。</div>';
   $('more-cards').hidden = list.length <= cardLimit;
@@ -86,9 +85,9 @@ async function openDetail(kind, name) {
   if (item.tips) html += `<div class="rule-note">${escapeText(item.tips)}</div>`;
   if (kind === 'heroes') {
     const relations = data.relations[name];
-    html += `<p class="muted">${escapeText(item.alias.join(' / '))} · ${escapeText(item.position.join(' · '))}</p><p>${rateLabel()}：${rate(item.winRate)}</p><div class="notice">${data.heroAugmentStats?.[name]?.length || 0} 条官方英雄海克斯统计。请在首页确认三个候选后比较；全局胜率与英雄配对胜率分开显示。</div><div class="detail-grid"><section><h3>联动说明</h3>${relations?.specialAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录联动，不等于没有联动。</p>'}</section><section><h3>陷阱与限制</h3>${relations?.trapAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录陷阱，不代表全部安全。</p>'}</section></div>`;
+    html += `<p class="muted">${escapeText(item.alias.join(' / '))} · ${escapeText(item.position.join(' · '))}</p><p>英雄整体评级：${grade(item.overallTier,true)}</p><div class="notice">${data.heroAugmentStats?.[name]?.length || 0} 条官方英雄海克斯统计。请在首页确认三个候选后比较；仅展示原始评级，保留候选原位置。</div><div class="detail-grid"><section><h3>联动说明</h3>${relations?.specialAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录联动，不等于没有联动。</p>'}</section><section><h3>陷阱与限制</h3>${relations?.trapAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录陷阱，不代表全部安全。</p>'}</section></div>`;
   } else if (kind === 'augments') {
-    html += `<p class="muted">${escapeText(rarityNames[item.rarity])} · ${escapeText(item.position.join(' · '))}</p><p>${rateLabel()}：${rate(item.winRate)} · 当前英雄配对胜率：${hero ? rate(data.heroAugmentStats?.[hero]?.find(x=>x.augmentName===name)?.winRate) : '请先选择英雄'}</p>${item.isDeleted ? '<div class="notice error">源数据标记该海克斯已移除。当前是否可选尚未验证。</div>' : ''}`;
+    html += `<p class="muted">${escapeText(rarityNames[item.rarity])} · ${escapeText(item.position.join(' · '))}</p><p>公开源评级：${grade(item.overallTier)} · 当前英雄配对评级：${hero ? grade(data.heroAugmentStats?.[hero]?.find(x=>x.augmentName===name)?.tier) : '请先选择英雄'}</p>${item.isDeleted ? '<div class="notice error">源数据标记该海克斯已移除。当前是否可选尚未验证。</div>' : ''}`;
     if (item.limit.length) html += `<p class="muted">源资料限制标签：${escapeText(item.limit.join('、'))}（仅展示，未推断适配性）</p>`;
     if (hero) {
       html += `<h3>与 ${escapeText(hero)} 的关系</h3>` + relation(name,'specialAugments').map(x=>`<div class="rule-note">联动：${escapeText(x.reason || '未提供理由')}</div>`).join('') + relation(name,'trapAugments').map(x=>`<div class="notice error">陷阱：${escapeText(x.reason || '未提供理由')}</div>`).join('');
@@ -96,9 +95,9 @@ async function openDetail(kind, name) {
     }
     html += '<div id="recommendation-result" aria-live="polite"><p class="muted">正在计算本地装备关联…</p></div>';
   } else if (kind === 'items') {
-    html += `<p class="muted">源标价：${escapeText(item.total || '未提供')} ${item.total ? '金币' : ''} · 属性标签：${escapeText(item.types.join('、') || '未提供')}</p><p class="muted">装备胜率未提供。</p>`;
+    html += `<p class="muted">源标价：${escapeText(item.total || '未提供')} ${item.total ? '金币' : ''} · 属性标签：${escapeText(item.types.join('、') || '未提供')}</p>`;
   } else {
-    html += `<p class="muted">源更新时间：${escapeText(item.last_update || '未提供')} · 组合胜率：未提供</p><h3>组合海克斯</h3>${item.augments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">未提供</p>'}`;
+    html += `<p class="muted">源更新时间：${escapeText(item.last_update || '未提供')}</p><h3>组合海克斯</h3>${item.augments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">未提供</p>'}`;
     if (item.items.length) html += '<h3>父组合装备（仅资料展示）</h3>' + item.items.map(x=>linkedBox(x,'items')).join('');
     for (const branch of item.combinations) html += `<h3>${escapeText(branch.name)}</h3><p class="detail-description">${escapeText(branch.description || branch.tips)}</p><p class="muted">源列适用英雄：${escapeText(branch.heros.join('、') || '未提供')}</p>${branch.augments.map(x=>linkedBox(x,'augments')).join('')}${branch.items.map(x=>linkedBox(x,'items')).join('')}`;
     if (!item.combinations.length) html += '<p class="muted">此组合没有分支；父组合装备不参与自动规则评分。</p>';
@@ -122,7 +121,7 @@ async function openDetail(kind, name) {
 function showAbout() {
   detailGeneration++;
   const m = data.metadata;
-  showDialog(title('数据来源与使用边界') + sourceNotice() + `<p class="detail-description">${escapeText(m.source || '来源未提供')}</p><p class="muted">${escapeText(m.winRateScope || '统计口径未提供')}</p><ul class="plain-list"><li>这是独立实现的英雄三选一助手，截图 OCR 在本机运行。尚无实时游戏采集、游戏悬浮层或自动选择。</li><li>三选一使用官方英雄 augmentRecommendations 源顺序与配对胜率、选取率、样本量；资料库的海克斯胜率仍是全局值。统计区间未提供时不推测。</li><li>装备规则分可逐条解释。相同装备取最高分而非求和；独立保留陷阱。规则不推断英雄适配。</li><li>同分按浏览器的中文名称顺序排列，最多展示 8 项装备。关联缺失时明确提示。</li><li>仅本机提供服务，不加载外部图片、字体或脚本，不上传收藏。收藏保存在当前浏览器，清理浏览器数据会丢失。</li><li>${escapeText(m.licenseNote || '请自行确认导入数据的使用权限。')}</li></ul>${m.sourceUrl === 'https://gametool.huya.com/lolhex' ? '<p><a href="https://gametool.huya.com/lolhex" target="_blank" rel="noreferrer noopener">手动打开公开参考来源 ↗</a></p>' : ''}<p class="tiny">导入时间：${escapeText(m.importedAt || '内置原创演示')}。导入时间不代表数据更新时间。</p>`);
+  showDialog(title('数据来源与使用边界') + sourceNotice() + `<p class="detail-description">${escapeText(m.source || '来源未提供')}</p><ul class="plain-list"><li>这是独立实现的英雄三选一助手，截图 OCR 在本机运行。尚无实时游戏采集、游戏悬浮层或自动选择。</li><li>三选一保留候选原位置，仅展示英雄配对原始评级；缺失评级不推测。不展示胜率或唯一最佳指令。</li><li>装备规则分可逐条解释。相同装备取最高分而非求和；独立保留陷阱。规则不推断英雄适配。</li><li>同分按浏览器的中文名称顺序排列，最多展示 8 项装备。关联缺失时明确提示。</li><li>仅本机提供服务，不加载外部图片、字体或脚本，不上传收藏。收藏保存在当前浏览器，清理浏览器数据会丢失。</li><li>${escapeText(m.licenseNote || '请自行确认导入数据的使用权限。')}</li></ul>${m.sourceUrl === 'https://gametool.huya.com/lolhex' ? '<p><a href="https://gametool.huya.com/lolhex" target="_blank" rel="noreferrer noopener">手动打开公开参考来源 ↗</a></p>' : ''}<p class="tiny">导入时间：${escapeText(m.importedAt || '内置原创演示')}。导入时间不代表数据更新时间。</p>`);
 }
 function updateTab() {
   document.querySelectorAll('[data-tab]').forEach(button=>{const active=button.dataset.tab===tab;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);});

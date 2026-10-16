@@ -88,3 +88,11 @@ owned_diagnostic_json.py text eol=lf
 local_debug.py text eol=lf
 tests/test_local_debug.py text eol=lf
 tests/test_debug_ui.py text eol=lf
+
+# v0.4.9 runtime additions bound by native duty evidence.
+frame_inference_worker.py text eol=lf
+partial_candidates.py text eol=lf
+lcu_selection.py text eol=lf
+live_client_identity.py text eol=lf
+public_payload.py text eol=lf
+assets/riotgames.pem -text

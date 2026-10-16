@@ -16,7 +16,7 @@ import time
 
 from session_windows import ProcessMetadata, normalized_path, process_metadata
 
-CLIENT_CLASSES=frozenset({'Chrome_WidgetWin_1','CEFCLIENT'})
+CLIENT_CLASSES=frozenset({'RCLIENT','Chrome_WidgetWin_1','CEFCLIENT'})
 PUBLISHERS=frozenset({'riot games, inc.','riot games, inc','riot games inc.',
     'tencent technology (shenzhen) company limited','tencent technology(shenzhen) company limited',
     'tencent technology (shenzhen) company ltd.','tencent technologyshenzhen company limited'})
@@ -83,12 +83,20 @@ def trusted_signature_result(value,path):
         and str(value.get('product','')).strip().casefold() in ('league of legends','league of legends (tm) client'))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True,eq=False)
 class Candidate:
     window:object
     metadata:ProcessMetadata
     root:str
     role:str
+    @property
+    def binding_identity(self):
+        # A localized or changing caption is presentation, never authorization.
+        return (tuple(self.window.identity),self.metadata,self.root,self.role)
+    def __eq__(self,other):
+        if not isinstance(other,Candidate):return NotImplemented
+        return self.binding_identity==other.binding_identity
+    def __hash__(self):return hash(self.binding_identity)
 
 
 @dataclass(frozen=True)
@@ -96,6 +104,7 @@ class Discovery:
     candidate:Candidate|None
     reason:str
     confirmation:Candidate|None=None
+    reason_code:str="unknown"
 
 
 class AutomaticWindowPolicy:
@@ -124,20 +133,20 @@ class AutomaticWindowPolicy:
         games=[item for item in candidates if item.role=='game']
         return games or [item for item in candidates if item.role=='client']
     def discover(self,windows):
-        if not self.active:return Discovery(None,'监测已停止。')
+        if not self.active:return Discovery(None,'监测已停止。',reason_code='discovery_stopped')
         recognized=[item for window in windows if (item:=self.inspect(window,verify=False)) is not None]
         if not recognized:
             reason='检测到游戏窗口，但暂时无法核验其基本进程身份；不会截图，稍后自动重试。' if any(window.class_name=='RiotWindowClass' for window in windows) else '等待英雄联盟窗口；游戏启动、恢复或重开后会自动连接。'
-            return Discovery(None,reason)
-        if len({item.root for item in recognized})!=1:return Discovery(None,'发现多个英雄联盟安装目录，等待只保留一个客户端或游戏。')
+            return Discovery(None,reason,reason_code='window_identity_unverified' if any(window.class_name=='RiotWindowClass' for window in windows) else 'window_not_found')
+        if len({item.root for item in recognized})!=1:return Discovery(None,'发现多个英雄联盟安装目录，等待只保留一个客户端或游戏。',reason_code='multiple_installations')
         preferred=self.preferred(recognized)
-        if len(preferred)!=1:return Discovery(None,'发现多个同类英雄联盟窗口，暂不截图；关闭多余窗口后自动恢复。')
+        if len(preferred)!=1:return Discovery(None,'发现多个同类英雄联盟窗口，暂不截图；关闭多余窗口后自动恢复。',reason_code='multiple_windows')
         candidate=preferred[0]
-        if not self.active:return Discovery(None,'监测已停止。')
+        if not self.active:return Discovery(None,'监测已停止。',reason_code='discovery_stopped')
         if candidate.root!=self.confirmed_root and not self.verifier(candidate.metadata.path):
             name=PureWindowsPath(candidate.metadata.path).name
-            return Discovery(None,'已找到 '+name+'（'+candidate.window.class_name+'），但签名/游戏文件身份未通过本机校验；可确认自己的安装目录后继续。',candidate)
-        return Discovery(candidate,'已自动连接'+('游戏窗口。' if candidate.role=='game' else '客户端，等待选人或进入游戏。'))
+            return Discovery(None,'已找到 '+name+'（'+candidate.window.class_name+'），但签名/游戏文件身份未通过本机校验；可确认自己的安装目录后继续。',candidate,reason_code='signature_unverified')
+        return Discovery(candidate,'已自动连接'+('游戏窗口。' if candidate.role=='game' else '客户端，等待选人或进入游戏。'),reason_code='game_connected' if candidate.role=='game' else 'client_connected')
     def confirm_installation(self,candidate,*,windows):
         """Only the GUI's explicit, per-session installation confirmation calls this."""
         if not self.active or not candidate:return False

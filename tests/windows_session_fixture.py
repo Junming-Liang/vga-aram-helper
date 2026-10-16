@@ -15,7 +15,7 @@ import sys
 
 SOURCE = Path(__file__).with_name('SessionWindowFixture.cs')
 TITLES = {'client': 'League of Legends', 'game': 'VGA owned game fixture'}
-CLASSES = {'client': 'Chrome_WidgetWin_1', 'game': 'RiotWindowClass'}
+CLASSES = {'client': 'RCLIENT', 'game': 'RiotWindowClass'}
 # SendMessageTimeoutW to the current verified Job-owned client HWND only, with
 # wParam=lParam=0 and a pointer-sized LRESULT. Return 0 means rejected/failed;
 # otherwise +74 returns the exact sink HWND and +75 returns 1 after destroying

@@ -318,7 +318,7 @@ internal static class SessionWindowFixture
                 !AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), new IntPtr(-4)))
                 throw new Win32Exception("Fixture could not establish PMv2 DPI awareness.");
             bitmap = ReadPng();
-            className = role == "game" ? "RiotWindowClass" : "Chrome_WidgetWin_1";
+            className = role == "game" ? "RiotWindowClass" : "RCLIENT";
             WindowClass wc = new WindowClass();
             wc.cbSize = (uint)Marshal.SizeOf(typeof(WindowClass)); wc.lpfnWndProc = WindowProcedure;
             wc.hInstance = GetModuleHandleW(null); wc.lpszClassName = className;

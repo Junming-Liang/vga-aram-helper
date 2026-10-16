@@ -15,7 +15,7 @@ let count=0;function check(name,fn){fn();count++;console.log('PASS '+name);}
 function click(id){return el(id).listeners.click();}
 function input(i,value){el('choice-'+i).value=value;el('choice-'+i).listeners.input();}
 function emit(type){doc.dispatchEvent({type});}
-function response(name='甲卡') {return {policy:'official-hero-source-order-v1',decision:name+'优先',policyExplanation:'源顺位',recommendedName:name,cards:[{name,slot:1,officialRank:1,officialStats:{},tier:'T1',pairWinRate:55,pickRate:8,numGames:100,category:'unknown',positiveEvidence:[],trapEvidence:[],conditionFlags:[],cautionFlags:[],matchingTags:[],globalReferenceWinRate:null,globalRateNote:'全局不用于排序'}],warnings:[]};}
+function response(name='甲卡') {return {policy:'official-hero-source-order-v1',decision:name+'优先',policyExplanation:'源顺位',recommendedName:name,cards:[{name,slot:1,officialRank:1,officialStats:{},tier:'T1',sourceTier:'T1',pairWinRate:55,pickRate:8,numGames:100,category:'unknown',positiveEvidence:[],trapEvidence:[],conditionFlags:[],cautionFlags:[],matchingTags:[],globalReferenceWinRate:null,globalRateNote:'全局不用于排序'}],warnings:[]};}
 (async()=>{
  check('No hero cannot compare',()=>assert.equal(el('compare-choices').disabled,true));
  ctx.hero='甲';emit('vga:hero-changed');ctx.window.VGAChoices.fillOffered(['甲卡','乙卡','丙卡']);
@@ -32,7 +32,7 @@ function response(name='甲卡') {return {policy:'official-hero-source-order-v1'
  check('Hero switch invalidates stale recommendation',()=>assert.equal(el('choice-result').innerHTML,''));
  const third=click('compare-choices');pending[2].resolve({ok:true,json:async()=>response('<script>坏值</script>')});await third;
  check('Source candidate text is escaped in results',()=>{assert.match(el('choice-result').innerHTML,/&lt;script&gt;/);assert.doesNotMatch(el('choice-result').innerHTML,/<script>/);});
- check('Pair rate and source samples have separate labels',()=>{assert.match(el('choice-result').innerHTML,/该英雄 \+ 海克斯胜率/);assert.match(el('choice-result').innerHTML,/源样本量/);assert.match(el('choice-result').innerHTML,/全局参考/);});
+ check('Only literal grade renders even with legacy rate payload',()=>{assert.match(el('choice-result').innerHTML,/源评级 T1/);assert.doesNotMatch(el('choice-result').innerHTML,/胜率|选取率|样本量|55\.00|源顺位|优先考虑/);});
  click('clear-choices');check('Reroll clears all slots and results',()=>{assert.equal(el('choice-0').value,'');assert.equal(el('choice-result').innerHTML,'');assert.equal(el('compare-choices').disabled,true);});
  ctx.window.VGAChoices.addCandidate('甲卡');check('Partial OCR selection fills only an empty slot',()=>{assert.equal(el('choice-0').value,'甲卡');assert.equal(el('choice-1').value,'');});
  ctx.window.VGAChoices.addCandidate('甲卡');check('Repeated OCR candidate is not duplicated',()=>assert.equal(el('choice-1').value,''));

@@ -411,7 +411,11 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                     self.assertEqual(row['qt_show_events_during_capture'],0)
                     self.assertEqual(row['helper_count'],0)
                     self.assertEqual(row['helper_exit_codes'],[])
-                    self.assertTrue(all(phase['state_before']==phase['state_at_phase'] for phase in row['phases']))
+                    for phase in row['phases']:
+                        before=phase['state_before']
+                        expected=dict(before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if row['name'] in ('changed_hud','unknown_hud') and phase['name']=='before_ocr' else before
+                        self.assertEqual(phase['state_at_phase'],expected)
+                        self.assertEqual(phase['state_unchanged'],before==expected)
                 self.assertGreaterEqual(rows[0]['sampled_inference_visible_ms'],500)
                 self.assertEqual(rows[1]['sampled_inference_visible_ms'],0)
                 self.assertEqual(rows[2]['sampled_inference_visible_ms'],0)

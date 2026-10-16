@@ -13,6 +13,17 @@ class WindowPolicyTests(unittest.TestCase):
   self.client=Window(1,10,'Chrome_WidgetWin_1');self.game=Window(2,20,'RiotWindowClass');self.other=Window(3,30,'RiotWindowClass')
   self.meta={10:ProcessMetadata(r'C:\Riot Games\League of Legends\LeagueClientUx.exe',100),20:ProcessMetadata(r'C:\Riot Games\League of Legends\Game\League of Legends.exe',200),30:ProcessMetadata(r'C:\Other\Game\League of Legends.exe',300)}
   self.p=SessionWindowPolicy(self.client,resolver=lambda pid:self.meta[pid],started_after=150)
+ def test_nested_client_directory_uses_explicit_installation_root(self):
+  self.meta[10]=ProcessMetadata(r'C:\Riot Games\League of Legends\LeagueClient\LeagueClientUx.exe',100)
+  policy=SessionWindowPolicy(self.client,resolver=lambda pid:self.meta[pid],started_after=150)
+  candidate=policy.discover_game([self.game,self.other]);self.assertEqual(candidate[0],self.game)
+  self.assertFalse(policy.adopt_game(candidate,windows=[self.game]))
+  self.assertTrue(policy.adopt_game(candidate,windows=[self.game],confirmed_handoff=True))
+  self.assertTrue(policy.permits(self.game));self.assertFalse(policy.permits(self.other))
+ def test_unrecognized_client_subdirectory_does_not_authorize_parent_game(self):
+  self.meta[10]=ProcessMetadata(r'C:\Riot Games\League of Legends\Other\LeagueClientUx.exe',100)
+  policy=SessionWindowPolicy(self.client,resolver=lambda pid:self.meta[pid],started_after=150)
+  self.assertIsNone(policy.discover_game([self.game,self.other]))
  def test_only_limited_metadata_right(self):self.assertEqual(PROCESS_QUERY_LIMITED_INFORMATION,0x1000);self.assertEqual(PROCESS_QUERY_LIMITED_INFORMATION&0x10,0)
  def test_only_selected_client_initially_permitted(self):self.assertTrue(self.p.permits(self.client));self.assertFalse(self.p.permits(self.game))
  def test_same_install_unique_loading_handoff(self):

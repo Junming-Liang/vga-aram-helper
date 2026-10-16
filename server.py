@@ -9,7 +9,7 @@ from pathlib import Path
 import threading
 from urllib.parse import parse_qs, urlsplit
 from engine import load_data, normalize, recommend
-from core import compare_augments
+from public_payload import public_data, public_comparison, public_recommendation
 from app_version import __version__ as APP_VERSION
 
 APP_NAME='VGA乱斗助手'
@@ -61,12 +61,12 @@ def make_server(data, port=8765, enable_ocr=False, ocr_engine=None, data_status=
         def do_GET(self):
             if not self.valid_host():return self.send_json(403,{'error':'仅允许 localhost 访问'})
             request=urlsplit(self.path)
-            if request.path=='/api/data':return self.send_json(200,data)
+            if request.path=='/api/data':return self.send_json(200,public_data(data))
             if request.path=='/api/status':return self.send_json(200,{'data':data_status,'software':public_software(),'applicationVersion':APP_VERSION})
             if request.path=='/api/updates':return self.send_json(200,public_software())
             if request.path=='/api/recommend':
                 name=parse_qs(request.query).get('augment',[''])[0]
-                try:return self.send_json(200,recommend(data,name))
+                try:return self.send_json(200,public_recommendation(recommend(data,name)))
                 except KeyError:return self.send_json(404,{'error':'未找到海克斯'})
             if request.path=='/health':return self.send_json(200,{'applicationName':APP_NAME,'applicationVersion':APP_VERSION,'status':'ok','mode':'hero-three-augment-comparison','ocr_enabled':enable_ocr,'dataState':data_status.get('state'),'softwareUpdateState':public_software()['state']})
             if request.path in STATIC:
@@ -90,7 +90,7 @@ def make_server(data, port=8765, enable_ocr=False, ocr_engine=None, data_status=
                 self.connection.settimeout(20)
                 payload=json.loads(self.rfile.read(length))
                 if not isinstance(payload,dict):raise ValueError('请求应为 JSON 对象。')
-                if path=='/api/compare':return self.send_json(200,compare_augments(data,payload.get('hero'),payload.get('offered')))
+                if path=='/api/compare':return self.send_json(200,public_comparison(data,payload.get('hero'),payload.get('offered')))
                 if path=='/api/ocr':
                     if not isinstance(payload.get('image_base64'),str):raise ValueError('缺少图片数据')
                     image_bytes=base64.b64decode(payload['image_base64'],validate=True)

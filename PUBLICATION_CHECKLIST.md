@@ -2,6 +2,15 @@
 
 适用于 [Junming-Liang/vga-aram-helper](https://github.com/Junming-Liang/vga-aram-helper) 的源码和 Windows 便携版发布。
 
+## Riot 官方要求（发布前阻断项）
+
+- [x] 项目所有者于 2026-10-16 确认已完成产品登记；此状态为所有者确认，未登录门户独立核验，不等同于 Riot 批准。
+- [ ] 已向 Riot 声明 League Client API 用途及准确 GET 端点清单，包括选人阶段、gameflow session 和 champion-select session；新增用途先更新申报。
+- [ ] 界面和公开说明具有易于找到的 Riot 非背书声明，未使用容易造成官方关联误解的表述。
+- [ ] 已复核当前游戏专属规则、产品政策和适用地区规则；无法核实注册/申报时不得宣称满足发布条件。
+
+官方依据：https://developer.riotgames.com/docs/lol 。产品登记由所有者确认完成；本表不代表代为接受条款、独立门户核验或 Riot 批准。当前端点清单见 LCU_SELECTION.md。
+
 ## 源码
 
 - [ ] 只包含项目源码、文档、原创图标、合成样例和许可文件。

@@ -7,7 +7,8 @@ from __future__ import annotations
 import math
 import re
 
-SOURCE_FILES = ('native_smoke.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'hero_recognition.py', 'hero_portraits.py',
+SOURCE_FILES = ('frame_inference_worker.py', 'partial_candidates.py', 'lcu_selection.py', 'live_client_identity.py',
+    'assets/riotgames.pem', 'public_payload.py', 'native_smoke.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'hero_recognition.py', 'hero_portraits.py',
     'local_ocr.py', 'ocr_privacy.py', 'model_inventory.py', 'frame_ocr_cache.py', 'native_state.py',
     'screen_capture.py', 'wgc_capture.py', 'persistent_capture_adapter.py', 'wgc_session_capture.py',
     'native/wgc_session_capture.cpp', 'native/wgc_capture.cpp', 'scripts/build_wgc_session_capture.py',
@@ -39,13 +40,14 @@ def integer(value, label, *, minimum=0, maximum=10000):
     return value
 
 
-def state(value, label):
+def state(value, label, *, allow_revoked=False):
     require(type(value) is dict and set(value) == set(STATE_FIELDS), 'Duty state snapshot fields differ: ' + label)
-    for key in ('last_observation', 'accepted_observed_at'):
-        number(value[key], label + '.' + key, minimum=0, maximum=1e12)
+    number(value['last_observation'], label + '.last_observation', minimum=0, maximum=1e12)
+    if not (allow_revoked and value['accepted_observed_at'] is None):
+        number(value['accepted_observed_at'], label + '.accepted_observed_at', minimum=0, maximum=1e12)
     for key in ('automatic_frames', 'hero_stable_frames', 'stable_frames', 'generation'):
         integer(value[key], label + '.' + key, maximum=2**31-1)
-    require(value['accepted_observed_at'] > 0 and value['accepted_observed_at'] == value['last_observation'],
+    require((allow_revoked and value['accepted_observed_at'] is None) or (value['accepted_observed_at'] > 0 and value['accepted_observed_at'] == value['last_observation']),
             'Duty phase lacks previously accepted observation')
     return value
 
@@ -277,15 +279,19 @@ def _validate_mode(report, mode, scene):
             require(phase['emitted_ms'] == timings[name+'_emitted'] and phase['applied_ms'] == timings[name+'_applied']
                     and timings['capture_return'] <= phase['compositor_validated_ms'] <= phase['applied_ms'],
                     'Duty per-phase dispatch/compositor timing differs')
-            for key in ('state_unchanged', 'current_identity_geometry_focus',
+            for key in ('current_identity_geometry_focus',
                         'helper_cleanup_complete' if mode == 'one-shot' else 'session_guarded_idle_verified',
                         'compositor_checked_after_capture'):
                 require(phase.get(key) is True, 'Duty phase safety evidence missing: ' + key)
             require(('helper_cleanup_complete' not in phase) if mode == 'persistent' else ('session_guarded_idle_verified' not in phase),
                     'Duty phase mixed helper-exit and guarded-idle modes')
-            before, during = state(phase.get('state_before'), 'before'), state(phase.get('state_at_phase'), 'during')
-            require(before == during and before == phases[0]['state_before'],
-                    'Intermediate duty proof renewed TTL or confirmation counters')
+            revoke = expected in ('changed_hud', 'unknown_hud') and name == 'before_ocr'
+            before, during = state(phase.get('state_before'), 'before'), state(phase.get('state_at_phase'), 'during', allow_revoked=revoke)
+            expected_during = dict(before, automatic_frames=0, stable_frames=0, accepted_observed_at=None) if revoke else before
+            require(during == expected_during and before == phases[0]['state_before'],
+                    'Intermediate duty proof must only revoke unsafe evidence, never renew TTL or promote counters')
+            require(type(phase.get('state_unchanged')) is bool and phase['state_unchanged'] == (before == during),
+                    'Duty state-unchanged flag disagrees with observed operands')
             for key in ('restored', 'qt_visible', 'native_visible'):
                 require(phase.get(key) is (expected in ('unchanged', 'stop_late')),
                         'Duty phase restored changed/unknown HUD or hid unchanged HUD: ' + key)

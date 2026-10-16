@@ -113,7 +113,7 @@ class ComparisonHTTPTests(unittest.TestCase):
         r=conn.getresponse();body=r.read();conn.close();return r.status,body
     def test_compare_http(self):
         status,body=self.request('/api/compare',{'hero':'英雄甲','offered':NAMES})
-        self.assertEqual(status,200);self.assertEqual(json.loads(body)['recommendedName'],'强化甲')
+        self.assertEqual(status,200);result=json.loads(body);self.assertEqual([x['name'] for x in result['cards']],NAMES);self.assertEqual(result['policy'],'literal-source-grades-v1');self.assertNotIn('recommendedName',result)
     def test_invalid_and_cross_origin(self):
         self.assertEqual(self.request('/api/compare',{'hero':'英雄甲','offered':[]})[0],400)
         self.assertEqual(self.request('/api/compare',origin='https://evil.example',bodyless_post=True)[0],403)

@@ -120,7 +120,7 @@ class PortraitMatcher:
         return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验',**evidence}
 
 
-def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None):
+def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None):
     """Split one same-time selected-window frame in memory. Never persist images."""
     from PIL import Image
     from screen_capture import bounded_roi
@@ -129,17 +129,30 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
         image.load();frame_height=image.height;left,top,width,height=bounded_roi(image.width,image.height,roi)
         rgb=image.convert('RGB');crop=rgb.crop((left,top,left+width,top+height));out=io.BytesIO();crop.save(out,format='PNG')
     crop_bytes=out.getvalue()
-    # Only the concrete matcher uses our exact preparation contract. Custom
-    # matchers retain their original recognize API and cannot supply a proof.
+    # The two independent inferences use the same immutable captured frame.
+    # Join both before returning: no next capture overlaps an unfinished worker.
+    # A proof callback still runs on the caller, after full HUD validation.
     if type(matcher) is PortraitMatcher:
         prepared=matcher._prepare_image(image_bytes,decoded_rgb=matcher.np.asarray(rgb))
         if before_match is not None:before_match(prepared.signature if isinstance(prepared,_PortraitInput) else None,crop_bytes)
-        hero=matcher._recognize_prepared(prepared)
+        pending=inference_worker.submit(ocr.recognize,crop_bytes,vocabulary) if inference_worker is not None else None
+        try:
+            hero=matcher._recognize_prepared(prepared)
+            if resolve_hero is not None:hero=resolve_hero(hero)
+            if before_ocr is not None:before_ocr(hero,crop_bytes)
+        finally:
+            # Also drain on cancellation/proof failure. A native OCR call is not
+            # safely interruptible; it may never leak into the next frame.
+            if pending is not None:
+                result=pending.result()
+        if pending is None:result=ocr.recognize(crop_bytes,vocabulary)
     else:
         if before_match is not None:before_match(None,crop_bytes)
         hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好')
-    if before_ocr is not None:before_ocr(hero,crop_bytes)
-    result=ocr.recognize(crop_bytes,vocabulary);result['hero_observation']=hero
+        if resolve_hero is not None:hero=resolve_hero(hero)
+        if before_ocr is not None:before_ocr(hero,crop_bytes)
+        result=ocr.recognize(crop_bytes,vocabulary)
+    result['hero_observation']=hero
     # Automatic titles are constrained to the actual centered card-title band,
     # separate from review suggestions and any unrelated overlay/chat text.
     from local_ocr import candidate_matches
@@ -153,4 +166,8 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
         except (ValueError,TypeError,IndexError):continue
         if .32*frame_height<=center_y<=.55*frame_height:title_lines.append(line)
     result['automatic_candidates']=candidate_matches(title_lines,vocabulary,min_ocr_confidence=.93)
+    # Keep raw unknown/low-confidence title rows for independent fixed-slot
+    # evidence. Dictionary candidates alone cannot prove a third card exists.
+    from partial_candidates import title_evidence
+    result['partial_title_evidence']=title_evidence(result.get('ocr_lines'),result.get('image_size'),vocabulary,crop_top=top,frame_height=frame_height)
     return result

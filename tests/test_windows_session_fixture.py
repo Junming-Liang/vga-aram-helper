@@ -644,5 +644,14 @@ class SessionFixtureTests(unittest.TestCase):
         self.assertEqual(source.count('CreateWindowExW(exStyle,'), 1)
 
 
+class ClientWindowClassContractTests(unittest.TestCase):
+    def test_owned_windows_gate_exercises_documented_rclient_class(self):
+        self.assertEqual(fixture.CLASSES,{'client':'RCLIENT','game':'RiotWindowClass'})
+        source=fixture.SOURCE.read_text(encoding='utf-8')
+        self.assertIn('className = role == "game" ? "RiotWindowClass" : "RCLIENT";',source)
+        from automatic_windows import CLIENT_CLASSES
+        self.assertIn(fixture.CLASSES['client'],CLIENT_CLASSES)
+
+
 if __name__ == '__main__':
     unittest.main()

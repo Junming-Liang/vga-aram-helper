@@ -18,7 +18,7 @@ from windows_exe_smoke import isolated_windows_environment, smoke_workspace, ter
 from overlay_duty_contract import SOURCE_FILES, SCOPE as DUTY_SCOPE, validate_overlay_duty
 
 
-NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'async_capture_ui_passed')
+NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 
 APP_SCALES = ('1', '1.5', '2')
 
