@@ -201,5 +201,97 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         self.assertEqual(self.unsolicited, [])
 
 
+@unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
+class OwnedCapturePreflightTests(unittest.TestCase):
+    def fixture(self, ready):
+        self.clock=0.;self.events=[];self.evidence=[]
+        def pump(): self.events.append('pump');self.clock+=.01
+        def capture(target): self.events.append('capture');return b'owned', 'rect'
+        overlay=SimpleNamespace(hide=Mock(),isVisible=lambda:False,winId=lambda:12,hidden_settle_ms=lambda:0)
+        self.control=SimpleNamespace(closed=False,overlay=overlay,capture=SimpleNamespace(
+            prepare_capture_mode=Mock(side_effect=ready),capture=Mock(side_effect=capture),
+            u=SimpleNamespace(IsWindowVisible=lambda hwnd:False)))
+        self.app=SimpleNamespace(processEvents=pump)
+        return patch.object(native_smoke,'time',SimpleNamespace(monotonic=lambda:self.clock,sleep=lambda _:None))
+
+    def test_waits_before_one_capture_and_timestamp_begins_after_readiness(self):
+        with self.fixture([False,False,True]):
+            pixels,rect,stamp=native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence)
+        self.assertEqual((pixels,rect,stamp),(b'owned','rect',.02))
+        self.assertEqual(self.events,['pump','pump','capture'])
+        self.control.capture.capture.assert_called_once_with('target')
+        self.assertEqual(self.evidence,[{'ready_before_capture':True,'hidden_settled':True,'polls':3,'wait_ms':20.}])
+
+    def test_permanent_pending_has_deadline_without_capture_or_owner_reset(self):
+        with self.fixture(lambda _:False),self.assertRaisesRegex(RuntimeError,'bounded deadline'):
+            native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence,timeout=.025)
+        self.control.capture.capture.assert_not_called();self.assertEqual(self.evidence,[])
+        self.assertLessEqual(self.clock,.03)
+
+    def test_readiness_error_and_capture_error_are_not_retried(self):
+        error=RuntimeError('owned failure')
+        for phase in ('readiness','capture'):
+            with self.subTest(phase=phase),self.fixture(lambda _:True):
+                if phase=='readiness':self.control.capture.prepare_capture_mode.side_effect=error
+                else:self.control.capture.capture.side_effect=error
+                with self.assertRaisesRegex(RuntimeError,'owned failure'):
+                    native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence)
+                self.assertEqual(self.control.capture.capture.call_count,0 if phase=='readiness' else 1)
+                self.assertEqual(self.events,[]);self.assertEqual(self.evidence,[])
+
+    def test_hidden_settle_and_closed_scope_prevent_early_capture(self):
+        with self.fixture(lambda _:True):
+            self.control.overlay.hidden_settle_ms=lambda:20 if self.clock<.02 else 0
+            native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence)
+        self.assertEqual(self.events,['pump','pump','capture'])
+        with self.fixture(lambda _:True),self.assertRaisesRegex(RuntimeError,'stopped'):
+            self.control.closed=True
+            native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence)
+        self.control.capture.capture.assert_not_called()
+
+
+
+from tests import test_persistent_capture_adapter as adapter_fixtures
+
+@unittest.skipIf(QtWidgets is None, 'Optional Qt runtime is not installed')
+class RealAdapterPreflightTests(adapter_fixtures.AdapterFixture, unittest.TestCase):
+    def test_pending_retirement_blocks_direct_capture_then_preflight_waits_for_real_barrier(self):
+        import threading
+        from wgc_capture import WgcError
+        self.capture()  # Establish an actual production adapter owner with a fake transport.
+        old=self.sessions[0];release=threading.Event();entered=threading.Event()
+        def close():
+            entered.set()
+            if not release.wait(2):raise RuntimeError('Owned close was not released')
+            old._close()
+        old.close.side_effect=close
+        self.addCleanup(release.set)
+        self.adapter.retire()
+        self.assertTrue(entered.wait(1))
+        with self.assertRaises(WgcError) as error:self.adapter.check_ready()
+        self.assertEqual(error.exception.status,'cleanup-pending')
+        calls=[];pumps=[]
+        def capture_once(target):
+            self.assertTrue(release.is_set());self.assertFalse(self.adapter.cleanup_pending)
+            calls.append(target)
+            return self.adapter.capture(target,self.rect,(0,0,80,60),cancelled=lambda:False),self.rect
+        def pump():
+            pumps.append(True)
+            self.assertEqual(calls,[])
+            if len(pumps)==2:release.set()
+        control=SimpleNamespace(closed=False,
+            overlay=SimpleNamespace(hide=Mock(),isVisible=lambda:False,winId=lambda:101,hidden_settle_ms=lambda:0),
+            capture=SimpleNamespace(prepare_capture_mode=self.adapter.prepare_capture_mode,capture=capture_once,
+                u=SimpleNamespace(IsWindowVisible=lambda hwnd:False)))
+        evidence=[]
+        pixels,rect,stamp=native_smoke._owned_hidden_capture(control,self.target,
+            app=SimpleNamespace(processEvents=pump),evidence=evidence)
+        self.assertIs(pixels,self.image);self.assertEqual(rect,self.rect)
+        self.assertEqual(calls,[self.target]);self.assertGreaterEqual(len(pumps),2)
+        self.assertEqual(self.factory.call_count,2)
+        self.assertTrue(old._transport.revoked.is_set());self.assertFalse(self.adapter.cleanup_pending)
+        self.assertGreater(evidence[0]['wait_ms'],0)
+
+
 if __name__ == '__main__':
     unittest.main()

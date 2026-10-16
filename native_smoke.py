@@ -608,10 +608,43 @@ def _manual_smoke_cadence(control):
     return restore
 
 
+
+def _owned_hidden_capture(control, target, *, app, evidence, timeout=8.):
+    """One diagnostic capture, after the production mode/cleanup barrier.
+
+    This is a preflight, never a retry of capture. The owned fixture suppresses
+    automatic cadence while Qt events drain; no pending owner is cleared here.
+    Freshness starts after readiness, not before the preceding session closes.
+    """
+    started = time.monotonic()
+    polls = 0
+    control.overlay.hide()
+    while True:
+        if control.closed:
+            raise RuntimeError('Owned capture stopped before readiness')
+        if time.monotonic() - started >= timeout:
+            raise RuntimeError('Owned capture cleanup/readiness exceeded bounded deadline')
+        polls += 1
+        ready = control.capture.prepare_capture_mode(False)
+        settled = control.overlay.hidden_settle_ms() == 0
+        if ready and settled:
+            break
+        app.processEvents()
+        time.sleep(.005)
+    assert not control.overlay.isVisible()
+    assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
+    captured_at = time.monotonic()
+    pixels, rect = control.capture.capture(target)
+    evidence.append({'ready_before_capture': True, 'hidden_settled': True,
+                     'polls': polls, 'wait_ms': round((captured_at-started)*1000, 3)})
+    return pixels, rect, captured_at
+
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
     report={'status':'running','executable_sha256':hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest() if getattr(sys,'frozen',False) else None,'backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
     control._smoke_objects=[]
+    report['owned_capture_preflights']=[]
     # Production result handlers schedule their next observation on completion.
     # This fixture owns every capture, including the real async and duty probes.
     restore_schedule=_manual_smoke_cadence(control)
@@ -686,7 +719,7 @@ def start_smoke(control,report_path,screenshot_path):
         target=control.capture.info(int(mock.winId()));control.target=target
         from session_windows import process_metadata
         control.manual_metadata=process_metadata(target.pid);control.manual_identity=target.identity
-        control.overlay.hide();captured_at=time.monotonic();bytes_,rect=control.capture.capture(target)
+        bytes_,rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights'])
         report['capture_passed']=True;report['captureBytes']=len(bytes_);report['clientRect']={'x':rect.x,'y':rect.y,'width':rect.width,'height':rect.height}
         checks.append('Windows capture returned only selected mock client area into an in-memory PNG')
         from local_ocr import LocalOCR
@@ -697,11 +730,11 @@ def start_smoke(control,report_path,screenshot_path):
         def observe_current():
             control.overlay.hide();assert not control.overlay.isVisible()
             assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
-            captured_at=time.monotonic();pixels,capture_rect=control.capture.capture(target)
+            pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights'])
             scoped=control.ocr_reuse.scoped(engine,(target.identity,(.15,.25,.7,.35),'game'),allow_reuse=control.state.confirmed and control.state.confirmation_mode=='automatic')
             value=recognize_frame(pixels,(.15,.25,.7,.35),scoped,control.data['augments'],control.hero_matcher)
             if time.monotonic()-captured_at>3:
-                captured_at=time.monotonic();pixels,capture_rect=control.capture.capture(target);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
+                pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights']);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
                 value['ocr_reused']=False # This branch called the actual engine, never its reuse cache.
             control._capture_serial+=1
             roi=(.15,.25,.7,.35)
