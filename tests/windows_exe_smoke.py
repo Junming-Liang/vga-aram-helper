@@ -53,6 +53,8 @@ def assert_grade_only_comparison(comparison, hero, offered, expected_grades):
 
 def assert_grade_only_browser(page, expect, offered, expected_grades):
     """Inspect all three rendered cards without permitting a unique-best card."""
+    fixture = json.loads((ROOT / 'fixtures' / 'demo.json').read_text(encoding='utf-8'))
+    descriptions = [fixture['augments'][name]['description'] for name in offered]
     cards = page.locator('.comparison-card')
     expect(cards).to_have_count(3)
     expect(page.locator('.comparison-card.preferred')).to_have_count(0)
@@ -61,7 +63,12 @@ def assert_grade_only_browser(page, expect, offered, expected_grades):
         expect(card.locator('h3')).to_have_text(name)
         expect(card.locator('.card-top .badge')).to_have_text(f'原选项 {index + 1}')
         expect(card.locator(':scope > .badge')).to_have_text(f'源评级 {grade}')
+        expect(card.locator(':scope > p')).to_have_text(descriptions[index])
     text = page.locator('#choice-result').inner_text()
+    # Source effect descriptions may mention rates without displaying any rate.
+    # Validate them exactly above, then exclude only those trusted fixture texts.
+    for description in descriptions:
+        text = text.replace(description, '', 1)
     assert not any(word in text for word in ('胜率', '选取率', '样本量', '优先选择', '唯一推荐', '源顺位', '推荐首选')), text
     # These original synthetic descriptions contain no effect percentages.
     assert not re.search(r'\d+(?:[.,]\d+)?\s*[%％]', text), text

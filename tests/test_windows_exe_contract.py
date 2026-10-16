@@ -63,13 +63,15 @@ class BrowserContractTests(unittest.TestCase):
             def inner_text(self): return self.value
             def to_have_count(self, count): assert len(self.value) == count
             def to_have_text(self, text): assert self.value == text
+        fixture = json.loads((Path(__file__).resolve().parents[1] / 'fixtures/demo.json').read_text())
+        descriptions = [fixture['augments'][name]['description'] for name in DEMO_OFFERED]
         class Page:
             def __init__(self):
                 self.nodes = {
-                    '.comparison-card': [dict(zip(('h3', '.card-top .badge', ':scope > .badge'),
-                        (name, f'原选项 {index + 1}', f'源评级 {grade}')))
+                    '.comparison-card': [dict(zip(('h3', '.card-top .badge', ':scope > .badge', ':scope > p'),
+                        (name, f'原选项 {index + 1}', f'源评级 {grade}', descriptions[index])))
                         for index, (name, grade) in enumerate(zip(DEMO_OFFERED, ('T1','T2','T3')))],
-                    '.comparison-card.preferred': [], '#choice-result': '原始评级'}
+                    '.comparison-card.preferred': [], '#choice-result': '原始评级 ' + ' '.join(descriptions)}
             def locator(self, selector): return Node(self.nodes[selector])
         def check(page): assert_grade_only_browser(page, lambda node: node, DEMO_OFFERED, ('T1','T2','T3'))
         check(Page())
@@ -79,6 +81,8 @@ class BrowserContractTests(unittest.TestCase):
             lambda p: p.nodes['.comparison-card'][0].update({'.card-top .badge':'原选项 2'}),
             lambda p: p.nodes['.comparison-card'][0].update({':scope > .badge':'源评级 T4'}),
             lambda p: p.nodes['.comparison-card.preferred'].append('bad'),
+            lambda p: p.nodes['.comparison-card'][2].update({':scope > p': descriptions[2] + ' 胜率 55%'}),
+            lambda p: p.nodes.update({'#choice-result': ' '.join(descriptions) + ' 胜率 55%'}),
             lambda p: p.nodes.update({'#choice-result':'55.1%'}),
             lambda p: p.nodes.update({'#choice-result':'推荐首选'}),
         ):
