@@ -222,6 +222,16 @@ class OwnedCapturePreflightTests(unittest.TestCase):
         self.control.capture.capture.assert_called_once_with('target')
         self.assertEqual(self.evidence,[{'ready_before_capture':True,'hidden_settled':True,'polls':3,'wait_ms':20.}])
 
+    def test_zero_elapsed_clock_tick_still_proves_readiness_order(self):
+        with self.fixture([False,False,True]):
+            # Several event-pump iterations may share one coarse Windows clock tick.
+            self.app.processEvents=lambda:self.events.append('pump')
+            native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence)
+        self.assertEqual(self.events,['pump','pump','capture'])
+        self.control.capture.capture.assert_called_once_with('target')
+        self.assertEqual(self.evidence[0]['polls'],3)
+        self.assertEqual(self.evidence[0]['wait_ms'],0.)
+
     def test_permanent_pending_has_deadline_without_capture_or_owner_reset(self):
         with self.fixture(lambda _:False),self.assertRaisesRegex(RuntimeError,'bounded deadline'):
             native_smoke._owned_hidden_capture(self.control,'target',app=self.app,evidence=self.evidence,timeout=.025)
@@ -259,11 +269,12 @@ class RealAdapterPreflightTests(adapter_fixtures.AdapterFixture, unittest.TestCa
         import threading
         from wgc_capture import WgcError
         self.capture()  # Establish an actual production adapter owner with a fake transport.
-        old=self.sessions[0];release=threading.Event();entered=threading.Event()
+        old=self.sessions[0];release=threading.Event();entered=threading.Event();closed=threading.Event()
         def close():
             entered.set()
             if not release.wait(2):raise RuntimeError('Owned close was not released')
             old._close()
+            closed.set()
         old.close.side_effect=close
         self.addCleanup(release.set)
         self.adapter.retire()
@@ -272,7 +283,8 @@ class RealAdapterPreflightTests(adapter_fixtures.AdapterFixture, unittest.TestCa
         self.assertEqual(error.exception.status,'cleanup-pending')
         calls=[];pumps=[]
         def capture_once(target):
-            self.assertTrue(release.is_set());self.assertFalse(self.adapter.cleanup_pending)
+            self.assertTrue(release.is_set());self.assertTrue(closed.is_set())
+            self.assertFalse(self.adapter.cleanup_pending)
             calls.append(target)
             return self.adapter.capture(target,self.rect,(0,0,80,60),cancelled=lambda:False),self.rect
         def pump():
@@ -290,7 +302,10 @@ class RealAdapterPreflightTests(adapter_fixtures.AdapterFixture, unittest.TestCa
         self.assertEqual(calls,[self.target]);self.assertGreaterEqual(len(pumps),2)
         self.assertEqual(self.factory.call_count,2)
         self.assertTrue(old._transport.revoked.is_set());self.assertFalse(self.adapter.cleanup_pending)
-        self.assertGreater(evidence[0]['wait_ms'],0)
+        # Windows monotonic clock resolution can round a real short wait to zero.
+        # Prove ordering/ownership directly instead of inferring it from duration.
+        self.assertEqual(evidence[0]['polls'],len(pumps)+1)
+        self.assertGreaterEqual(evidence[0]['polls'],3)
 
 
 if __name__ == '__main__':
