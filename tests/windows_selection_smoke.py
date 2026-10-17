@@ -277,9 +277,16 @@ def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=N
     require(value.get('recognizedHero') == EXPECTED_REFERENCE['hero']
             and value.get('assignedHero') == EXPECTED_REFERENCE['hero']
             and value.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光']
-            and value.get('provenance') == 'client-provisional'
-            and value.get('renderedHeading') == EXPECTED_REFERENCE['hero'] + ' · 来自本局选人 · HUD未复核',
+            and value.get('provenance') == 'client-provisional',
             'Selection handoff hero, augment order or provenance differs')
+    badges=value.get('renderedBadgeProvenance')
+    require(type(badges) is list and len(badges)==3, 'Three visible badge provenance rows missing')
+    for index,(badge,name,tier) in enumerate(zip(badges,value['recognized'],('T1','T2','T3')),1):
+        require(type(badge) is dict and type(badge.get('slot')) is int and badge.get('slot')==index and badge.get('visible') is True
+                and badge.get('text')=='HUD未复核'
+                and badge.get('accessible')==f'选项 {index} · {name} · {tier} · HUD未复核 · 来自本局选人 · HUD未复核'
+                and badge.get('tooltip')=='来自本局选人 · HUD未复核\n',
+                'Visible badge provisional identity differs')
     for key in ('clientHwnd', 'clientPid', 'gameHwnd', 'gamePid', 'clientGeneration'):
         require(type(value.get(key)) is int and value[key] > 0, 'Selection identity missing: ' + key)
     require(value['clientHwnd'] != value['gameHwnd'] and value['clientPid'] != value['gamePid'],

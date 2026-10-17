@@ -48,14 +48,14 @@ with tempfile.TemporaryDirectory() as temp,patch('native_ui.Win32Capture',side_e
         value={**value,'_capturedAt':time.monotonic(),'_sessionGeneration':w.selection_session.generation,'_windowIdentity':client.identity};w.task_result('selection',value,w.state.generation)
     deliver_selection(recognized);assert not w.selection_session.assigned
     deliver_selection(recognized);assert w.selection_session.assigned=='9001' and w.state.hero=='星火术士（演示）';checks.append('Real CPU OCR own gold row + central exact name enter production handler; two frames establish current assignment without hero selection')
-    deliver_selection({'scene':'unknown','reason':'Synthetic ambiguous selection'});assert not w.state.hero and not w.selection_session.assigned;checks.append('Unknown client scene clears the old assigned hero')
+    deliver_selection({**recognized,'scene':'unknown','assigned':False,'reason':'Synthetic ambiguous selection from the same OCR source'});assert not w.state.hero and not w.selection_session.assigned;checks.append('Unknown client scene clears the old assigned hero')
     deliver_selection(recognized);deliver_selection(recognized)
     w.capture.focused=game;w.last_window_discovery=0;w.check_target();assert w.target==game and w.window_list.currentData()==game and w.selection_session.stage=='transition';checks.append('Production handoff uses unique same-install new process policy and visibly changes selected window (fake metadata resolver in this offscreen check)')
     result=recognize_frame((ROOT/'fixtures/auto-scene.png').read_bytes(),(.15,.25,.7,.35),ocr,w.data['augments'],None)
     def deliver_game(value):
         value={**value,'_capturedAt':time.monotonic(),'_sessionGeneration':w.selection_session.generation,'_windowIdentity':game.identity};w.task_result('ocr',value,w.state.generation)
     deliver_game(result);assert not w.state.confirmed
-    deliver_game(result);assert w.state.confirmed and w.hero_origin=='client-provisional';assert 'HUD未复核' in w.overlay.heading.text();checks.append('Unknown portrait with real OCR three-card scene uses explicit this-session selection provenance and auto-confirms after stability')
+    deliver_game(result);assert w.state.confirmed and w.hero_origin=='client-provisional';assert all(b.source=='HUD未复核' and '来自本局选人 · HUD未复核' in b.accessibleName() for b in w.overlay._badge_widgets);checks.append('Unknown portrait with real OCR three-card scene uses explicit this-session selection provenance and auto-confirms after stability')
     deliver_game({'candidates':[],'automatic_candidates':[],'hero_observation':{'confident':False}});assert not w.state.hero and not w.state.confirmed and w.selection_session.visible_identity(allow_provisional=True) is None;checks.append('Blank/lost game scene clears carried identity rather than treating previous state as fresh evidence')
     w.stop_monitor();w.window_list.addItem('synthetic client restart',client);w.window_list.setCurrentIndex(w.window_list.count()-1);w.capture.focused=client
     with patch('session_windows.SessionWindowPolicy',side_effect=policy):w.start_monitor()

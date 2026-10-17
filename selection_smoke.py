@@ -164,12 +164,16 @@ def start_selection_smoke(control,input_path,report_path):
         assert control.state.hero==DEMO_HERO and list(control.state.offered)==expected
         assert control.hero_auto.isChecked() and control.state.confirmation_mode=='automatic'
         assert control.hero_origin=='client-provisional'
-        assert '来自本局选人' in control.overlay.heading.text() and 'HUD未复核' in control.overlay.heading.text()
+        badges=control.overlay._badge_widgets
+        assert len(badges)==3 and all(badge.isVisible() and badge.source=='HUD未复核'
+            and '来自本局选人 · HUD未复核' in badge.accessibleName() for badge in badges)
+        badge_provenance=[dict(slot=index+1,visible=badge.isVisible(),text=badge.source,
+            accessible=badge.accessibleName(),tooltip=badge.toolTip()) for index,badge in enumerate(badges)]
         assert [row['sourceTier'] for row in control.overlay.cards]==['T1','T2','T3']
         assert control.overlay.reference is None and control.client_strength_reference() is None
         safety['handoff_reference_removed']=True
         assert control.selection_session.stage=='game-provisional'
-        report.update(champion_select_session_carry_passed=True,recognizedHero=control.state.hero,recognized=expected,provenance=control.hero_origin,renderedHeading=control.overlay.heading.text(),gameHwnd=control.target.hwnd,gamePid=control.target.pid)
+        report.update(champion_select_session_carry_passed=True,recognizedHero=control.state.hero,recognized=expected,provenance=control.hero_origin,renderedBadgeProvenance=badge_provenance,gameHwnd=control.target.hwnd,gamePid=control.target.pid)
         checks.append('Production Start handler and timers capture own client, then adopt unique new same-install game; unknown HUD uses visibly provisional this-session identity and automatic three exact titles')
         policy=control.window_policy
         assert policy.permits(control.target) and policy.permits(control.client_target)

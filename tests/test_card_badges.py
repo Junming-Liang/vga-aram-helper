@@ -110,6 +110,33 @@ class BadgeQtTests(unittest.TestCase):
         self.assertGreater(sum(badge_sentinel_observation(self.o)['badge_magenta_grid_samples']),20)
         self.assertEqual(int(self.o.winId()),hwnd);self.assertEqual(self.o.mask(),mask)
 
+    def test_identity_warning_is_visible_and_survives_candidate_rechecking(self):
+        from PySide6 import QtGui
+        for confirmation,marker in [('来自本局选人 · HUD未复核','HUD未复核'),
+                ('本局此前确认英雄 + 本帧候选；头像未重新确认','本局已确认')]:
+            self.cards[2]['sourceTier']=None
+            self.o.set_cards('英雄',self.cards,confirmation=confirmation);self.show()
+            for badge in self.o._badge_widgets:
+                self.assertTrue(badge.isVisible());self.assertEqual(badge.source,marker)
+                self.assertIn(confirmation,badge.accessibleName());self.assertIn(confirmation,badge.toolTip())
+                font=badge.font();font.setPixelSize(9)
+                self.assertLessEqual(QtGui.QFontMetrics(font).horizontalAdvance(marker),104-54)
+            self.o.set_rechecking(True);self.app.processEvents()
+            for badge in self.o._badge_widgets:
+                self.assertEqual(badge.source,marker);self.assertTrue(badge.display_hint.startswith('复核中'))
+                self.assertIn('候选复核中',badge.accessibleName());self.assertIn(confirmation,badge.toolTip())
+
+    def test_missing_tier_still_paints_provenance_at_minimum_width(self):
+        from card_badges import TierBadge
+        badge=TierBadge(None);self.addCleanup(badge.close);badge.setFixedWidth(104)
+        badge.set_card(dict(slot=1,name='未知评级候选',sourceTier=None),identity_provenance='来自本局选人 · HUD未复核')
+        badge.show();self.app.processEvents()
+        before=badge.grab().toImage();badge.source='';badge.update();self.app.processEvents()
+        after=badge.grab().toImage();dpr=before.devicePixelRatio()
+        changed=sum(before.pixelColor(x,y)!=after.pixelColor(x,y)
+                    for x in range(round(50*dpr),round(100*dpr)) for y in range(round(32*dpr)))
+        self.assertGreater(changed,0)
+
     def test_source_hint_elision_retains_exact_accessible_text(self):
         full='搭配：无限循环往复、纯粹主义者 - 术师'
         self.cards[0]['sourceHint']=full;self.o.set_cards('英雄',self.cards);self.show()

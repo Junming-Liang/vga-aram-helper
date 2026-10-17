@@ -184,7 +184,7 @@ class PartialCandidatesQtTests(unittest.TestCase):
         self.wait(ready.is_set)
         self.assertTrue(w.overlay.isVisible())
         self.assertTrue(w.overlay._rechecking)
-        self.assertIn('复核', w.overlay.heading.text())
+        self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets if b.isVisible()))
         generation = w.state.generation
         self.now = old_time + 4.
         w.check_target()

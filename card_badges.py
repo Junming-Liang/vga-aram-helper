@@ -152,18 +152,21 @@ class TierBadge(QtWidgets.QWidget):
         super().__init__(parent)
         self.setFixedSize(WIDTH,HEIGHT);self.tier='';self.source='源评级';self.hint='';self.display_hint='';self.accent='#C1C8D2'
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    def set_card(self,card,rechecking=False):
+    def set_card(self,card,rechecking=False,identity_provenance=""):
         self.tier=str(card.get('sourceTier') or '暂无评级');self.accent=COLORS.get(self.tier,'#C1C8D2')
-        self.source='复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else '源评级'
+        self.identity_provenance=identity_provenance
+        warning='HUD未复核' if '来自本局选人' in identity_provenance and 'HUD未复核' in identity_provenance else '本局已确认' if '头像未重新确认' in identity_provenance else ''
+        self._pending_identity=bool(warning and rechecking)
+        self.source=warning or ('复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else '源评级')
         hint=card.get('sourceHint')
         self.hint=hint.strip() if isinstance(hint,str) else ''
         self._fit_hint()
-        self.setToolTip(self.hint)
-        self.setAccessibleName(f"选项 {card['slot']} · {card['name']} · {self.tier} · {self.source}"+(f' · {self.hint}' if self.hint else ''))
+        self.setToolTip((identity_provenance+'\n' if warning else '')+('候选复核中\n' if warning and rechecking else '')+self.hint)
+        self.setAccessibleName(f"选项 {card['slot']} · {card['name']} · {self.tier} · {self.source}"+(f' · {identity_provenance}' if warning else '')+(' · 候选复核中' if warning and rechecking else '')+(f' · {self.hint}' if self.hint else ''))
         self.update()
     def _fit_hint(self):
         font=self.font();font.setPixelSize(HINT_FONT_SIZE)
-        self.display_hint=QtGui.QFontMetrics(font).elidedText(self.hint,QtCore.Qt.TextElideMode.ElideRight,self.width()-24)
+        self.display_hint=QtGui.QFontMetrics(font).elidedText(('复核中 · ' if getattr(self,'_pending_identity',False) else '')+self.hint,QtCore.Qt.TextElideMode.ElideRight,self.width()-24)
     def resizeEvent(self,event):
         self._fit_hint();super().resizeEvent(event)
     def paintEvent(self,event):
@@ -174,13 +177,13 @@ class TierBadge(QtWidgets.QWidget):
         p.setPen(QtGui.QPen(QtGui.QColor('#46647A'),1))
         p.drawPolygon(QtGui.QPolygon([QtCore.QPoint(x,y) for x,y in ((1,7),(7,1),(width-8,1),(width-1,8),(width-1,HEIGHT-7),(width-7,HEIGHT-1),(8,HEIGHT-1),(1,HEIGHT-8))]))
         p.setPen(QtGui.QPen(QtGui.QColor(self.accent),2));p.drawLine(8,1,34,1);p.drawLine(width-26,HEIGHT-1,width-8,HEIGHT-1)
-        font=p.font();font.setPixelSize(20 if self.tier!='暂无评级' else 12);font.setWeight(QtGui.QFont.Weight.DemiBold);p.setFont(font);p.setPen(QtGui.QColor(self.accent))
+        font=p.font();font.setPixelSize(20 if self.tier!='暂无评级' else 10);font.setWeight(QtGui.QFont.Weight.DemiBold);p.setFont(font);p.setPen(QtGui.QColor(self.accent))
         if self.tier=='暂无评级':
-            p.drawText(QtCore.QRect(13,0,width-26,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.tier)
+            p.drawText(QtCore.QRect(8,0,42,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.tier)
         else:
             p.drawText(QtCore.QRect(13,0,37,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.tier)
-            font.setPixelSize(10);font.setWeight(QtGui.QFont.Weight.Normal);p.setFont(font);p.setPen(QtGui.QColor('#AFC3D0'))
-            p.drawText(QtCore.QRect(53,0,width-62,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.source)
+        font.setPixelSize(9 if self.source in ('HUD未复核','本局已确认') else 10);font.setWeight(QtGui.QFont.Weight.Normal);p.setFont(font);p.setPen(QtGui.QColor('#AFC3D0'))
+        p.drawText(QtCore.QRect(50,0,width-54,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.source)
         if self.display_hint:
             font.setPixelSize(HINT_FONT_SIZE);font.setWeight(QtGui.QFont.Weight.Normal);p.setFont(font);p.setPen(QtGui.QColor('#D0DEE8'))
             p.drawText(QtCore.QRect(12,TIER_ROW_HEIGHT-1,width-24,HEIGHT-TIER_ROW_HEIGHT-3),QtCore.Qt.AlignmentFlag.AlignVCenter,self.display_hint)
@@ -212,19 +215,20 @@ class BadgeOverlayMixin:
         self.hide('cards_changed');self._card_signature=signature;self.cards=[slots[s] for s in sorted(slots)]
         self.reference=None;self._rechecking=False;self._placed_key=None;self._layout_revision+=1
         self.panel.hide();self.setMinimumSize(0,0)
+        self._identity_provenance=confirmation
         self._full_heading=self._compact_heading=f'{hero} · {confirmation}';self._previous_heading=f'{hero} · 上次候选复核中'
         self.tier_labels=[]
         for slot,badge in enumerate(self._badge_widgets,1):
             badge.hide();card=slots.get(slot)
             if card and not card.get('pending'):
-                badge.set_card(card);self.tier_labels.append(badge)
+                badge.set_card(card,identity_provenance=confirmation);self.tier_labels.append(badge)
     def _leave_badges(self):
         self.hide('reference_changed')
         for badge in self._badge_widgets:badge.hide()
         self.clearMask();clear_native_region(int(self.winId()));self._badge_regions=();self.panel.show()
     def _refresh_badges(self):
         for card in self.cards:
-            self._badge_widgets[card['slot']-1].set_card(card,self._rechecking)
+            self._badge_widgets[card['slot']-1].set_card(card,self._rechecking,self._identity_provenance)
     def _show_badges_at(self,rect,target):
         try:
             anchors=self._badge_anchors
