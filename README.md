@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.12-0891b2" alt="源码版本 v0.4.12"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.13-0891b2" alt="源码版本 v0.4.13"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.12 预览版"></a>
 </p>
 <p align="center">
@@ -64,6 +64,10 @@ python launcher.py
 ```
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## v0.4.13：标题语义核验诊断候选（待 Windows 验收）
+
+源码候选改用同帧标题语义核验，避免仅因标题带背景像素变化就隐藏或切换评级文字。部分候选按槽位独立核验，未知一张不再要求撤下另外两张已确认评级。原评级只保留原有四秒期限；真正换牌可能等待新 OCR 才撤销，不保证即时检测。日志加入独立关键事件保留和选人门槛，仍不自动上传。下载链接暂保留已发布 v0.4.12；真实对局尚未验证。详见[候选验证记录](reports/SEMANTIC_RECHECK_DIAGNOSTICS.md)。
 
 ## v0.4.12：捕获稳定性诊断测试版（已发布）
 

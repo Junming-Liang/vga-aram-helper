@@ -5,6 +5,7 @@ No live game, Windows capture, compositor flicker or accuracy claim is made.
 """
 import threading
 import unittest
+from unittest.mock import patch
 
 from tests import test_animated_augment_rounds as fixture
 
@@ -104,3 +105,38 @@ class DynamicTitleRedrawTests(unittest.TestCase):
         self.assertEqual(result['automatic_candidates'], [])
         self.assertFalse(self.window.state.confirmed)
         self.assertFalse(self.window.overlay.isVisible())
+
+    def test_visible_animated_title_band_keeps_grade_and_hwnd_through_fresh_real_ocr(self):
+        from PySide6 import QtCore
+        self.observe((0,1,2),0);self.observe((0,1,2),1)
+        self.assert_confirmed((0,1,2));w=self.window
+        w.capture.can_request_visible_overlay=True
+        w.capture.visible_capture_status='eligible'
+        w.capture.prepare_capture_mode=lambda visible:True
+        hidden=[]
+        class Events(QtCore.QObject):
+            def eventFilter(inner,obj,event):
+                if event.type()==QtCore.QEvent.Type.Hide:hidden.append(True)
+                return False
+        events=Events();w.overlay.installEventFilter(events)
+        hwnd=int(w.overlay.winId());mask=w.overlay.mask();key=w.overlay._placed_key
+        original=self.scene.image
+        def animation(*args,**kwargs):
+            image=original(*args,**kwargs)
+            region=w._accepted_frame['title_proof'].regions[0]
+            # Original synthetic non-glyph pixels inside the full-width band.
+            x=fixture.ROI_BOX[0]+region[0]+10
+            y=fixture.ROI_BOX[1]+(region[1]+region[3])//2
+            image.putpixel((x,y),(241,17,30))
+            return image
+        with patch.object(self.scene,'image',side_effect=animation), \
+                patch.object(w.overlay,'set_title_checking',wraps=w.overlay.set_title_checking) as neutral:
+            old=w.last_observation;previous,release=self.gated_frame((0,1,2),2)
+            self.assertTrue(w.overlay.isVisible());self.assertFalse(w.overlay._titles_pending)
+            self.assertEqual(w.last_observation,old)
+            release.set();result=self.finish_frame(previous)
+            self.assertIsNone(result['_matchingTitleProof'])
+            self.assert_confirmed((0,1,2))
+            self.assertNotIn(True,[call.args[0] for call in neutral.call_args_list])
+        self.assertEqual(hidden,[]);self.assertEqual(int(w.overlay.winId()),hwnd)
+        self.assertEqual(w.overlay.mask(),mask);self.assertEqual(w.overlay._placed_key,key)

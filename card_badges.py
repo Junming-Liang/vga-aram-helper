@@ -164,6 +164,14 @@ class TierBadge(QtWidgets.QWidget):
         self.setToolTip((identity_provenance+'\n' if warning else '')+('候选复核中\n' if warning and rechecking else '')+self.hint)
         self.setAccessibleName(f"选项 {card['slot']} · {card['name']} · {self.tier} · {self.source}"+(f' · {identity_provenance}' if warning else '')+(' · 候选复核中' if warning and rechecking else '')+(f' · {self.hint}' if self.hint else ''))
         self.update()
+    def set_title_checking(self,slot):
+        # No stale grade, source hint, hero provenance or identity is exposed
+        # visually or through accessibility while title meaning is unproven.
+        self.tier='';self.source='复核中';self.hint='';self.display_hint=''
+        self.accent='#C1C8D2';self.identity_provenance='';self._pending_identity=False
+        self.setToolTip('正在核对当前候选');self.setAccessibleDescription('')
+        self.setAccessibleName(f'选项 {slot} · 正在核对当前候选')
+        self.update()
     def _fit_hint(self):
         font=self.font();font.setPixelSize(HINT_FONT_SIZE);font.setWeight(QtGui.QFont.Weight.Normal)
         self.display_hint=QtGui.QFontMetrics(font).elidedText(('复核中 · ' if getattr(self,'_pending_identity',False) else '')+self.hint,QtCore.Qt.TextElideMode.ElideRight,self.width()-24)
@@ -218,16 +226,31 @@ class TierBadge(QtWidgets.QWidget):
 class BadgeOverlayMixin:
     """Controller-compatible badge renderer; legacy hero reference stays separate."""
     def _init_badges(self):
-        self._badge_anchors=None;self._badge_regions=();self._badge_widgets=[TierBadge(self) for _ in range(3)]
+        self._titles_pending=False;self._badge_anchors=None;self._badge_regions=();self._badge_widgets=[TierBadge(self) for _ in range(3)]
         for badge in self._badge_widgets:badge.hide()
+    def set_title_checking(self,value):
+        value=bool(value)
+        if self._titles_pending==value:return
+        self._titles_pending=value
+        self._refresh_badges()
+        self.heading.setText('候选复核中' if value else self._previous_heading if self._rechecking else self._compact_heading if self._compact else self._full_heading)
+        self.overlay_debug(phase='rechecking',visible=self.isVisible(),rechecking=value,reason='title_recheck')
     def clear_candidate_geometry(self):
         if self.cards:self.hide('card_geometry_missing')
         self._badge_anchors=None;self._placed_key=None
     def set_candidate_geometry(self,candidates,image_size,roi,card_geometry):
         anchors=accepted_anchors(candidates,image_size,roi,card_geometry)
         if anchors!=self._badge_anchors:
-            if self.cards:self.hide('card_geometry_changed')
-            self._badge_anchors=anchors;self._placed_key=None
+            # A newly recognized but still unconfirmed hidden slot cannot
+            # move or rename any visible badge. Keep those exact regions.
+            active=[card['slot']-1 for card in self.cards if not card.get('pending')]
+            unchanged=bool(anchors is not None and self._badge_anchors is not None
+                and anchors.rects==self._badge_anchors.rects
+                and all(anchors.names[i]==self._badge_anchors.names[i] for i in active))
+            if not unchanged:
+                if self.cards:self.hide('card_geometry_changed')
+                self._placed_key=None
+            self._badge_anchors=anchors
         return anchors is not None
     def _set_badge_cards(self,hero,cards,source_date,source_version,confirmation):
         # Slot identity comes from the controller, never tier order or list sort.
@@ -236,7 +259,7 @@ class BadgeOverlayMixin:
             self.hide('invalid_slots');self.cards=[];return
         signature=(hero,repr(cards),source_date,source_version,confirmation)
         if getattr(self,'_card_signature',None)==signature and self.reference is None:
-            self.set_rechecking(False);return
+            self.set_rechecking(False);self.set_title_checking(False);return
         ordered=[slots[s] for s in sorted(slots)]
         # Identity provenance (fresh portrait versus carried in-game identity),
         # source text and tiers only repaint the fixed-size children. Rebuilding
@@ -251,7 +274,7 @@ class BadgeOverlayMixin:
             self.hide('cards_changed');self._placed_key=None;self._layout_revision+=1
             self.panel.hide();self.setMinimumSize(0,0)
         self._card_signature=signature;self.cards=ordered
-        self.reference=None;self._rechecking=False
+        self.reference=None;self._rechecking=False;self._titles_pending=False
         self._identity_provenance=confirmation
         self._full_heading=self._compact_heading=f'{hero} · {confirmation}';self._previous_heading=f'{hero} · 上次候选复核中'
         self.tier_labels=[]
@@ -260,13 +283,16 @@ class BadgeOverlayMixin:
             card=slots.get(slot)
             if card and not card.get('pending'):
                 badge.set_card(card,identity_provenance=confirmation);self.tier_labels.append(badge)
+            else:badge.set_title_checking(slot)
     def _leave_badges(self):
         self.hide('reference_changed')
         for badge in self._badge_widgets:badge.hide()
         self.clearMask();clear_native_region(int(self.winId()));self._badge_regions=();self.panel.show()
     def _refresh_badges(self):
         for card in self.cards:
-            self._badge_widgets[card['slot']-1].set_card(card,self._rechecking,self._identity_provenance)
+            badge=self._badge_widgets[card['slot']-1]
+            if self._titles_pending or card.get('pending'):badge.set_title_checking(card['slot'])
+            else:badge.set_card(card,self._rechecking,self._identity_provenance)
     def _ensure_badge_bounds(self,bounds):
         if not self.capture:return
         hwnd=int(self.winId())
@@ -286,6 +312,9 @@ class BadgeOverlayMixin:
             anchors=self._badge_anchors
             slots=[card['slot']-1 for card in self.cards if not card.get('pending') and anchors is not None and anchors.names[card['slot']-1]==card['name']]
             if not slots:self.hide('card_geometry_missing');return
+            # Only the names with actual native regions affect placement.
+            # An invisible unknown slot has no name/grade/capture exemption.
+            anchors=BadgeAnchors(tuple(name if i in slots else None for i,name in enumerate(anchors.names)),anchors.rects)
             hwnd=int(self.winId());dpr=float(self.windowHandle().devicePixelRatio())
             key=(rect,self._layout_revision,dpr,anchors,tuple(slots))
             if self._placed_key==key:

@@ -21,7 +21,7 @@ class LocalDebugTests(unittest.TestCase):
     def read_export(self, config=None):
         output = self.log.export_zip(self.root / 'exports', config=config or {})
         with zipfile.ZipFile(output) as archive:
-            self.assertEqual(set(archive.namelist()), {'manifest.json', 'events.jsonl'})
+            self.assertEqual(set(archive.namelist()), {'manifest.json', 'events.jsonl', 'critical.jsonl', 'context.jsonl'})
             return json.loads(archive.read('manifest.json')), archive.read('events.jsonl').decode()
 
     def test_default_off_has_no_files_or_persisted_opt_in(self):
@@ -81,7 +81,9 @@ class LocalDebugTests(unittest.TestCase):
         for serial in range(200):
             self.log.record('capture', capture_ms=serial, serial=serial)
         logs = list((self.root / 'logs').iterdir())
-        self.assertEqual(len(logs), FILE_COUNT)
+        self.assertEqual(len(logs), FILE_COUNT + 2)
+        self.assertLessEqual((self.root / 'logs' / 'critical.jsonl').stat().st_size, 1024)
+        self.assertLessEqual((self.root / 'logs' / 'context.jsonl').stat().st_size, 512)
         self.assertLessEqual(sum(path.stat().st_size for path in logs), FILE_COUNT * 1024)
         self.read_export()
         _, events = self.read_export()
@@ -101,7 +103,7 @@ class LocalDebugTests(unittest.TestCase):
         _, events = self.read_export()
         self.assertNotIn('PRIVATE', events)
         self.assertNotIn('RAW_EXCEPTION', events)
-        self.assertEqual(json.loads(events.splitlines()[-1])['capture_ms'], 2)
+        self.assertTrue(any(json.loads(line).get('capture_ms') == 2 for line in events.splitlines()))
 
     def test_unknown_event_and_unsafe_version_are_not_exported(self):
         self.log.set_enabled(True)
@@ -137,7 +139,8 @@ class LocalDebugTests(unittest.TestCase):
         # decoder failure deterministically without depending on that limit.
         with patch('local_debug.json.loads',side_effect=parse):
             after_manifest,after=self.read_export()
-        self.assertEqual(after_manifest,manifest)
+        self.assertEqual(after_manifest['summary'], manifest['summary'])
+        self.assertEqual(after_manifest['coverage']['export_validation'], {'invalid_records': 1})
         self.assertEqual(after,before)
         self.assertNotIn('PRIVATE_CONTENT',after)
         self.assertTrue((self.root/'exports'/'VGA-debug.zip').is_file())

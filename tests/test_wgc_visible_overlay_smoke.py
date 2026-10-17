@@ -38,7 +38,8 @@ def fixture():
         overlay_rendering=dict(qt_opacity=1,qt_translucent_background=False,qt_opaque_paint_event=True,
                                qt_surface_has_alpha=False,magenta_grid_samples=30,
                                badge_magenta_grid_samples=[10,10,10],badge_native_region_verified=True),
-        requests=[],transitions=[],pixel_pairs=[],negative_results={},fallback_calls=['v1'])
+        requests=[],transitions=[],pixel_pairs=[],negative_results={},fallback_calls=['v1'],
+        title_band_variation=dict(patch=[146,260,4,4],pixel_proof_changed=True))
     names=('cold-hidden','hidden-confirmation','visible-product-1','visible-product-2',None,None,None,None)
     for index,name in enumerate(names):
         visible=index in (2,3,5,6,7);generation=0 if index<2 else 1 if index<4 else 2 if index==4 else 3
@@ -57,8 +58,8 @@ def fixture():
                 sample_format=runtime.SAMPLE_FORMAT,max_sample_gap_ms=.5),
             observation=dict(identity,helper_alive=True,overlay_registration_valid=True,overlay_opaque=True,
                 overlay_hwnd=4,overlay_affinity=17,overlay_extended_style=0x080800a8,native_visible=visible))
-        if name:row.update(case=name,product=dict(confirmed=index>0,automatic_frames=2,hide_events=0,show_events=0,
-            overlay_visible=True,hero='Owned hero',offered=['Title A','Title B','Title C'] if index>0 else []))
+        if name:row.update(case=name,product=dict(capture_serial=index+1,confirmed=index>0,automatic_frames=2,hide_events=0,show_events=0,
+            overlay_visible=True,tier_texts=['T1','T2','T3'],title_check_transitions=[],titles_pending=False,hero='Owned hero',offered=['Title A','Title B','Title C'] if index>0 else []))
         value['requests'].append(row)
     for index,(state,placement) in enumerate(((0,'titles'),(1,'hud'),(1,'titles'))):
         value['pixel_pairs'].append(dict(state=state,placement=placement,max_channel_error=0,changed_pixels=0,
@@ -66,6 +67,21 @@ def fixture():
             hidden_magenta_pixels=0,visible_magenta_pixels=0,request_index=index+5,
             hidden_reference_index=1 if state==0 else 4,
             overlay_rect=[20,240 if placement=='titles' else 548,900,80]))
+    for offset in range(3):
+        row=copy.deepcopy(value['requests'][7]);visible=offset==2;generation=5 if visible else 4
+        binding=dict(helper_pid=10+generation,helper_created=20+generation,session_generation=30+generation)
+        row.update(binding);row['observation'].update(binding,native_visible=visible)
+        row.update(request_id=1 if visible else offset+1,visible_request=visible,paint_state=int(visible),pixels_sha256=str(int(visible))*64,
+                   native_visible_before=visible,native_visible_after=visible)
+        start=900+offset*100
+        row.update(capture_start_100ns=start,request_cutoff_100ns=start+1,frame_100ns=start+2,idle_enter_100ns=start+3,capture_return_100ns=start+4)
+        row['visibility'].update(qt_hidden_samples=0 if visible else 2,native_hidden_samples=0 if visible else 2,
+                                 samples_us=[[250,3 if visible else 0],[750,3 if visible else 0]])
+        row['product']=dict(capture_serial=21+offset,confirmed=False,partial_names=['Title A','','Title C'] if offset else ['','',''],
+            tier_texts=['T1','','T3'] if offset else ['','',''],overlay_visible=bool(offset),hide_events=0,show_events=0,title_check_transitions=[],titles_pending=False)
+        value['requests'].append(row)
+    value['partial_product']=dict(request_indices=[8,9,10],reference_serial=22,expected_names=['Title A','','Title C'],unknown_slot=2,
+        same_overlay_hwnd=True,title_band_pixels_changed=True,visible_slots=[1,3],native_region_count=2,native_mask_verified=True,unknown_accessible_ungraded=True)
     injected={'owner_change','wrong_hwnd','cancel','stop','active_affinity_change'}
     for number,name in enumerate(runtime.NEGATIVES):
         start=1000+number*100
@@ -92,7 +108,7 @@ def fixture():
         'capture_call_done','process_exited','pipes_closed','pipe_worker_done','stderr_worker_done',
         'job_closed','ready_for_replacement','adapter_cleanup_complete'),True),
         helper_pid=10+i,helper_created=20+i,session_generation=30+i,observed_ms=1,process_exit_code=0)
-        for i in range(4)]
+        for i in range(6)]
     value.update(dict.fromkeys(('product_helper_reuse_passed','pixel_exclusion_passed','hidden_compatibility_passed',
         'helpers_exited_passed','pipe_readers_exited_passed','job_handles_closed_passed','windows_closed_passed'),True))
     foreign=dict(pid=88,hwnd=99,created=100,job_verified=True,executable_sha256='f'*64,
@@ -104,8 +120,8 @@ def observed_shape_fixture():
     from test_wgc_session_build import manifest
     detail,kwargs=fixture();helper=manifest()
     detail['helper']=dict(manifest=helper,sha256=helper['sha256'],size=helper['size']);kwargs['helper']=helper
-    initial=detail['requests'][:8];rejected=detail['requests'][8:];detail['requests']=initial
-    template=copy.deepcopy(initial[-1])
+    initial=detail['requests'][:11];rejected=detail['requests'][11:];detail['requests']=initial
+    template=copy.deepcopy(initial[7])
     for index,(name,failure) in enumerate(zip(runtime.NEGATIVES,rejected)):
         success=copy.deepcopy(template);binding=dict(helper_pid=100+index,helper_created=200+index,session_generation=300+index)
         success.update(binding);success['observation'].update(binding);success['request_id']=1
@@ -115,7 +131,7 @@ def observed_shape_fixture():
         cleanup=copy.deepcopy(detail['transitions'][0]);cleanup.update(binding);detail['transitions'].append(cleanup)
     # The observed 24 successful and 16 rejected captures retained 2,672 raw
     # samples. Include samples on rejected captures, not only successful ones.
-    counts=iter((138,88,102,51,130,105,104,88,100,142,116,130,118,101,106,100,103,118,102,112,112,114,115,99))
+    counts=iter((138,88,102,51,130,105,104,88,100,142,116,130,118,101,106,100,103,118,102,112,112,114,115,99,88,92,100))
     failed_counts={'stop':7,'owner_change':1,'cancel':41,'active_affinity_change':29}
     for index,row in enumerate(detail['requests']):
         passed=row['status']=='passed';visible=row['visible_request']
@@ -215,6 +231,21 @@ class VisibleContracts(unittest.TestCase):
             lambda v:v['requests'][2].update(pixels_sha256='a'*64),
             lambda v:v['requests'][3].update(pixels_sha256='b'*64),
             lambda v:v['requests'][3]['product'].update(hide_events=1),
+            lambda v:v['requests'][3]['product'].update(title_check_transitions=[True,False]),
+            lambda v:v['requests'][3]['product'].update(titles_pending=True),
+            lambda v:v['title_band_variation'].update(pixel_proof_changed=False),
+            lambda v:v.pop('title_band_variation'),
+            lambda v:v['requests'][3]['product'].update(tier_texts=['T2','T2','T3']),
+            lambda v:v['requests'][3]['product'].pop('tier_texts'),
+            lambda v:v.pop('partial_product'),
+            lambda v:v['partial_product'].update(reference_serial=21),
+            lambda v:v['requests'][10]['product'].update(overlay_visible=False),
+            lambda v:v['requests'][10]['product'].update(hide_events=False),
+            lambda v:v['partial_product'].update(native_mask_verified=False),
+            lambda v:v['partial_product'].update(title_band_pixels_changed=False),
+            lambda v:v['requests'][10]['product'].update(tier_texts=['T1','T2','T3']),
+            lambda v:v['requests'][10]['product'].update(partial_names=['Title C','','Title A']),
+            lambda v:v['requests'][10]['product'].update(title_check_transitions=[True,False]),
             lambda v:v['requests'][3]['product'].update(hide_events=False),
             lambda v:v['requests'][3]['product'].update(hero='Different hero'),
             lambda v:v['requests'][3]['product'].update(offered=['Title B','Title A','Title C']),
@@ -232,8 +263,8 @@ class VisibleContracts(unittest.TestCase):
     def test_changed_gui_paint_is_inside_the_zero_hide_observation(self):
         for hide_during_paint in (False,True):
             value,_=fixture();f=runtime.ProductFixture.__new__(runtime.ProductFixture)
-            f.records=[];f.event_rows=[];actions=[]
-            f.overlay=SimpleNamespace(isVisible=lambda:True)
+            f.records=[];f.event_rows=[];f.title_check_events=[];actions=[]
+            f.overlay=SimpleNamespace(isVisible=lambda:True,_titles_pending=False,_badge_widgets=[SimpleNamespace(tier=t) for t in ('T1','T2','T3')])
             state=SimpleNamespace(confirmed=True,automatic_frames=2,hero='Owned hero',offered=['Title A','Title B','Title C'])
             def paint(paint_state):
                 actions.append(('paint',paint_state));f.paint_state=paint_state
@@ -242,7 +273,7 @@ class VisibleContracts(unittest.TestCase):
                 actions.append(('capture',f.paint_state))
                 row=copy.deepcopy(value['requests'][3]);row['paint_state']=f.paint_state;f.records.append(row)
             f.paint=paint;f.wait=lambda predicate,*args:self.assertTrue(predicate())
-            f.control=SimpleNamespace(capture_tick=capture,state=state,ocr_busy=False,capture_pending=False)
+            f.control=SimpleNamespace(capture_tick=capture,state=state,ocr_busy=False,capture_pending=False,_capture_serial=4,current_partial_names=lambda:('Title A','Title B','Title C'))
             with self.subTest(hide_during_paint=hide_during_paint):
                 if hide_during_paint:
                     with self.assertRaisesRegex(AssertionError,'hid/reflowed'):
@@ -542,9 +573,9 @@ class VisibleContracts(unittest.TestCase):
                 decoded=harness.read_bound_detail(run,folder,frozen=False)
                 self.assertTrue(harness.same_json(decoded,source['detail']))
                 harness.validate_report(decoded,**dict(kwargs,scale=run['scale']))
-                self.assertEqual(len(decoded['requests']),40)
+                self.assertEqual(len(decoded['requests']),43)
                 self.assertEqual(len(decoded['transitions']),53)
-                self.assertEqual(sum(row['visibility']['samples'] for row in decoded['requests']),2672)
+                self.assertEqual(sum(row['visibility']['samples'] for row in decoded['requests']),2952)
                 self.assertLessEqual(len(complete.encode()),runtime.MAX_REPORT_BYTES)
                 rendered=harness.rendered_report(complete)
                 self.assertTrue(harness.same_json(json.loads(rendered),source['detail']))

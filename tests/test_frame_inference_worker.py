@@ -90,4 +90,34 @@ class SameFrameParallelTests(unittest.TestCase):
         self.assertTrue(done.is_set());self.assertFalse(self.worker._busy)
         self.assertEqual(self.worker.submit(lambda:42).result(2),42)
 
+    def test_fresh_semantic_phase_arrives_before_slow_hud_join_and_is_not_an_observation(self):
+        from hero_recognition import recognize_frame
+        titles=threading.Event();phases=[]
+        class OCR:
+            def recognize(inner,payload,vocabulary):return {'ocr_lines':[],'ocr_reused':False}
+        def semantic(result):
+            phases.append(('titles',threading.get_ident(),dict(result)))
+            titles.set()
+        def match(prepared):
+            self.assertTrue(titles.wait(2));phases.append(('hud',threading.get_ident(),{}))
+            return {'hero':'owned','confident':True}
+        self.matcher._recognize_prepared=match
+        result=recognize_frame(self.image,(.15,.25,.7,.35),OCR(),(),self.matcher,
+            inference_worker=self.worker,after_titles=semantic)
+        self.assertEqual([phase[0] for phase in phases],['titles','hud'])
+        self.assertNotEqual(phases[0][1],phases[1][1])
+        self.assertEqual(phases[0][2]['automatic_candidates'],[])
+        self.assertNotIn('hero_observation',phases[0][2])
+        self.assertTrue(result['hero_observation']['confident'])
+
+    def test_cached_title_result_never_emits_a_fresh_semantic_phase(self):
+        from hero_recognition import recognize_frame
+        phases=[]
+        class OCR:
+            def recognize(inner,payload,vocabulary):return {'ocr_lines':[],'ocr_reused':True}
+        self.matcher._recognize_prepared=lambda prepared:{'hero':'owned','confident':True}
+        result=recognize_frame(self.image,(.15,.25,.7,.35),OCR(),(),self.matcher,
+            inference_worker=self.worker,after_titles=lambda result:phases.append(result))
+        self.assertEqual(phases,[]);self.assertTrue(result['ocr_reused'])
+
 if __name__=='__main__':unittest.main()

@@ -65,12 +65,24 @@ class RealRoundPipelineTests(unittest.TestCase):
         self.assertEqual(capture.calls,9)
         self.assertEqual(w.ocr.calls,9)  # No cached inference promoted a new round.
         import json
-        events=[json.loads(line) for line in w.debug_log._path().read_text().splitlines()]
+        import zipfile
+        # Reconstruct exact incident originals plus the sampled routine tail.
+        # Critical recurrence buckets are intentionally not individual frames.
+        exported=w.debug_log.export_zip(w.state_dir/'debug-exports',config={})
+        with zipfile.ZipFile(exported) as archive:
+            rows=[json.loads(line) for name in ('events.jsonl','context.jsonl')
+                  for line in archive.read(name).splitlines()]
+            text='\n'.join(archive.read(name).decode() for name in archive.namelist())
+        events=list({(row['session'],row['sequence']):row for row in rows}.values())
         completed=[row for row in events if row['event']=='capture' and row.get('phase')=='completed']
         self.assertEqual(len(completed),9)
         self.assertTrue(all(all(key in row for key in ('prepare_ms','hud_ms','ocr_ms')) for row in completed))
-        self.assertTrue(any('queue_ms' in row for row in events));self.assertTrue(any('dispatch_ms' in row for row in events))
-        text=w.debug_log._path().read_text()
+        self.assertTrue(any('queue_ms' in row for row in events))
+        # Normal dispatch callbacks may be coalesced separately from the
+        # worker-completed callback; require their measured sample evidence.
+        self.assertTrue(any('dispatch_ms' in row or
+            row.get('sampled_event')=='job' and row.get('dispatch_ms_count',0)>0
+            and row.get('dispatch_ms_mean',-1)>=0 for row in events))
         for name in names:self.assertNotIn(name,text)
 
 

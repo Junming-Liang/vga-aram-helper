@@ -4,7 +4,8 @@ This does not authorize a result, skip OCR, confirm candidates, or extend TTL.
 The UI must additionally validate target, scene, generation, hero and freshness.
 Only three previously verified OCR title bands are compared. Animated
 particles elsewhere in the configured ROI are not evidence of changed titles.
-No image pixels are retained; a single changed title pixel fails closed.
+No image pixels are retained. A changed pixel means the exact-pixel shortcut
+is unavailable, not that the title changed: only fresh semantic OCR can decide.
 """
 from dataclasses import dataclass
 import hashlib
@@ -29,6 +30,16 @@ class CardTitleProof:
                 _digest(image, region) for region in self.regions) == self.digests
         except (OSError, ValueError, TypeError):
             return False
+
+
+def same_titles(names, candidates, image_size):
+    """Exact ordered semantic evidence; callers separately prove frame authority.
+
+    This does not authorize cached OCR, hero identity, card borders, or TTL.
+    A one-character change, reordering, missing title or weak OCR fails closed.
+    """
+    return (automatic_candidates(candidates, image_size)
+            and tuple(item['name'] for item in candidates) == tuple(names))
 
 
 def _decode(crop_bytes):

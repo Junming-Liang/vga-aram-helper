@@ -168,6 +168,28 @@ class PartialCandidateState:
             return EMPTY_SLOTS
         return self._offered
 
+    def recheck(self, evidence, *, now):
+        """Revoke unsafe slots from fresh OCR without observing another frame.
+
+        The caller must first verify this active capture's identity, scope,
+        borders and original display deadline. This operation is monotonic:
+        it can only erase names/counts, never seed or promote a new candidate.
+        Capture/OCR timestamps and the replay watermark are untouched, so the
+        joined final result can still contribute exactly one observation.
+        """
+        valid = (isinstance(evidence, TitleEvidence) and evidence.valid
+                 and tuple(slot.slot for slot in evidence.slots) == (1, 2, 3))
+        current = tuple(slot.name for slot in evidence.slots) if valid else EMPTY_SLOTS
+        keep = tuple(bool(name and name == prior)
+                     for name, prior in zip(current, self._candidates))
+        self._candidates = tuple(name if safe else ''
+                                 for name, safe in zip(self._candidates, keep))
+        self._counts = tuple(count if safe else 0
+                             for count, safe in zip(self._counts, keep))
+        self._offered = tuple(name if safe else ''
+                              for name, safe in zip(self._offered, keep))
+        return self.visible(now)
+
     def observe(self, evidence, *, frame_serial, captured_at, now, context,
                 guards_passed, ocr_reused):
         """Apply one result; unsafe/unknown/changed slots disappear immediately.

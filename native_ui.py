@@ -148,7 +148,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         portrait_revision=(self.portrait_bank.revision,portrait_id)
         if self.reference==reference and self._portrait_revision==portrait_revision:return
         self._portrait_revision=portrait_revision
-        self.cards=[];self.reference=dict(reference);self._rechecking=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
+        self.cards=[];self.reference=dict(reference);self._rechecking=False;self._titles_pending=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
@@ -168,7 +168,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
     def set_selection_reference(self,reference):
         if self.reference==reference:return
         if self.cards:self._leave_badges()
-        self.cards=[];self.reference=dict(reference);self._rechecking=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
+        self.cards=[];self.reference=dict(reference);self._rechecking=False;self._titles_pending=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
             item=self.row.takeAt(0);widget=item.widget()
             if widget:widget.hide();widget.deleteLater()
@@ -193,7 +193,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         self.overlay_debug(phase='rechecking',visible=self.isVisible(),rechecking=value,reason='capture_proof')
         # The shorter status text does not change cards, source or geometry.
         # Invalidating placement here would hide/move the HWND every cycle.
-        if self.cards or self.reference:self.heading.setText(self._previous_heading if value else self._compact_heading if self._compact else self._full_heading)
+        if self.cards or self.reference:self.heading.setText('候选复核中' if self._titles_pending else self._previous_heading if value else self._compact_heading if self._compact else self._full_heading)
     def set_click_through(self,value):
         mode=getattr(self.capture,'set_interactive_overlay',None)
         if mode:mode(not bool(value)) # Explicit user-selected strict-hide compatibility route.
@@ -288,8 +288,9 @@ class ControlWindow(QtWidgets.QWidget):
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         from lcu_selection import SelectionSnapshot
         self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
-        self._capture_serial=0;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
+        self._capture_serial=0;self._completed_capture_serial=None;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._semantic_title_frame=None;self._current_capture_proof=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
         self.partial_candidates=PartialCandidateState();self._partial_revision=0;self._partial_hero='';self._partial_scope=None;self._partial_displayed=False
+        self._accepted_partial_frame=None;self._semantic_partial_frame=None
         if type(enable_visible_capture) is not bool:raise TypeError('Visible capture requires an explicit boolean')
         # Ordinary capture retains all per-request guards and strict-hidden fallback.
         self.enable_visible_capture=enable_visible_capture;self._visible_previous=False;self._mode_wait_started=None
@@ -390,6 +391,8 @@ class ControlWindow(QtWidgets.QWidget):
         try:self.capture=Win32Capture(allow_visible_overlay=True) if enable_visible_capture else Win32Capture()
         except CaptureUnavailable as exc:self.status.setText(str(exc))
         self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log);self.overlay.debug_context=lambda:dict(generation=self.state.generation,serial=self._capture_serial);self.overlay.winId();self.overlay.configure()
+        for control in (self.hero_auto,self.client_follow,self.lcu_toggle,self.live_identity_toggle):control.toggled.connect(self.record_debug_config)
+        for spin in self.roi:spin.valueChanged.connect(self.record_debug_config)
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
         self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
@@ -399,21 +402,39 @@ class ControlWindow(QtWidgets.QWidget):
         if active!=enabled:
             self.debug_toggle.blockSignals(True);self.debug_toggle.setChecked(active);self.debug_toggle.blockSignals(False)
         self._debug_snapshot=None
+        if active:self.record_debug_config()
         self.debug_status.setText('正在本机记录，最多 768 KiB；仅词典名称与诊断阶段，无截图/原始文字/账号，不上传。导出会替换本机上一份 VGA-debug.zip。' if active else '已关闭记录；已有日志和导出保留，可继续导出。' if not self.debug_log.failed else '本地日志无法写入，已停止记录；监测不受影响。')
         self.refresh_status_badge()
-    def export_debug(self):
-        config={'hero_auto':self.hero_auto.isChecked(),'client_follow':self.client_follow.isChecked(),
+    def debug_config(self):
+        return {'hero_auto':self.hero_auto.isChecked(),'client_follow':self.client_follow.isChecked(),
             'lcu_selection':self.lcu_toggle.isChecked(),'live_identity':self.live_identity_toggle.isChecked(),
             'click_through':self.overlay.click_through,'visible_capture':self.enable_visible_capture,
             'frozen':self.frozen,'updates_enabled':self.enable_updates,'roi_percent':[spin.value() for spin in self.roi]}
+    def record_debug_config(self,*_):
+        self.debug_log.record_config(self.debug_config())
+    def export_debug(self):
         try:
-            path=self.debug_log.export_zip(self.state_dir/'debug-exports',config=config)
+            path=self.debug_log.export_zip(self.state_dir/'debug-exports',config=self.debug_config())
             self.debug_status.setText('已保存到本机：'+str(path)+'。仅含有界最近事件、版本、安全设置及覆盖计数；未上传。再次导出会替换此 ZIP。')
         except (OSError,ValueError):self.debug_status.setText('本地导出失败，请检查保存目录是否可写；没有上传或更改监测。')
     def debug_event(self,event,**fields):
         if not self.debug_log.enabled:return
+        fields.setdefault('target_role',self.debug_target_role())
         self.debug_log.record(event,generation=self.state.generation,serial=self._capture_serial,
             session_generation=self.selection_session.generation if self.selection_session else 0,**fields)
+    def debug_target_role(self):
+        if self.automatic_policy:return self.automatic_policy.bound.role if self.automatic_policy.bound else 'none'
+        if self.client_phase():return 'client'
+        if self.window_policy and self.target and self.target.identity==self.window_policy.game_identity:return 'game'
+        return 'manual' if self.target else 'none'
+    def debug_selection_gate(self,foreground=None):
+        if not self.debug_log.enabled:return
+        from automatic_windows import selection_gate_snapshot
+        self.debug_event('selection_gate',**selection_gate_snapshot(closed=self.closed,
+            running=self.state.running,ocr_busy=self.ocr_busy,capture_pending=self.capture_pending,
+            target_present=bool(self.target),target_role=self.debug_target_role(),
+            target_foreground=foreground,lcu_selection=self.lcu_toggle.isChecked(),
+            hero_auto=self.hero_auto.isChecked(),pixel_fallback=self._lcu_pixel_fallback))
     def debug_state(self,state):
         if not self.debug_log.enabled:return
         # Revisions identify hero/round changes without persisting any names.
@@ -486,6 +507,8 @@ class ControlWindow(QtWidgets.QWidget):
     def refresh_card_details(self,*_):
         self.refresh_dashboard()
         expanded=self.details_toggle.isChecked();self.card_details.setVisible(expanded);self.details_toggle.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
+        if self.overlay._titles_pending:
+            self.card_details.setText('正在核对当前候选，确认后显示资料。');return
         if not expanded:return
         # A deliberate dictionary view of editable names, not a retained game
         # result. Foreground loss still revokes hero/overlay confirmation.
@@ -586,6 +609,7 @@ class ControlWindow(QtWidgets.QWidget):
     def clear_partial_candidates(self):
         self.partial_candidates.clear();self._partial_revision+=1
         self._partial_hero='';self._partial_scope=None;self._partial_displayed=False
+        self._accepted_partial_frame=None;self._semantic_partial_frame=None
     def partial_scope_current(self,scope):
         if not isinstance(scope,tuple) or len(scope)!=7 or not self.data or not self.target:return False
         matcher=self.hero_matcher if self.hero_auto.isChecked() else None
@@ -619,7 +643,7 @@ class ControlWindow(QtWidgets.QWidget):
             if not name:
                 card.update(name='待识别',description='',sourceTier=None,notes=[],pending=True)
         return cards
-    def show_partial_candidates(self):
+    def show_partial_candidates(self,*,rechecking=False):
         names=self.current_partial_names()
         if not any(names):
             self._partial_displayed=False;return False
@@ -627,15 +651,17 @@ class ControlWindow(QtWidgets.QWidget):
         source_version=f"数据包 {metadata.get('wikiDataVersion') or '未知'} / 游戏资料 {metadata.get('gamePatch') or '未知'}"
         self._accepted_frame=None;self._restore_while_ocr=False
         self.overlay.set_cards(self.state.hero,self.partial_display_cards(names),metadata.get('sourceDataDate') or '未知',source_version,'部分候选连续高置信确认')
+        self._restore_while_ocr=bool(rechecking);self.overlay.set_rechecking(rechecking)
         self._partial_displayed=True
         self.state.reason='已确认的候选单独显示资料；其余位置等待当前画面识别。';self.status.setText(self.state.reason)
         self.debug_event('recognition',reason='partial_confirmed',candidate_count=sum(bool(name) for name in names),hero_present=True)
         return True
     def refresh_dashboard(self):
         if not hasattr(self,'candidate_views'):return
-        current=bool(self.state.running and self.state.confirmed and self.data and len(self.state.offered)==3 and all(name in self.data.get('augments',{}) for name in self.state.offered))
-        partial=self.current_partial_names() if not current else EMPTY_SLOTS
-        hero=self.state.hero if self.state.running and self.state.hero else ''
+        title_pending=self.overlay._titles_pending
+        current=bool(not title_pending and self.state.running and self.state.confirmed and self.data and len(self.state.offered)==3 and all(name in self.data.get('augments',{}) for name in self.state.offered))
+        partial=self.current_partial_names() if not current and not title_pending else EMPTY_SLOTS
+        hero=self.state.hero if self.state.running and self.state.hero and not title_pending else ''
         from hero_strength import hero_strength_reference
         client_auto=self.client_assignment_visible() and self.hero_auto.isChecked()
         self.selection_optin.setVisible(bool(self.state.running and client_auto and not self.lcu_toggle.isChecked()))
@@ -649,7 +675,7 @@ class ControlWindow(QtWidgets.QWidget):
         if hasattr(self,'overlay'):self.toggle_button.setChecked(self.overlay.click_through)
         self.monitor_actions.setCurrentWidget(self.stop_button if self.state.running else self.start_button);self.stop_button.setEnabled(bool(self.state.running))
         cards=display_cards(self.data,hero,self.state.offered) if current else self.partial_display_cards(partial) if any(partial) else []
-        self.candidate_caption.setText('上次候选 · 正在复核，尚非本帧结果' if cards and self.overlay._rechecking else ('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '虎牙公开源 · 非 Riot 评级') if current else '部分候选已确认 · 其余等待识别' if any(partial) else '等待三个候选稳定确认')
+        self.candidate_caption.setText('正在核对当前候选，确认后显示评级' if title_pending else '上次候选 · 正在复核，尚非本帧结果' if cards and self.overlay._rechecking else ('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '虎牙公开源 · 非 Riot 评级') if current else '部分候选已确认 · 其余等待识别' if any(partial) else '等待三个候选稳定确认')
         for index,view in enumerate(self.candidate_views):
             card=cards[index] if cards else None;tier=card.get('sourceTier') if card else None
             view['name'].setText(card['name'] if card else '等待识别');view['tier'].setText(tier or '—')
@@ -693,6 +719,7 @@ class ControlWindow(QtWidgets.QWidget):
         elif not self.data:state,text='waiting','资料待就绪'
         elif not self.capture:state,text='waiting',('演示资料 · 未连接游戏' if self.data.get('metadata',{}).get('isDemo') else '采集不可用')
         elif not self.state.running:state,text='idle','未开始'
+        elif self.overlay._titles_pending:state,text='working','当前候选 · 正在复核'
         elif self.overlay._rechecking:state,text='working','上次资料 · 正在复核'
         elif self.state.confirmed:state,text='confirmed','资料已确认'
         elif any(self.current_partial_names()):state,text='working','部分候选已确认'
@@ -787,7 +814,7 @@ class ControlWindow(QtWidgets.QWidget):
     def apply_discovery(self,value,scope):
         if scope!=self.discovery_scope or not self.automatic_policy or not self.state.running:return
         self.discovery_busy=False;policy=self.automatic_policy;previous_binding=policy.bound
-        self.debug_event('job',kind='windows',phase='completed',reason=getattr(value,'reason_code','unknown'))
+        self.debug_event('job',kind='windows',phase='completed',reason=getattr(value,'reason_code','unknown'),**dict(getattr(value,'diagnostics',())))
         new_confirmation=value.confirmation is not None and value.confirmation!=self.unverified_candidate
         self.unverified_candidate=value.confirmation;self.trust_button.setVisible(value.confirmation is not None)
         if new_confirmation and self.isMinimized():QtWidgets.QApplication.alert(self,0)
@@ -1019,7 +1046,7 @@ class ControlWindow(QtWidgets.QWidget):
             elif reference and not self.capture_pending and not self.ocr_busy:
                 self.overlay.set_hero_reference(reference);self.overlay.show_at(rect,self.target)
             elif self.state.confirmed and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
-            elif partial and not self.capture_pending and not self.ocr_busy:self.overlay.show_at(rect,self.target)
+            elif partial and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
             elif self.overlay.reference:self.overlay.hide('unconfirmed')
         except CapturePaused as exc:
             if self.state.reason!=str(exc):
@@ -1035,6 +1062,7 @@ class ControlWindow(QtWidgets.QWidget):
         # a still-fresh independent capture already in flight. observe() checks
         # its capture-time gap; reused OCR cannot reauthorize expired display.
         self._partial_displayed=False
+        self._accepted_partial_frame=None;self._semantic_partial_frame=None
         self.debug_event('expiry',reason='ttl_game',ttl_ms=4000,age_ms=max(0.,(time.monotonic()-self.last_observation)*1000))
         # Presentation age is not an authority change. A newer capture may
         # still be within its own freshness budget while inference is running.
@@ -1064,15 +1092,20 @@ class ControlWindow(QtWidgets.QWidget):
                 delay=min(delay,max(0,int((4-age)*1000)-80))
         self.monitor.start(delay)
     def capture_tick(self):
-        if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:return
-        if not self.target or not self.capture.foreground(self.target):self.schedule_capture(400);return
+        if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:self.debug_selection_gate();return
+        if not self.target:self.debug_selection_gate();self.schedule_capture(400);return
+        if not self.capture.foreground(self.target):self.debug_selection_gate(False);self.schedule_capture(400);return
+        self.debug_selection_gate(True)
         if self.client_phase() and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and not self._lcu_pixel_fallback:
             self.capture_selection();return
         mode=getattr(self.capture,'visible_capture_status','unknown')
         self.debug_log.sample('capture',generation=self.state.generation,capture_mode=mode)
         was_visible=self.overlay.isVisible() or bool(self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId())))
         fresh_previous=bool(self.client_selection_reference() or (self.state.confirmed or any(self.current_partial_names())) and 0<=time.monotonic()-self.last_observation<=4)
-        previous=bool(self.enable_visible_capture and was_visible and fresh_previous and self.overlay.click_through)
+        # Automatic partial displays carry their own scoped frame authority.
+        # Manual/unscoped cards still use the conservative strict-hidden route.
+        historical_authority=bool(self.client_selection_reference() or self._accepted_frame or self._accepted_partial_frame)
+        previous=bool(self.enable_visible_capture and was_visible and fresh_previous and historical_authority and self.overlay.click_through)
         # Cleanup temporarily revokes readiness while preserving the requested
         # transition. Switching back to hidden here would cancel that transition
         # on every poll and repeatedly retire otherwise healthy sessions.
@@ -1097,7 +1130,7 @@ class ControlWindow(QtWidgets.QWidget):
             self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.schedule_capture(1000);return
         self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False;self._visible_previous=visible;self.overlay.set_rechecking(visible)
         self._capture_serial+=1;serial=self._capture_serial
-        route_reason=('capture_wait' if visible else 'disabled' if not self.enable_visible_capture else 'interactive' if not self.overlay.click_through else mode if mode!='eligible' else 'no_previous' if not was_visible else 'stale_previous')
+        route_reason=('capture_wait' if visible else 'disabled' if not self.enable_visible_capture else 'interactive' if not self.overlay.click_through else 'prior_frame_unproven' if was_visible and fresh_previous and not historical_authority else mode if mode!='eligible' else 'no_previous' if not was_visible else 'stale_previous')
         self.debug_event('capture',phase='requested',reason=route_reason,capture_mode=mode,visible_capture=visible,visible=was_visible,fresh=fresh_previous,click_through=self.overlay.click_through)
         if not visible:
             self.overlay.hide('capture_pending')
@@ -1200,7 +1233,7 @@ class ControlWindow(QtWidgets.QWidget):
             debug_identity=logger.identity(frame_window.hwnd,frame_window.pid,getattr(expected_metadata,'created',None)) if logger.enabled else {}
             previous_geometry=self._geometry_frame
             accepted_title_proof=(self._accepted_frame or {}).get('title_proof')
-            accepted_card_geometry=(self._accepted_frame or {}).get('card_geometry')
+            accepted_card_geometry=(self._accepted_frame or self._accepted_partial_frame or {}).get('card_geometry')
             def infer():
                 from hero_recognition import recognize_frame
                 if self._cancel_workers.is_set() or cancelled.is_set():
@@ -1221,6 +1254,7 @@ class ControlWindow(QtWidgets.QWidget):
                     raise CapturePaused('监测已结束。')
                 proof={'_identityMapping':tuple(sorted(source_heroes.items())),'_capturedAt':captured_at,'_sessionGeneration':session_generation,'_windowIdentity':frame_window.identity,'_captureRect':rect,'_captureSerial':serial,
                     '_frameScope':(frame_window.identity,expected_metadata,rect,roi,vocabulary,source_key,matcher_key)}
+                title_snapshot=[]
                 def emit_phase():
                     with self._worker_lock:
                         if not self.closed and not self._cancel_workers.is_set():self.signals.result.emit('capture-proof',dict(proof),generation)
@@ -1235,7 +1269,20 @@ class ControlWindow(QtWidgets.QWidget):
                     if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
                     title_proof_for_crop(crop)
                     proof['_roiDigest']=hashlib.sha256(crop).hexdigest();proof['_hudInputDigest']=signature
+                    # Immutable phase snapshot owned by the title worker. It
+                    # never reads a dict the HUD thread is still updating.
+                    title_snapshot[:]=[dict(proof)]
                     emit_phase()
+                def after_titles(result):
+                    if self._cancel_workers.is_set() or cancelled.is_set():return
+                    value={**title_snapshot[0],
+                        'automatic_candidates':result.get('automatic_candidates'),
+                        'partial_title_evidence':result.get('partial_title_evidence'),
+                        'image_size':result.get('image_size'),
+                        '_cardGeometry':result.get('_cardGeometry'),
+                        'ocr_reused':result.get('ocr_reused') is True}
+                    with self._worker_lock:
+                        if not self.closed and not self._cancel_workers.is_set():self.signals.result.emit('title-proof',value,generation)
                 def before_ocr(hero,crop):
                     phase_times['hud_done']=time.monotonic()
                     if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
@@ -1275,7 +1322,7 @@ class ControlWindow(QtWidgets.QWidget):
                     duration={'inference_ms':elapsed} if phase=='completed' else {}
                     logger.record('inference',inference_stage=stage,phase=phase,generation=generation,serial=serial,**duration,**cold)
                 if client_phase:logger.record('inference',inference_stage='selection',phase='started',generation=generation,serial=serial)
-                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,inference_worker=self.frame_inference_worker,diagnostic_callback=trace_inference,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
+                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,after_titles=after_titles,inference_worker=self.frame_inference_worker,diagnostic_callback=trace_inference,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
                 if client_phase:logger.record('inference',inference_stage='selection',phase='completed',inference_ms=(time.monotonic()-pixels_at)*1000,generation=generation,serial=serial)
                 if lcu_enabled:result.update(lcuFallback=True,lcuError=lcu_error)
                 if current_crop and not client_phase:
@@ -1297,15 +1344,106 @@ class ControlWindow(QtWidgets.QWidget):
             self.status.setText(str(exc));self.overlay.hide('target_unavailable');self.schedule_capture(1000)
         except Exception as exc:
             self.ocr_busy=False;self.capture_pending=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc));self.status.setText(self.state.reason);self.overlay.hide('target_unavailable');self.schedule_capture(1000)
-    def may_restore_accepted_frame(self,value):
-        reference=self._accepted_frame;hero=value.get('hero_observation',{});now=time.monotonic()
+    def remember_accepted_partial_frame(self,value):
+        """Snapshot final, independently confirmed fixed-slot display authority."""
+        names=self.current_partial_names();hero=value.get('hero_observation',{})
+        geometry=value.get('_cardGeometry');anchors=self.overlay._badge_anchors
+        if (self._partial_displayed and not self.state.confirmed and any(names)
+                and self.hero_auto.isChecked() and hero.get('confident') is True and hero.get('hero')==self.state.hero
+                and value.get('ocr_reused') is False and geometry is not None and anchors is not None
+                and all(not name or anchors.names[i]==name for i,name in enumerate(names))
+                and self.partial_scope_current(value.get('_frameScope'))
+                and value.get('_captureSerial')==self._capture_serial):
+            self._accepted_partial_frame={'source_ref':self.data,'generation':self.state.generation,
+                'hero':self.state.hero,'names':names,'scope':value['_frameScope'],
+                'observed_at':value['_capturedAt'],'serial':value['_captureSerial'],
+                'hud_digest':value.get('_hudInputDigest'),'card_geometry':geometry,'anchors':anchors}
+        else:self._accepted_partial_frame=None
+        self._semantic_partial_frame=None
+    def accepted_partial_scope_current(self,value):
+        reference=self._accepted_partial_frame;now=time.monotonic()
+        return bool(reference and reference['source_ref'] is self.data and self.hero_auto.isChecked()
+            and reference['generation']==self.state.generation and reference['hero']==self.state.hero
+            and reference['names']==self.current_partial_names(now) and any(reference['names'])
+            and value.get('_frameScope')==reference['scope'] and self.partial_scope_current(reference['scope'])
+            and value.get('_matchingCardGeometry') is reference['card_geometry']
+            and value.get('_captureSerial')==self._capture_serial and reference['serial']<self._capture_serial
+            and 0<=now-reference['observed_at']<=4 and reference['observed_at']<value.get('_capturedAt',0)<=now)
+    def may_restore_accepted_partial_frame(self,value):
+        reference=self._accepted_partial_frame;semantic=self._semantic_partial_frame
+        hero=value.get('hero_observation',{})
+        return bool(self.accepted_partial_scope_current(value) and semantic and semantic[0] is reference
+            and semantic[1:]==(self.state.generation,value.get('_captureSerial'),value.get('_frameScope'),value.get('_capturedAt'))
+            and ((hero.get('confident') is True and hero.get('hero')==reference['hero']) if 'hero_observation' in value
+                 else bool(reference['hud_digest'] and value.get('_hudInputDigest')==reference['hud_digest'])))
+    def recheck_partial_titles(self,value,generation):
+        """Apply only negative per-slot evidence; the final result observes once."""
+        if not self.accepted_partial_scope_current(value):
+            self.revoke_title_display('geometry_unproven');return
+        from partial_candidates import TitleEvidence
+        from card_badges import accepted_anchors
+        evidence=value.get('partial_title_evidence');reference=self._accepted_partial_frame
+        if value.get('ocr_reused') is not False or not isinstance(evidence,TitleEvidence) or not evidence.valid:
+            self.revoke_title_display('title_changed');return
+        # All three explicit rows, including the unknown one, must belong to
+        # the same freshly proven cards. A dictionary subset cannot prove this.
+        candidates=[{'name':slot.name,'box':slot.box} for slot in evidence.slots]
+        anchors=accepted_anchors(candidates,value.get('image_size'),value['_frameScope'][3],value.get('_cardGeometry'))
+        if (anchors is None or anchors.rects!=reference['anchors'].rects
+                or anchors.names!=tuple(slot.name for slot in evidence.slots)):
+            self.revoke_title_display('geometry_unproven');return
+        before=reference['names'];names=self.partial_candidates.recheck(evidence,now=time.monotonic())
+        if not any(names):
+            self.revoke_title_display('title_changed');return
+        if names!=before:
+            # Preserve the original observation timestamp and accepted serial.
+            # A later positive callback can never restore an erased slot/count.
+            reference={**reference,'names':names};self._accepted_partial_frame=reference
+            historical_visible=bool(self._visible_previous and self.overlay.isVisible())
+            self.ocr_reuse.clear();self.show_partial_candidates(rechecking=True)
+            self._restore_while_ocr=historical_visible
+            self.debug_event('recognition',reason='title_changed',candidate_count=sum(bool(name) for name in names))
+            self.refresh_card_details()
+        self._semantic_partial_frame=(reference,generation,value['_captureSerial'],value['_frameScope'],value['_capturedAt'])
+        current=self._current_capture_proof
+        proof=current[2] if current and current[:2]==(generation,value['_captureSerial']) else value
+        if self.may_restore_accepted_partial_frame(proof):
+            self._restore_while_ocr=True;self.overlay.set_rechecking(True);self.check_target()
+    def accepted_frame_scope_current(self,value):
+        """Scope/freshness of a historical display; grants no new observation."""
+        reference=self._accepted_frame;now=time.monotonic()
         scope=value.get('_frameScope');current_source=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False)) if self.data else None
-        return bool(reference and reference.get('source_ref') is self.data and self.state.confirmed and self.state.confirmation_mode=='automatic' and self.hero_auto.isChecked()
+        return bool(reference and reference.get('source_ref') is self.data and self.state.confirmed and self.state.confirmation_mode=='automatic'
             and reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is reference['card_geometry']
             and reference['generation']==self.state.generation and reference['hero']==self.state.hero and reference['offered']==self.state.offered
-            and isinstance(scope,tuple) and len(scope)==7 and scope==reference['scope'] and scope[3]==tuple(spin.value()/100 for spin in self.roi) and scope[4]==tuple(self.data['augments']) and scope[5]==current_source and scope[6][0] is self.hero_matcher and scope[6][1]==(self.hero_matcher.proof_identity() if self.hero_matcher and hasattr(self.hero_matcher,'proof_identity') else None) and (value.get('_roiDigest')==reference['digest'] or reference.get('title_proof') is not None and value.get('_matchingTitleProof') is reference['title_proof'])
-            and ((hero.get('confident') is True and hero.get('hero')==reference['hero']) if 'hero_observation' in value else bool(reference['hud_digest'] and value.get('_hudInputDigest')==reference['hud_digest']))
+            and isinstance(scope,tuple) and len(scope)==7 and scope==reference['scope'] and scope[3]==tuple(spin.value()/100 for spin in self.roi) and scope[4]==tuple(self.data['augments']) and scope[5]==current_source and scope[6][0] is self.hero_matcher and scope[6][1]==(self.hero_matcher.proof_identity() if self.hero_matcher and hasattr(self.hero_matcher,'proof_identity') else None)
+            and value.get('_captureSerial')==self._capture_serial
             and 0<=now-reference['observed_at']<=4 and reference['observed_at']<value.get('_capturedAt',0)<=now)
+    def may_restore_accepted_frame(self,value):
+        reference=self._accepted_frame;hero=value.get('hero_observation',{})
+        semantic=self._semantic_title_frame
+        semantic_match=bool(semantic and reference is semantic[0]
+            and (self.state.generation,value.get('_captureSerial'),value.get('_frameScope'),value.get('_capturedAt'))==semantic[1:])
+        return bool(self.hero_auto.isChecked() and self.accepted_frame_scope_current(value)
+            and (semantic_match or value.get('_roiDigest')==reference['digest'] or reference.get('title_proof') is not None and value.get('_matchingTitleProof') is reference['title_proof'])
+            and ((hero.get('confident') is True and hero.get('hero')==reference['hero']) if 'hero_observation' in value else bool(reference['hud_digest'] and value.get('_hudInputDigest')==reference['hud_digest'])))
+    def revoke_title_display(self,reason,*,preserve_partial=False):
+        # Keep this capture's generation intact, but revoke title continuity.
+        # The final joined result counts exactly once toward requalification.
+        self.overlay.set_title_checking(True)
+        self._accepted_frame=None;self._semantic_title_frame=None
+        self._visible_previous=False;self._restore_while_ocr=False
+        self.state.confirmed=False;self.state.offered=();self.state.confirmed_observation=()
+        self.state.observed=();self.state.stable_frames=0
+        self.state.automatic_observed=();self.state.automatic_frames=0
+        # With unchanged freshly proven borders, private independent-slot
+        # continuity can survive a different/weak middle title. Its own final
+        # observer still resets that slot (or all slots for an absent row).
+        if preserve_partial:self._partial_displayed=False
+        else:self.clear_partial_candidates()
+        self.ocr_reuse.clear()
+        self.overlay.hide(reason);self.debug_event('recognition',reason=reason)
+        self.refresh_card_details()
     def remember_accepted_frame(self,value):
         hero=value.get('hero_observation',{})
         if self.state.confirmed and self.state.confirmation_mode=='automatic' and self.hero_auto.isChecked() and ((hero.get('confident') is True and hero.get('hero')==self.state.hero) or self.hero_origin=='game-continuity' and bool(self.state.hero)) and value.get('_roiDigest') and value.get('_frameScope'):
@@ -1344,7 +1482,7 @@ class ControlWindow(QtWidgets.QWidget):
         try:self.overlay.set_click_through(not self.overlay.click_through)
         except CaptureUnavailable as exc:
             self.stop_monitor();self.overlay.hide('target_unavailable');self.status.setText(str(exc));return
-        self.toggle_button.setChecked(self.overlay.click_through);self.check_target()
+        self.toggle_button.setChecked(self.overlay.click_through);self.record_debug_config();self.check_target()
     def discard_stale_capture_callback(self,kind,generation):
         if kind not in ('ocr','selection') or generation==self.state.generation:return False
         # An invalidated worker still owns its drain barrier. Release only that
@@ -1357,11 +1495,16 @@ class ControlWindow(QtWidgets.QWidget):
     @QtCore.Slot(str,object,int)
     def task_result(self,kind,value,generation):
         if self.closed or self.discard_stale_capture_callback(kind,generation):return
+        if kind in ('ocr','selection') and isinstance(value,dict) and '_captureSerial' in value and value['_captureSerial']!=self._capture_serial:
+            self.debug_log.record('job',kind=kind,phase='discarded',generation=generation,reason='serial_changed');return
+        if kind in ('ocr','selection') and isinstance(value,dict) and value.get('_captureSerial') is not None:
+            if value['_captureSerial']==self._completed_capture_serial:return
+            if self.state.running and generation==self.state.generation:self._completed_capture_serial=value['_captureSerial']
         if kind in ('ocr','selection') and isinstance(value,dict):
             completed=value.get('_completedAt')
             if isinstance(completed,(int,float)) and math.isfinite(completed):
                 self.debug_log.record('job',kind=kind,phase='completed',generation=generation,serial=value.get('_captureSerial',0),dispatch_ms=max(0.,(time.monotonic()-completed)*1000))
-        if kind in ('ocr','selection','capture-proof') and (not self.state.running or generation!=self.state.generation):
+        if kind in ('ocr','selection','capture-proof','title-proof') and (not self.state.running or generation!=self.state.generation):
             self.debug_log.record('job',kind=kind,phase='discarded',generation=generation,reason='generation_changed')
         try:
             if kind=='windows':
@@ -1392,10 +1535,42 @@ class ControlWindow(QtWidgets.QWidget):
                 QtCore.QTimer.singleShot(0,self.ready)
                 if self.enable_updates and not self.smoke_report:self.spawn('update',lambda:__import__('updates').check_for_update(self.current_version))
                 else:self.update_status.setText('本次启动已显式禁用软件更新检查。')
+            elif kind=='title-proof':
+                if (not self.state.running or generation!=self.state.generation
+                        or value.get('_captureSerial')!=self._capture_serial or not self.ocr_busy
+                        or self._active_capture_generation!=generation):return
+                if not self.captured_frame_current(value):return
+                # Fresh title OCR necessarily follows guarded pixel acquisition;
+                # tolerate queued phase delivery in either order without leaving
+                # a revoked-slot mask waiting for the slower HUD callback.
+                self.capture_pending=False
+                if self._accepted_partial_frame:
+                    self.recheck_partial_titles(value,generation);return
+                if not self._accepted_frame:return
+                if not self.accepted_frame_scope_current(value):
+                    self.revoke_title_display('geometry_unproven');return
+                from card_title_proof import same_titles
+                from card_badges import accepted_anchors
+                reference=self._accepted_frame
+                candidates=value.get('automatic_candidates');size=value.get('image_size')
+                same=bool(value.get('ocr_reused') is not True and same_titles(reference['offered'],candidates,size))
+                anchors=accepted_anchors(candidates,size,value['_frameScope'][3],value.get('_cardGeometry'))
+                same_geometry=bool(anchors is not None and self.overlay._badge_anchors is not None and anchors.rects==self.overlay._badge_anchors.rects)
+                if not same or anchors is None or anchors!=self.overlay._badge_anchors:
+                    self.revoke_title_display('title_changed' if not same else 'geometry_unproven',preserve_partial=not same and same_geometry);return
+                # A positive title phase is fresh evidence for this one capture,
+                # not another state observation and not an extension of TTL.
+                self._semantic_title_frame=(reference,generation,value['_captureSerial'],value['_frameScope'],value['_capturedAt'])
+                current=self._current_capture_proof
+                if current and current[:2]==(generation,value['_captureSerial']):value=current[2]
+                if self.may_restore_accepted_frame(value):
+                    self.overlay.set_title_checking(False)
+                    self._restore_while_ocr=True;self.overlay.set_rechecking(True);self.check_target()
             elif kind=='capture-proof':
-                if not self.state.running or generation!=self.state.generation or value.get('_captureSerial')!=self._capture_serial:return
+                if not self.state.running or generation!=self.state.generation or value.get('_captureSerial')!=self._capture_serial or not self.ocr_busy:return
                 self.capture_pending=False;self._restore_while_ocr=False
                 if not self.captured_frame_current(value):return
+                self._current_capture_proof=(generation,value['_captureSerial'],dict(value))
                 observation=value.get('hero_observation')
                 unsafe_identity=isinstance(observation,dict) and (observation.get('abstentionKind')=='unsupported-layout' or observation.get('conflict') is True or (observation.get('method')=='game-client-api' and observation.get('confident') is not True))
                 if self.hero_auto.isChecked() and isinstance(observation,dict):
@@ -1428,11 +1603,16 @@ class ControlWindow(QtWidgets.QWidget):
                         return
                 if self._visible_previous and self._accepted_frame:
                     reference=self._accepted_frame
-                    if (reference.get('title_proof') is not None and value.get('_matchingTitleProof') is not reference['title_proof']) or (reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is not reference['card_geometry']):
-                        self._visible_previous=False;self._restore_while_ocr=False
-                        self.debug_event('recognition',reason='title_changed' if reference.get('title_proof') is not None and value.get('_matchingTitleProof') is not reference['title_proof'] else 'geometry_unproven')
-                        self.overlay.set_rechecking(False);self.overlay.hide('capture_proof')
-                        return
+                    if not self.accepted_frame_scope_current(value):
+                        self.revoke_title_display('geometry_unproven');return
+                    # Pixel mismatch is not semantic contradiction. Retain
+                    # only the already accepted historical grade, under its
+                    # original deadline, until fresh title OCR can decide.
+                    # Never oscillate grade/checking merely for animated pixels.
+                    if self.overlay._titles_pending and self.may_restore_accepted_frame(value):
+                        self.overlay.set_title_checking(False);self._restore_while_ocr=True
+                if self._visible_previous and self._accepted_partial_frame and not self.accepted_partial_scope_current(value):
+                    self.revoke_title_display('geometry_unproven');return
                 if self._visible_previous:
                     # The label describes the original accepted observation,
                     # never this still-unrecognized frame or a selected choice.
@@ -1441,7 +1621,8 @@ class ControlWindow(QtWidgets.QWidget):
                     try:self.capture.validate_compositor(self.target,value['_captureRect'])
                     except (CapturePaused,CaptureUnavailable) as exc:
                         self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.overlay.hide('target_unavailable');return
-                self._restore_while_ocr=self.may_restore_accepted_frame(value)
+                self._restore_while_ocr=self.may_restore_accepted_frame(value) or self.may_restore_accepted_partial_frame(value)
+                if self._restore_while_ocr:self.overlay.set_title_checking(False)
                 self.overlay.set_rechecking(self._restore_while_ocr)
                 if not self._restore_while_ocr:self.overlay.hide('capture_proof')
                 self.check_target()
@@ -1496,6 +1677,9 @@ class ControlWindow(QtWidgets.QWidget):
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation:return
                 if not self.captured_frame_current(value):return
+                if value.get('_captureRect') is not None:self.last_rect=value['_captureRect']
+                if value.get('_frameScope') is not None and not self.partial_scope_current(value['_frameScope']):
+                    self.invalidate_scene('识别期间候选来源或范围变化，已丢弃旧画面。');return
                 if (self.window_policy or self.automatic_policy) and (not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity):
                     if self.selection_session:self.selection_session.clear('Game permission changed during inference')
                     self.invalidate_scene('游戏窗口身份变化，旧资料已清空');self.overlay.hide('target_unavailable');return
@@ -1581,6 +1765,10 @@ class ControlWindow(QtWidgets.QWidget):
                     missing=any(card['sourceTier'] is None for card in display_cards(self.data,self.state.hero,self.state.offered))
                     self.debug_event('recognition',reason='source_tier_missing' if missing else 'recognized',candidate_count=len(self.state.offered),hero_present=True)
                 self.remember_accepted_frame(value)
+                self.remember_accepted_partial_frame(value)
+                if (self.state.confirmed and safe_candidates and value.get('_cardGeometry') is not None
+                        and (not self.overlay._titles_pending or value.get('ocr_reused') is not True)):
+                    self.overlay.set_title_checking(False)
                 self.check_target()
             elif kind=='portraits':
                 portraits,status=value

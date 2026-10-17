@@ -121,7 +121,7 @@ class PortraitMatcher:
         return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验',**evidence}
 
 
-def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None, diagnostic_callback=None):
+def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None, diagnostic_callback=None, after_titles=None):
     """Split one same-time selected-window frame in memory. Never persist images."""
     def diagnostic(stage, phase, elapsed_ms=0.):
         # Only bounded stage names/timing, never screenshots or recognized text.
@@ -149,6 +149,35 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
     crop_bytes=out.getvalue()
     if prepared_frame is not None:prepared_frame(rgb)
     complete('prepare',prepare_started)
+    def recognize_titles(method):
+        result=timed_ocr(method,crop_bytes,vocabulary)
+        phase_started=begin('title_geometry')
+        # Automatic titles are constrained to the actual centered card-title band,
+        # separate from review suggestions and any unrelated overlay/chat text.
+        from local_ocr import candidate_matches
+        import unicodedata
+        canonical_text={''.join(unicodedata.normalize('NFKC',name).split()) for name in vocabulary}
+        title_lines=[]
+        for line in result.get('ocr_lines',[]):
+            box=line.get('box');text=''.join(unicodedata.normalize('NFKC',str(line.get('text',''))).split())
+            if text not in canonical_text or not isinstance(box,list) or len(box)!=4:continue
+            try:center_y=top+sum(float(p[1]) for p in box)/4
+            except (ValueError,TypeError,IndexError):continue
+            if .32*frame_height<=center_y<=.55*frame_height:title_lines.append(line)
+        result['automatic_candidates']=candidate_matches(title_lines,vocabulary,min_ocr_confidence=.93)
+        # Keep raw unknown/low-confidence title rows for independent fixed-slot
+        # evidence. Dictionary candidates alone cannot prove a third card exists.
+        from partial_candidates import title_evidence
+        result['partial_title_evidence']=title_evidence(result.get('ocr_lines'),result.get('image_size'),vocabulary,crop_top=top,frame_height=frame_height)
+        from augment_card_geometry import refresh_frame_card_geometry
+        title_geometry=result['partial_title_evidence']
+        anchors=title_geometry.slots if title_geometry.valid else result['automatic_candidates']
+        result['_cardGeometry']=refresh_frame_card_geometry(image_bytes,prior_card_geometry,anchors,result.get('image_size'),roi,_decoded_rgb=rgb)
+        complete('title_geometry',phase_started)
+        # This phase may run on the OCR worker. It can revoke stale titles,
+        # but never authorizes hero identity or a new observation by itself.
+        if after_titles is not None and result.get('ocr_reused') is not True:after_titles(result)
+        return result
     # The two independent inferences use the same immutable captured frame.
     # Join both before returning: no next capture overlaps an unfinished worker.
     # A proof callback still runs on the caller, after full HUD validation.
@@ -157,7 +186,7 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
         prepared=matcher._prepare_image(image_bytes,decoded_rgb=matcher.np.asarray(rgb))
         complete('hud_prepare',phase_started)
         if before_match is not None:before_match(prepared.signature if isinstance(prepared,_PortraitInput) else None,crop_bytes)
-        pending=inference_worker.submit(timed_ocr,ocr.recognize,crop_bytes,vocabulary) if inference_worker is not None else None
+        pending=inference_worker.submit(recognize_titles,ocr.recognize) if inference_worker is not None else None
         try:
             phase_started=begin('hud_match')
             hero=matcher._recognize_prepared(prepared)
@@ -172,7 +201,7 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
             # safely interruptible; it may never leak into the next frame.
             if pending is not None:
                 result=pending.result()
-        if pending is None:result=timed_ocr(ocr.recognize,crop_bytes,vocabulary)
+        if pending is None:result=recognize_titles(ocr.recognize)
     else:
         if before_match is not None:before_match(None,crop_bytes)
         phase_started=begin('hud_match')
@@ -183,34 +212,11 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
             hero=resolve_hero(hero)
             complete('hero_resolve',phase_started)
         if before_ocr is not None:before_ocr(hero,crop_bytes)
-        result=timed_ocr(ocr.recognize,crop_bytes,vocabulary)
+        result=recognize_titles(ocr.recognize)
     # A title cache hit can race the fresh HUD inference. Unknown current HUD
     # must obtain independent OCR evidence for historical-identity recovery.
     if result.get('ocr_reused') is True and hero.get('confident') is not True and hasattr(ocr,'recognize_fresh'):
-        result=timed_ocr(ocr.recognize_fresh,crop_bytes,vocabulary)
-    phase_started=begin('title_geometry')
+        result=recognize_titles(ocr.recognize_fresh)
     result['hero_observation']=hero
-    # Automatic titles are constrained to the actual centered card-title band,
-    # separate from review suggestions and any unrelated overlay/chat text.
-    from local_ocr import candidate_matches
-    import unicodedata
-    canonical_text={''.join(unicodedata.normalize('NFKC',name).split()) for name in vocabulary}
-    title_lines=[]
-    for line in result.get('ocr_lines',[]):
-        box=line.get('box');text=''.join(unicodedata.normalize('NFKC',str(line.get('text',''))).split())
-        if text not in canonical_text or not isinstance(box,list) or len(box)!=4:continue
-        try:center_y=top+sum(float(p[1]) for p in box)/4
-        except (ValueError,TypeError,IndexError):continue
-        if .32*frame_height<=center_y<=.55*frame_height:title_lines.append(line)
-    result['automatic_candidates']=candidate_matches(title_lines,vocabulary,min_ocr_confidence=.93)
-    # Keep raw unknown/low-confidence title rows for independent fixed-slot
-    # evidence. Dictionary candidates alone cannot prove a third card exists.
-    from partial_candidates import title_evidence
-    result['partial_title_evidence']=title_evidence(result.get('ocr_lines'),result.get('image_size'),vocabulary,crop_top=top,frame_height=frame_height)
-    from augment_card_geometry import refresh_frame_card_geometry
-    title_geometry=result['partial_title_evidence']
-    anchors=title_geometry.slots if title_geometry.valid else result['automatic_candidates']
-    result['_cardGeometry']=refresh_frame_card_geometry(image_bytes,prior_card_geometry,anchors,result.get('image_size'),roi,_decoded_rgb=rgb)
-    complete('title_geometry',phase_started)
     complete('total',started)
     return result

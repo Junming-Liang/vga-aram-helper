@@ -273,6 +273,8 @@ def _validate_mode(report, mode, scene):
             require('helper_exit_codes' not in row and 'helper_cleanup_complete_before_phase' not in row,
                     'Duty persistent mode misrepresented guarded idle as helper exit')
             session_capture(row.get('session_capture'), scene)
+        require(type(row.get('title_semantic_rejection_observed')) is bool and row['title_semantic_rejection_observed']==(expected=='changed_title'),
+                'Duty lacks the actual early semantic changed-title rejection')
         phases = row.get('phases')
         require(type(phases) is list and len(phases) == 2, 'Duty requires both inference phases')
         for phase, name in zip(phases, ('before_match', 'before_ocr')):
@@ -288,7 +290,10 @@ def _validate_mode(report, mode, scene):
                 require(phase.get(key) is True, 'Duty phase safety evidence missing: ' + key)
             require(('helper_cleanup_complete' not in phase) if mode == 'persistent' else ('session_guarded_idle_verified' not in phase),
                     'Duty phase mixed helper-exit and guarded-idle modes')
-            revoke = expected in ('changed_hud', 'unknown_hud') and name == 'before_ocr'
+            semantic_rejected=phase.get('semantic_rejected_before_phase')
+            require(type(semantic_rejected) is bool and (not semantic_rejected or expected=='changed_title' and name=='before_ocr'),
+                    'Semantic revocation flag may only describe fresh changed-title OCR before the HUD phase')
+            revoke = expected in ('changed_hud', 'unknown_hud') and name == 'before_ocr' or semantic_rejected
             before, during = state(phase.get('state_before'), 'before'), state(phase.get('state_at_phase'), 'during', allow_revoked=revoke)
             expected_during = dict(before, automatic_frames=0, stable_frames=0, accepted_observed_at=None) if revoke else before
             require(during == expected_during and before == phases[0]['state_before'],

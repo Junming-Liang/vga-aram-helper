@@ -185,7 +185,7 @@ def native_failure_summary(path):
                     if type(phase.get('name')) is str:item['name']=phase['name'][:80]
                     for key in ('emitted_ms','applied_ms','compositor_validated_ms','captured_at','capture_serial'):
                         if type(phase.get(key)) in (int,float) and math.isfinite(phase[key]):item[key]=phase[key]
-                    for key in ('restored','qt_visible','native_visible','state_unchanged','current_identity_geometry_focus',
+                    for key in ('restored','qt_visible','native_visible','state_unchanged','semantic_rejected_before_phase','current_identity_geometry_focus',
                                 'helper_cleanup_complete','session_guarded_idle_verified','compositor_checked_after_capture'):
                         if type(phase.get(key)) is bool:item[key]=phase[key]
                     for key in ('state_before','state_at_phase'):

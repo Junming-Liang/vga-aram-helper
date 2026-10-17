@@ -38,6 +38,7 @@ class NativeHeroContinuityTests(unittest.TestCase):
             '_identityMapping':(('103',self.hero),),'_windowIdentity':self.window.target.identity,'_captureRect':self.rect,'_frameScope':self.scope}
     def deliver(self,stamp,**kwargs):
         w=self.window;value=self.value(stamp,**kwargs)
+        w._capture_serial=value['_captureSerial']
         with patch('native_ui.time',SimpleNamespace(monotonic=lambda:stamp+.01)):
             w.task_result('ocr',value,w.state.generation)
         return value

@@ -82,7 +82,10 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         control.enable_visible_capture = False
         control._mode_wait_started = None
         control._capture_serial = 0
+        control._accepted_frame = None
+        control._accepted_partial_frame = None
         control.debug_event = lambda *args, **kwargs: None
+        control.debug_selection_gate = lambda *args, **kwargs: None
         control.debug_log = SimpleNamespace(sample=lambda *args, **kwargs: None)
         control.overlay.click_through = True
         control.overlay.isVisible = lambda: False

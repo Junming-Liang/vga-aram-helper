@@ -1,13 +1,23 @@
 # Changelog / 变更日志
 
-## v0.4.12 · 捕获稳定性诊断测试版 / Capture stability diagnostic candidate
+## v0.4.13 · 标题语义核验与整局诊断 / Semantic recheck diagnostic candidate
 
-待通过完整 Windows 发布门禁后发布；本段不代表已发布或实际对局验证通过。
+候选版本，仍须通过全部 Windows 发布门禁。标题带的像素变化不再被直接当作标题变化；同帧新 OCR 核验有序名称、置信度、几何与英雄范围。仅等待语义时，原评级仍受原四秒期限约束，不因像素变化刷新年龄；真正换牌可能在新 OCR 返回前短暂保留原评级，并非即时检测。明确矛盾、不确定语义或过期时撤销评级；核验中的中性卡片不含旧评级或提示。
+
+部分候选栏按槽位独立保留已确认卡片；同帧新语义证据只能保留对应槽位，改变或不确定的槽位撤销旧计数，未知卡片不带旧评级。
+
+关键阶段/设置/隐藏原因与常规采样分开保存，全部日志文件总计仍限 768 KiB。新增选人发现与阻断门槛诊断，不改变 LCU 同意或窗口资格规则，也不宣称真实客户端选人问题已解决。仅合成回归进入仓库，不包含用户日志或截图。
+
+English: Candidate pending all Windows gates. Fresh same-frame semantic title verification replaces pixel-hash-only revocation; historical grades retain only their original four-second deadline. Real rerolls can remain displayed until fresh OCR returns, never an instantaneous-detection claim. Separate bounded critical/context lanes retain causes across routine rotation, and selection gate diagnostics explain routing without relaxing permissions. Actual-game behavior remains unverified.
+
+## v0.4.12 · 捕获稳定性诊断测试版 / Capture stability diagnostic prerelease
+
+2026-10-17 已通过完整 Windows 发布门禁并发布为非 latest 预发布；不代表实际对局验证通过。
 默认开启可关闭的本地诊断日志，三份 256 KiB 文件合计最多 768 KiB；本地 ZIP 导出替换同一文件，不自动上传。记录关联帧、隐藏原因、阶段耗时、确认门槛及已匹配的目录英雄/强化名称，不记录截图、原始 OCR、玩家账号、凭据或私有路径。重复采样合并，导出说明轮转与截断。
 
 同一英雄/卡片仅来源或评级文字变化时减少不必要的隐藏；模糊匹配跳过数学上不可能满足原有门槛的比较，不放宽接受或歧义检查。Windows 受控测试、Linux 小样本静态截图与实际对局验收分别记录，不能据此宣称闪烁或延迟已在游戏中解决。
 
-English: Candidate pending every existing Windows release gate. Default-on, switchable local logs are bounded to 768 KiB (3 × 256 KiB); export replaces one local ZIP and nothing uploads automatically. Same-card badge stability and conservative fuzzy-matching pruning retain freshness and fail-closed behavior. Actual-game flashing/rechecking and latency remain unverified. Publication must remain a non-latest prerelease; stable OTA will not discover it. See [diagnostic scope](BOUNDED_DIAGNOSTICS.md).
+English: Published non-latest prerelease after every Windows release gate passed on 2026-10-17. Default-on, switchable local logs are bounded to 768 KiB (3 × 256 KiB); export replaces one local ZIP and nothing uploads automatically. Same-card badge stability and conservative fuzzy-matching pruning retain freshness and fail-closed behavior. Actual-game flashing/rechecking and latency remain unverified. Publication must remain a non-latest prerelease; stable OTA will not discover it. See [diagnostic scope](BOUNDED_DIAGNOSTICS.md).
 
 ## v0.4.10 · 同局英雄保留与独立卡片评级
 

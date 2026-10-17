@@ -47,7 +47,7 @@ def overlay_duty_fixture():
         phases=[]
         for name in ('before_match', 'before_ocr'):
             phases.append(dict(name=name, restored=restored, qt_visible=restored, native_visible=restored,
-                state_unchanged=True, card_geometry_unchanged=True, title_regions_unchanged=kind!='changed_title', current_identity_geometry_focus=True, helper_cleanup_complete=True,
+                state_unchanged=True, semantic_rejected_before_phase=False, card_geometry_unchanged=True, title_regions_unchanged=kind!='changed_title', current_identity_geometry_focus=True, helper_cleanup_complete=True,
                 compositor_checked_after_capture=True, state_before=copy.deepcopy(before), state_at_phase=copy.deepcopy(before),
                 window_identity=[100, 200, 'Owned fixture'], current_window_identity=[100, 200, 'Owned fixture'],
                 capture_rect=dict(x=20,y=20,width=960,height=600), current_rect=dict(x=20,y=20,width=960,height=600),
@@ -61,7 +61,7 @@ def overlay_duty_fixture():
         if kind in ('changed_hud','unknown_hud'):
             phases[1]['state_unchanged']=False
             phases[1]['state_at_phase'].update(automatic_frames=0,stable_frames=0,accepted_observed_at=None)
-        row=dict(final_visible_slots=[3] if kind=='changed_title' else [1,2,3] if kind in ('unchanged','changed_roi') else [],name=kind,status='passed',initial_native_visible=True,initial_qt_visible=True,
+        row=dict(title_semantic_rejection_observed=kind=='changed_title',final_visible_slots=[3] if kind=='changed_title' else [1,2,3] if kind in ('unchanged','changed_roi') else [],name=kind,status='passed',initial_native_visible=True,initial_qt_visible=True,
             measurement_clock=dict(name='perf_counter',implementation='QueryPerformanceCounter()',
                 monotonic=True,adjustable=False,resolution_seconds=1e-7),
             timings_ms=dict(capture_start=5.,capture_return=20.,before_match_emitted=21.,
@@ -278,6 +278,24 @@ class NativePackagingTests(unittest.TestCase):
             value=overlay_duty_fixture();phase=value['overlay_duty_cycle']['cases'][index]['phases'][1]
             phase['state_at_phase'].update(automatic_frames=0,stable_frames=0,accepted_observed_at=None);phase['state_unchanged']=False
             with self.subTest(nonrevoking_case=index),self.assertRaises(RuntimeError):validate_duty(value)
+
+    def test_duty_early_semantic_rejection_allows_only_counter_revocation(self):
+        value=overlay_duty_fixture()
+        phase=value['overlay_duty_cycle']['cases'][2]['phases'][1]
+        phase.update(semantic_rejected_before_phase=True,state_unchanged=False)
+        phase['state_at_phase'].update(automatic_frames=0,stable_frames=0,accepted_observed_at=None)
+        validate_duty(value)
+        missing=copy.deepcopy(value);missing['overlay_duty_cycle']['cases'][2]['title_semantic_rejection_observed']=False
+        with self.assertRaises(RuntimeError):validate_duty(missing)
+        for key,bad in [('automatic_frames',1),('stable_frames',1),('hero_stable_frames',3),
+                        ('generation',4),('last_observation',100.1),('accepted_observed_at',100.1)]:
+            changed=copy.deepcopy(value)
+            changed['overlay_duty_cycle']['cases'][2]['phases'][1]['state_at_phase'][key]=bad
+            with self.subTest(key=key),self.assertRaises(RuntimeError):validate_duty(changed)
+        for index in (0,1,3,4,5):
+            changed=overlay_duty_fixture()
+            changed['overlay_duty_cycle']['cases'][index]['phases'][1]['semantic_rejected_before_phase']=True
+            with self.subTest(case=index),self.assertRaises(RuntimeError):validate_duty(changed)
 
     def test_duty_contract_rejects_forged_restoration_ttl_scope_and_stop(self):
         for index in range(6):

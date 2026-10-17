@@ -139,6 +139,53 @@ class PartialCandidatesQtTests(unittest.TestCase):
         self.assert_blank()
         self.assertFalse(self.window.state.running)
 
+    def test_actual_ocr_animated_partial_each_phase_keeps_two_exact_regions(self):
+        self.make_fourth_unknown();n=fixture.NAMES;w=self.window
+        self.observe((0,3,2),0);self.observe((0,3,2),1)
+        self.assert_partial((n[0],'',n[2]));self.assertIsNotNone(w._accepted_partial_frame)
+        w.capture.can_request_visible_overlay=True
+        hwnd=int(w.overlay.winId());mask=w.overlay.mask();key=w.overlay._placed_key
+        hidden=[];phases=[]
+        class Events(fixture.QtCore.QObject):
+            def eventFilter(inner,obj,event):
+                if event.type()==fixture.QtCore.QEvent.Type.Hide:hidden.append(True)
+                return False
+        events=Events();w.overlay.installEventFilter(events)
+        def record(kind,value,generation):
+            if kind in ('capture-proof','title-proof'):
+                phases.append((kind,w.overlay.isVisible(),w.overlay._titles_pending,
+                               w.current_partial_names(),w.last_observation,
+                               w.partial_candidates._last_serial,w.partial_candidates._last_capture))
+        w.signals.result.connect(record)
+        original=self.scene.image
+        def animated(*args,**kwargs):
+            image=original(*args,**kwargs)
+            from PIL import ImageDraw
+            # Original title glyphs remain intact. This is inside the title
+            # band, to the left of the first textual row, away from borders.
+            phase=kwargs.get('phase',args[1] if len(args)>1 else 0)
+            ImageDraw.Draw(image).rectangle((218,300,221,303),fill=(70+phase*7,180,110))
+            return image
+        with patch.object(self.scene,'image',side_effect=animated),patch.object(w.overlay,'set_title_checking',wraps=w.overlay.set_title_checking) as checking:
+            for phase in range(2,6):
+                before=(w.last_observation,w.partial_candidates._last_serial,w.partial_candidates._last_capture)
+                start=len(phases);self.observe((0,3,2),phase)
+                self.assert_partial((n[0],'',n[2]))
+                current=phases[start:]
+                self.assertIn('title-proof',[row[0] for row in current])
+                for kind,visible,pending,names,observed,serial,captured in current:
+                    self.assertTrue(visible,kind);self.assertFalse(pending,kind)
+                    self.assertEqual(names,(n[0],'',n[2]))
+                    self.assertEqual((observed,serial,captured),before)
+                self.assertEqual(int(w.overlay.winId()),hwnd);self.assertEqual(w.overlay.mask(),mask)
+                self.assertEqual(w.overlay._placed_key,key);self.assertEqual(hidden,[])
+            self.assertNotIn(True,[call.args[0] for call in checking.call_args_list])
+        self.assertEqual(w.ocr_reuse.hits,0)
+        self.assertEqual(len(w.ocr.records),6)
+        unknown=w.overlay._badge_widgets[1]
+        self.assertEqual((unknown.tier,unknown.hint,unknown.identity_provenance),('','',''))
+        self.assertEqual(unknown.accessibleName(),'选项 2 · 正在核对当前候选')
+
     def test_focus_roi_and_source_changes_revoke_partial_continuity(self):
         self.make_fourth_unknown()
         n = fixture.NAMES
@@ -167,7 +214,7 @@ class PartialCandidatesQtTests(unittest.TestCase):
             phase += 1
             self.assert_blank()
 
-    def test_expiry_during_visible_inference_does_not_resurrect_old_slots(self):
+    def test_scoped_partial_visible_inference_never_extends_original_deadline(self):
         self.make_fourth_unknown()
         n = fixture.NAMES
         self.observe((0, 3, 2), 0)
@@ -182,9 +229,11 @@ class PartialCandidatesQtTests(unittest.TestCase):
         previous = len(self.results)
         self.start_frame((0, 3, 2), 2, advance=2.7)
         self.wait(ready.is_set)
+        # Independent partial proof retains only previously confirmed known
+        # slots while this new OCR is pending, under the original deadline.
+        self.assertIsNotNone(w._accepted_partial_frame)
         self.assertTrue(w.overlay.isVisible())
-        self.assertTrue(w.overlay._rechecking)
-        self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets if b.isVisible()))
+        self.assertTrue(w._visible_previous)
         generation = w.state.generation
         self.now = old_time + 4.
         w.check_target()
@@ -217,6 +266,7 @@ class PartialCandidatesQtTests(unittest.TestCase):
         # fresh capture cannot revive the expired partial display.
         replay = {**last, '_capturedAt': self.now, 'ocr_reused': True,
                   '_captureSerial': w._capture_serial + 1}
+        w._capture_serial=replay['_captureSerial']
         w.task_result('ocr', replay, w.state.generation)
         self.assert_blank()
 

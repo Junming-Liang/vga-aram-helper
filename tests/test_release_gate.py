@@ -780,7 +780,12 @@ class ReleaseFixture(unittest.TestCase):
         for phrase in ('DIAGNOSTIC PREVIEW', '诊断测试版', 'enables local logs by default',
                        '768 KiB', 'Settings Off switch', 'No automatic upload',
                        'matched catalog hero/augment names', 'raw OCR text',
-                       'actual gameplay remain unverified', f'rerun for v{VERSION}'):
+                       'actual gameplay remain unverified', f'rerun for v{VERSION}',
+                       'Raw title pixel variation alone', 'Fresh same-frame semantic checks',
+                       'original four-second deadline, never renewed by rechecking',
+                       'separate critical-event ledger and routine sampling',
+                       'Controlled non-game fixtures', 'Selection-route gate diagnostics',
+                       'not proof of a fixed real-client selection path'):
             self.assertIn(phrase, notes)
         self.assertNotIn('default-off, current-launch local debug', notes)
         self.assertNotIn('retain their original v0.4.10 evaluation identity', notes)
@@ -1496,14 +1501,14 @@ class AdoptedTimingTests(unittest.TestCase):
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.12')
+        self.assertEqual(VERSION, '0.4.13')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
         self.assertIn(f'group: vga-native-preview-v{VERSION}', text)
         self.assertIn('DIAGNOSTIC prerelease', text)
         self.assertTrue(gate.genuine_report_version_matches(VERSION, VERSION))
-        for old in ('0.4.10', '0.4.11'):
+        for old in ('0.4.10', '0.4.11', '0.4.12'):
             self.assertFalse(gate.genuine_report_version_matches(old, VERSION))
         # Preserve the narrowly scoped historical exception, not for this release.
         self.assertTrue(gate.genuine_report_version_matches('0.4.10', '0.4.11'))

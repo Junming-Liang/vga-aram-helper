@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.12",
+  "applicationVersion": "0.4.13",
   "status": "partial_with_abstentions",
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
-    "hero_recognition.py": "5789991648dba9561f3ffe27eaf2b29d1257b09acba2cc87284450682bbccfd8",
+    "hero_recognition.py": "1bdd2a5e3d33014487b5cec02f25c0895dbe056b555d17adf6d9ecc623e9f9ce",
     "hero_portraits.py": "a6d320b8cc8f586e74b2e5fecb266f1fecbfe5f706844c89f19714356f1a97a3",
     "local_ocr.py": "5b49db856a57878e2ae15b074393d2e037a47db44b494e368f72b9e4b8567f7a",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
@@ -64,7 +64,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.601,
+      "elapsed_seconds": 0.688,
       "image_redistributed": false
     },
     {
@@ -128,7 +128,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.565,
+      "elapsed_seconds": 0.653,
       "image_redistributed": false
     },
     {
@@ -165,7 +165,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.561,
+      "elapsed_seconds": 0.613,
       "image_redistributed": false
     },
     {
@@ -202,7 +202,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.61,
+      "elapsed_seconds": 0.638,
       "image_redistributed": false
     },
     {
@@ -239,7 +239,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.673,
+      "elapsed_seconds": 0.632,
       "image_redistributed": false
     }
   ],

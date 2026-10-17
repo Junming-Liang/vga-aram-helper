@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.12 as a capture stability DIAGNOSTIC prerelease'
+        description: 'Build, test and publish v0.4.13 as a capture stability DIAGNOSTIC prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.12
+  group: vga-native-preview-v0.4.13
   cancel-in-progress: false
 
 jobs:

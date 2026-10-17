@@ -539,8 +539,21 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
             trace.mark('result_received');mode_report['active_case']['phase_state']='result-received'
     def observed(kind,value,generation):
         trace=active[0]
-        if trace is None or kind not in ('capture-proof','ocr'):return
+        if trace is None or kind not in ('capture-proof','title-proof','ocr'):return
         try:
+            if kind=='title-proof':
+                if trace.stopped:
+                    assert not control.state.running and not control.state.confirmed and control._accepted_frame is None and not native_visible(), 'Late semantic proof revived stopped display'
+                    return
+                # The new independent semantic result can revoke counters while
+                # an artificial HUD hold is active. It may never advance them.
+                current=snapshot()
+                revoked=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None)
+                assert current==trace.before or (trace.name in ('changed_title','changed_hud','unknown_hud') and current==revoked), 'Early title proof promoted state or renewed age'
+                if trace.name=='changed_title':
+                    assert current==revoked,'Changed ordered titles failed early semantic revocation'
+                    trace.title_negative_applied=True
+                return
             if kind=='capture-proof':
                 name='before_ocr' if 'hero_observation' in value else 'before_match';trace.mark(name+'_applied');mode_report['active_case']['phase_state']=name+'-applied'
                 current_rect=capture_adapter.rect(control.target);accepted=trace.accepted or {}
@@ -551,6 +564,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 phase={'name':name,'emitted_ms':round(trace.events[name+'_emitted'],3),'applied_ms':round(trace.events[name+'_applied'],3),
                     'compositor_validated_ms':round(trace.events.get('gui_compositor_validated',-1),3),'restored':bool(control._restore_while_ocr),'qt_visible':overlay.isVisible(),'native_visible':native_visible(),
                     'state_unchanged':snapshot()==trace.before,'state_before':trace.before,'state_at_phase':snapshot(),
+                    'semantic_rejected_before_phase':bool(getattr(trace,'title_negative_applied',False)),
                     'current_identity_geometry_focus':bool(current),
                     ('helper_cleanup_complete' if mode=='one-shot' else 'session_guarded_idle_verified'):bool(acquisition_complete(trace)),
                     'window_identity':list(value['_windowIdentity']),'current_window_identity':list(control.target.identity),
@@ -572,7 +586,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
                 elif trace.name in ('changed_title','changed_hud','unknown_hud'):
                     assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
-                    expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if trace.name in ('changed_hud','unknown_hud') and name=='before_ocr' else trace.before
+                    expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if (trace.name in ('changed_hud','unknown_hud') and name=='before_ocr') or phase['semantic_rejected_before_phase'] else trace.before
                     assert phase['state_at_phase']==expected_state,'Intermediate proof may only revoke unsafe evidence, never refresh TTL or promote counters'
             else:
                 trace.mark('final');trace.sample(native_visible());trace.finished=True;mode_report['active_case']['phase_state']='final'
@@ -623,7 +637,10 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     for name,release in list(trace.holds.items()):
                         if release.is_set() or name+'_applied' not in trace.events:continue
                         held_phase=next(phase for phase in trace.phases if phase['name']==name)
-                        assert snapshot()==held_phase['state_at_phase'],'TTL or confirmation counters changed after the applied diagnostic phase'
+                        expected=held_phase['state_at_phase']
+                        if getattr(trace,'title_negative_applied',False):
+                            expected=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None)
+                        assert snapshot()==expected,'TTL/counters changed without an applied semantic revocation'
                         trace.held_state_samples+=1
                         if trace.clock()-trace.hold_started[name]<.35:continue
                         if trace.name=='stop_late' and name=='before_ocr':
@@ -646,6 +663,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 if trace.name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
                     final_qt_visible=overlay.isVisible();final_native_visible=native_visible()
                     value=trace.summary();value.update(mode=mode,capture_backend=trace.backend,
+                        title_semantic_rejection_observed=bool(getattr(trace,'title_negative_applied',False)),
                         capture_duration_ms=round(trace.events['capture_return']-trace.events['capture_start'],3),
                         final_visible_slots=visible_badge_slots(overlay,final_native_visible,qt_visible=final_qt_visible),
                         final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=final_qt_visible,final_native_visible=final_native_visible,
@@ -660,7 +678,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     assert value['capture_samples']>=2 and value['capture_visible_samples']==0 and value['qt_show_events_during_capture']==0
                     assert [phase['name'] for phase in value['phases']]==['before_match','before_ocr']
                     for phase in value['phases']:
-                        expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if trace.name in ('changed_hud','unknown_hud') and phase['name']=='before_ocr' else trace.before
+                        expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if (trace.name in ('changed_hud','unknown_hud') and phase['name']=='before_ocr') or phase['semantic_rejected_before_phase'] else trace.before
                         assert phase['state_at_phase']==expected_state and phase['state_unchanged']==(expected_state==trace.before)
                     if trace.name=='unchanged':
                         assert control.state.confirmed and control.state.confirmation_mode=='automatic' and value['sampled_inference_visible_ms']>=500
@@ -672,6 +690,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                         assert value['final_candidate_names']==['星火共鸣','晶盾回路','风步微光']
                         assert all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in value['phases'])
                     elif trace.name=='changed_title':
+                        assert value['title_semantic_rejection_observed'],'Changed titles lacked early semantic callback evidence'
                         assert not control.state.confirmed and native_visible() and value['sampled_inference_visible_ms']==0
                         assert value['final_visible_slots']==[3] and overlay._badge_widgets[2].tier=='T3'
                         assert value['final_candidate_names']==['晶盾回路','星火共鸣','风步微光']

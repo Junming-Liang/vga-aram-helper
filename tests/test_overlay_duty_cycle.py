@@ -418,7 +418,7 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                     self.assertEqual(row['helper_exit_codes'],[])
                     for phase in row['phases']:
                         before=phase['state_before']
-                        expected=dict(before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if row['name'] in ('changed_hud','unknown_hud') and phase['name']=='before_ocr' else before
+                        expected=dict(before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if (row['name'] in ('changed_hud','unknown_hud') and phase['name']=='before_ocr') or phase['semantic_rejected_before_phase'] else before
                         self.assertEqual(phase['state_at_phase'],expected)
                         self.assertEqual(phase['state_unchanged'],before==expected)
                 self.assertGreaterEqual(rows[0]['sampled_inference_visible_ms'],500)

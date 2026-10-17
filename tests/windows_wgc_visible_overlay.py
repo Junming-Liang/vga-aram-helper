@@ -297,6 +297,8 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
         product=row.get('product',{})
         if product.get('hide_events')!=0 or product.get('overlay_visible') is not True or product.get('confirmed') is not True:
             raise RuntimeError('Stable actual product result hid/reflowed or lost confirmation')
+        if product.get('title_check_transitions') != [] or product.get('titles_pending') is not False:
+            raise RuntimeError('Same-title animation alternated grades with checking text')
     for row in (b,c,d):
         product=row['product'];hero=product.get('hero');offered=product.get('offered')
         if (type(hero) is not str or not 0<len(hero)<=256 or type(offered) is not list or len(offered)!=3
@@ -304,8 +306,46 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
             or len(set(offered))!=3 or not same_json(hero,b['product']['hero'])
             or not same_json(offered,b['product']['offered'])):
             raise RuntimeError('Changed GUI pixels lost the accepted hero or ordered candidate trio')
+        tiers=product.get('tier_texts')
+        if (type(tiers) is not list or len(tiers)!=3 or any(type(tier) is not str or not tier for tier in tiers)
+            or not same_json(tiers,b['product'].get('tier_texts'))):
+            raise RuntimeError('Unchanged semantic titles lost or changed painted grades')
     if (c['paint_state']!=0 or d['paint_state']!=1 or c['pixels_sha256']==d['pixels_sha256']):
         raise RuntimeError('Second visible GUI cycle did not acquire changed target pixels')
+    variation=value.get('title_band_variation',{})
+    if variation.get('pixel_proof_changed') is not True or type(variation.get('patch')) is not list or len(variation['patch'])!=4:
+        raise RuntimeError('Actual title-band pixel mismatch evidence missing')
+    partial=value.get('partial_product',{})
+    indices=partial.get('request_indices')
+    if (type(indices) is not list or len(indices)!=3 or any(type(i) is not int or not 0<=i<len(rows) for i in indices)
+        or indices!=sorted(set(indices))):raise RuntimeError('Partial product acquisition inventory missing')
+    pa,pb,pc=(rows[i] for i in indices)
+    for row in (pa,pb,pc):
+        product=row.get('product',{})
+        if any(type(product.get(key)) is not int or product[key]<0 for key in ('capture_serial','hide_events','show_events')):
+            raise RuntimeError('Partial product counters have invalid types')
+    expected_partial=[b['product']['offered'][0],'',b['product']['offered'][2]]
+    if (type(partial.get('reference_serial')) is not int or partial['reference_serial']!=pb.get('product',{}).get('capture_serial')
+        or not pa.get('product',{}).get('capture_serial',0)<partial['reference_serial']<pc.get('product',{}).get('capture_serial',0)):
+        raise RuntimeError('Partial pixel comparison is not bound to the immediate accepted partial frame')
+    if (partial.get('expected_names')!=expected_partial or partial.get('unknown_slot')!=2
+        or partial.get('same_overlay_hwnd') is not True or partial.get('title_band_pixels_changed') is not True
+        or partial.get('visible_slots')!=[1,3] or partial.get('native_region_count')!=2
+        or partial.get('native_mask_verified') is not True or partial.get('unknown_accessible_ungraded') is not True):
+        raise RuntimeError('Partial native region/unknown-slot safety evidence differs')
+    if pa['visible_request'] is not False or pb['visible_request'] is not False or pc['visible_request'] is not True:
+        raise RuntimeError('Partial capture confirmation/visible modes differ')
+    for row in (pa,pb,pc):
+        if row['status']!='passed' or row.get('product',{}).get('confirmed') is not False:
+            raise RuntimeError('Partial observations unexpectedly authorized full triplet')
+    for row in (pb,pc):
+        product=row['product'];tiers=product.get('tier_texts')
+        if (product.get('partial_names')!=expected_partial or type(tiers) is not list or len(tiers)!=3
+            or tiers[1]!='' or any(type(tiers[i]) is not str or not tiers[i] for i in (0,2))):
+            raise RuntimeError('Partial known tiers or unknown slot differ')
+    if (pc['product'].get('overlay_visible') is not True or pc['product']['tier_texts']!=pb['product']['tier_texts'] or pc['product'].get('hide_events')!=0
+        or pc['product'].get('title_check_transitions')!=[] or pc['product'].get('titles_pending') is not False):
+        raise RuntimeError('Partial animated title band caused grade/checking/native churn')
     pairs=value.get('pixel_pairs')
     if type(pairs) is not list or [(r.get('state'),r.get('placement')) for r in pairs]!=[(0,'titles'),(1,'hud'),(1,'titles')]:
         raise RuntimeError('Moving overlay deterministic/static pixel matrix missing')

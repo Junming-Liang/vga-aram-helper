@@ -147,7 +147,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None,after_titles=None):
             hero_calls.append(image)
             if before_ocr:before_ocr({'hero': hero, 'confident': True},b'exact-title-crop')
             result = ocr.recognize(b'exact-title-crop', vocabulary)
@@ -200,7 +200,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None,after_titles=None):
             if before_ocr:before_ocr({'hero': selected[0], 'confident': True},b'unchanged-owned-titles')
             result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
             result['hero_observation'] = {'hero': selected[0], 'confident': True}
@@ -364,7 +364,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def foreground(inner,target):return True
         w.capture=Capture()
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None,after_titles=None):
             before_match('a'*64,b'owned-crop')
             if not release.wait(2):raise RuntimeError('owned inference timeout')
             before_ocr({'hero':hero,'confident':True},b'owned-crop')
@@ -637,7 +637,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         capture.capture=acquire
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,
             'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None,after_titles=None):
             before_match('changed-HUD-animation',b'changed-whole-ROI-animation')
             if not release.wait(2):raise RuntimeError('owned timeout')
             before_ocr({'hero':hero,'confident':True},b'changed-whole-ROI-animation')
@@ -655,7 +655,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         w=self.window;capture,hero,names=self.visible_capture_fixture()
         release=threading.Event();resolved=threading.Event();self._release_events.append(release)
         capture.capture=lambda *args,**kwargs:(b'owned synthetic conflict',capture.rect(w.target))
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None,after_titles=None):
             before_match('owned-digest',b'owned-crop')
             observation={'hero':None,'confident':False,'method':'game-client-api'}
             before_ocr(observation,b'owned-crop');resolved.set()

@@ -144,6 +144,37 @@ class PartialCandidateStateTests(unittest.TestCase):
         self.assertEqual(self.observe(1), EMPTY_SLOTS)
         self.assertEqual(self.observe(2), NAMES[:3])
 
+    def test_early_recheck_is_revocation_only_and_final_counts_once(self):
+        self.stable()
+        stamps=(self.state._last_serial,self.state._last_capture,self.state._last_ocr)
+        changed=evidence(rows((NAMES[0],NAMES[3],NAMES[2])))
+        self.assertEqual(self.state.recheck(changed,now=2.5),(NAMES[0],'',NAMES[2]))
+        self.assertEqual(self.state._counts,(2,0,2))
+        # A late positive callback cannot re-seed the erased old title.
+        self.assertEqual(self.state.recheck(evidence(),now=2.5),(NAMES[0],'',NAMES[2]))
+        self.assertEqual((self.state._last_serial,self.state._last_capture,self.state._last_ocr),stamps)
+        self.assertEqual(self.observe(3,rows((NAMES[0],NAMES[3],NAMES[2]))),(NAMES[0],'',NAMES[2]))
+        self.assertEqual(self.state._counts,(2,1,2))
+        self.assertEqual(self.observe(4,rows((NAMES[0],NAMES[3],NAMES[2]))),(NAMES[0],NAMES[3],NAMES[2]))
+
+    def test_early_recheck_unknown_low_confidence_and_missing_rows(self):
+        for lines,expected in ((rows((NAMES[0],'未知强化',NAMES[2])),(NAMES[0],'',NAMES[2])),
+                               (rows(scores=(.99,.92,.99)),(NAMES[0],'',NAMES[2])),
+                               (rows()[:2],EMPTY_SLOTS)):
+            self.state=PartialCandidateState();self.stable()
+            stamps=(self.state._last_serial,self.state._last_capture,self.state._last_ocr)
+            self.assertEqual(self.state.recheck(evidence(lines),now=2.5),expected)
+            self.assertEqual((self.state._last_serial,self.state._last_capture,self.state._last_ocr),stamps)
+
+    def test_early_positive_never_promotes_unknown_or_extends_ttl(self):
+        partial=rows((NAMES[0],'未知强化',NAMES[2]))
+        self.observe(1,partial);self.observe(2,partial)
+        for now in (2.5,3.,6.):
+            self.assertEqual(self.state.recheck(evidence(),now=now),(NAMES[0],'',NAMES[2]))
+            self.assertEqual(self.state._counts,(2,0,2))
+        self.assertEqual(self.state.recheck(evidence(),now=6.001),EMPTY_SLOTS)
+        self.assertEqual((self.state._last_serial,self.state._last_capture,self.state._last_ocr),(2,2,2))
+
     def test_two_independent_frames_required_per_known_slot(self):
         partial = rows((NAMES[0], '未知强化', NAMES[2]))
         self.assertEqual(self.observe(1, partial), EMPTY_SLOTS)

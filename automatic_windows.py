@@ -105,6 +105,56 @@ class Discovery:
     reason:str
     confirmation:Candidate|None=None
     reason_code:str="unknown"
+    # Counts only. Metadata eligibility is distinct from publisher verification;
+    # the preferred candidate still passes the unchanged signature gate below.
+    diagnostics:tuple[tuple[str,int],...]=()
+
+
+DISCOVERY_COUNT_FIELDS=('window_count','eligible_client_count','eligible_game_count',
+    'preferred_count','rejected_class_count','rejected_metadata_count',
+    'rejected_identity_count','rejected_installation_count','rejected_signature_count')
+
+
+TARGET_ROLES=frozenset({'none','client','game','manual','unknown'})
+SELECTION_GATES=frozenset({'closed','stopped','inference_busy','capture_pending',
+    'target_missing','foreground_rejected','client_lcu_ready','client_pixels_ready',
+    'game_pixels_ready','manual_pixels_ready','route_unknown'})
+SELECTION_ROUTES=frozenset({'blocked','selection_lcu','selection_pixels',
+    'game_pixels','manual_pixels','unknown'})
+
+
+def selection_gate_snapshot(*,closed,running,ocr_busy,capture_pending,
+        target_present,target_role,target_foreground=None,lcu_selection=False,
+        hero_auto=False,pixel_fallback=False):
+    """Mirror capture_tick's existing short-circuit gates with fixed enums.
+
+    Diagnostic-only: this never grants capture permission or starts work.
+    A ready route is intent, not proof of a completed capture or inference.
+    Foreground may be None when a prior guard short-circuited, so diagnostics
+    never need an additional OS query. LCU off still leaves the client pixel
+    route available. Its opt-in is observed, never changed or persisted.
+    """
+    role=target_role if type(target_role) is str and target_role in TARGET_ROLES else 'unknown'
+    values={'target_role':role,'target_present':bool(target_present),
+        'lcu_selection':bool(lcu_selection),'hero_auto':bool(hero_auto),
+        'pixel_fallback':bool(pixel_fallback)}
+    if type(target_foreground) is bool:values['target_foreground']=target_foreground
+    route='blocked'
+    if closed:gate='closed'
+    elif ocr_busy:gate='inference_busy'
+    elif capture_pending:gate='capture_pending'
+    elif not running:gate='stopped'
+    elif not target_present:gate='target_missing'
+    elif target_foreground is False:gate='foreground_rejected'
+    elif target_foreground is not True:gate='route_unknown';route='unknown'
+    elif role=='client':
+        if lcu_selection and hero_auto and not pixel_fallback:
+            gate='client_lcu_ready';route='selection_lcu'
+        else:gate='client_pixels_ready';route='selection_pixels'
+    elif role=='game':gate='game_pixels_ready';route='game_pixels'
+    elif role=='manual':gate='manual_pixels_ready';route='manual_pixels'
+    else:gate='route_unknown';route='unknown'
+    return {**values,'selection_gate':gate,'selection_route':route}
 
 
 class AutomaticWindowPolicy:
@@ -115,38 +165,56 @@ class AutomaticWindowPolicy:
         self.started_after=int(time.time()*10_000_000)+116444736000000000
     def stop(self):self.active=False;self.bound=None;self.confirmed_root=None
     def inspect(self,window,*,verify=True):
-        if window.class_name not in CLIENT_CLASSES|{'RiotWindowClass'}:return None
+        return self._inspect(window,verify=verify)[0]
+    def _inspect(self,window,*,verify=True):
+        """Return the existing eligibility decision and a fixed rejection code.
+
+        Diagnostic codes carry no title, executable path or native identity and
+        cannot authorize a candidate. Keep metadata/signature calls unchanged.
+        """
+        if window.class_name not in CLIENT_CLASSES|{'RiotWindowClass'}:return None,'rejected_class_count'
         try:
             meta=self.resolver(window.pid);path=PureWindowsPath(normalized_path(meta.path))
-            if not isinstance(meta.created,int) or meta.created<=0:return None
+            if not isinstance(meta.created,int) or meta.created<=0:return None,'rejected_metadata_count'
             if path.name in ('leagueclientux.exe','leagueclient.exe') and window.class_name in CLIENT_CLASSES:
                 role='client';root=path.parent.parent if path.parent.name=='leagueclient' else path.parent
             elif path.name=='league of legends.exe' and path.parent.name=='game' and window.class_name=='RiotWindowClass':
                 role='game';root=path.parent.parent
-            else:return None
-            if self.root is not None and str(root)!=self.root:return None
-            if verify and not self.verifier(str(path)):return None
-            return Candidate(window,ProcessMetadata(str(path),meta.created),str(root),role)
-        except (OSError,ValueError,KeyError):return None
+            else:return None,'rejected_identity_count'
+            if self.root is not None and str(root)!=self.root:return None,'rejected_installation_count'
+            if verify and not self.verifier(str(path)):return None,'rejected_signature_count'
+            return Candidate(window,ProcessMetadata(str(path),meta.created),str(root),role),None
+        except (OSError,ValueError,KeyError):return None,'rejected_metadata_count'
     def preferred(self,candidates):
         if not self.follow_roles and self.bound:candidates=[item for item in candidates if item.role==self.bound.role]
         games=[item for item in candidates if item.role=='game']
         return games or [item for item in candidates if item.role=='client']
     def discover(self,windows):
-        if not self.active:return Discovery(None,'监测已停止。',reason_code='discovery_stopped')
-        recognized=[item for window in windows if (item:=self.inspect(window,verify=False)) is not None]
+        counts={name:0 for name in DISCOVERY_COUNT_FIELDS}
+        def result(candidate,reason,confirmation=None,*,reason_code):
+            return Discovery(candidate,reason,confirmation,reason_code,tuple(counts.items()))
+        if not self.active:return result(None,'监测已停止。',reason_code='discovery_stopped')
+        windows=tuple(windows);counts['window_count']=len(windows);recognized=[]
+        for window in windows:
+            item,rejection=self._inspect(window,verify=False)
+            if item is None:counts[rejection]+=1
+            else:
+                recognized.append(item)
+                counts['eligible_client_count' if item.role=='client' else 'eligible_game_count']+=1
         if not recognized:
             reason='检测到游戏窗口，但暂时无法核验其基本进程身份；不会截图，稍后自动重试。' if any(window.class_name=='RiotWindowClass' for window in windows) else '等待英雄联盟窗口；游戏启动、恢复或重开后会自动连接。'
-            return Discovery(None,reason,reason_code='window_identity_unverified' if any(window.class_name=='RiotWindowClass' for window in windows) else 'window_not_found')
-        if len({item.root for item in recognized})!=1:return Discovery(None,'发现多个英雄联盟安装目录，等待只保留一个客户端或游戏。',reason_code='multiple_installations')
+            return result(None,reason,reason_code='window_identity_unverified' if any(window.class_name=='RiotWindowClass' for window in windows) else 'window_not_found')
+        if len({item.root for item in recognized})!=1:return result(None,'发现多个英雄联盟安装目录，等待只保留一个客户端或游戏。',reason_code='multiple_installations')
         preferred=self.preferred(recognized)
-        if len(preferred)!=1:return Discovery(None,'发现多个同类英雄联盟窗口，暂不截图；关闭多余窗口后自动恢复。',reason_code='multiple_windows')
+        counts['preferred_count']=len(preferred)
+        if len(preferred)!=1:return result(None,'发现多个同类英雄联盟窗口，暂不截图；关闭多余窗口后自动恢复。',reason_code='multiple_windows')
         candidate=preferred[0]
-        if not self.active:return Discovery(None,'监测已停止。',reason_code='discovery_stopped')
+        if not self.active:return result(None,'监测已停止。',reason_code='discovery_stopped')
         if candidate.root!=self.confirmed_root and not self.verifier(candidate.metadata.path):
+            counts['rejected_signature_count']+=1
             name=PureWindowsPath(candidate.metadata.path).name
-            return Discovery(None,'已找到 '+name+'（'+candidate.window.class_name+'），但签名/游戏文件身份未通过本机校验；可确认自己的安装目录后继续。',candidate,reason_code='signature_unverified')
-        return Discovery(candidate,'已自动连接'+('游戏窗口。' if candidate.role=='game' else '客户端，等待选人或进入游戏。'),reason_code='game_connected' if candidate.role=='game' else 'client_connected')
+            return result(None,'已找到 '+name+'（'+candidate.window.class_name+'），但签名/游戏文件身份未通过本机校验；可确认自己的安装目录后继续。',candidate,reason_code='signature_unverified')
+        return result(candidate,'已自动连接'+('游戏窗口。' if candidate.role=='game' else '客户端，等待选人或进入游戏。'),reason_code='game_connected' if candidate.role=='game' else 'client_connected')
     def confirm_installation(self,candidate,*,windows):
         """Only the GUI's explicit, per-session installation confirmation calls this."""
         if not self.active or not candidate:return False

@@ -2,7 +2,7 @@
 import sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from automatic_windows import AutomaticWindowPolicy,trusted_signature_result
+from automatic_windows import AutomaticWindowPolicy,trusted_signature_result,DISCOVERY_COUNT_FIELDS
 from screen_capture import WindowInfo
 from session_windows import ProcessMetadata
 
@@ -60,6 +60,64 @@ class AutomaticWindowTests(unittest.TestCase):
         self.p.verifier=lambda path:False;result=self.p.discover([self.game]);other=WindowInfo(9,20,self.game.title,self.game.class_name)
         self.assertFalse(self.p.confirm_installation(result.confirmation,windows=[self.game,other]))
         self.meta[20]=ProcessMetadata(self.meta[20].path,999);self.assertFalse(self.p.confirm_installation(result.confirmation,windows=[self.game]))
+    def test_discovery_counts_metadata_eligible_roles_without_changing_preference(self):
+        result=self.p.discover([self.client,self.game]);counts=dict(result.diagnostics)
+        self.assertEqual(result.candidate.window,self.game)
+        self.assertEqual(set(counts),set(DISCOVERY_COUNT_FIELDS))
+        self.assertEqual(counts['window_count'],2)
+        self.assertEqual(counts['eligible_client_count'],1)
+        self.assertEqual(counts['eligible_game_count'],1)
+        self.assertEqual(counts['preferred_count'],1)
+        self.assertTrue(all(type(value) is int and value>=0 for value in counts.values()))
+    def test_discovery_rejections_are_count_only_and_do_not_read_unrelated_processes(self):
+        sentinel='private-title-account-marker'
+        other_class=WindowInfo(3,30,sentinel,'UnrelatedClass')
+        unreadable=WindowInfo(4,40,sentinel,'Chrome_WidgetWin_1')
+        unrelated_exe=WindowInfo(5,50,sentinel,'Chrome_WidgetWin_1')
+        other_install=WindowInfo(6,60,sentinel,'RiotWindowClass')
+        self.bind([self.client])
+        self.meta[50]=ProcessMetadata(r'C:\Private-Path-Marker\unrelated.exe',500)
+        self.meta[60]=ProcessMetadata(r'D:\Private-Path-Marker\Game\League of Legends.exe',600)
+        reads=[]
+        def resolve(pid):
+            reads.append(pid)
+            return self.meta[pid]
+        self.p.resolver=resolve
+        result=self.p.discover([self.client,other_class,unreadable,unrelated_exe,other_install])
+        counts=dict(result.diagnostics)
+        self.assertEqual(result.candidate.window,self.client)
+        self.assertEqual(counts['window_count'],5)
+        for key in ('rejected_class_count','rejected_metadata_count','rejected_identity_count','rejected_installation_count'):
+            self.assertEqual(counts[key],1)
+        self.assertEqual(reads,[10,40,50,60])
+        self.assertNotIn(sentinel,repr(result.diagnostics))
+        self.assertNotIn('Private-Path-Marker',repr(result.diagnostics))
+        self.assertIsInstance(result.diagnostics,tuple)
+    def test_signature_failure_retains_metadata_counts_but_no_authorized_candidate(self):
+        verified=[]
+        self.p.verifier=lambda path:verified.append(path) or False
+        result=self.p.discover([self.client,self.game]);counts=dict(result.diagnostics)
+        self.assertIsNone(result.candidate);self.assertEqual(result.confirmation.window,self.game)
+        self.assertEqual(counts['eligible_client_count'],1)
+        self.assertEqual(counts['eligible_game_count'],1)
+        self.assertEqual(counts['rejected_signature_count'],1)
+        self.assertEqual(verified,[self.meta[20].path.casefold()])
+    def test_ambiguity_reports_counts_and_keeps_signature_gate_unattempted(self):
+        twin=WindowInfo(3,20,'different caption',self.game.class_name)
+        self.p.verifier=lambda path:self.fail('Ambiguity must not advance to verification')
+        result=self.p.discover([self.client,self.game,twin]);counts=dict(result.diagnostics)
+        self.assertIsNone(result.candidate);self.assertEqual(result.reason_code,'multiple_windows')
+        self.assertEqual(counts['eligible_game_count'],2);self.assertEqual(counts['preferred_count'],2)
+        self.assertEqual(counts['rejected_signature_count'],0)
+    def test_stopped_discovery_does_not_query_metadata_for_diagnostics(self):
+        self.p.stop();self.p.resolver=lambda pid:self.fail('Stopped discovery must not query metadata')
+        result=self.p.discover([self.client]);self.assertIsNone(result.candidate)
+        self.assertTrue(all(value==0 for value in dict(result.diagnostics).values()))
+    def test_counts_restart_each_discovery_and_follow_role_optout(self):
+        self.p.follow_roles=False;self.bind([self.client])
+        result=self.p.discover([self.client,self.game]);self.assertEqual(result.candidate.window,self.client)
+        self.assertEqual(dict(result.diagnostics)['eligible_game_count'],1)
+        second=self.p.discover([self.client]);self.assertEqual(dict(second.diagnostics)['eligible_game_count'],0)
 
 class SignatureIdentityTests(unittest.TestCase):
     def setUp(self):self.path=r'C:\Riot\LeagueClientUx.exe';self.value={'status':'Valid','publisher':'Riot Games, Inc.','original':'LeagueClientUx.exe','product':'League of Legends'}

@@ -67,9 +67,20 @@ class DebugUITests(unittest.TestCase):
         self.window.debug_export_button.click()
         path = self.root / 'debug-exports' / 'VGA-debug.zip'
         with zipfile.ZipFile(path) as archive:
-            self.assertEqual(set(archive.namelist()), {'manifest.json', 'events.jsonl'})
+            self.assertEqual(set(archive.namelist()), {'manifest.json', 'events.jsonl', 'critical.jsonl', 'context.jsonl'})
+            manifest = json.loads(archive.read('manifest.json'))
             text = archive.read('events.jsonl').decode()
-            return json.loads(archive.read('manifest.json')), [json.loads(line) for line in text.splitlines()], text
+            whole_archive = '\n'.join(archive.read(name).decode() for name in archive.namelist())
+            self.assertEqual(manifest['schema'], 3)
+            self.assertLessEqual(sum(entry.file_size for entry in archive.infolist()), 832 * 1024)
+            # Incident originals overlap the sampled tail. Correlate exact
+            # records by session/sequence; never pretend critical aggregates
+            # are individual adjacent events.
+            rows = [json.loads(line) for line in text.splitlines()]
+            rows.extend(json.loads(line) for line in archive.read('context.jsonl').splitlines())
+            unique = {(row['session'], row['sequence']): row for row in rows}
+            events = sorted(unique.values(), key=lambda row: (row['session'], row['sequence']))
+            return manifest, events, whole_archive
 
     def test_diagnostic_default_on_toggle_and_export_are_local_and_retain_prior_logs(self):
         w = self.window
@@ -89,6 +100,27 @@ class DebugUITests(unittest.TestCase):
         self.assertIn(str(self.root / 'debug-exports' / 'VGA-debug.zip'), w.debug_status.text())
         self.assertNotIn(str(self.root), text + json.dumps(manifest))
         self.assertNotIn('PRIVATE_RAW_ERROR', text)
+
+    def test_historical_settings_and_selection_gate_reach_critical_export(self):
+        w = self.window
+        self.assertFalse(w.lcu_toggle.isChecked())
+        w.lcu_toggle.setChecked(True)
+        w.state.start((123, 456, 'owned'))
+        w.target = None
+        w.capture_tick()
+        manifest, _, text = self.exported()
+        with zipfile.ZipFile(self.root / 'debug-exports' / 'VGA-debug.zip') as archive:
+            critical = [json.loads(line) for line in archive.read('critical.jsonl').splitlines()]
+        configs = [row for row in critical if row['event'] == 'config']
+        self.assertFalse(configs[0]['lcu_selection'])
+        self.assertTrue(configs[-1]['lcu_selection'])
+        self.assertLess(configs[0]['sequence'], configs[-1]['sequence'])
+        gate = next(row for row in critical if row.get('selection_gate') == 'target_missing')
+        self.assertEqual(gate['selection_route'], 'blocked')
+        self.assertTrue(gate['lcu_selection'])
+        self.assertFalse(gate['target_present'])
+        self.assertEqual(manifest['summary']['selection_gates']['target_missing']['observations'], 1)
+        self.assertNotIn(str(self.root), text)
 
     def test_round_hero_freshness_and_ttl_transitions_exclude_names(self):
         w = self.window
@@ -187,6 +219,9 @@ class DebugUITests(unittest.TestCase):
         w=self.window
         w.state.start((123,456,'owned'));w.state.confirmed=True
         w.last_observation=time.monotonic();w._capture_serial=40
+        # This fixture exercises backend fallback from an already accepted
+        # automatic frame, rather than the separate no-previous-authority gate.
+        w._accepted_frame={'observed_at':w.last_observation}
         w.target=SimpleNamespace(identity=(123,456,'owned'))
         w.capture=SimpleNamespace(foreground=lambda target:True,
             visible_capture_status='backend_unavailable',can_request_visible_overlay=False)

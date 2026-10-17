@@ -249,6 +249,15 @@ class ProductFixture(Fixture):
                         at=time.perf_counter(), during_capture=parent.active is not None))
                 return False
         self.events = Events(self.overlay); self.overlay.installEventFilter(self.events)
+        self.title_check_events=[]
+        original_title_check=self.overlay.set_title_checking
+        def observe_title_check(value):
+            before=self.overlay._titles_pending
+            original_title_check(value)
+            if before!=self.overlay._titles_pending:
+                require(len(self.title_check_events)<256,'Title checking transition budget exceeded')
+                self.title_check_events.append(bool(self.overlay._titles_pending))
+        self.overlay.set_title_checking=observe_title_check
         self.real_capture = self.capture.capture
         self.capture.capture = self.observed_capture
         # Observe, rather than replace, actual legacy routes. A denial that
@@ -365,9 +374,32 @@ class ProductFixture(Fixture):
         if 'error' in box: raise box['error']
         return box['result'][0]
 
+    def title_band_variation(self):
+        """Mutate original non-text pixels INSIDE a verified title hash band.
+
+        No recognition is injected: the normal OCR must independently recover
+        the same titles. Pixel coordinates are physical, including at high DPR.
+        """
+        from PySide6 import QtGui
+        from screen_capture import bounded_roi
+        reference=self.control._accepted_frame
+        proof=reference.get('title_proof') if reference else None
+        require(proof is not None, 'Accepted title proof missing before variation')
+        roi=tuple(spin.value()/100 for spin in self.control.roi)
+        left,top,_,_=bounded_roi(self.rect.width,self.rect.height,roi)
+        x0,y0,x1,y1=proof.regions[0]
+        x,y=left+x0+2,top+(y0+y1)//2
+        image=self.artwork[1].toImage()
+        for dx in range(4):
+            for dy in range(4):image.setPixelColor(x+dx,y+dy,QtGui.QColor(75,60,85))
+        self.artwork[1]=QtGui.QPixmap.fromImage(image)
+        self.artwork[1].setDevicePixelRatio(self.window.devicePixelRatioF())
+        self.result['title_band_variation']={'patch':[x,y,4,4], 'pixel_proof_changed':False}
+        return proof
+
     def product_cycle(self, name, *, visible, paint_state=None):
         """The real GUI route, actual matcher/OCR, and actual result handlers."""
-        count = len(self.records); events = len(self.event_rows); start = time.monotonic()
+        count = len(self.records); events = len(self.event_rows); title_events=len(self.title_check_events); start = time.monotonic()
         if paint_state is not None:self.paint(paint_state)
         self.control.capture_tick()
         # A planned mode switch may first return while the prior owner drains.
@@ -381,18 +413,76 @@ class ProductFixture(Fixture):
         row = self.records[-1]
         require(row['status'] == 'passed' and row['visible_request'] is visible, 'Product selected wrong capture route')
         row['case'] = name
-        row['product'] = dict(confirmed=self.control.state.confirmed,
+        row['product'] = dict(capture_serial=self.control._capture_serial,confirmed=self.control.state.confirmed,
             automatic_frames=self.control.state.automatic_frames, hero=self.control.state.hero,
-            offered=list(self.control.state.offered), overlay_visible=self.overlay.isVisible(),
+            offered=list(self.control.state.offered), partial_names=list(self.control.current_partial_names()),
+            tier_texts=[badge.tier for badge in self.overlay._badge_widgets], overlay_visible=self.overlay.isVisible(),
             hide_events=sum(item['event']=='hide' for item in self.event_rows[events:]),
-            show_events=sum(item['event']=='show' for item in self.event_rows[events:]))
+            show_events=sum(item['event']=='show' for item in self.event_rows[events:]),
+            title_check_transitions=self.title_check_events[title_events:], titles_pending=self.overlay._titles_pending)
         if visible:
             require(row['visibility']['samples'] > 0 and row['visibility']['qt_hidden_samples'] == 0
                     and row['visibility']['native_hidden_samples'] == 0 and row['native_visible_before']
                     and row['native_visible_after'], 'Overlay was hidden during actual acquisition')
             require(row['product']['hide_events'] == 0 and self.overlay.isVisible(),
                     'Product hid/reflowed its visible overlay during capture/inference/result')
+            require(not row['product']['title_check_transitions'] and not row['product']['titles_pending'],
+                    'Unchanged semantic titles alternated grades and neutral checking text')
         return row
+
+    def partial_product_cycles(self):
+        """Real OCR on original cards with one catalog name intentionally absent."""
+        names=tuple(self.control.state.offered)
+        require(len(names)==3,'Full accepted titles missing before partial case')
+        omitted=self.control.data['augments'].pop(names[1])
+        try:
+            owner=self.capture._persistent._owner
+            self.control.invalidate_scene('Owned synthetic partial catalog change')
+            self.paint(0)
+            first=self.product_cycle(None,visible=False)
+            self.cleanup_owner(owner,'full-to-partial-hidden-drain')
+            second=self.product_cycle(None,visible=False)
+            expected=[names[0],'',names[2]]
+            require(second['product']['partial_names']==expected and not second['product']['confirmed'],
+                    'Two real partial OCR frames did not establish independent known slots')
+            owner=self.capture._persistent._owner
+            partial_reference=self.control._accepted_partial_frame
+            require(partial_reference is not None,'Partial display lacks scoped accepted authority')
+            third=self.product_cycle(None,visible=True,paint_state=1)
+            self.cleanup_owner(owner,'partial-hidden-to-visible-drain')
+            require(third['product']['partial_names']==expected and third['product']['tier_texts']==second['product']['tier_texts']
+                    and third['product']['tier_texts'][1]=='', 'Partial animation lost known grades or rated the unknown slot')
+            from native_smoke import visible_badge_slots
+            from card_badges import native_region
+            from PIL import Image
+            x,y,w,h=self.result['title_band_variation']['patch']
+            before=Image.open(io.BytesIO(second['_png'])).convert('RGB').crop((x,y,x+w,y+h))
+            after=Image.open(io.BytesIO(third['_png'])).convert('RGB').crop((x,y,x+w,y+h))
+            require(before.tobytes()!=after.tobytes(),'Partial title-band pixels did not actually change')
+            slots=visible_badge_slots(self.overlay,bool(self.u.IsWindowVisible(self.overlay_hwnd)))
+            require(slots==[1,3] and len(self.overlay._badge_regions)==2,'Partial native mask/slots differ')
+            native_region(self.overlay_hwnd,self.overlay._badge_regions,verify_only=True)
+            unknown=self.overlay._badge_widgets[1]
+            require(not unknown.tier and not unknown.hint and not unknown.identity_provenance
+                    and not unknown.accessibleDescription() and unknown.accessibleName()=='选项 2 · 正在核对当前候选',
+                    'Unknown slot exposes stale grade/identity')
+            self.result['partial_product']={'title_band_pixels_changed':True,'visible_slots':slots,
+                'native_region_count':len(self.overlay._badge_regions),'native_mask_verified':True,'unknown_accessible_ungraded':True,
+                'reference_serial':partial_reference['serial'],'request_indices':[self.records.index(row) for row in (first,second,third)],
+                'expected_names':expected,'unknown_slot':2,'same_overlay_hwnd':int(self.overlay.winId())==self.overlay_hwnd}
+        finally:
+            self.control.data['augments'][names[1]]=omitted
+        # Restore through independent real observations, never inject grades.
+        owner=self.capture._persistent._owner
+        self.control.invalidate_scene('Owned synthetic full catalog restored')
+        self.product_cycle(None,visible=False)
+        self.cleanup_owner(owner,'partial-to-full-hidden-drain')
+        self.product_cycle(None,visible=False)
+        require(self.control.state.confirmed,'Full real OCR did not recover after partial case')
+        # Stop acceptance below requires an actual visible-enrollment request.
+        owner=self.capture._persistent._owner
+        self.product_cycle(None,visible=True)
+        self.cleanup_owner(owner,'restored-full-to-visible-drain')
 
     def cleanup_owner(self, owner, label):
         from native_smoke import _duty_session_cleanup
@@ -556,6 +646,7 @@ def execute(result, report_path):
         require(second['product']['confirmed'] and second['product']['automatic_frames'] == 2,
                 'Two real OCR observations did not confirm')
         hidden_owner = f.capture._persistent._owner
+        accepted_title_proof=f.title_band_variation()
         # Preserve the actual product renderer, but make its interior a strong
         # diagnostic contamination sentinel. No production renderer is replaced.
         install_badge_sentinels(f.overlay)
@@ -577,7 +668,16 @@ def execute(result, report_path):
         badge_sentinel_observation(f.overlay)
         require(hidden_owner.revoked.is_set(), 'Product capture_tick did not drain the hidden owner')
         f.cleanup_owner(hidden_owner,'hidden-to-visible-product-planned-drain')
+        accepted_title_proof=f.control._accepted_frame['title_proof']
         ui2 = f.product_cycle('visible-product-2', visible=True, paint_state=1)
+        from PIL import Image
+        from screen_capture import bounded_roi
+        from synthetic_vision import encoded
+        with Image.open(io.BytesIO(ui2['_png'])) as captured:
+            left,top,width,height=bounded_roi(captured.width,captured.height,tuple(spin.value()/100 for spin in f.control.roi))
+            changed=not accepted_title_proof.matches(encoded(captured.crop((left,top,left+width,top+height))))
+        require(changed,'Non-text title-band variation did not actually invalidate the exact pixel hash')
+        result['title_band_variation']['pixel_proof_changed']=changed
         badge_sentinel_observation(f.overlay)
         require(ui1['paint_state'] == 0 and ui2['paint_state'] == 1
                 and ui1['pixels_sha256'] != ui2['pixels_sha256'],
@@ -589,6 +689,7 @@ def execute(result, report_path):
         require(identity(ui1) == identity(ui2) and identity(first) == identity(second)
                 and identity(second) != identity(ui1), 'Cold/visible helper lifecycle or reuse differs')
         result['product_helper_reuse_passed'] = True
+        f.partial_product_cycles()
         f.stop_inflight()
         # Acquire B hidden only after draining the visible immutable enrollment.
         f.overlay.hide(); f.prepare(False, 'visible-to-hidden-reference')

@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.12-0891b2" alt="Source version v0.4.12"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.13-0891b2" alt="Source version v0.4.13"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.12 preview"></a>
 </p>
 <p align="center">
@@ -58,6 +58,10 @@ python launcher.py
 ```
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
+
+## v0.4.13: semantic recheck diagnostic candidate, pending Windows gates
+
+The source candidate verifies fresh same-frame title semantics rather than revoking grades solely because background pixels in a title band changed. Partial candidates retain independently verified known slots while unknown slots remain ungraded. Historical grades retain only their original four-second deadline; real rerolls may remain until fresh OCR returns, not instantaneous detection. Separate critical-event retention and selection gate diagnostics stay local. Download links still identify published v0.4.12; actual-game behavior is unverified. See [candidate verification](reports/SEMANTIC_RECHECK_DIAGNOSTICS.md).
 
 ## v0.4.12: capture stability diagnostic prerelease, published
 
