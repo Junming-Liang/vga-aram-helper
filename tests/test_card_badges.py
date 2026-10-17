@@ -90,6 +90,26 @@ class BadgeQtTests(unittest.TestCase):
         width=choose_width((157.5,427.5,697.5),self.o.devicePixelRatioF())
         self.assertEqual([b.size().toTuple() for b in self.o._badge_widgets],[(width,HEIGHT)]*3)
         self.assertEqual([b.tier for b in self.o._badge_widgets],['T1','T2','T3'])
+    def test_visible_capture_sentinel_uses_actual_badges_not_hidden_panel(self):
+        from wgc_visible_overlay_smoke import install_badge_sentinels, badge_sentinel_observation
+        self.show();hwnd=int(self.o.winId());mask=self.o.mask()
+        patches=install_badge_sentinels(self.o);self.app.processEvents()
+        proof=badge_sentinel_observation(self.o)
+        self.assertEqual(len(patches),3);self.assertGreater(sum(proof['badge_magenta_grid_samples']),20)
+        image=self.o.grab().toImage()
+        count=sum(image.pixelColor(x,y).getRgb()==(255,0,255,255)
+                  for x in range(0,image.width(),8) for y in range(0,image.height(),8))
+        self.assertGreater(count,20)
+        self.assertEqual(int(self.o.winId()),hwnd);self.assertEqual(self.o.mask(),mask)
+        self.assertFalse(self.o.panel.isVisible())
+        for patch,badge in zip(patches,self.o._badge_widgets):
+            self.assertIs(patch.parentWidget(),badge);self.assertFalse(patch.isWindow())
+            self.assertFalse(patch.testAttribute(QtCore.Qt.WidgetAttribute.WA_NativeWindow))
+            self.assertTrue(badge.rect().contains(patch.geometry()))
+        self.o.set_rechecking(True);self.o.hide();self.o.show();self.app.processEvents()
+        self.assertGreater(sum(badge_sentinel_observation(self.o)['badge_magenta_grid_samples']),20)
+        self.assertEqual(int(self.o.winId()),hwnd);self.assertEqual(self.o.mask(),mask)
+
     def test_source_hint_elision_retains_exact_accessible_text(self):
         full='搭配：无限循环往复、纯粹主义者 - 术师'
         self.cards[0]['sourceHint']=full;self.o.set_cards('英雄',self.cards);self.show()

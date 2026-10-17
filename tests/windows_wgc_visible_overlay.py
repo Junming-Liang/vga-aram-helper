@@ -168,7 +168,8 @@ def verify_product_modules(archive):
     proof = {}
     for name in ('wgc_visible_overlay_smoke','native_ui','native_smoke','screen_capture',
                  'persistent_capture_adapter','wgc_session_capture','owned_diagnostic_json',
-                 'portrait_display','local_debug','selection_session'):
+                 'portrait_display','local_debug','selection_session','card_badges','badge_contract',
+                 'augment_card_geometry','hero_identity_continuity','monitor_preferences','card_title_proof','source_combo_hints'):
         expected = compile((ROOT/(name+'.py')).read_bytes(), '<exact-source>', 'exec', optimize=0,dont_inherit=True)
         actual = pyz.extract(name)
         if code_fingerprint(actual) != code_fingerprint(expected):
@@ -196,6 +197,10 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
         or rendering.get('qt_opaque_paint_event') is not True or rendering.get('qt_surface_has_alpha') is not False
         or type(rendering.get('magenta_grid_samples')) is not int or rendering['magenta_grid_samples']<=20):
         raise RuntimeError('Actual bright opaque product rendering evidence missing')
+    samples=rendering.get('badge_magenta_grid_samples')
+    if (type(samples) is not list or len(samples)!=3 or any(type(n) is not int or n<=0 for n in samples)
+        or rendering.get('badge_native_region_verified') is not True):
+        raise RuntimeError('Three actual badge sentinel regions were not verified')
     rect=value.get('client_rect',{})
     if (type(rect) is not dict or set(rect)!={'x','y','width','height'}
         or any(type(n) is not int for n in rect.values()) or (rect['width'],rect['height'])!=(960,600)):

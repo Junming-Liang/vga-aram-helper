@@ -36,7 +36,8 @@ def fixture():
         requested_app_scale=1,measured_qt_scale=1,helper=dict(manifest=helper,**helper),
         client_rect=dict(x=20,y=20,width=960,height=600),target_identity=[1,6,'OwnedWindow'],target_created=3,overlay_hwnd=4,control_hwnd=5,
         overlay_rendering=dict(qt_opacity=1,qt_translucent_background=False,qt_opaque_paint_event=True,
-                               qt_surface_has_alpha=False,magenta_grid_samples=30),
+                               qt_surface_has_alpha=False,magenta_grid_samples=30,
+                               badge_magenta_grid_samples=[10,10,10],badge_native_region_verified=True),
         requests=[],transitions=[],pixel_pairs=[],negative_results={},fallback_calls=['v1'])
     names=('cold-hidden','hidden-confirmation','visible-product-1','visible-product-2',None,None,None,None)
     for index,name in enumerate(names):
@@ -384,6 +385,8 @@ class VisibleContracts(unittest.TestCase):
             lambda v:v['transitions'][0].update(job_closed=False),
             lambda v:v.update(fallback_calls=['v1','gdi']),
             lambda v:v['overlay_rendering'].update(magenta_grid_samples=0),
+            lambda v:v['overlay_rendering'].update(badge_magenta_grid_samples=[10,0,10]),
+            lambda v:v['overlay_rendering'].update(badge_native_region_verified=False),
             lambda v:v['client_rect'].update(width=960.0),
             lambda v:v['requests'][2].update(enrolled_window_style=None,overlay_window_style=None),
             lambda v:v['requests'][2]['visibility'].update(samples=True),
@@ -504,7 +507,8 @@ class VisibleContracts(unittest.TestCase):
     def test_entire_product_pyz_compiles_without_inherited_future_flags(self):
         names=('wgc_visible_overlay_smoke','native_ui','native_smoke','screen_capture',
                'persistent_capture_adapter','wgc_session_capture','owned_diagnostic_json',
-               'portrait_display','local_debug','selection_session')
+               'portrait_display','local_debug','selection_session','card_badges','badge_contract',
+                 'augment_card_geometry','hero_identity_continuity','monitor_preferences','card_title_proof','source_combo_hints')
         modules={name:compile((ROOT/(name+'.py')).read_bytes(),'C:/independent/'+name+'.py','exec',
                              dont_inherit=True,optimize=0) for name in names}
         archive=SimpleNamespace(toc={'PYZ.pyz':None},

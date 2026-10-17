@@ -42,8 +42,10 @@ NATIVE_NEGATIVE_EXIT_CODES = {
     'focus_loss': 12, 'geometry_loss': 12,
 }
 SOURCE_FILES = ('wgc_visible_overlay_smoke.py', 'tests/windows_wgc_visible_overlay.py',
-                'tests/test_wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'launcher.py', 'native_ui.py',
+                'tests/test_wgc_visible_overlay_smoke.py', 'tests/test_card_badges.py', 'owned_diagnostic_json.py', 'launcher.py', 'native_ui.py',
                 'native_smoke.py', 'screen_capture.py', 'persistent_capture_adapter.py',
+                'card_badges.py', 'badge_contract.py', 'augment_card_geometry.py',
+                'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'source_combo_hints.py',
                 'portrait_display.py', 'local_debug.py', 'selection_session.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
                 'wgc_session_smoke.py', 'tests/windows_session_fixture.py',
@@ -94,6 +96,56 @@ def compare_pixels(reference, captured):
                 hidden_magenta_pixels=magenta(before), visible_magenta_pixels=magenta(after),
                 hidden_sha256=hashlib.sha256(before.tobytes()).hexdigest(),
                 visible_sha256=hashlib.sha256(after.tobytes()).hexdigest())
+
+
+def install_badge_sentinels(overlay):
+    """Diagnostic-only child patches; preserve actual painter, mask and HWND.
+
+    The legacy reference panel is hidden in card mode. Each patch stays inside
+    one visible product badge and never creates a native/top-level window.
+    """
+    from PySide6 import QtCore, QtGui, QtWidgets
+    from card_badges import native_region
+    require(overlay.isVisible() and not overlay.panel.isVisible(), 'Product is not in visible badge mode')
+    badges = overlay._badge_widgets
+    require(len(badges) == 3 and len(overlay._badge_regions) == 3
+            and all(badge.isVisible() for badge in badges), 'Three actual product badges are required')
+    hwnd=int(overlay.winId());mask=overlay.mask()
+    native_region(hwnd, overlay._badge_regions, verify_only=True)
+    class SentinelPatch(QtWidgets.QWidget):
+        def paintEvent(self, event):
+            painter=QtGui.QPainter(self)
+            painter.fillRect(self.rect(),QtGui.QColor(255,0,255))
+            painter.end()
+    patches = []
+    for badge in badges:
+        patch = SentinelPatch(badge)
+        patch.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        patch.setAttribute(QtCore.Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        patch.setObjectName('owned-capture-sentinel')
+        patch.setGeometry(12, badge.height()-18, badge.width()-24, 12)
+        require(badge.rect().contains(patch.geometry()) and not patch.isWindow(), 'Sentinel escaped its badge')
+        patch.show();patch.raise_();patches.append(patch)
+    overlay._diagnostic_sentinels = patches
+    require(int(overlay.winId())==hwnd and overlay.mask()==mask
+            and all(not patch.testAttribute(QtCore.Qt.WidgetAttribute.WA_NativeWindow) for patch in patches),
+            'Sentinel changed actual HWND or native ownership')
+    native_region(hwnd, overlay._badge_regions, verify_only=True)
+    return patches
+
+
+def badge_sentinel_observation(overlay):
+    from card_badges import native_region
+    native_region(int(overlay.winId()), overlay._badge_regions, verify_only=True)
+    require(all(patch.isVisible() and not patch.isWindow() for patch in overlay._diagnostic_sentinels),
+            'Sentinel child visibility changed')
+    counts=[]
+    for badge in overlay._badge_widgets:
+        image=badge.grab().toImage()
+        counts.append(sum(image.pixelColor(x,y).getRgb()==(255,0,255,255)
+                          for x in range(0,image.width(),8) for y in range(0,image.height(),8)))
+    require(len(counts)==3 and all(count>0 for count in counts), 'A product badge lacks its visible sentinel')
+    return dict(badge_magenta_grid_samples=counts, badge_native_region_verified=True)
 
 
 def strict_timing(row):
@@ -506,13 +558,14 @@ def execute(result, report_path):
         hidden_owner = f.capture._persistent._owner
         # Preserve the actual product renderer, but make its interior a strong
         # diagnostic contamination sentinel. No production renderer is replaced.
-        f.overlay.panel.setStyleSheet('#overlay-panel{background:#FF00FF;border:0;} QLabel{background:transparent;}')
+        install_badge_sentinels(f.overlay)
         f.overlay.update(); f.pump(.02)
         from wgc_session_smoke import qt_overlay_observation
         rendered=f.overlay.grab().toImage()
         magenta=sum(rendered.pixelColor(x,y).getRgb()==(255,0,255,255)
                     for x in range(0,rendered.width(),8) for y in range(0,rendered.height(),8))
-        result['overlay_rendering']=dict(qt_overlay_observation(f.overlay),magenta_grid_samples=magenta)
+        result['overlay_rendering']=dict(qt_overlay_observation(f.overlay),magenta_grid_samples=magenta,
+                                         **badge_sentinel_observation(f.overlay))
         require(magenta>20 and result['overlay_rendering']['qt_opacity']==1
                 and not result['overlay_rendering']['qt_translucent_background']
                 and result['overlay_rendering']['qt_opaque_paint_event']
@@ -521,9 +574,11 @@ def execute(result, report_path):
         # Reference A was acquired hidden, on exactly this deterministic state.
         references = {0: second['_png']};reference_rows={0:f.records.index(second)}
         ui1 = f.product_cycle('visible-product-1', visible=True)
+        badge_sentinel_observation(f.overlay)
         require(hidden_owner.revoked.is_set(), 'Product capture_tick did not drain the hidden owner')
         f.cleanup_owner(hidden_owner,'hidden-to-visible-product-planned-drain')
         ui2 = f.product_cycle('visible-product-2', visible=True, paint_state=1)
+        badge_sentinel_observation(f.overlay)
         require(ui1['paint_state'] == 0 and ui2['paint_state'] == 1
                 and ui1['pixels_sha256'] != ui2['pixels_sha256'],
                 'Second visible GUI cycle did not acquire changed target pixels')
@@ -552,6 +607,7 @@ def execute(result, report_path):
             require(f.u.SetWindowPos(f.overlay_hwnd, ctypes.c_void_p(-1), x, y, 0, 0, 0x0011),
                     'Cannot position exact owned product overlay')
             f.pump(.03)
+            badge_sentinel_observation(f.overlay)
             captured = f.request_product(visible=True); row = f.records[-1]
             comparison = compare_pixels(references[state], captured)
             require(comparison['max_channel_error'] == 0 and comparison['changed_pixels'] == 0,
