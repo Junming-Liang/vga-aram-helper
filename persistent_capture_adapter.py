@@ -133,6 +133,16 @@ class PersistentCaptureAdapter:
             return True
 
     @property
+    def compatibility_status(self):
+        """Read-only routing diagnostic; never permission to use a fallback."""
+        with self._lock:
+            if not self._enabled:return 'disabled'
+            if self._interactive_overlay:return 'interactive'
+            if self._unavailable in ('missing-helper','unsupported'):return self._unavailable
+            if self._overlay is None:return 'exclusion-unregistered'
+            return 'unknown'
+
+    @property
     def last_receipt(self):
         with self._lock:
             return None if self._last_receipt is None else MappingProxyType(dict(self._last_receipt))

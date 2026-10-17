@@ -271,6 +271,54 @@ class BadgeQtTests(unittest.TestCase):
         self.show();key=self.o._placed_key;region=self.o.mask();self.o.set_rechecking(True)
         self.assertEqual(self.o._placed_key,key);self.assertEqual(self.o.mask(),region)
         self.assertTrue(all(b.source=='复核中' for b in self.o._badge_widgets))
+    def test_alternating_identity_provenance_repaints_without_hiding_or_relayout(self):
+        from unittest.mock import patch
+        self.show();key=self.o._placed_key;mask=self.o.mask();hwnd=int(self.o.winId())
+        bounds=self.o._badge_bounds;revision=self.o._layout_revision
+        with patch.object(self.o,'hide',wraps=self.o.hide) as hide, \
+             patch.object(self.o,'setMask',wraps=self.o.setMask) as set_mask:
+            for _ in range(4):
+                for confirmation,source in (
+                        ('本局此前确认英雄 + 本帧候选；头像未重新确认','本局已确认'),
+                        ('英雄/候选连续高置信自动识别','源评级')):
+                    self.o.set_rechecking(True)
+                    self.o.set_cards('英雄',self.cards,confirmation=confirmation)
+                    self.show()
+                    self.assertTrue(self.o.isVisible())
+                    self.assertTrue(all(b.isVisible() and b.source==source for b in self.o._badge_widgets))
+                    self.assertEqual(self.o._placed_key,key)
+                    self.assertEqual(self.o._badge_bounds,bounds)
+                    self.assertEqual(self.o.mask(),mask)
+                    self.assertEqual(int(self.o.winId()),hwnd)
+                    self.assertEqual(self.o._layout_revision,revision)
+                    self.assertFalse(self.o._rechecking)
+            hide.assert_not_called();set_mask.assert_not_called()
+
+    def test_same_identity_source_updates_repaint_without_relayout(self):
+        from unittest.mock import patch
+        self.show();key=self.o._placed_key
+        self.cards[0].update(sourceTier='T4',sourceHint='新的公开资料')
+        with patch.object(self.o,'hide',wraps=self.o.hide) as hide:
+            self.o.set_cards('英雄',self.cards,source_date='新日期',source_version='新版本')
+            self.show();hide.assert_not_called()
+        self.assertEqual(self.o._placed_key,key)
+        self.assertEqual(self.o._badge_widgets[0].tier,'T4')
+        self.assertEqual(self.o._badge_widgets[0].hint,'新的公开资料')
+
+    def test_identity_or_slot_change_still_hides_before_replacement(self):
+        import copy
+        for change in ('hero','name','pending','slot'):
+            with self.subTest(change=change):
+                self.o.set_cards('英雄',self.cards);self.show()
+                cards=copy.deepcopy(self.cards);hero='英雄'
+                if change=='hero':hero='另一个英雄'
+                elif change=='name':cards[0]['name']='新的候选'
+                elif change=='pending':cards[0]['pending']=True
+                else:cards=cards[1:]
+                self.o.set_cards(hero,cards)
+                self.assertFalse(self.o.isVisible())
+                self.assertIsNone(self.o._placed_key)
+
     def test_fresh_cards_reset_rechecking_without_rebuilding(self):
         self.show();self.o.set_rechecking(True);self.o.set_cards('英雄',self.cards)
         self.assertFalse(self.o._rechecking)

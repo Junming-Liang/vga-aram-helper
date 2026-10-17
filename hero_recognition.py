@@ -9,6 +9,7 @@ import io
 import hashlib
 import math
 import struct
+import time
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -120,8 +121,25 @@ class PortraitMatcher:
         return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验',**evidence}
 
 
-def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None):
+def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None, diagnostic_callback=None):
     """Split one same-time selected-window frame in memory. Never persist images."""
+    def diagnostic(stage, phase, elapsed_ms=0.):
+        # Only bounded stage names/timing, never screenshots or recognized text.
+        # OCR can run on a worker: callers must provide a thread-safe logger.
+        if diagnostic_callback is not None:
+            try:diagnostic_callback(stage,phase,elapsed_ms)
+            except Exception:pass
+    def begin(stage):
+        diagnostic(stage,'started')
+        return time.perf_counter()
+    def complete(stage, before):
+        diagnostic(stage,'completed',(time.perf_counter()-before)*1000)
+    def timed_ocr(method, *args):
+        before=begin('ocr')
+        try:return method(*args)
+        finally:complete('ocr',before)
+    started=begin('total')
+    prepare_started=begin('prepare')
     from PIL import Image
     from screen_capture import bounded_roi
     with Image.open(io.BytesIO(image_bytes)) as image:
@@ -130,33 +148,47 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
         rgb=image.convert('RGB');crop=rgb.crop((left,top,left+width,top+height));out=io.BytesIO();crop.save(out,format='PNG')
     crop_bytes=out.getvalue()
     if prepared_frame is not None:prepared_frame(rgb)
+    complete('prepare',prepare_started)
     # The two independent inferences use the same immutable captured frame.
     # Join both before returning: no next capture overlaps an unfinished worker.
     # A proof callback still runs on the caller, after full HUD validation.
     if type(matcher) is PortraitMatcher:
+        phase_started=begin('hud_prepare')
         prepared=matcher._prepare_image(image_bytes,decoded_rgb=matcher.np.asarray(rgb))
+        complete('hud_prepare',phase_started)
         if before_match is not None:before_match(prepared.signature if isinstance(prepared,_PortraitInput) else None,crop_bytes)
-        pending=inference_worker.submit(ocr.recognize,crop_bytes,vocabulary) if inference_worker is not None else None
+        pending=inference_worker.submit(timed_ocr,ocr.recognize,crop_bytes,vocabulary) if inference_worker is not None else None
         try:
+            phase_started=begin('hud_match')
             hero=matcher._recognize_prepared(prepared)
-            if resolve_hero is not None:hero=resolve_hero(hero)
+            complete('hud_match',phase_started)
+            if resolve_hero is not None:
+                phase_started=begin('hero_resolve')
+                hero=resolve_hero(hero)
+                complete('hero_resolve',phase_started)
             if before_ocr is not None:before_ocr(hero,crop_bytes)
         finally:
             # Also drain on cancellation/proof failure. A native OCR call is not
             # safely interruptible; it may never leak into the next frame.
             if pending is not None:
                 result=pending.result()
-        if pending is None:result=ocr.recognize(crop_bytes,vocabulary)
+        if pending is None:result=timed_ocr(ocr.recognize,crop_bytes,vocabulary)
     else:
         if before_match is not None:before_match(None,crop_bytes)
+        phase_started=begin('hud_match')
         hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好')
-        if resolve_hero is not None:hero=resolve_hero(hero)
+        complete('hud_match',phase_started)
+        if resolve_hero is not None:
+            phase_started=begin('hero_resolve')
+            hero=resolve_hero(hero)
+            complete('hero_resolve',phase_started)
         if before_ocr is not None:before_ocr(hero,crop_bytes)
-        result=ocr.recognize(crop_bytes,vocabulary)
+        result=timed_ocr(ocr.recognize,crop_bytes,vocabulary)
     # A title cache hit can race the fresh HUD inference. Unknown current HUD
     # must obtain independent OCR evidence for historical-identity recovery.
     if result.get('ocr_reused') is True and hero.get('confident') is not True and hasattr(ocr,'recognize_fresh'):
-        result=ocr.recognize_fresh(crop_bytes,vocabulary)
+        result=timed_ocr(ocr.recognize_fresh,crop_bytes,vocabulary)
+    phase_started=begin('title_geometry')
     result['hero_observation']=hero
     # Automatic titles are constrained to the actual centered card-title band,
     # separate from review suggestions and any unrelated overlay/chat text.
@@ -179,4 +211,6 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
     title_geometry=result['partial_title_evidence']
     anchors=title_geometry.slots if title_geometry.valid else result['automatic_candidates']
     result['_cardGeometry']=refresh_frame_card_geometry(image_bytes,prior_card_geometry,anchors,result.get('image_size'),roi,_decoded_rgb=rgb)
+    complete('title_geometry',phase_started)
+    complete('total',started)
     return result

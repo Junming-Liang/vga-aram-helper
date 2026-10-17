@@ -237,14 +237,27 @@ class BadgeOverlayMixin:
         signature=(hero,repr(cards),source_date,source_version,confirmation)
         if getattr(self,'_card_signature',None)==signature and self.reference is None:
             self.set_rechecking(False);return
-        self.hide('cards_changed');self._card_signature=signature;self.cards=[slots[s] for s in sorted(slots)]
-        self.reference=None;self._rechecking=False;self._placed_key=None;self._layout_revision+=1
-        self.panel.hide();self.setMinimumSize(0,0)
+        ordered=[slots[s] for s in sorted(slots)]
+        # Identity provenance (fresh portrait versus carried in-game identity),
+        # source text and tiers only repaint the fixed-size children. Rebuilding
+        # the HWND region for those changes hides the overlay every OCR cycle
+        # and revokes the otherwise unchanged native capture enrollment.
+        def identities(items):
+            return tuple((card['slot'],card['name'],bool(card.get('pending'))) for card in items)
+        previous=getattr(self,'_card_signature',None)
+        repaint_only=bool(self.reference is None and previous is not None
+                          and previous[0]==hero and identities(self.cards)==identities(ordered))
+        if not repaint_only:
+            self.hide('cards_changed');self._placed_key=None;self._layout_revision+=1
+            self.panel.hide();self.setMinimumSize(0,0)
+        self._card_signature=signature;self.cards=ordered
+        self.reference=None;self._rechecking=False
         self._identity_provenance=confirmation
         self._full_heading=self._compact_heading=f'{hero} · {confirmation}';self._previous_heading=f'{hero} · 上次候选复核中'
         self.tier_labels=[]
         for slot,badge in enumerate(self._badge_widgets,1):
-            badge.hide();card=slots.get(slot)
+            if not repaint_only:badge.hide()
+            card=slots.get(slot)
             if card and not card.get('pending'):
                 badge.set_card(card,identity_provenance=confirmation);self.tier_labels.append(badge)
     def _leave_badges(self):
@@ -268,6 +281,7 @@ class BadgeOverlayMixin:
             if actual_bounds()!=bounds:raise CaptureUnavailable('评级实际缩放位置不一致，已隐藏。')
 
     def _show_badges_at(self,rect,target):
+        self._show_reason='partial_confirmed' if any(card.get('pending') for card in self.cards) else 'confirmed'
         try:
             anchors=self._badge_anchors
             slots=[card['slot']-1 for card in self.cards if not card.get('pending') and anchors is not None and anchors.names[card['slot']-1]==card['name']]

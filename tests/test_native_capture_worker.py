@@ -147,7 +147,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
             hero_calls.append(image)
             if before_ocr:before_ocr({'hero': hero, 'confident': True},b'exact-title-crop')
             result = ocr.recognize(b'exact-title-crop', vocabulary)
@@ -164,6 +164,15 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             self.assertEqual(len(hero_calls), 3)
             self.assertEqual(len(infer_calls), 2)
             self.assertEqual(self.window.state.automatic_frames, 2)
+            # Confirmation latency is explainable from the exported trace alone.
+            import zipfile
+            archive=self.window.debug_log.export_zip(Path(self.directory.name)/'export',config={})
+            with zipfile.ZipFile(archive) as log:
+                events=[json.loads(line) for line in log.read('events.jsonl').splitlines()]
+            gates=[e for e in events if e.get('event')=='recognition' and 'automatic_frames' in e]
+            self.assertEqual([e['automatic_frames'] for e in gates[:2]],[1,2])
+            self.assertEqual(gates[0]['reason'],'awaiting_confirmation')
+            self.assertNotEqual(gates[0]['serial'],gates[1]['serial'])
             self.assertGreaterEqual(self.window.last_observation, capture_calls[-1] - .01)
             self.window.invalidate_scene('owned ROI/scene reset')
             self.window.capture_hidden(self.window.state.generation)
@@ -191,7 +200,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
             if before_ocr:before_ocr({'hero': selected[0], 'confident': True},b'unchanged-owned-titles')
             result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
             result['hero_observation'] = {'hero': selected[0], 'confident': True}
@@ -355,7 +364,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def foreground(inner,target):return True
         w.capture=Capture()
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
             before_match('a'*64,b'owned-crop')
             if not release.wait(2):raise RuntimeError('owned inference timeout')
             before_ocr({'hero':hero,'confident':True},b'owned-crop')
@@ -628,7 +637,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         capture.capture=acquire
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,
             'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
             before_match('changed-HUD-animation',b'changed-whole-ROI-animation')
             if not release.wait(2):raise RuntimeError('owned timeout')
             before_ocr({'hero':hero,'confident':True},b'changed-whole-ROI-animation')
@@ -646,7 +655,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         w=self.window;capture,hero,names=self.visible_capture_fixture()
         release=threading.Event();resolved=threading.Event();self._release_events.append(release)
         capture.capture=lambda *args,**kwargs:(b'owned synthetic conflict',capture.rect(w.target))
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None,diagnostic_callback=None):
             before_match('owned-digest',b'owned-crop')
             observation={'hero':None,'confident':False,'method':'game-client-api'}
             before_ocr(observation,b'owned-crop');resolved.set()

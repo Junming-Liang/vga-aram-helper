@@ -25,7 +25,7 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.11'
+PREVIEW_VERSION = '0.4.12'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -1181,9 +1181,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
-    notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
-             '本版修正截图清理期间的模式反复切换，针对卡片持续“复核中”和截图闪烁；选人接口读取不再依赖截图成功，并在主界面增加“开启本机选人识别”入口。选人接口仍默认关闭，仅本次启动授权。Windows 受控验收不等同于用户国服实战已验收。\n\n'
-             'The public still-image reports retain their original v0.4.10 evaluation identity. Every evaluated module must match the release source byte-for-byte; these historical observations are not a newly executed v0.4.11 static-image evaluation.\n\n'
+    notes = (f'VGA capture stability DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
+             '诊断测试版默认开启可关闭的本地日志：三份 256 KiB JSONL 文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。实际对局的闪烁、复核和延迟仍未验证。\n\n'
+             '本版减少同一英雄/卡片仅来源或评级文字变化时的不必要隐藏，跳过数学上不可能通过原有门槛的模糊比较，并关联帧序号、隐藏原因、推理阶段耗时、确认门槛与可见性变化。接受阈值、歧义规则、新鲜度和失败时隐藏的安全边界不放宽。此前截图清理与选人接口修复保留；选人接口仍默认关闭，仅本次启动授权。Windows 受控验收不等同于用户国服实战已验收。\n\n'
+             f'The public still-image reports were rerun for v{version}; every evaluated module must match the release source byte-for-byte. These limited Linux still-image observations are not actual-game verification.\n\n'
              'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate local API controls: current-game read-only identity is enabled by default with a saved Off switch; selection/bench access remains default-off for the current launch. '
              'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
              'This candidate combines the selected light dashboard with bounded HWND-only Windows Graphics Capture, off-GUI capture and cleanup, '
@@ -1203,7 +1204,11 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'Screenshot-only champion-select name detection now exposes the exact assigned hero’s public T1–T5 overall tier as a separate provisional reference, without confirming augment choices. '
              'The control-only last-candidates record preserves literal previous source fields and labels the final choice unknown; no selected augment is inferred from disappearing cards. '
              'Completion-driven capture cadence and accepted-frame proof can keep or restore explicitly labelled previous/rechecking candidates during inference without renewing their original four-second expiry. '
-             'A default-off, current-launch local debug toggle and one-click debug ZIP export record bounded diagnostic metadata only, with no screenshots, recognized text, account data or tokens and no automatic upload. '
+             'This diagnostic prerelease enables local logs by default, with a visible Settings Off switch. Three rotating JSONL files of 256 KiB each cap the on-disk log files at 768 KiB; one local ZIP is replaced on export. No automatic upload occurs. '
+             'Correlated frame IDs, hide reasons, stage timings, confirmation gates and matched catalog hero/augment names are recorded; screenshots, raw OCR text, player/account identity, credentials and private paths are excluded. '
+             'Repeated samples are coalesced, bounded lifetime summaries survive rotation, and exports disclose dropped or truncated detail. '
+             'Stable same-card provenance/tier changes avoid redundant badge hiding, and mathematically impossible fuzzy comparisons are skipped without relaxing acceptance or ambiguity thresholds. '
+             'The reported flashing/rechecking and latency in actual gameplay remain unverified; this is a diagnostic build, not a claim that the live-game problem is solved. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
              'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
@@ -1402,7 +1407,7 @@ def publish(verified, notes_file, provenance):
     check_tag(reference, tag, sha)
     check_tag(gh_api(f'repos/{repo}/git/ref/tags/{tag}'), tag, sha)
     command = ['release', 'create', tag, '--repo', repo, '--target', sha, '--verify-tag', '--draft', '--prerelease', '--latest=false',
-               '--title', f'VGA Native Overlay PREVIEW {verified["version"]}', '--notes-file', str(notes_file)]
+               '--title', f'VGA Capture Stability DIAGNOSTIC PREVIEW {verified["version"]} / 诊断测试版', '--notes-file', str(notes_file)]
     command += [asset['path'] for asset in assets]
     gh_run(command)
     # Creating/uploading while draft prevents OTA from seeing incomplete assets.

@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.11-0891b2" alt="源码版本 v0.4.11"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.12-0891b2" alt="源码版本 v0.4.12"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.11 预览版"></a>
 </p>
 <p align="center">
@@ -65,6 +65,10 @@ python launcher.py
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## v0.4.12：诊断候选源码（尚待 Windows 发布验收）
+
+当前源码版本为 v0.4.12，下面 v0.4.11 链接仍指向已发布安装包。此诊断候选默认开启可关闭的本地日志，总上限 768 KiB（3 × 256 KiB），导出替换同一个本地 ZIP，不自动上传；实际对局的闪烁、复核与延迟仍未验证。必须通过全部既有 Windows 门禁后才发布非 latest 预览版。详见[诊断说明](BOUNDED_DIAGNOSTICS.md)。
+
 ## v0.4.11：捕获切换与选人识别修复
 
 [v0.4.11 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) 已于 2026-10-17 发布，[完整 Windows 发布运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768) 通过全部必需门禁。修复持续截图清理等待时反复切回隐藏模式的问题，避免这一分叉导致重复隐藏和候选反复复核；候选新鲜度与遮挡检查仍生效。
@@ -96,7 +100,7 @@ python launcher.py
 - 四秒显示过期仍隐藏旧资料，但不会取消授权未变且自身仍新鲜的较新在途推理；失焦、身份/几何/权限变化及停止仍撤销任务。完成一轮后再安排下一轮，按剩余新鲜度缩短通常的 700/200 ms 等待。
 - 正常入口默认启用受保护的可见捕获，必须具备精确属于助手的不透明叠加 HWND、令牌/样式、`WDA_EXCLUDEFROMCAPTURE=0x11`、目标身份、前台与 ROI 的运行时证明。旧资料明确标为“上次候选复核中”，新鲜识别完成后报告候选/英雄身份变化或不确定时隐藏，识别身份不变的无害 ROI 动画不要求隐藏；旧有严格隐藏路径及拒绝/清理规则不变。源码与同一冻结 EXE 通过三档正常入口的变化 ROI 和像素排除检查。
 - 仪表盘使用已核验缓存中的真实英雄头像及公开源整体 T1–T5。选人身份仍注明“仍可交换，HUD未复核”；强化评级仍为 T1–T4。“上次候选 · 最终选择未知”不会从牌面消失推断最终选择。
-- “设置”新增“本地调试日志（仅本次启动）”和“导出调试 ZIP”。每次启动默认关闭，三份 256 KiB 轮转文件只保存白名单状态/计数/耗时，不含截图、识别文字、名称、账号、令牌或私有路径；只在本机导出，不自动上传。
+- 此诊断版在“设置”默认开启“本地诊断日志”，可随时关闭；“导出调试 ZIP”仅保存到本机，不自动上传。三份 256 KiB 轮转文件记录关联帧号、隐藏原因、各阶段耗时、确认门槛，以及已匹配词典的英雄/强化名称；不含截图、原始 OCR 文字、玩家标识、账号、令牌或私有路径。覆盖量在导出中注明。详见 [诊断说明](BOUNDED_DIAGNOSTICS.md)。
 - 正常 Windows 捕获边框、请求 ROI 限定的 CPU 读回、空闲 GPU 表面与异步清理限制保留。用户无边框对局的后续轮次闪现、真实 LoL/Vanguard、真正独占全屏及自动最终选择仍待实战验证。详见[反馈修正与证据边界](PLAY_FEEDBACK_FIXES.md)。
 
 - 主界面显示本局英雄、监测状态和左/中/右三个候选。一个主监测按钮随状态显示“开始监测”或“停止监测”；次级页面在监测期间仍提供停止入口。
@@ -146,7 +150,7 @@ v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以�
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
 
-历史 v0.4.10 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。v0.4.11 沿用原始报告，发布时逐项核对被评测模块哈希一致，未将其改标为新版本重跑。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+本次未发布诊断源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。2026-10-17 已通过原验证脚本重新生成绑定当前模块哈希的报告；这不是已发布 v0.4.11 安装包的新增实局证据。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 
 以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 

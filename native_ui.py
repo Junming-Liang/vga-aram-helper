@@ -124,12 +124,14 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         self._hide_reason=reason
         super().hide()
         self._hide_reason='unknown'
+    def overlay_debug(self,**fields):
+        if self.debug_log:self.debug_log.record('overlay',**(self.debug_context() if hasattr(self,'debug_context') else {}),**fields)
     def showEvent(self,event):
-        if self.debug_log:self.debug_log.record('overlay',visible=True,reason=self._show_reason,rechecking=self._rechecking,dpi=float(self.devicePixelRatioF())*96)
+        self.overlay_debug(phase='shown',visible=True,reason=self._show_reason,rechecking=self._rechecking,dpi=float(self.devicePixelRatioF())*96)
         super().showEvent(event)
     def hideEvent(self,event):
         self._last_hidden_at=time.monotonic()
-        if self.debug_log:self.debug_log.record('overlay',visible=False,reason=self._hide_reason,rechecking=self._rechecking)
+        self.overlay_debug(phase='hidden',visible=False,reason=self._hide_reason,rechecking=self._rechecking)
         super().hideEvent(event)
     def hidden_settle_ms(self):
         # A hidden flag alone is not a DWM settling interval. Hides from Stop,
@@ -188,7 +190,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         if self._rechecking==value:return
         self._rechecking=value
         if self.cards:self._refresh_badges()
-        if self.debug_log:self.debug_log.record('overlay',visible=self.isVisible(),rechecking=value,reason='capture_proof')
+        self.overlay_debug(phase='rechecking',visible=self.isVisible(),rechecking=value,reason='capture_proof')
         # The shorter status text does not change cards, source or geometry.
         # Invalidating placement here would hide/move the HWND every cycle.
         if self.cards or self.reference:self.heading.setText(self._previous_heading if value else self._compact_heading if self._compact else self._full_heading)
@@ -361,9 +363,9 @@ class ControlWindow(QtWidgets.QWidget):
         self.live_identity_toggle.toggled.connect(self.live_identity_preference_changed)
         self.minimize_on_start=QtWidgets.QCheckBox('开始监测后自动最小化（默认关闭）');self.minimize_on_start.setChecked(self.monitor_preferences['minimize_on_start']);advanced.addWidget(self.minimize_on_start)
         self.minimize_on_start.toggled.connect(self.save_monitor_preferences)
-        self.debug_toggle=QtWidgets.QCheckBox('本地调试日志（仅本次启动）');self.debug_toggle.setChecked(False);self.debug_toggle.setAccessibleName('开启本机调试日志，默认关闭');advanced.addWidget(self.debug_toggle)
+        self.debug_toggle=QtWidgets.QCheckBox('本地诊断日志（此诊断版默认开启）');self.debug_toggle.setChecked(False);self.debug_toggle.setAccessibleName('本机诊断日志，此诊断版默认开启，可关闭');advanced.addWidget(self.debug_toggle)
         self.debug_export_button=QtWidgets.QPushButton('导出调试 ZIP');self.debug_export_button.setAccessibleName('仅在本机导出调试 ZIP');advanced.addWidget(self.debug_export_button)
-        self.debug_status=label('默认关闭。开启后最多保留 3 × 256 KiB 日志；关闭停止记录，已有日志和导出保留。无截图、识别文字、账号、窗口标题、路径或原始错误，不上传。',True);advanced.addWidget(self.debug_status)
+        self.debug_status=label('此诊断版默认记录，最多 3 × 256 KiB，循环覆盖。仅记录阶段、耗时和已匹配词典的英雄/强化名称；无截图、原始识别文字、账号、窗口标题、路径或原始错误，不上传。可随时关闭。',True);advanced.addWidget(self.debug_status)
         self.debug_toggle.toggled.connect(self.toggle_debug);self.debug_export_button.clicked.connect(self.export_debug)
         self.about_panel=QtWidgets.QFrame();self.about_panel.setObjectName('section');about=QtWidgets.QVBoxLayout(self.about_panel);about.setContentsMargins(16,16,16,16);about.setSpacing(12);secondary.addWidget(self.about_panel);self.about_panel.hide()
         self.source=label('正在检查公开数据，首次启动可能需要数十秒…',True);about.addWidget(self.source)
@@ -387,25 +389,26 @@ class ControlWindow(QtWidgets.QWidget):
         self.refresh.clicked.connect(self.refresh_windows);self.window_list.currentIndexChanged.connect(self.target_changed);self.hero_box.currentTextChanged.connect(self.hero_changed);self.hero_auto.toggled.connect(self.hero_mode_changed);self.client_follow.toggled.connect(self.follow_scope_changed);self.start_button.clicked.connect(self.start_monitor);self.stop_button.clicked.connect(self.stop_monitor);self.toggle_button.clicked.connect(self.toggle_clickthrough);self.update_button.clicked.connect(self.install_update)
         try:self.capture=Win32Capture(allow_visible_overlay=True) if enable_visible_capture else Win32Capture()
         except CaptureUnavailable as exc:self.status.setText(str(exc))
-        self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log);self.overlay.winId();self.overlay.configure()
+        self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log);self.overlay.debug_context=lambda:dict(generation=self.state.generation,serial=self._capture_serial);self.overlay.winId();self.overlay.configure()
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
         self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
-        self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.spawn('load',startup_loader)
+        self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.debug_toggle.setChecked(True);self.spawn('load',startup_loader)
     def toggle_debug(self,enabled):
         active=self.debug_log.set_enabled(enabled)
         if active!=enabled:
             self.debug_toggle.blockSignals(True);self.debug_toggle.setChecked(active);self.debug_toggle.blockSignals(False)
         self._debug_snapshot=None
-        self.debug_status.setText('正在本机记录，最多 768 KiB；无截图或识别文字，不上传。导出会替换本机上一份 VGA-debug.zip。' if active else '已关闭记录；已有日志和导出保留，可继续导出。' if not self.debug_log.failed else '本地日志无法写入，已停止记录；监测不受影响。')
+        self.debug_status.setText('正在本机记录，最多 768 KiB；仅词典名称与诊断阶段，无截图/原始文字/账号，不上传。导出会替换本机上一份 VGA-debug.zip。' if active else '已关闭记录；已有日志和导出保留，可继续导出。' if not self.debug_log.failed else '本地日志无法写入，已停止记录；监测不受影响。')
         self.refresh_status_badge()
     def export_debug(self):
         config={'hero_auto':self.hero_auto.isChecked(),'client_follow':self.client_follow.isChecked(),
+            'lcu_selection':self.lcu_toggle.isChecked(),'live_identity':self.live_identity_toggle.isChecked(),
             'click_through':self.overlay.click_through,'visible_capture':self.enable_visible_capture,
             'frozen':self.frozen,'updates_enabled':self.enable_updates,'roi_percent':[spin.value() for spin in self.roi]}
         try:
             path=self.debug_log.export_zip(self.state_dir/'debug-exports',config=config)
-            self.debug_status.setText('已保存到本机：'+str(path)+'。仅含版本、安全设置及已有事件；未上传。再次导出会替换此 ZIP。')
+            self.debug_status.setText('已保存到本机：'+str(path)+'。仅含有界最近事件、版本、安全设置及覆盖计数；未上传。再次导出会替换此 ZIP。')
         except (OSError,ValueError):self.debug_status.setText('本地导出失败，请检查保存目录是否可写；没有上传或更改监测。')
     def debug_event(self,event,**fields):
         if not self.debug_log.enabled:return
@@ -709,27 +712,27 @@ class ControlWindow(QtWidgets.QWidget):
         else:self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
         self.debug_state(state)
     def spawn(self,kind,fn,generation=0):
-        logger=self.debug_log;queued_at=time.monotonic()
-        logger.record('job',kind=kind,phase='queued',generation=generation)
+        logger=self.debug_log;queued_at=time.monotonic();serial=self._capture_serial if kind in ('ocr','selection') else 0
+        logger.record('job',kind=kind,phase='queued',generation=generation,serial=serial)
         def worker():
             value=error=None
-            logger.record('job',kind=kind,phase='started',generation=generation,queue_ms=max(0.,(time.monotonic()-queued_at)*1000))
+            logger.record('job',kind=kind,phase='started',generation=generation,serial=serial,queue_ms=max(0.,(time.monotonic()-queued_at)*1000))
             try:
                 if self._cancel_workers.is_set():
-                    logger.record('job',kind=kind,phase='cancelled',generation=generation,reason='closed');return
+                    logger.record('job',kind=kind,phase='cancelled',generation=generation,serial=serial,reason='closed');return
                 try:value=fn()
                 except Exception as exc:
                     error=str(exc)
-                    logger.record('job',kind=kind,phase='error',generation=generation,reason=getattr(exc,'reason_code','unknown'),
+                    logger.record('job',kind=kind,phase='error',generation=generation,serial=serial,reason=getattr(exc,'reason_code','unknown'),
                         error_code='capture_paused' if isinstance(exc,CapturePaused) else 'capture_unavailable' if isinstance(exc,CaptureUnavailable) else 'worker_error')
                 # Serialized with closeEvent: never emit into Qt after teardown starts.
                 with self._worker_lock:
                     if not self._cancel_workers.is_set() and not self.closed:
                         if error is None:
-                            logger.record('job',kind=kind,phase='completed',generation=generation)
+                            logger.record('job',kind=kind,phase='completed',generation=generation,serial=serial)
                             self.signals.result.emit(kind,value,generation)
                         else:self.signals.error.emit(kind,error,generation)
-                    else:logger.record('job',kind=kind,phase='discarded',generation=generation,reason='closed')
+                    else:logger.record('job',kind=kind,phase='discarded',generation=generation,serial=serial,reason='closed')
             finally:
                 with self._worker_lock:self._workers.discard(threading.current_thread())
         job=threading.Thread(target=worker,name='vga-'+kind,daemon=True)
@@ -916,6 +919,7 @@ class ControlWindow(QtWidgets.QWidget):
                 except (OSError,ValueError) as exc:return self.status.setText('无法核验客户端所属安装目录，本局监测未开始：'+str(exc))
             self.state.start(self.target.identity)
         if self.hero_auto.isChecked():self.state.clear_hero()
+        self.debug_log.begin_game()
         self.debug_event('session',phase='started',reason='start')
         self.monitor.start(0);self.overlay.hide('start');self.stop_button.setEnabled(True);self.confirm_button.setEnabled(True)
         self.refresh_status_badge();self.status.setText('已开始监测。请切回游戏窗口；此窗口保留设置和停止入口。')
@@ -1065,7 +1069,7 @@ class ControlWindow(QtWidgets.QWidget):
         if self.client_phase() and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and not self._lcu_pixel_fallback:
             self.capture_selection();return
         mode=getattr(self.capture,'visible_capture_status','unknown')
-        self.debug_event('capture',capture_mode=mode)
+        self.debug_log.sample('capture',generation=self.state.generation,capture_mode=mode)
         was_visible=self.overlay.isVisible() or bool(self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId())))
         fresh_previous=bool(self.client_selection_reference() or (self.state.confirmed or any(self.current_partial_names())) and 0<=time.monotonic()-self.last_observation<=4)
         previous=bool(self.enable_visible_capture and was_visible and fresh_previous and self.overlay.click_through)
@@ -1092,15 +1096,18 @@ class ControlWindow(QtWidgets.QWidget):
         except (CapturePaused,CaptureUnavailable) as exc:
             self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.schedule_capture(1000);return
         self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False;self._visible_previous=visible;self.overlay.set_rechecking(visible)
+        self._capture_serial+=1;serial=self._capture_serial
+        route_reason=('capture_wait' if visible else 'disabled' if not self.enable_visible_capture else 'interactive' if not self.overlay.click_through else mode if mode!='eligible' else 'no_previous' if not was_visible else 'stale_previous')
+        self.debug_event('capture',phase='requested',reason=route_reason,capture_mode=mode,visible_capture=visible,visible=was_visible,fresh=fresh_previous,click_through=self.overlay.click_through)
         if not visible:
             self.overlay.hide('capture_pending')
             if was_visible:self.overlay._last_hidden_at=time.monotonic()
         self.refresh_status_badge();generation=self.state.generation
-        self._capture_serial+=1;serial=self._capture_serial
-        self.debug_event('capture',phase='requested',reason='capture_wait',visible_capture=visible)
+        settle_ms=self.overlay.hidden_settle_ms() if not visible else 0
+        self.debug_event('capture',phase='queued',reason='capture_wait',visible_capture=visible,settle_ms=settle_ms)
         # Legacy/unsupported paths remain strict-hide. The explicit experiment
         # uses only the exact registered opaque v2 window, never v1/GDI.
-        QtCore.QTimer.singleShot(self.overlay.hidden_settle_ms() if not visible else 0,lambda:self.capture_hidden(generation,serial,allow_visible_overlay=visible))
+        QtCore.QTimer.singleShot(settle_ms,lambda:self.capture_hidden(generation,serial,allow_visible_overlay=visible))
     def capture_selection(self):
         """Read opted-in client state without making pixels a prerequisite.
 
@@ -1200,10 +1207,15 @@ class ControlWindow(QtWidgets.QWidget):
                     logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
                     raise CapturePaused('监测已结束。')
                 options={'allow_visible_overlay':True} if allow_visible_overlay else {}
-                captured_at=time.monotonic();image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
+                logger.record('capture',phase='started',generation=generation,serial=serial,visible_capture=allow_visible_overlay)
+                captured_at=time.monotonic()
+                try:image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
+                except Exception:
+                    logger.record('capture',phase='error',generation=generation,serial=serial,capture_ms=(time.monotonic()-captured_at)*1000,**dict(getattr(capture,'last_capture_diagnostic',{})))
+                    raise
                 pixels_at=time.monotonic()
                 logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=(pixels_at-captured_at)*1000,
-                    backend=getattr(capture,'last_backend','unknown'),width=rect.width,height=rect.height,dpi=debug_dpi,visible_capture=allow_visible_overlay,**debug_identity)
+                    backend=getattr(capture,'last_backend','unknown'),width=rect.width,height=rect.height,dpi=debug_dpi,visible_capture=allow_visible_overlay,**debug_identity,**dict(getattr(capture,'last_capture_diagnostic',{})))
                 if self._cancel_workers.is_set() or cancelled.is_set():
                     logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
                     raise CapturePaused('监测已结束。')
@@ -1258,7 +1270,13 @@ class ControlWindow(QtWidgets.QWidget):
                         proof['_liveIdentityUnavailable']=True
                         return hud
                     return reconcile_identity(hud,api,source_heroes)
-                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,inference_worker=self.frame_inference_worker,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
+                def trace_inference(stage,phase,elapsed):
+                    cold={'ocr_cold_start':getattr(self.ocr,'_engine',None) is None} if stage=='ocr' and phase=='started' else {}
+                    duration={'inference_ms':elapsed} if phase=='completed' else {}
+                    logger.record('inference',inference_stage=stage,phase=phase,generation=generation,serial=serial,**duration,**cold)
+                if client_phase:logger.record('inference',inference_stage='selection',phase='started',generation=generation,serial=serial)
+                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,inference_worker=self.frame_inference_worker,diagnostic_callback=trace_inference,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
+                if client_phase:logger.record('inference',inference_stage='selection',phase='completed',inference_ms=(time.monotonic()-pixels_at)*1000,generation=generation,serial=serial)
                 if lcu_enabled:result.update(lcuFallback=True,lcuError=lcu_error)
                 if current_crop and not client_phase:
                     from card_title_proof import make_title_proof
@@ -1362,6 +1380,7 @@ class ControlWindow(QtWidgets.QWidget):
                 for alias in ambiguous:self.hero_aliases.pop(alias,None)
                 self.hero_box.addItem('');self.hero_box.addItems(sorted(self.data.get('heroes',{})))
                 hero_completer=QtWidgets.QCompleter(sorted(set(self.data.get('heroes',{}))|set(self.hero_aliases)),self.hero_box);hero_completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive);hero_completer.setFilterMode(QtCore.Qt.MatchFlag.MatchContains);self.hero_box.setCompleter(hero_completer)
+                self.debug_log.register_catalog(augment_names=self.data.get('augments',{}),hero_names=self.data.get('heroes',{}))
                 vocabulary=sorted(self.data.get('augments',{}))
                 for edit in self.inputs:
                     completer=QtWidgets.QCompleter(vocabulary,edit);completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive);edit.setCompleter(completer)
@@ -1411,6 +1430,7 @@ class ControlWindow(QtWidgets.QWidget):
                     reference=self._accepted_frame
                     if (reference.get('title_proof') is not None and value.get('_matchingTitleProof') is not reference['title_proof']) or (reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is not reference['card_geometry']):
                         self._visible_previous=False;self._restore_while_ocr=False
+                        self.debug_event('recognition',reason='title_changed' if reference.get('title_proof') is not None and value.get('_matchingTitleProof') is not reference['title_proof'] else 'geometry_unproven')
                         self.overlay.set_rechecking(False);self.overlay.hide('capture_proof')
                         return
                 if self._visible_previous:
@@ -1469,6 +1489,7 @@ class ControlWindow(QtWidgets.QWidget):
                     from lcu_selection import unavailable_reason
                     self.hero_status.setText(unavailable_reason(value.get('lcuError'))+'；已回退截图识别。'+self.hero_status.text())
                 elif value.get('method')=='lcu-read-only':self.hero_status.setText('本机客户端只读选人资料 · '+self.hero_status.text())
+                self.debug_event('recognition',reason='recognized' if stable and hero else 'hero_unknown',hero_present=bool(hero),hero_name=hero,hero_source='lcu-read-only' if value.get('method')=='lcu-read-only' else 'selection-pixels',stage=self.selection_session.stage,stable_frames=self.selection_session.candidate_frames)
                 self.status.setText(self.hero_status.text());self.check_target()
             elif kind=='ocr':
                 self._visible_previous=False
@@ -1480,6 +1501,7 @@ class ControlWindow(QtWidgets.QWidget):
                     self.invalidate_scene('游戏窗口身份变化，旧资料已清空');self.overlay.hide('target_unavailable');return
                 captured_at=value.get('_capturedAt',0)
                 if not isinstance(captured_at,(int,float)) or not math.isfinite(captured_at) or time.monotonic()-captured_at>4 or captured_at>time.monotonic():
+                    self.debug_event('capture',phase='discarded',reason='stale_frame',age_ms=max(0.,(time.monotonic()-captured_at)*1000) if isinstance(captured_at,(int,float)) and math.isfinite(captured_at) else 0,ttl_ms=4000)
                     self.invalidate_scene('识别完成时截图已过期，旧资料隐藏；等待新截图',debug_reason='stale_frame');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason);return
                 if self.last_observation and captured_at-self.last_observation>4:
                     # A fresh result after a long observation gap is useful,
@@ -1535,11 +1557,15 @@ class ControlWindow(QtWidgets.QWidget):
                     'candidate_untrusted' if any(item.get('match_method')!='exact' or item.get('ocr_confidence',0)<.93 for item in auto_candidates) else
                     'candidate_layout' if not safe_candidates else 'awaiting_confirmation')
                 self.debug_event('recognition',reason=diagnosis,candidate_count=len(auto_candidates),hero_present=bool(self.state.hero))
+                for slot in getattr(partial_evidence,'slots',()):
+                    tier=display_cards(self.data,self.state.hero,[slot.name])[0].get('sourceTier') if slot.name and self.state.hero else None
+                    self.debug_event('recognition',reason='hero_unknown' if not self.state.hero else 'recognized' if slot.name and tier else 'source_tier_missing' if slot.name else 'title_low_confidence' if slot.confidence<.93 else 'title_dictionary_miss',slot=slot.slot-1,augment_name=slot.name,hero_name=self.state.hero,confidence=slot.confidence,catalog_match=bool(slot.name),tier_present=bool(tier),hero_source=self.hero_origin)
                 if value.get('ocr_reused') is True and not self.state.confirmed:
                     self.clear_partial_candidates();self.ocr_reuse.clear();self.refresh_card_details();self.overlay.hide('unconfirmed');return
                 if self.state.confirmed and self.state.confirmation_mode=='automatic' and not safe_candidates:self.state.invalidate('候选置信度或三卡布局不足，旧资料已隐藏')
                 stable=self.state.observe(names,generation=self.state.generation)
                 automatic_stable=(self.state.confirmed and self.state.confirmation_mode=='automatic') if value.get('ocr_reused') is True else self.state.observe_automatic_candidates(names,safe_candidates)
+                self.debug_event('recognition',reason='awaiting_confirmation' if not (stable and automatic_stable and hero_stable) else 'recognized',stable_frames=self.state.stable_frames,automatic_frames=self.state.automatic_frames,hero_stable_frames=self.state.hero_stable_frames,hero_source=self.hero_origin,hero_present=bool(self.state.hero),fresh=True)
                 self.last_observation=captured_at
                 if not self.state.confirmed:self.refresh_card_details()
                 if stable and not self.state.confirmed and not self.manual_editing:

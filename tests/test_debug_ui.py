@@ -25,8 +25,8 @@ class DebugUITests(unittest.TestCase):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         cls.app.setQuitOnLastWindowClosed(False)
 
-    def pump(self, predicate):
-        until = time.monotonic() + 4
+    def pump(self, predicate, seconds=4):
+        until = time.monotonic() + seconds
         while time.monotonic() < until:
             self.app.processEvents()
             if predicate(): return
@@ -71,11 +71,11 @@ class DebugUITests(unittest.TestCase):
             text = archive.read('events.jsonl').decode()
             return json.loads(archive.read('manifest.json')), [json.loads(line) for line in text.splitlines()], text
 
-    def test_default_off_toggle_and_export_are_local_and_retain_prior_logs(self):
+    def test_diagnostic_default_on_toggle_and_export_are_local_and_retain_prior_logs(self):
         w = self.window
-        self.assertFalse(w.debug_toggle.isChecked()); self.assertFalse(w.debug_log.enabled)
+        self.assertTrue(w.debug_toggle.isChecked()); self.assertTrue(w.debug_log.enabled)
         self.assertTrue(w.enable_visible_capture)
-        self.assertFalse((self.root / 'local-debug').exists())
+        self.assertTrue((self.root / 'local-debug').exists())
         w.debug_toggle.setChecked(True)
         self.assertTrue(w.debug_log.enabled)
         w.debug_toggle.setChecked(False)
@@ -181,6 +181,54 @@ class DebugUITests(unittest.TestCase):
             w.debug_export_button.click()
         self.assertNotIn('PRIVATE_FAILURE_PATH', w.debug_status.text())
         self.assertTrue(w.state.running)
+
+    def test_hidden_capture_fallback_is_correlated_with_actual_withdrawal(self):
+        from types import SimpleNamespace
+        w=self.window
+        w.state.start((123,456,'owned'));w.state.confirmed=True
+        w.last_observation=time.monotonic();w._capture_serial=40
+        w.target=SimpleNamespace(identity=(123,456,'owned'))
+        w.capture=SimpleNamespace(foreground=lambda target:True,
+            visible_capture_status='backend_unavailable',can_request_visible_overlay=False)
+        w.overlay._show_reason='confirmed';w.overlay.show();self.app.processEvents()
+        with patch('native_ui.QtCore.QTimer.singleShot'):
+            w.capture_tick()
+        _,events,text=self.exported()
+        request=next(e for e in events if e.get('phase')=='requested' and e.get('reason')=='backend_unavailable')
+        hide=next(e for e in events if e.get('event')=='overlay' and e.get('reason')=='capture_pending')
+        self.assertEqual(request['serial'],41);self.assertEqual(hide['serial'],41)
+        self.assertEqual(request['generation'],hide['generation'])
+        self.assertFalse(hide['visible']);self.assertLess(request['sequence'],hide['sequence'])
+        self.assertTrue(any(e.get('serial')==41 and e.get('settle_ms',0)>0 for e in events))
+
+    def test_slow_frame_rejection_has_age_and_phase_evidence_in_export(self):
+        from screen_capture import ClientRect,WindowInfo
+        w=self.window;w.target=WindowInfo(123,456,'owned','owned')
+        w.state.start(w.target.identity);w._capture_serial=8
+        w.captured_frame_current=lambda value:True;w.target_allowed=lambda:True
+        w.capture_metadata=lambda:None;w.check_target=lambda:None
+        class Capture:
+            last_backend='window-dc'
+            def capture(self,*args,**kwargs):return b'owned fixture',ClientRect(0,0,900,600)
+        w.capture=Capture()
+        def slow_recognition(*args,diagnostic_callback=None,**kwargs):
+            started=time.monotonic();diagnostic_callback('ocr','started',0)
+            time.sleep(4.05)
+            diagnostic_callback('ocr','completed',(time.monotonic()-started)*1000)
+            return {'automatic_candidates':[],'candidates':[]}
+        with patch('hero_recognition.recognize_frame',side_effect=slow_recognition):
+            w.capture_hidden(w.state.generation)
+            self.pump(lambda:not w.ocr_busy and not w._workers,seconds=6)
+        _,events,_=self.exported()
+        rejected=next(e for e in events if e.get('phase')=='discarded' and e.get('reason')=='stale_frame')
+        self.assertGreater(rejected['age_ms'],4000);self.assertEqual(rejected['ttl_ms'],4000)
+        stage=next(e for e in events if e.get('event')=='inference' and e.get('phase')=='completed')
+        self.assertEqual(stage['inference_stage'],'ocr');self.assertGreaterEqual(stage['inference_ms'],4000)
+        self.assertEqual(stage['serial'],rejected['serial']);self.assertFalse(w.state.confirmed)
+        same_frame=[e for e in events if e.get('serial')==rejected['serial']]
+        self.assertTrue(any(e.get('phase')=='acquired' for e in same_frame))
+        self.assertTrue(any('queue_ms' in e for e in same_frame))
+        self.assertTrue(any('dispatch_ms' in e for e in same_frame))
 
 
 if __name__ == '__main__':

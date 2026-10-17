@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.11-0891b2" alt="Source version v0.4.11"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.12-0891b2" alt="Source version v0.4.12"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.11 preview"></a>
 </p>
 <p align="center">
@@ -59,13 +59,17 @@ python launcher.py
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
+## v0.4.12: diagnostic source candidate, pending Windows release gates
+
+The current source is v0.4.12; the v0.4.11 links below still identify the published binary. This candidate enables switchable local logs by default, bounded to 768 KiB (3 × 256 KiB). Export replaces one local ZIP and nothing uploads automatically. Actual-game flashing, rechecking and latency remain unverified. All existing Windows gates must pass before a non-latest prerelease is published. See [diagnostic scope](BOUNDED_DIAGNOSTICS.md).
+
 ## v0.4.11: capture transitions and selection recognition
 
 [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) was published on 2026-10-17 after the [complete Windows release run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768) passed every required gate. Capture cleanup waits now preserve a pending visible-mode request, addressing a reproducible path to repeated hiding and candidate rechecks. Freshness and occlusion checks remain enforced.
 
 Authorized selection API reads run independently of screenshot availability. API failure schedules a separate screenshot fallback and reports a bounded reason. The dashboard now provides “开启本机选人识别”; this separate permission remains off by default and lasts for the current launch only.
 
-The same final EXE passed three-scale capture/overlay, selection handoff and OTA rollback checks. Real-client and user-game behavior still require validation. Historical v0.4.10 static-image reports retain their original version and are accepted only when every evaluated module hash matches; they were not rerun for v0.4.11. See [validation scope](reports/VALIDATION.md).
+The same final EXE passed three-scale capture/overlay, selection handoff and OTA rollback checks. Real-client and user-game behavior still require validation. The unpublished diagnostic source has separately rerun the static-image fixtures on 2026-10-17; those results do not add live-game evidence for the published EXE. See [validation scope](reports/VALIDATION.md).
 
 ## v0.4.10: same-game identity and above-card tiers
 
@@ -90,7 +94,7 @@ The EXE is **106,971,324 bytes (102.02 MiB)**. Real LoL/Vanguard, the user's mat
 - Four-second presentation expiry hides old references without cancelling a newer, still-fresh inference under unchanged authority. Focus, identity, geometry, permission and Stop still revoke work. Completion-driven scheduling can shorten the usual 700/200 ms waits to preserve observation freshness.
 - Guarded visible capture is enabled by default at the normal entry point, subject to runtime proof for the exact owned opaque overlay, token/styles, `WDA_EXCLUDEFROMCAPTURE=0x11`, target identity, foreground and ROI. Previous candidates stay explicitly labeled while rechecking; completed fresh recognition hides them when it reports changed candidate/champion identity or uncertainty; harmless ROI animation with unchanged recognized identity does not require hiding. Legacy strict-hidden paths and refusal/cleanup rules remain. Source and the same frozen EXE passed three-scale normal-entry changed-ROI and pixel-exclusion checks.
 - The dashboard uses verified cached champion portraits and public-source overall T1–T5 tiers. Champion-select identity stays provisional until HUD verification; augment tiers remain T1–T4. “Last candidates · final choice unknown” never infers the final choice from a disappearing screen.
-- Settings adds “本地调试日志（仅本次启动）” (local debug logs, this launch only) and “导出调试 ZIP” (export debug ZIP). Logging defaults off each launch and keeps three rotating 256 KiB files of allowlisted state/counter/timing data, excluding screenshots, recognized text, names, accounts, tokens and private paths. Export stays local and never uploads automatically.
+- This diagnostic build enables local logs by default, with an obvious Settings toggle and local-only ZIP export. Three rotating 256 KiB files contain correlated frame IDs, hide reasons, phase timings, confirmation gates and matched catalog hero/augment names. Screenshots, raw OCR, player/account identity, credentials and paths are excluded. Export reports truncation; nothing uploads automatically. See [diagnostics](BOUNDED_DIAGNOSTICS.md).
 - The normal Windows capture border, request-ROI-only CPU readback, idle GPU surfaces and asynchronous cleanup limits remain. The reported later-round flashing in borderless gameplay, live LoL/Vanguard, true exclusive fullscreen and automatic final-choice detection remain unverified. See [feedback fixes and evidence limits](PLAY_FEEDBACK_FIXES.md).
 
 - The dashboard shows the current champion, monitoring state and left/center/right candidates. One primary monitoring action switches between Start and Stop; secondary pages retain a Stop action while monitoring.
@@ -140,7 +144,7 @@ v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rig
 
 The [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029) passed at controlled 100%, 150% and 200% application process scaling using the same EXE and a fixed 960×600-pixel original mock window. Checks cover capture/OCR, automatic champion and three-choice display, card bounds and text layout, stale-state clearing and shutdown cleanup. Champion-select recognition and session handoff also passed. The same build’s source matrix passed 35 window cases at 100%–250% scaling, including small-window hiding and recovery. Actual OS DPI, mixed-monitor transitions, fully visible 4K layouts and the cause of the reported user error remain unconfirmed.
 
-In the historical public screenshot sample rerun with v0.4.10 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. v0.4.11 retains the original reports and verifies every evaluated module hash; it does not relabel these as a fresh run. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
+In the public screenshot sample rerun against this unpublished diagnostic source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. The original validation runners regenerated source-bound reports on 2026-10-17, without redistributing images. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 
 The following are **historical v0.3.0 baseline checks**, not proof of the new automatic champion feature:
 

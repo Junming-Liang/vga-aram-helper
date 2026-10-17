@@ -1,5 +1,14 @@
 # Changelog / 变更日志
 
+## v0.4.12 · 捕获稳定性诊断测试版 / Capture stability diagnostic candidate
+
+待通过完整 Windows 发布门禁后发布；本段不代表已发布或实际对局验证通过。
+默认开启可关闭的本地诊断日志，三份 256 KiB 文件合计最多 768 KiB；本地 ZIP 导出替换同一文件，不自动上传。记录关联帧、隐藏原因、阶段耗时、确认门槛及已匹配的目录英雄/强化名称，不记录截图、原始 OCR、玩家账号、凭据或私有路径。重复采样合并，导出说明轮转与截断。
+
+同一英雄/卡片仅来源或评级文字变化时减少不必要的隐藏；模糊匹配跳过数学上不可能满足原有门槛的比较，不放宽接受或歧义检查。Windows 受控测试、Linux 小样本静态截图与实际对局验收分别记录，不能据此宣称闪烁或延迟已在游戏中解决。
+
+English: Candidate pending every existing Windows release gate. Default-on, switchable local logs are bounded to 768 KiB (3 × 256 KiB); export replaces one local ZIP and nothing uploads automatically. Same-card badge stability and conservative fuzzy-matching pruning retain freshness and fail-closed behavior. Actual-game flashing/rechecking and latency remain unverified. Publication must remain a non-latest prerelease; stable OTA will not discover it. See [diagnostic scope](BOUNDED_DIAGNOSTICS.md).
+
 ## v0.4.10 · 同局英雄保留与独立卡片评级
 
 2026-10-17 已发布预览版，[Windows 完整运行 #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) 通过全部门禁；仍需手动下载，真实对局待验证。默认开启可关闭的本局英雄只读核验；同一核验游戏进程中的可靠英雄身份可跨死亡倒计时保留，评级仍需当前候选和四秒新鲜度。开始后自动最小化改为默认关闭、保留可选设置。

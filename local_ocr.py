@@ -60,8 +60,19 @@ def _match_name(text, cleaned, dictionary, exact):
                if len(normalized)>=3 and normalized in cleaned and len(cleaned)<=len(normalized)+8]
     if contained:
         return (1.0,contained[0],'contained-name') if len(contained)==1 else None
-    ranked=[(SequenceMatcher(None,cleaned,normalized).ratio(),name,'fuzzy-suggestion')
-            for name,normalized in dictionary]
+    ranked=[]
+    for name,normalized in dictionary:
+        # These are upper bounds, not replacement similarity scores. A result
+        # below .67 cannot win (.78 minimum) or make that winner ambiguous
+        # (.10 margin). Keep a .01 cushion around the decision boundary.
+        # Description rows usually fail the length bound without constructing
+        # a matcher; unrelated same-length rows fail the character-count bound.
+        if 2*min(len(cleaned),len(normalized))/(len(cleaned)+len(normalized)) < .67:
+            continue
+        matcher=SequenceMatcher(None,cleaned,normalized)
+        if matcher.quick_ratio() < .67:
+            continue
+        ranked.append((matcher.ratio(),name,'fuzzy-suggestion'))
     ranked.sort(key=lambda row:(-row[0],row[1]))
     if not ranked or ranked[0][0]<0.78:return None
     if len(ranked)>1 and ranked[0][0]-ranked[1][0]<0.1:return None

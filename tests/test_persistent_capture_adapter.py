@@ -68,6 +68,23 @@ class AdapterFixture:
 
 
 class AdapterTests(AdapterFixture, unittest.TestCase):
+    def test_compatibility_reason_is_allowlisted_and_read_only(self):
+        epoch=self.adapter.epoch
+        self.assertEqual(self.adapter.compatibility_status,'unknown')
+        self.adapter._unavailable='private path or stderr'
+        self.assertEqual(self.adapter.compatibility_status,'unknown')
+        for reason in ('missing-helper','unsupported'):
+            self.adapter._unavailable=reason
+            self.assertEqual(self.adapter.compatibility_status,reason)
+        self.adapter._unavailable=None;self.adapter._overlay=None
+        self.assertEqual(self.adapter.compatibility_status,'exclusion-unregistered')
+        self.adapter._interactive_overlay=True
+        self.assertEqual(self.adapter.compatibility_status,'interactive')
+        self.adapter._enabled=False
+        self.assertEqual(self.adapter.compatibility_status,'disabled')
+        self.assertEqual(self.adapter.epoch,epoch)
+        self.factory.assert_not_called();self.proof.assert_not_called()
+
     def test_visible_mode_reason_is_read_only_and_does_not_grant_capture(self):
         self.assertEqual(self.adapter.visible_capture_status,'disabled')
         self.adapter._allow_visible_overlay=True

@@ -103,6 +103,58 @@ class RecognizeFrameCallbackTests(unittest.TestCase):
         self.assertEqual(events, ['match', 'resolve', 'proof', 'ocr'])
         self.assertIs(result['hero_observation'], resolved)
 
+    def test_diagnostics_report_bounded_stages_without_changing_result(self):
+        from hero_recognition import recognize_frame
+        events=[]
+        class OCR:
+            def recognize(inner,*args):
+                self.assertEqual(events[-1][:2],('ocr','started'))
+                return {'ocr_lines': [], 'candidates': []}
+        result=recognize_frame(self.payload,self.roi,OCR(),self.vocabulary,
+                               diagnostic_callback=lambda *event:events.append(event))
+        self.assertEqual([(stage,phase) for stage,phase,_ in events],[
+            ('total','started'),('prepare','started'),('prepare','completed'),
+            ('hud_match','started'),('hud_match','completed'),('ocr','started'),
+            ('ocr','completed'),('title_geometry','started'),('title_geometry','completed'),
+            ('total','completed')])
+        self.assertTrue(all(isinstance(ms,float) and ms>=0 for _,_,ms in events))
+        def broken_logger(*args):raise OSError('diagnostic output unavailable')
+        class PlainOCR:
+            def recognize(inner,*args):return {'ocr_lines': [], 'candidates': []}
+        baseline=recognize_frame(self.payload,self.roi,PlainOCR(),self.vocabulary,
+                                 diagnostic_callback=broken_logger)
+        self.assertEqual(result,baseline)
+
+    def test_parallel_diagnostics_identify_ocr_worker_before_inference_finishes(self):
+        import threading
+        import numpy as np
+        from frame_inference_worker import FrameInferenceWorker
+        from hero_recognition import PortraitMatcher,recognize_frame
+        worker=FrameInferenceWorker();self.addCleanup(worker.close)
+        entered=threading.Event();release=threading.Event();events=[]
+        matcher=object.__new__(PortraitMatcher)
+        matcher.np=np
+        matcher._prepare_image=lambda *args,**kwargs: {'confident':False}
+        def match(prepared):
+            self.assertTrue(entered.wait(2))
+            self.assertTrue(any(stage=='ocr' and phase=='started' for stage,phase,_,_ in events))
+            release.set()
+            return {'hero':None,'confident':False}
+        matcher._recognize_prepared=match
+        class OCR:
+            def recognize(inner,*args):
+                entered.set()
+                if not release.wait(2):raise AssertionError('HUD did not run in parallel')
+                return {'ocr_lines':[]}
+        main_thread=threading.get_ident()
+        recognize_frame(self.payload,self.roi,OCR(),(),matcher,inference_worker=worker,
+            diagnostic_callback=lambda *event:events.append((*event,threading.get_ident())))
+        ocr_events=[event for event in events if event[0]=='ocr']
+        self.assertEqual([event[1] for event in ocr_events],['started','completed'])
+        self.assertTrue(all(event[3]!=main_thread for event in ocr_events))
+        self.assertEqual(events[-1][:2],('total','completed'))
+        self.assertFalse(worker._busy)
+
 
 if __name__ == '__main__':
     unittest.main()

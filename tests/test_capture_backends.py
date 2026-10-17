@@ -37,6 +37,57 @@ class CaptureBackendTests(unittest.TestCase):
         self.c._copy_pixels=Mock(return_value=self.blank)
         with self.assertRaises(CapturePaused):self.c.capture(self.target)
 
+class CaptureDiagnosticTests(CaptureBackendTests):
+    def test_fallback_chain_retains_session_and_wgc_causes(self):
+        from persistent_capture_adapter import PersistentCaptureAdapter
+        from wgc_capture import WgcUnavailable
+        self.c._persistent=PersistentCaptureAdapter(Mock(),enabled=False)
+        self.addCleanup(self.c._persistent.close)
+        self.c._wgc=SimpleNamespace(capture=Mock(side_effect=WgcUnavailable('unsupported','private path/title')))
+        self.c._copy_pixels=Mock(side_effect=[self.blank,self.picture])
+        self.c.capture(self.target)
+        self.assertEqual(dict(self.c.last_capture_diagnostic),dict(capture_status='ok',
+            session_status='disabled',oneshot_status='unsupported',fallback_reason='window-dc-blank'))
+        # The compatibility cause survives disabling the unavailable backend,
+        # but the previous request's GDI fallback reason must not leak forward.
+        self.c._copy_pixels=Mock(return_value=self.picture)
+        self.c.capture(self.target)
+        self.assertEqual(dict(self.c.last_capture_diagnostic),dict(capture_status='ok',
+            session_status='disabled',oneshot_status='unsupported',fallback_reason='oneshot-unsupported'))
+
+    def test_missing_oneshot_helper_reason_is_retained_without_starting_wgc(self):
+        self.c._wgc=None;self.c._wgc_unavailable_status='missing-helper'
+        self.c._copy_pixels=Mock(return_value=self.picture)
+        self.c.capture(self.target)
+        self.assertEqual(self.c.last_capture_diagnostic['oneshot_status'],'missing-helper')
+        self.assertEqual(self.c.last_capture_diagnostic['fallback_reason'],'oneshot-missing-helper')
+        self.assertEqual(self.c.last_backend,'window-dc')
+
+    def test_unavailable_gdi_and_failed_copy_have_distinct_causes(self):
+        for missing,expected in ((True,'window-dc-unavailable'),(False,'window-dc-copy-failed')):
+            with self.subTest(missing=missing):
+                self.c.u.GetDC=Mock(side_effect=[0 if missing else 10,20])
+                self.c._copy_pixels=Mock(side_effect=[self.picture] if missing else [CaptureUnavailable('secret'),self.picture])
+                self.c.capture(self.target)
+                self.assertEqual(self.c.last_capture_diagnostic['fallback_reason'],expected)
+
+    def test_denied_wgc_has_status_without_compatibility_retry(self):
+        from wgc_capture import WgcError
+        for status,expected in (('protected','protected'),('private arbitrary path','unknown')):
+            self.c._wgc=SimpleNamespace(capture=Mock(side_effect=WgcError(status,'private raw stderr')))
+            self.c._copy_pixels=Mock()
+            with self.assertRaises(CapturePaused):self.c.capture(self.target)
+            self.assertEqual(self.c.last_capture_diagnostic['capture_status'],expected)
+            self.assertEqual(self.c.last_capture_diagnostic['fallback_reason'],'none')
+            self.assertNotIn('private',repr(dict(self.c.last_capture_diagnostic)))
+            self.c.u.GetDC.assert_not_called();self.c._copy_pixels.assert_not_called()
+
+    def test_diagnostic_is_immutable_and_filters_unknown_or_injected_data(self):
+        self.c._capture_diagnose(capture_status='secret',path='secret',session_status=['secret'])
+        self.c._capture_diagnostic['raw']='secret'
+        self.assertEqual(dict(self.c.last_capture_diagnostic),{'capture_status':'unknown','session_status':'unknown'})
+        with self.assertRaises(TypeError):self.c.last_capture_diagnostic['capture_status']='ok'
+
 class FullOcclusionTests(unittest.TestCase):
     def make_capture(self,blocker=None,geometry_ok=True,found=True):
         c=object.__new__(Win32Capture);target=WindowInfo(100,10,'fixture','RiotWindowClass');rect=ClientRect(0,0,800,600);c.validate=Mock(return_value=rect);c.enum_cb=lambda fn:fn

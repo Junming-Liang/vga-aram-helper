@@ -237,7 +237,7 @@ class NativeDesignTests(unittest.TestCase):
         overlay.clear_candidate_geometry();overlay.show_at(ClientRect(0,0,900,600),None)
         self.assertFalse(overlay.isVisible())
 
-    def test_identical_payload_reuses_badges_and_changes_invalidate_placement(self):
+    def test_identical_payload_and_paint_only_tier_changes_reuse_placement(self):
         import copy
         from screen_capture import ClientRect
         overlay,c,g,cards=self.badge_fixture();overlay.show_at(ClientRect(0,0,900,600),None)
@@ -246,8 +246,10 @@ class NativeDesignTests(unittest.TestCase):
         self.assertEqual(tuple(overlay._badge_widgets),badges);self.assertEqual(overlay._layout_revision,revision)
         overlay.set_rechecking(True);overlay.set_cards('原创英雄',copy.deepcopy(cards));self.assertFalse(overlay._rechecking)
         cards[0]['sourceTier']='T4';overlay.set_cards('原创英雄',cards)
-        self.assertGreater(overlay._layout_revision,revision);self.assertFalse(overlay.isVisible())
+        self.assertEqual(overlay._layout_revision,revision);self.assertTrue(overlay.isVisible())
         self.assertEqual(overlay._badge_widgets[0].tier,'T4')
+        cards[0]['name']='different-card';overlay.set_cards('原创英雄',cards)
+        self.assertGreater(overlay._layout_revision,revision);self.assertFalse(overlay.isVisible())
 
     def test_dictionary_details_do_not_retain_current_hero_after_foreground_loss(self):
         from screen_capture import ClientRect, WindowInfo

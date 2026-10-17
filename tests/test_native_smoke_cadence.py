@@ -83,6 +83,8 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         control._mode_wait_started = None
         control._capture_serial = 0
         control.debug_event = lambda *args, **kwargs: None
+        control.debug_log = SimpleNamespace(sample=lambda *args, **kwargs: None)
+        control.overlay.click_through = True
         control.overlay.isVisible = lambda: False
         control.overlay.hide = lambda reason: None
         control.overlay.hidden_settle_ms = lambda: 0

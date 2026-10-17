@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.10",
+  "applicationVersion": "0.4.12",
   "status": "passed",
   "scope": "Small local Linux still-image evaluation only: one July2025 Traditional Chinese post-choice client modified by a third-party plugin, plus three June2025 prerelease initial-card images representing two distinct scenes (one scene has resized/original variants). Not current stock-client, live trade/cancel sequence, native Windows, or Riot/Vanguard compatibility proof. Images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
     "champion_select.py": "d493cdd547475989e3877f828bd85e31f80d3c2a6fecbac69a1bc5fb6d1d0a74",
-    "local_ocr.py": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
+    "local_ocr.py": "5b49db856a57878e2ae15b074393d2e037a47db44b494e368f72b9e4b8567f7a",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
     "model_inventory.py": "c847e69c04ffb84fb2af6eb7acf781b1146f06005cd336a19125093f91c67032"
   },
@@ -43,7 +43,7 @@
       "limitations": "Not cleared for redistribution; internal read-only fixture",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.826
+      "elapsed_seconds": 0.889
     },
     {
       "source_url": "https://fistbump-news.jp/imgs/p/6ctlLP6jpu3fsvWRdHSre9LTZN5buNzb2tnY/7592.png",
@@ -69,7 +69,7 @@
       "limitations": "Published resized691x389 prerelease screenshot, not current2026live client evidence",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.149
+      "elapsed_seconds": 0.133
     },
     {
       "source_url": "https://truth.bahamut.com.tw/s01/202507/3d5a666acf0ca57c63d625bb2681679e.WEBP",
@@ -150,7 +150,7 @@
       "limitations": "Plugin-modified client screenshot; firstparty stock UI and current2026Mayhem coverage not proven; never execute/install referenced plugin",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.418
+      "elapsed_seconds": 0.357
     },
     {
       "source_url": "https://fistbump-news.jp/imgs/zoom1/7592.png",
@@ -176,7 +176,7 @@
       "limitations": "June2025 prerelease screenshot, not current2026live client evidence; same scene as initial-threecards resized image, not independent fixture",
       "transformation": null,
       "image_redistributed": false,
-      "elapsed_seconds": 0.192
+      "elapsed_seconds": 0.257
     }
   ]
 }

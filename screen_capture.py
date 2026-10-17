@@ -17,6 +17,23 @@ import os
 import subprocess
 import threading
 
+# Fixed diagnostic vocabulary only. These fields never participate in routing.
+CAPTURE_DIAGNOSTIC_ENUMS = {
+    'capture_status': frozenset(('ok','pending','unknown','missing-helper','unsupported',
+        'backend-error','cancelled','cleanup-pending','invalid-reply','stale','timeout',
+        'untrusted-helper','busy','visible-overlay-unavailable','experiment-disabled',
+        'protected','capture_paused','capture_unavailable','window_gone','window_identity_changed',
+        'window_hidden','client_rect_failed','client_rect_unsupported','focus_rejected',
+        'capture_protected','foreign_occlusion','geometry_changed','monitor_bounds','blank_frame')),
+    'session_status': frozenset(('used','disabled','interactive','exclusion-unregistered',
+        'missing-helper','unsupported','not-attempted','unknown')),
+    'oneshot_status': frozenset(('used','missing-helper','unsupported','not-attempted','unknown')),
+    'fallback_reason': frozenset(('none','session-disabled','session-interactive',
+        'session-unregistered','session-missing-helper','session-unsupported',
+        'oneshot-missing-helper','oneshot-unsupported','window-dc-unavailable',
+        'window-dc-copy-failed','window-dc-blank','unknown')),
+}
+
 class CaptureUnavailable(RuntimeError):
     default_reason_code='capture_unavailable'
     def __init__(self,message,*,reason_code=None):
@@ -51,10 +68,10 @@ class Win32Capture:
         self._last_session_epoch=None
         self._capture_lock=threading.Lock()
         self._overlay_hwnd=None
-        self._wgc=None;self._wgc_error=None
+        self._wgc=None;self._wgc_error=None;self._wgc_unavailable_status=None
         from wgc_capture import WgcCapture,WgcError,WgcUnavailable
         try:self._wgc=WgcCapture()
-        except WgcUnavailable:pass
+        except WgcUnavailable as exc:self._wgc_unavailable_status=exc.status
         except WgcError as exc:self._wgc_error=exc
     def _declare(self):
         def sig(dll,name,args,restype):
@@ -184,6 +201,21 @@ class Win32Capture:
             if old and dc:self.g.SelectObject(dc,old)
             if bitmap:self.g.DeleteObject(bitmap)
             if dc:self.g.DeleteDC(dc)
+    @property
+    def last_capture_diagnostic(self):
+        """Bounded status snapshot; no raw exceptions, identifiers or pixel data."""
+        from types import MappingProxyType
+        values=getattr(self,'_capture_diagnostic',{})
+        return MappingProxyType({key:value for key,value in values.items()
+            if key in CAPTURE_DIAGNOSTIC_ENUMS and type(value) is str
+            and value in CAPTURE_DIAGNOSTIC_ENUMS[key]})
+    def _capture_diagnose(self,**fields):
+        current=dict(getattr(self,'_capture_diagnostic',{}))
+        for key,value in fields.items():
+            if key in CAPTURE_DIAGNOSTIC_ENUMS:
+                current[key]=value if type(value) is str and value in CAPTURE_DIAGNOSTIC_ENUMS[key] else 'unknown'
+        self._capture_diagnostic=current
+
     def retire_session(self):
         """GUI-safe: revoke now; the adapter owns asynchronous close/cleanup."""
         self._last_session_receipt=None
@@ -300,6 +332,8 @@ class Win32Capture:
         lock=getattr(self,'_capture_lock',None)
         if lock is not None and not lock.acquire(blocking=False):raise CapturePaused('已有窗口截图请求尚未结束。')
         try:
+            self._capture_diagnostic={}
+            self._capture_diagnose(capture_status='pending',session_status='not-attempted',oneshot_status='not-attempted',fallback_reason='none')
             self._last_session_receipt=None
             if adapter is not None:adapter.check_ready()
             if type(allow_visible_overlay) is not bool:raise TypeError('Visible overlay request requires a boolean')
@@ -310,8 +344,10 @@ class Win32Capture:
                 self._last_session_receipt=adapter.last_receipt
                 self._last_session_epoch=epoch
             if is_cancelled():raise CapturePaused('截图已取消。')
+            self._capture_diagnose(capture_status='ok')
             return result
         except BaseException as exc:
+            self._capture_diagnose(capture_status=getattr(exc,'status',getattr(exc,'reason_code','unknown')))
             self.retire_session()
             if isinstance(exc,WgcError):raise CapturePaused(str(exc)) from exc
             raise
@@ -338,13 +374,14 @@ class Win32Capture:
             self._check_overlay_hidden()
             rect=self.validate(target);self.validate_compositor(target,rect)
         left,top,width,height=bounded_roi(rect.width,rect.height,roi)
-        if getattr(self,'_wgc_error',None):raise CapturePaused(str(self._wgc_error))
+        if getattr(self,'_wgc_error',None):raise CapturePaused(str(self._wgc_error),reason_code=getattr(self._wgc_error,'status','unknown'))
         adapter=getattr(self,'_persistent',None)
         if adapter is not None:
             self._drain_one_shot_cleanup()
             options={'allow_visible_overlay':True} if allow_visible_overlay else {}
             image=adapter.capture(target,rect,(left,top,width,height),cancelled=is_cancelled,expected_metadata=expected_metadata,**options)
             if image is not None:
+                self._capture_diagnose(session_status='used')
                 if allow_visible_overlay:self.validate_compositor(target,rect,allow_visible_overlay=True)
                 else:self._check_overlay_hidden();self.validate_compositor(target,rect)
                 check_binding()
@@ -355,6 +392,11 @@ class Win32Capture:
                 out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
             if allow_visible_overlay:
                 raise CapturePaused('可见叠加捕获未返回画面，已跳过本帧。')
+            status=getattr(adapter,'compatibility_status','unknown')
+            self._capture_diagnose(session_status=status,fallback_reason={
+                'disabled':'session-disabled','interactive':'session-interactive',
+                'exclusion-unregistered':'session-unregistered','missing-helper':'session-missing-helper',
+                'unsupported':'session-unsupported'}.get(status,'unknown'))
             adapter.check_ready() # No v1/GDI while a v2 close/cleanup is pending.
         if allow_visible_overlay:raise CapturePaused('可见叠加请求仅允许持续窗口捕获。')
         if getattr(self,'_wgc',None) is not None:
@@ -366,21 +408,31 @@ class Win32Capture:
                 if is_cancelled():raise CapturePaused('截图已取消。')
                 if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
                 if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。',reason_code='blank_frame')
+                self._capture_diagnose(oneshot_status='used')
                 self.last_backend='windows-graphics-capture';self._blank_frames=(None,0)
                 out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
-            except WgcUnavailable:self._wgc=None # Unsupported API only; exact GDI bounds remain below.
-            except WgcError as exc:raise CapturePaused(str(exc)) from exc
+            except WgcUnavailable as exc:
+                self._wgc=None # Unsupported API only; exact GDI bounds remain below.
+                self._wgc_unavailable_status=exc.status
+            except WgcError as exc:raise CapturePaused(str(exc),reason_code=exc.status) from exc
         if is_cancelled():raise CapturePaused('截图已取消。')
         check_binding()
+        status=getattr(self,'_wgc_unavailable_status',None)
+        if status is not None:
+            self._capture_diagnose(oneshot_status=status,fallback_reason={
+                'missing-helper':'oneshot-missing-helper','unsupported':'oneshot-unsupported'}.get(status,'unknown'))
         source=self.u.GetDC(target.hwnd)
         image=None
+        if not source:self._capture_diagnose(fallback_reason='window-dc-unavailable')
         if source:
             try:image=self._copy_pixels(source,width,height,left,top)
-            except CaptureUnavailable:pass # Pixel backend failure only; authorization is never bypassed.
+            except CaptureUnavailable:
+                self._capture_diagnose(fallback_reason='window-dc-copy-failed') # Pixel backend failure only; authorization is never bypassed.
             finally:self.u.ReleaseDC(target.hwnd,source)
         self.validate_compositor(target,rect)
         check_binding()
         if image is None or blank_image(image):
+            if image is not None:self._capture_diagnose(fallback_reason='window-dc-blank')
             self.validate_compositor(target,rect)
             check_binding()
             source=self.u.GetDC(None)
