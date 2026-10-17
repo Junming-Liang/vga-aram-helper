@@ -238,7 +238,7 @@ class SelectionHarnessTests(unittest.TestCase):
                     requested_app_scale=scale, window_closed=True, foreground_recovery_start_count=2,
                     foreground_recovery_observations=2, recognizedHero='星火术士（演示）',
                     assignedHero='星火术士（演示）', recognized=['星火共鸣','晶盾回路','风步微光'],
-                    provenance='client-provisional', renderedBadgeProvenance=[dict(slot=i,visible=True,text='HUD未复核',
+                    provenance='client-provisional', renderedBadgeProvenance=[dict(slot=i,visible=True,text='HUD未复核',paintedText='HUD未复核',
                         accessible=f'选项 {i} · {name} · T{i} · HUD未复核 · 来自本局选人 · HUD未复核',
                         tooltip='来自本局选人 · HUD未复核\n') for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)],
                     clientHwnd=100,clientPid=101,gameHwnd=200,gamePid=201,clientGeneration=2,
@@ -434,7 +434,7 @@ class SelectionHarnessTests(unittest.TestCase):
 
     def test_provisional_badges_require_visible_exact_order_and_full_qualifier(self):
         for field,value in [('slot',True),('slot',2),('visible',False),('text','源评级'),
-                            ('accessible','来自本局选人'),('tooltip','')]:
+                            ('paintedText','源评级'),('paintedText',None),('paintedText',''),('accessible','来自本局选人'),('tooltip','')]:
             report=self.good_report();report['renderedBadgeProvenance'][0][field]=value
             with self.subTest(field=field,value=value),self.assertRaises(AssertionError):
                 smoke.validate_report(report,'0.4.1')

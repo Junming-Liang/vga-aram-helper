@@ -89,15 +89,24 @@ def inspect_smoke_layout(overlay):
         if card not in expected: continue
         assert MIN_WIDTH <= badge.width() <= WIDTH and badge.height() == HEIGHT
         assert badge.tier == (card.get('sourceTier') or '暂无评级')
-        source = '复核中' if overlay._rechecking else '演示评级' if card.get('sourceTierLabel') == '虚构源评级（演示）' else '源评级'
+        identity=overlay._identity_provenance
+        warning='HUD未复核' if '来自本局选人' in identity and 'HUD未复核' in identity else '本局已确认' if '头像未重新确认' in identity else ''
+        source = warning or ('复核中' if overlay._rechecking else '演示评级' if card.get('sourceTierLabel') == '虚构源评级（演示）' else '源评级')
         assert badge.source == source
         hint=str(card.get('sourceHint') or '').strip()
-        assert badge.hint == hint and badge.toolTip() == hint
-        assert badge.accessibleName() == f"选项 {card['slot']} · {card['name']} · {badge.tier} · {source}" + (' · '+hint if hint else '')
-        font=badge.font();font.setPixelSize(HINT_FONT_SIZE);metrics=QtGui.QFontMetrics(font)
-        assert badge.display_hint == metrics.elidedText(hint,QtCore.Qt.TextElideMode.ElideRight,badge.width()-24)
-        assert metrics.horizontalAdvance(badge.display_hint) <= badge.width()-24
-        assert metrics.height() <= HEIGHT-TIER_ROW_HEIGHT-3
+        pending=bool(warning and overlay._rechecking)
+        assert badge.hint == hint and badge.toolTip() == (identity+'\n' if warning else '')+('候选复核中\n' if pending else '')+hint
+        assert badge.accessibleName() == f"选项 {card['slot']} · {card['name']} · {badge.tier} · {source}" + (' · '+identity if warning else '')+(' · 候选复核中' if pending else '')+(' · '+hint if hint else '')
+        font,hint_rect=badge.hint_text_layout();metrics=QtGui.QFontMetrics(font)
+        assert font.pixelSize()==HINT_FONT_SIZE and font.weight()==QtGui.QFont.Weight.Normal
+        assert badge.display_hint == metrics.elidedText(('复核中 · ' if pending else '')+hint,QtCore.Qt.TextElideMode.ElideRight,hint_rect.width())
+        assert metrics.horizontalAdvance(badge.display_hint) <= hint_rect.width()
+        assert metrics.height() <= hint_rect.height() and badge.rect().contains(hint_rect)
+        source_font,source_rect,tier_font,tier_rect,tier_lines=badge.top_text_layout()
+        assert source_font.pixelSize()>=9 and badge.display_source in (source,{'HUD未复核':'HUD待核','本局已确认':'本局已核'}.get(source,source))
+        assert badge.rect().contains(source_rect) and badge.rect().contains(tier_rect)
+        assert tier_rect.right()+4<=source_rect.left()
+        assert hint_rect.top()>=TIER_ROW_HEIGHT/2+max(QtGui.QFontMetrics(source_font).height(),QtGui.QFontMetrics(tier_font).height())/2
         assert not badge.findChildren(QtWidgets.QLabel), 'Names must stay in accessibility, not badge pixels'
     for i, (x,y,w,h) in enumerate(overlay._badge_regions):
         for xx,yy,ww,hh in overlay._badge_regions[i+1:]:

@@ -189,6 +189,11 @@ class TierBadge(QtWidgets.QWidget):
         tier_lines=('暂无',) if self.tier=='暂无评级' else (self.tier,)
         tier_width=max(QtGui.QFontMetrics(tier_font).horizontalAdvance(line) for line in tier_lines)
         tier_rect=QtCore.QRect(8,0,tier_width,TIER_ROW_HEIGHT)
+        self.display_source=self.source
+        if tier_rect.right()+4>source_rect.left():
+            self.display_source={'HUD未复核':'HUD待核','本局已确认':'本局已核'}.get(self.source,self.source)
+            source_width=QtGui.QFontMetrics(source_font).horizontalAdvance(self.display_source)
+            source_rect=QtCore.QRect(self.width()-4-source_width,0,source_width,TIER_ROW_HEIGHT)
         return source_font,source_rect,tier_font,tier_rect,tier_lines
 
     def paintEvent(self,event):
@@ -203,7 +208,7 @@ class TierBadge(QtWidgets.QWidget):
         p.setFont(font);p.setPen(QtGui.QColor(self.accent))
         p.drawText(tier_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,tier_lines[0])
         p.setFont(source_font);p.setPen(QtGui.QColor('#AFC3D0'))
-        p.drawText(source_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,self.source)
+        p.drawText(source_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,self.display_source)
         if self.display_hint:
             hint_font,hint_rect=self.hint_text_layout();p.setFont(hint_font);p.setPen(QtGui.QColor('#D0DEE8'))
             p.drawText(hint_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,self.display_hint)

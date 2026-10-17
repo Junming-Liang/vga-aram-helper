@@ -166,8 +166,9 @@ def start_selection_smoke(control,input_path,report_path):
         assert control.hero_origin=='client-provisional'
         badges=control.overlay._badge_widgets
         assert len(badges)==3 and all(badge.isVisible() and badge.source=='HUD未复核'
+            and badge.display_source in ('HUD未复核','HUD待核')
             and '来自本局选人 · HUD未复核' in badge.accessibleName() for badge in badges)
-        badge_provenance=[dict(slot=index+1,visible=badge.isVisible(),text=badge.source,
+        badge_provenance=[dict(slot=index+1,visible=badge.isVisible(),text=badge.source,paintedText=badge.display_source,
             accessible=badge.accessibleName(),tooltip=badge.toolTip()) for index,badge in enumerate(badges)]
         assert [row['sourceTier'] for row in control.overlay.cards]==['T1','T2','T3']
         assert control.overlay.reference is None and control.client_strength_reference() is None
