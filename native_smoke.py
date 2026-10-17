@@ -761,20 +761,34 @@ def _manual_smoke_cadence(control):
 
 
 
-def _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,roi,*,hero_observation=None):
+def _recognize_owned_ocr(control,target,pixels,engine,roi,*,allow_reuse=True):
+    """Use the same active-mode matcher and cache scope as production capture."""
+    from hero_recognition import recognize_frame
+    matcher=control.hero_matcher if control.hero_auto.isChecked() else None
+    scoped=control.ocr_reuse.scoped(engine,(target.identity,roi,'game'),
+        allow_reuse=control.state.confirmed and control.state.confirmation_mode=='automatic') if allow_reuse else engine
+    value=recognize_frame(pixels,roi,scoped,control.data['augments'],matcher)
+    if not allow_reuse:value['ocr_reused']=False
+    return value
+
+
+def _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,roi,*,hero_observation=None,candidates_missing=False):
     """Deliver one newly captured smoke observation with its current scope.
 
-    The optional identity override is an explicit handler-boundary negative
-    fixture, never production inference. It must share this new capture's
+    Optional identity/candidate overrides are explicit handler-boundary negative
+    fixtures, never production inference. They must share this new capture's
     serial/scope, rather than replaying an earlier completed OCR callback.
     """
     control._capture_serial+=1
+    matcher=control.hero_matcher if control.hero_auto.isChecked() else None
     source=(id(control.data),json.dumps(control.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
     value=dict(value,_capturedAt=captured_at,_captureSerial=control._capture_serial,
         _windowIdentity=target.identity,_captureRect=capture_rect,
         _frameScope=(target.identity,control.capture_metadata(),capture_rect,roi,tuple(control.data['augments']),source,
-            (control.hero_matcher,control.hero_matcher.proof_identity())))
+            (matcher,matcher.proof_identity() if matcher else None)))
     if hero_observation is not None:value['hero_observation']=dict(hero_observation)
+    if candidates_missing:
+        value.update(candidates=[],automatic_candidates=[],partial_title_evidence=None,_cardGeometry=None)
     control.task_result('ocr',value,control.state.generation)
     return value
 
@@ -870,7 +884,7 @@ def start_smoke(control,report_path,screenshot_path):
     layout=QtWidgets.QVBoxLayout(mock);layout.setContentsMargins(0,0,0,0)
     image=QtWidgets.QLabel();image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
     from synthetic_vision import portraits,configure_data
-    from hero_recognition import PortraitMatcher,recognize_frame
+    from hero_recognition import PortraitMatcher
     bank=portraits()
     configure_data(control.data)
     control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
@@ -904,16 +918,16 @@ def start_smoke(control,report_path,screenshot_path):
         expected=['星火共鸣','晶盾回路','风步微光']
         control.hero_auto.setChecked(True);control.state.clear_hero();control.state.start(target.identity)
         assert control.state.hero=='' and control.hero_auto.isChecked()
-        def observe_current(*,hero_observation=None):
+        def observe_current(*,hero_observation=None,candidates_missing=False):
             control.overlay.hide();assert not control.overlay.isVisible()
             assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
             pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights'])
-            scoped=control.ocr_reuse.scoped(engine,(target.identity,(.15,.25,.7,.35),'game'),allow_reuse=control.state.confirmed and control.state.confirmation_mode=='automatic')
-            value=recognize_frame(pixels,(.15,.25,.7,.35),scoped,control.data['augments'],control.hero_matcher)
+            roi=tuple(spin.value()/100 for spin in control.roi)
+            value=_recognize_owned_ocr(control,target,pixels,engine,roi)
             if time.monotonic()-captured_at>3:
-                pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights']);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
-                value['ocr_reused']=False # This branch called the actual engine, never its reuse cache.
-            return _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,(.15,.25,.7,.35),hero_observation=hero_observation)
+                pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights'])
+                value=_recognize_owned_ocr(control,target,pixels,engine,roi,allow_reuse=False)
+            return _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,roi,hero_observation=hero_observation,candidates_missing=candidates_missing)
         observed_frame['refresh']=observe_current
         result=observe_current();assert not control.state.confirmed
         result=observe_current();names=[item['name'] for item in result['automatic_candidates']]
@@ -1103,7 +1117,9 @@ def start_smoke(control,report_path,screenshot_path):
         screenshot_path.parent.mkdir(parents=True,exist_ok=True);assert canvas.save(str(screenshot_path),'PNG')
         report['screenshot']=str(screenshot_path);report['screenshot_method']='Qt QWidget.grab of our synthetic mock and overlay only, composited locally; OS capture/OCR separately asserted'
         checks.append('Original synthetic native mock/overlay rendering saved, with no user desktop pixels')
-        control.task_result('ocr',{'candidates':[],'_capturedAt':time.monotonic()},control.state.generation);assert not control.state.confirmed and not overlay.isVisible();checks.append('Production OCR result handler hides overlay on scene/candidate loss')
+        missing=observed_frame['refresh'](candidates_missing=True)
+        assert control._completed_capture_serial==missing['_captureSerial'],'Candidate-loss boundary fixture did not reach the current result handler'
+        assert not control.state.confirmed and not overlay.isVisible();checks.append('Production OCR result handler hides overlay on explicit synthetic scene/candidate loss in a freshly captured current scope')
         old_generation=control.state.generation;control.hero_box.setCurrentText('磐石守卫（演示）');assert control.state.generation>old_generation;checks.append('Actual hero selection signal invalidates prior scene state')
         control.state.confirm(names,control.data['augments']);control.last_observation=__import__('time').monotonic();control.last_rect=control.capture.rect(control.target);observed_frame['refresh']();assert overlay.isVisible()
         mock.move(mock.x()+7,mock.y()+5);QtWidgets.QApplication.processEvents();control.check_target();assert control.state.confirmed and overlay.isVisible();overlay._verify_rect(control.capture.rect(control.target));checks.append('Real same-size mock translation preserves fresh confirmed identity/offers and repositions overlay inside the new physical client bounds')
