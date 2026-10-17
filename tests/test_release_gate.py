@@ -629,6 +629,17 @@ class ReleaseFixture(unittest.TestCase):
         for scale, _, _, native in self.native_reports():
             native['mock_qwindow_dpr'] = scale + .009
             native['overlay_qwindow_dpr'] = scale - .009
+            # A changed measured DPR requires its actual corresponding region
+            # shape; retaining the old rectangles is stale evidence, not tolerance.
+            import math
+            from badge_contract import choose_width, HEIGHT, top_gap, align_physical_regions
+            dpr=native['overlay_qwindow_dpr'];cards=native['badge_card_bounds_physical']
+            logical_width=choose_width([c[0]+c[2]/2 for c in cards],dpr)
+            bw,bh=math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)
+            physical=[(round(c[0]+c[2]/2-bw/2),math.floor(c[1]-top_gap(dpr)-bh),bw,bh) for c in cards]
+            bounds,regions=align_physical_regions(physical,dpr,logical_width)
+            native['overlay_window_physical']=dict(zip(('x','y','width','height'),bounds))
+            native['badge_regions_physical']=[list(r) for r in regions]
         self.write_reports()
         self.verify()
 

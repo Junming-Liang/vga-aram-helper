@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.9 as a native overlay PREVIEW prerelease'
+        description: 'Build, test and publish v0.4.10 as a native overlay PREVIEW prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.9
+  group: vga-native-preview-v0.4.10
   cancel-in-progress: false
 
 jobs:
