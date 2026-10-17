@@ -223,7 +223,7 @@ def clean_child_environment(environ, scale):
 
 
 def source_metadata(implementation, support):
-    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'portrait_display.py', 'local_debug.py', 'card_badges.py', 'augment_card_geometry.py', 'badge_contract.py')]
+    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'portrait_display.py', 'local_debug.py', 'card_badges.py', 'augment_card_geometry.py', 'badge_contract.py', 'native_smoke.py')]
     return [dict(path=str(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
             for p in files if p.is_file()]
 
@@ -280,6 +280,30 @@ class OwnedWindows:
         if not self.u.GetWindowThreadProcessId(hwnd, ctypes.byref(result)):
             raise ctypes.WinError(ctypes.get_last_error())
         return result.value
+
+    def hit_diagnostic(self, hit, overlay, point, delegate):
+        """Bounded own-window metadata only; no titles or foreign-process details."""
+        hwnd=int(overlay.winId());target=int(self.target)
+        self.u.GetAncestor.argtypes=[W.HWND,W.UINT];self.u.GetAncestor.restype=W.HWND
+        self.u.GetWindow.argtypes=[W.HWND,W.UINT];self.u.GetWindow.restype=W.HWND
+        self.u.GetClassNameW.argtypes=[W.HWND,W.LPWSTR,ctypes.c_int];self.u.GetClassNameW.restype=ctypes.c_int
+        self.u.SendMessageW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM];self.u.SendMessageW.restype=ctypes.c_ssize_t
+        def role(value):return 'overlay' if value==hwnd else 'target' if value==target else 'other' if value else 'none'
+        def owned(value):
+            if not value or self.pid(value)!=os.getpid():return {'owned':False}
+            name=ctypes.create_unicode_buffer(128);self.u.GetClassNameW(value,name,128)
+            packed=(point.x&0xffff)|((point.y&0xffff)<<16)
+            return dict(owned=True,role=role(value),class_name=name.value,rect=self.window_rect(value),
+                        style=int(delegate.get_long(value,-16)),extended_style=int(delegate.get_long(value,-20)),
+                        visible=bool(self.u.IsWindowVisible(value)),hit_test=int(self.u.SendMessageW(value,0x84,0,packed)))
+        chain=[];value=hwnd
+        for _ in range(8):
+            value=int(self.u.GetWindow(value,3) or 0)
+            if not value:break
+            chain.append(role(value))
+        return dict(point=[point.x,point.y],hit_role=role(hit),hit_root_role=role(int(self.u.GetAncestor(hit,2) or 0)),
+                    hit=owned(hit),overlay=owned(hwnd),target=owned(target),above_overlay=chain,
+                    qt_window_flags=int(overlay.windowFlags()),badge_regions=[list(r) for r in overlay._badge_regions])
 
     def require_owned(self, hwnd):
         if self.pid(hwnd) != os.getpid():
@@ -453,15 +477,21 @@ def run_child(args):
                 try:
                     delegate.configure_overlay(hwnd,False,opaque=True)
                     assert not (int(delegate.get_long(hwnd,-20)) & 0x20), 'Diagnostic overlay still clickthrough'
-                    for bx,by,bw,bh in overlay._badge_regions:
-                        point=W.POINT(own_rect['x']+bx+bw//2,own_rect['y']+by+bh//2)
-                        hit=int(native.u.WindowFromPoint(point) or 0)
-                        assert hit==hwnd, ('Badge center hit differs',hit,hwnd,point.x,point.y)
-                    for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
-                        px=own_rect['x']+(first[0]+first[2]+second[0])//2
-                        py=own_rect['y']+first[1]+first[3]//2
-                        hit=int(native.u.WindowFromPoint(W.POINT(px,py)) or 0)
-                        assert hit==int(native.target), ('Badge gap hit differs',hit,int(native.target),px,py,own_rect)
+                    from native_smoke import owned_badge_hit_test_probe
+                    bx,by,bw,bh=overlay._badge_regions[0]
+                    probe_point=W.POINT(own_rect['x']+bx+bw//2,own_rect['y']+by+bh//2)
+                    result['native_hit_before_probe']=native.hit_diagnostic(int(native.u.WindowFromPoint(probe_point) or 0),overlay,probe_point,delegate)
+                    with owned_badge_hit_test_probe(overlay,probe_point):
+                        for bx,by,bw,bh in overlay._badge_regions:
+                            point=W.POINT(own_rect['x']+bx+bw//2,own_rect['y']+by+bh//2)
+                            hit=int(native.u.WindowFromPoint(point) or 0)
+                            result['last_native_hit_diagnostic']=native.hit_diagnostic(hit,overlay,point,delegate)
+                            assert hit==hwnd, ('Badge center hit differs',hit,hwnd,point.x,point.y)
+                        for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
+                            px=own_rect['x']+(first[0]+first[2]+second[0])//2
+                            py=own_rect['y']+first[1]+first[3]//2
+                            hit=int(native.u.WindowFromPoint(W.POINT(px,py)) or 0)
+                            assert hit==int(native.target), ('Badge gap hit differs',hit,int(native.target),px,py,own_rect)
                     gap_verified=True
                 finally:
                     overlay.configure()

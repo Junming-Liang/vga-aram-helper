@@ -202,6 +202,42 @@ class _DutyResultDispatch(QtCore.QObject):
         self.before=self.after=self.failed=None
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def owned_badge_hit_test_probe(overlay, point, *, app=None, user=None):
+    """Temporarily answer one owned HWND's hit tests inside Qt diagnostics only.
+
+    Normal badge nativeEvent returns HTTRANSPARENT independently of EXSTYLE.
+    No other HWND/message is intercepted; no product state or cards are changed.
+    """
+    app=app or QtWidgets.QApplication.instance()
+    if user is None:
+        assert os.name=='nt' and app.platformName()=='windows'
+        user=ctypes.WinDLL('user32',use_last_error=True)
+        user.SendMessageW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM];user.SendMessageW.restype=ctypes.c_ssize_t
+        user.GetWindowThreadProcessId.argtypes=[W.HWND,ctypes.POINTER(W.DWORD)];user.GetWindowThreadProcessId.restype=W.DWORD
+    hwnd=int(overlay.winId())
+    def query():
+        assert int(overlay.winId())==hwnd,'Diagnostic changed owned HWND'
+        pid=W.DWORD();assert user.GetWindowThreadProcessId(hwnd,ctypes.byref(pid)) and pid.value==os.getpid(),'Diagnostic HWND is not owned'
+        return int(user.SendMessageW(hwnd,0x0084,0,(point.x&0xffff)|((point.y&0xffff)<<16)))
+    class Probe(QtCore.QAbstractNativeEventFilter):
+        def nativeEventFilter(self,event_type,message):
+            msg=W.MSG.from_address(int(message))
+            if int(msg.hWnd or 0)==hwnd and msg.message==0x0084:return True,1
+            return False,0
+    assert query()==-1,'Normal badge handler must be HTTRANSPARENT'
+    probe=Probe();app.installNativeEventFilter(probe)
+    try:
+        assert query()==1,'Owned diagnostic hit-test override was not applied'
+        yield
+    finally:
+        app.removeNativeEventFilter(probe)
+        assert query()==-1,'Normal badge hit-test handler was not restored'
+
+
 def prove_badge_native_hits(capture, overlay, target_hwnd, rect):
     """Owned diagnostic only: prove holes independently of whole-HWND passthrough."""
     hwnd=int(overlay.winId());regions=tuple(overlay._badge_regions)
@@ -213,14 +249,16 @@ def prove_badge_native_hits(capture, overlay, target_hwnd, rect):
         assert not int(capture.get_long(hwnd,-20))&0x20,'Native transparency remains enabled'
         def hit(x,y):
             return int(capture.u.GetAncestor(capture.u.WindowFromPoint(W.POINT(x,y)),2) or 0)
-        for x,y,width,height in regions:
-            actual=hit(rect.left+x+width//2,rect.top+y+height//2)
-            assert actual==hwnd,('Opaque badge center did not hit overlay',actual,hwnd)
-            centers+=1
-        for first,second in zip(regions,regions[1:]):
-            actual=hit(rect.left+(first[0]+first[2]+second[0])//2,rect.top+first[1]+first[3]//2)
-            assert actual==target_hwnd,('Native badge gap did not hit target',actual,target_hwnd)
-            gaps+=1
+        x,y,width,height=regions[0]
+        with owned_badge_hit_test_probe(overlay,W.POINT(rect.left+x+width//2,rect.top+y+height//2)):
+            for x,y,width,height in regions:
+                actual=hit(rect.left+x+width//2,rect.top+y+height//2)
+                assert actual==hwnd,('Opaque badge center did not hit overlay',actual,hwnd)
+                centers+=1
+            for first,second in zip(regions,regions[1:]):
+                actual=hit(rect.left+(first[0]+first[2]+second[0])//2,rect.top+first[1]+first[3]//2)
+                assert actual==target_hwnd,('Native badge gap did not hit target',actual,target_hwnd)
+                gaps+=1
     finally:
         overlay.configure()
         assert int(overlay.winId())==hwnd and int(capture.get_long(hwnd,-20))&0x20,'Normal badge transparency was not restored'

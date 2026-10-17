@@ -30,6 +30,27 @@ def good_matrix():
             owned_windows_destroyed=True, cases=[good_row(c,s) for c in CASES]) for s in SCALES])
 
 
+class NativeHitDiagnostics(unittest.TestCase):
+    def test_foreign_hit_never_reads_foreign_class_bounds_or_title(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import os
+        from ctypes import wintypes as W
+        from windows_dpi_matrix import OwnedWindows
+        native=object.__new__(OwnedWindows);native.target=8
+        native.pid=lambda hwnd:os.getpid() if hwnd in (7,8) else -1
+        read=[]
+        def class_name(hwnd,buf,size):
+            self.assertIn(hwnd,(7,8));read.append(hwnd);buf.value='OwnedFixture';return 12
+        native.u=SimpleNamespace(GetAncestor=Mock(return_value=99),GetWindow=Mock(return_value=0),
+            GetClassNameW=Mock(side_effect=class_name),SendMessageW=Mock(return_value=-1),IsWindowVisible=Mock(return_value=True))
+        native.window_rect=lambda hwnd:rectangle(1,2,3,4)
+        overlay=SimpleNamespace(winId=lambda:7,windowFlags=lambda:0,_badge_regions=((0,0,10,10),))
+        value=native.hit_diagnostic(99,overlay,W.POINT(5,6),SimpleNamespace(get_long=lambda *a:0))
+        self.assertEqual(value['hit'],{'owned':False});self.assertEqual(read,[7,8])
+        self.assertEqual(value['hit_role'],'other');self.assertEqual(value['overlay']['hit_test'],-1)
+        self.assertNotIn('title',str(value));self.assertEqual(value['above_overlay'],[])
+
 class Coordinates(unittest.TestCase):
     def test_fitting_but_obstructive_overlay_is_rejected(self):
         row=good_row(CASES[0],'1')
