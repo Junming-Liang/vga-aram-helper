@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import traceback
+from types import SimpleNamespace
 from PySide6 import QtCore,QtGui,QtWidgets
 from native_state import display_cards
 
@@ -412,6 +413,20 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     original.retire_session();wait_cleanup(original,start_baseline)
 
 
+def _schedule_duty_mode_wait(control, active, single_shot, run, delay):
+    """Honor production readiness scheduling, but never start a second capture."""
+    trace=active[0]
+    def eligible():
+        return (not getattr(control,'closed',False) and trace is not None and active[0] is trace and not trace.finished
+                and trace.error is None and trace.capture_count==0
+                and getattr(control,'_mode_wait_started',None) is not None
+                and not control.capture_pending and not control.ocr_busy)
+    if not eligible():return
+    def resume():
+        if eligible():control.capture_tick()
+    single_shot(delay if delay is not None else 50,lambda:run(resume))
+
+
 def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,done):
     """Actual owned-window acquisition and handlers, with explicit phase holds.
 
@@ -431,7 +446,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
     mode=mode_report['mode'];assert mode in ('one-shot','persistent')
     all_helpers=[];all_jobs=[];reuse_captures=[]
     original_job=wgc_capture._CaptureJob
-    control.monitor.stop();control.schedule_capture=lambda delay=None:None
+    control.monitor.stop();control.schedule_capture=lambda delay=None:_schedule_duty_mode_wait(control,active,QtCore.QTimer.singleShot,run,delay)
     control.hero_auto.setChecked(True);control.state.clear_hero();control.ocr_reuse.clear()
     control._accepted_frame=None;control.overlay.hide()
     mode_report['fresh_state']={'confirmed':control.state.confirmed,'automatic_frames':control.state.automatic_frames,
@@ -958,18 +973,23 @@ def start_smoke(control,report_path,screenshot_path):
         QtCore.QTimer.singleShot(50,lambda:run(verify_async_capture))
     def verify_async_capture():
         before=control.last_observation;deadline=time.monotonic()+8;busy_ticks=[]
+        readiness=SimpleNamespace(finished=False,error=None,capture_count=0);active=[readiness]
+        previous_schedule=control.schedule_capture
+        control.schedule_capture=lambda delay=None:_schedule_duty_mode_wait(control,active,QtCore.QTimer.singleShot,run,delay)
         control.capture_tick()
         def poll():
             assert time.monotonic()<deadline,'Production asynchronous capture/OCR did not finish within its stale limit'
+            if control.capture_pending or control.ocr_busy:readiness.capture_count=1
             if control.ocr_busy:
                 busy_ticks.append(time.monotonic())
                 control.check_target()
                 assert not control.overlay.isVisible(),'Watchdog restored own overlay during capture/inference'
-            if control.capture_pending or control.ocr_busy:
+            if control.capture_pending or control.ocr_busy or control._mode_wait_started is not None:
                 QtCore.QTimer.singleShot(20,lambda:run(poll));return
+            readiness.finished=True;active[0]=None;control.schedule_capture=previous_schedule
             assert busy_ticks and control.last_observation>before and control.state.confirmed
             report['async_capture_ui_passed']=True
-            checks.append('Actual frozen production capture worker completed while Qt timers ran; manual-mode watchdog kept own overlay hidden until the accepted fresh result')
+            checks.append(('Actual frozen' if report['frozen'] else 'Actual source')+' production capture worker completed while Qt timers ran; manual-mode watchdog kept own overlay hidden until the accepted fresh result')
             QtCore.QTimer.singleShot(50,lambda:run(verify_duty_cycle))
         QtCore.QTimer.singleShot(20,lambda:run(poll))
     def verify_duty_cycle():

@@ -309,5 +309,34 @@ class RealAdapterPreflightTests(adapter_fixtures.AdapterFixture, unittest.TestCa
         self.assertGreaterEqual(evidence[0]['polls'],3)
 
 
+
+class DutyModeWaitSchedulingTests(unittest.TestCase):
+    def test_readiness_delay_runs_only_before_first_acquisition(self):
+        from native_smoke import _schedule_duty_mode_wait
+        calls=[];queued=[]
+        trace=SimpleNamespace(finished=False,error=None,capture_count=0);active=[trace]
+        control=SimpleNamespace(_mode_wait_started=100.,capture_pending=False,ocr_busy=False,capture_tick=lambda:calls.append('capture'))
+        schedule=lambda delay,callback:queued.append((delay,callback))
+        run=lambda fn:fn()
+        _schedule_duty_mode_wait(control,active,schedule,run,50)
+        self.assertEqual(queued[0][0],50);self.assertEqual(calls,[])
+        queued.pop()[1]();self.assertEqual(calls,['capture'])
+        trace.capture_count=1
+        _schedule_duty_mode_wait(control,active,schedule,run,50);self.assertEqual(queued,[])
+    def test_late_readiness_timer_never_retries_failed_or_replaced_case(self):
+        from native_smoke import _schedule_duty_mode_wait
+        for mutation in ('finished','error','capture_count','replaced','busy','pending','ready'):
+            with self.subTest(mutation=mutation):
+                calls=[];queued=[];trace=SimpleNamespace(finished=False,error=None,capture_count=0);active=[trace]
+                control=SimpleNamespace(_mode_wait_started=100.,capture_pending=False,ocr_busy=False,capture_tick=lambda:calls.append(True))
+                _schedule_duty_mode_wait(control,active,lambda d,f:queued.append(f),lambda f:f(),50)
+                if mutation=='replaced':active[0]=SimpleNamespace()
+                elif mutation=='busy':control.ocr_busy=True
+                elif mutation=='pending':control.capture_pending=True
+                elif mutation=='ready':control._mode_wait_started=None
+                else:setattr(trace,mutation,True)
+                queued[0]();self.assertEqual(calls,[])
+
+
 if __name__ == '__main__':
     unittest.main()

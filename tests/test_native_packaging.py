@@ -191,6 +191,17 @@ class NativePackagingTests(unittest.TestCase):
                 self.assertEqual(launcher.main(['--licenses-file', str(root / 'licenses.txt')]), 0)
             self.assertIn('Apache', (root / 'licenses.txt').read_text())
 
+    def test_source_native_gate_is_separate_and_precedes_expensive_build(self):
+        workflow=(ROOT/'.github/workflows/build-native-preview.yml').read_text()
+        source=workflow.index('python tests/windows_native_smoke.py --source')
+        self.assertLess(source,workflow.index('python scripts/build_minimal_opencv.py'))
+        for suffix in ('',' --app-scale 1.5',' --app-scale 2'):
+            self.assertIn('python tests/windows_native_smoke.py --source'+suffix,workflow)
+            self.assertIn('python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe'+suffix,workflow)
+        for scale in native_smoke.APP_SCALES:
+            self.assertNotEqual(native_smoke.evidence_prefix(scale),native_smoke.evidence_prefix(scale,source=True))
+            self.assertTrue(native_smoke.evidence_prefix(scale,source=True).startswith('windows-native-source'))
+
     def test_native_acceptance_rejects_browser_offscreen_and_incomplete_proof(self):
         valid = {'status':'passed', 'backend':'qtwidgets', 'frozen':True, 'applicationVersion':'0.4.2',
                  'native_window':True, 'window_closed':True, 'capture_passed':True, 'ocr_passed':True,
@@ -205,6 +216,14 @@ class NativePackagingTests(unittest.TestCase):
         valid.update(self.geometry_fixture());self.badge_receipt_fixture(valid)
         valid.update(overlay_duty_fixture())
         native_smoke.validate_report(valid, '0.4.2')
+        source=dict(valid,frozen=False)
+        native_smoke.validate_report(source,'0.4.2',expected_frozen=False)
+        with self.assertRaises(RuntimeError):native_smoke.validate_report(source,'0.4.2')
+        with self.assertRaises(RuntimeError):native_smoke.validate_report(valid,'0.4.2',expected_frozen=False)
+        for key,value in (('qt_platform','offscreen'),('overlay_duty_cycle_passed',False),
+                          ('badge_gap_hit_test_passed',False),('ocr_passed',False),('executable_sha256','a'*64)):
+            with self.subTest(source_field=key),self.assertRaises(RuntimeError):
+                native_smoke.validate_report(dict(source,**{key:value}),'0.4.2',expected_frozen=False)
         for field in native_smoke.NATIVE_AUTOMATION_FIELDS:
             for bad in (False, None, 1, 'true'):
                 with self.subTest(field=field, value=bad), self.assertRaises(RuntimeError):

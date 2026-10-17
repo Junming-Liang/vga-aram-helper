@@ -84,6 +84,13 @@ jobs:
         run: python tests/windows_automatic_capture.py --reports reports
       - name: Verify exact-source overlay geometry at five app scales
         run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
+      - name: Require early source native overlay lifecycle at three app scales
+        run: |
+          python tests/windows_native_smoke.py --source
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --source --app-scale 1.5
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --source --app-scale 2
       - name: Preserve the exact official wheel and initial identity before rebuilding
         run: |
           New-Item -ItemType Directory -Force build/opencv-postbuild/official | Out-Null

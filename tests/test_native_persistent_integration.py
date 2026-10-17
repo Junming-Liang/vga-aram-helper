@@ -138,6 +138,49 @@ class NativePersistentIntegrationTests(unittest.TestCase):
         self.assertTrue(w._capture_cancel.is_set())
         show.assert_called_once_with(after, target)
 
+    def test_strict_hidden_waits_for_retired_session_before_one_acquisition(self):
+        from screen_capture import WindowInfo
+        w=self.window;w.enable_visible_capture=False
+        w.target=WindowInfo(123,456,'Owned fixture','OwnedClass')
+        w.state.start(w.target.identity);self.capture.foreground=lambda _:True
+        closed=[False];prepares=[];scheduled=[];acquisitions=[]
+        def prepare(visible):
+            prepares.append(visible)
+            return closed[0]
+        self.capture.prepare_capture_mode=prepare
+        w.schedule_capture=lambda delay=None:scheduled.append(delay)
+        w.capture_hidden=lambda *args,**kwargs:acquisitions.append((args,kwargs))
+        with patch('native_ui.time',SimpleNamespace(monotonic=lambda:100.)), \
+             patch.object(QtCore.QTimer,'singleShot') as delayed:
+            for _ in range(3):
+                w.capture_tick()
+                self.assertFalse(w.capture_pending);self.assertFalse(w.ocr_busy)
+                delayed.assert_not_called();self.assertEqual(acquisitions,[])
+            self.assertEqual(scheduled,[50,50,50])
+            closed[0]=True;w.capture_tick()
+            delayed.assert_called_once();self.assertTrue(w.capture_pending)
+            delayed.call_args.args[1]()
+        self.assertEqual(prepares,[False]*4)
+        self.assertEqual(len(acquisitions),1)
+        self.assertFalse(acquisitions[0][1]['allow_visible_overlay'])
+        self.assertIsNone(w._mode_wait_started)
+
+    def test_strict_hidden_cleanup_deadline_stops_without_acquisition(self):
+        from screen_capture import WindowInfo
+        w=self.window;w.enable_visible_capture=False
+        w.target=WindowInfo(123,456,'Owned fixture','OwnedClass')
+        w.state.start(w.target.identity);self.capture.foreground=lambda _:True
+        self.capture.prepare_capture_mode=lambda visible:False
+        w.schedule_capture=lambda delay=None:None
+        clock=[100.]
+        with patch('native_ui.time',SimpleNamespace(monotonic=lambda:clock[0])), \
+             patch.object(QtCore.QTimer,'singleShot') as delayed:
+            w.capture_tick();clock[0]=108.;w.capture_tick()
+            self.assertTrue(w.state.running)
+            clock[0]=108.001;w.capture_tick()
+            self.assertFalse(w.state.running);delayed.assert_not_called()
+        self.assertFalse(w.ocr_busy);self.assertFalse(w.capture_pending)
+
     def test_capture_tick_hides_but_does_not_retire_authorized_session(self):
         from screen_capture import WindowInfo
         w = self.window; w.target = WindowInfo(123, 456, 'Owned fixture', 'OwnedClass')

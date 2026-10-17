@@ -1055,7 +1055,7 @@ class ControlWindow(QtWidgets.QWidget):
             # legacy v1 process/pipe cleanup must be drained by the subsequent
             # strict-hidden capture worker, never polled indefinitely on Qt.
             prepare=getattr(self.capture,'prepare_capture_mode',None)
-            pending=bool(self.enable_visible_capture and prepare and not prepare(visible))
+            pending=bool(prepare and not prepare(visible))
             if pending:
                 now=time.monotonic()
                 if self._mode_wait_started is None:self._mode_wait_started=now

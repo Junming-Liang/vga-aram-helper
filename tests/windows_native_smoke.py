@@ -1,4 +1,4 @@
-"""Actual Windows QtWidgets EXE acceptance on an original mock game window."""
+"""Actual Windows QtWidgets source/EXE acceptance on an original mock window."""
 from __future__ import annotations
 import argparse
 from contextlib import ExitStack
@@ -23,11 +23,12 @@ NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed',
 APP_SCALES = ('1', '1.5', '2')
 
 
-def evidence_prefix(app_scale):
+def evidence_prefix(app_scale, *, source=False):
     value = float(app_scale)
     if value not in (1.0, 1.5, 2.0):
         raise ValueError('Unsupported explicit native test scale')
-    return 'windows-native' if value == 1.0 else 'windows-native-scale' + str(round(value * 100))
+    base='windows-native-source' if source else 'windows-native'
+    return base if value == 1.0 else base+'-scale'+str(round(value*100))
 
 
 def native_environment(environ, work, app_scale):
@@ -70,13 +71,17 @@ def validate_physical_geometry(result, app_scale):
         raise RuntimeError('Native compact layout state is missing')
 
 
-def validate_report(result, version, app_scale=1, *, executable_sha256=None, expected_fixture_sha256=None):
+def validate_report(result, version, app_scale=1, *, executable_sha256=None, expected_fixture_sha256=None, expected_frozen=True):
     if type(result) is not dict:
         raise RuntimeError('Native report must be an object')
     if result.get('status') != 'passed' or 'error' in result:
         raise RuntimeError('Native overlay self-test did not pass')
-    if result.get('backend') != 'qtwidgets' or result.get('frozen') is not True:
-        raise RuntimeError('Report is not a frozen native QtWidgets executable')
+    if type(expected_frozen) is not bool:
+        raise RuntimeError('Expected native execution mode must be explicit boolean')
+    if result.get('backend') != 'qtwidgets' or result.get('frozen') is not expected_frozen:
+        raise RuntimeError('Report does not match the required native QtWidgets execution mode')
+    if not expected_frozen and result.get('executable_sha256') is not None:
+        raise RuntimeError('Source evidence cannot claim a frozen executable hash')
     if result.get('applicationVersion') != version:
         raise RuntimeError('Native executable version mismatch')
     for field in ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -226,31 +231,38 @@ def native_failure_summary(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exe', type=Path, required=True)
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--exe', type=Path)
+    mode.add_argument('--source', action='store_true', help='Early source acceptance; never replaces frozen EXE gates')
     parser.add_argument('--report-dir', type=Path, default=ROOT / 'reports')
     parser.add_argument('--app-scale', choices=APP_SCALES, default='1', help='Per-process Qt scale only; does not change Windows display settings')
     args = parser.parse_args()
     if os.name != 'nt':
-        raise SystemExit('Requires the actual Windows executable and native Windows desktop')
-    original = args.exe.resolve()
+        raise SystemExit('Requires the actual native Windows desktop')
+    original = (ROOT / 'launcher.py') if args.source else args.exe.resolve()
     reports = args.report_dir.resolve()
     reports.mkdir(parents=True, exist_ok=True)
-    prefix = evidence_prefix(args.app_scale)
+    prefix = evidence_prefix(args.app_scale, source=args.source)
     report_path = reports / (prefix + '-overlay.json')
-    result = {'status': 'failed', 'requested_app_scale': float(args.app_scale), 'executable_sha256': hashlib.sha256(original.read_bytes()).hexdigest(),
+    result = {'status': 'failed', 'requested_app_scale': float(args.app_scale), 'executable_sha256': None if args.source else hashlib.sha256(original.read_bytes()).hexdigest(), 'frozen': not args.source,
               'scope': 'Original synthetic mock window only; no real game, Vanguard or exclusive-fullscreen compatibility claim.'}
     try:
         with smoke_workspace() as work, ExitStack() as cleanup:
             result.update(executable_size=original.stat().st_size,
                 source_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=30).strip(),
                 source_files={name: hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in SOURCE_FILES})
-            exe = work / 'VGA-Aram-Helper.exe'
-            shutil.copyfile(original, exe)
-            if hashlib.sha256(exe.read_bytes()).hexdigest() != result['executable_sha256']:
-                raise RuntimeError('Native executable copy changed bytes')
+            if args.source:
+                command=[sys.executable,str(original)]
+                result.pop('executable_size',None)
+            else:
+                exe = work / 'VGA-Aram-Helper.exe'
+                shutil.copyfile(original, exe)
+                if hashlib.sha256(exe.read_bytes()).hexdigest() != result['executable_sha256']:
+                    raise RuntimeError('Native executable copy changed bytes')
+                command=[str(exe)]
             env = native_environment(os.environ, work, args.app_scale)
             version_file = work / 'version.json'
-            subprocess.run([str(exe), '--version-file', str(version_file)], env=env, cwd=work, timeout=90, check=True)
+            subprocess.run(command+['--version-file', str(version_file)], env=env, cwd=work, timeout=90, check=True)
             version = json.loads(version_file.read_text(encoding='utf-8'))['applicationVersion']
             report_path = reports / (prefix + '-overlay.json')
             screenshot = report_path.with_suffix('.png')
@@ -258,7 +270,7 @@ def main():
             report_path.unlink(missing_ok=True)
             screenshot.unlink(missing_ok=True)
             with (reports / (prefix + '-process.log')).open('w', encoding='utf-8') as log:
-                process = subprocess.Popen([str(exe), '--native-smoke-report', str(report_path)], env=env, cwd=work,
+                process = subprocess.Popen(command+['--native-smoke-report', str(report_path)], env=env, cwd=work,
                                            stdout=log, stderr=subprocess.STDOUT)
                 cleanup.callback(terminate_tree, process)
                 try:
@@ -273,7 +285,7 @@ def main():
                     raise RuntimeError(f'Native EXE exited with code {code}')
                 native = json.loads(report_path.read_text(encoding='utf-8'))
                 validate_report(native, version, float(args.app_scale), executable_sha256=result['executable_sha256'],
-                    expected_fixture_sha256=result['source_files']['fixtures/auto-scene.png'])
+                    expected_fixture_sha256=result['source_files']['fixtures/auto-scene.png'],expected_frozen=not args.source)
                 if not screenshot.is_file() or not screenshot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
                     raise RuntimeError('Native overlay PNG evidence is missing')
                 result.update(applicationVersion=version, native_report=report_path.name,
