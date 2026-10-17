@@ -45,9 +45,13 @@ class LCUDisplayTests(unittest.TestCase):
         value={'scene':'assigned-selection','assigned':True,'championId':'9001',
                'teamChampionIds':('9001',),'benchChampionIds':('9002',),
                'method':'lcu-read-only','_lcuInstance':(12,100,1)}
-        with patch('lcu_selection.LocalSelectionReader') as reader,patch('local_ocr.LocalOCR') as ocr:
+        clock=Mock()
+        with patch('lcu_selection.LocalSelectionReader') as reader,patch('local_ocr.LocalOCR') as ocr,patch('native_ui.time',clock):
             reader.return_value.read.side_effect=lambda **kwargs:dict(value)
-            for _ in range(2):
+            # Immediate mocked reads can share a coarse Windows clock tick.
+            # Model separate observations without changing the real pump clock.
+            for stamp in (100.,101.):
+                clock.monotonic.return_value=stamp
                 w.capture_tick();self.pump(lambda:not w.ocr_busy);w.monitor.stop()
             self.assertEqual(reader.return_value.read.call_count,2)
             w.capture.capture.assert_not_called();w.capture.prepare_capture_mode.assert_not_called()
