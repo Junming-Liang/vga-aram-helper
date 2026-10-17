@@ -29,7 +29,11 @@ class BadgeReceiptContract(unittest.TestCase):
         from test_native_packaging import NativePackagingTests
         good=NativePackagingTests.badge_receipt_fixture(NativePackagingTests.geometry_fixture())
         validate_badge_regions(good)
-        mutations=[lambda v:v['badge_regions_physical'].pop(),
+        mutations=[lambda v:v.pop('badge_native_hit_evidence'),
+            lambda v:v['badge_native_hit_evidence'].update(opaque_center_hits=2),
+            lambda v:v['badge_native_hit_evidence'].update(target_gap_hits=True),
+            lambda v:v['badge_native_hit_evidence'].update(normal_transparency_restored=False),
+            lambda v:v['badge_regions_physical'].pop(),
             lambda v:v['badge_regions_physical'][0].__setitem__(2,920),
             lambda v:v['badge_regions_physical'][1].__setitem__(0,0),
             lambda v:v['badge_card_bounds_physical'][0].__setitem__(1,0),
@@ -41,7 +45,7 @@ class BadgeReceiptContract(unittest.TestCase):
     def test_matrix_requires_native_shape_anchor_gap_and_lifecycle_proof(self):
         from windows_dpi_matrix import validate_matrix
         from test_windows_dpi_matrix import good_matrix
-        for field in ('native_badge_regions_verified','badge_above_cards_verified','gap_hit_test_passed'):
+        for field in ('native_badge_regions_verified','badge_above_cards_verified','gap_hit_test_passed','target_hit_test_baseline'):
             report=good_matrix();report['children'][0]['cases'][0][field]=False
             self.assertTrue(validate_matrix(report,'candidate'),field)
         report=good_matrix();report['children'][0]['badge_lifecycle_verified']=False

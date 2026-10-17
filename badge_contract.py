@@ -43,3 +43,15 @@ def align_physical_regions(physical, dpr, logical_width):
 def top_gap(dpr):
     """At least 8 DIP and 8 physical pixels, including sub-100% app scaling."""
     return max(GAP*dpr,8)
+
+
+def logical_hull_from_physical(width, height, dpr):
+    """Invert our ceil projection without applying ceil a second time.
+
+    Example:623DIP at1.25 becomes779px, not624DIP/780px.
+    """
+    import math
+    logical=tuple(math.floor(value/dpr+1e-9) for value in (width,height))
+    if any(value<=0 for value in logical) or tuple(math.ceil(value*dpr-1e-9) for value in logical)!=(width,height):
+        raise ValueError('Physical badge hull is not a canonical logical projection')
+    return logical

@@ -407,6 +407,7 @@ class NativePackagingTests(unittest.TestCase):
         window['width']=600+width
         window['height']=height
         regions=[[round(i*(window['width']-width)/2),0,width,height] for i in range(3)]
+        value['badge_native_hit_evidence']=dict(opaque_center_hits=3,target_gap_hits=2,normal_transparency_restored=True)
         value['badge_regions_physical']=regions
         value['badge_card_bounds_physical']=[[window['x']+x+width/2-50,window['y']+height+GAP*dpr,100,200] for x,y,w,h in regions]
         return value

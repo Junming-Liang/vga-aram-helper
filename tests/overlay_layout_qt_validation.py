@@ -17,17 +17,18 @@ class Function:
  def __call__(self,*args):return self.fn(*args)
 class Adapter:
  def __init__(self):
-  self.x=0;self.y=0;self.moves=[];self.dpr_override=None;self.change_at_final=None;self.fail_bounds=False
+  self.x=0;self.y=0;self.physical_width=0;self.physical_height=0;self.moves=[];self.dpr_override=None;self.change_at_final=None;self.fail_bounds=False
   self.u=SimpleNamespace(SetWindowPos=Function(self.move),GetWindowRect=Function(self.rect),GetDpiForWindow=Function(lambda hwnd:(_ for _ in ()).throw(AssertionError('Must not use game DPI'))))
  def ratio(self):return self.dpr_override or self.overlay.devicePixelRatioF()
  def move(self,hwnd,z,x,y,width,height,flags):
   self.x=x;self.y=y;self.moves.append((x,y,width,height,flags))
   if not flags&1:
+   self.physical_width=width;self.physical_height=height
    if self.change_at_final:self.change_at_final()
    self.overlay.resize(round(width/self.ratio()),round(height/self.ratio()))
   app.processEvents();return True
  def rect(self,hwnd,pointer):
-  actual=pointer._obj;actual.left=self.x;actual.top=self.y;actual.right=self.x+round(self.overlay.width()*self.ratio())+(10000 if self.fail_bounds else 0);actual.bottom=self.y+round(self.overlay.height()*self.ratio());return True
+  actual=pointer._obj;actual.left=self.x;actual.top=self.y;actual.right=self.x+self.physical_width+(10000 if self.fail_bounds else 0);actual.bottom=self.y+self.physical_height;return True
  def configure_overlay(self,*args,**kwargs):return True
 capture=Adapter();overlay=Overlay(capture);capture.overlay=overlay
 records=load_data(ROOT/'fixtures/demo.json');names=['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']

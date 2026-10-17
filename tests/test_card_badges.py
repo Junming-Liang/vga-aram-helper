@@ -24,6 +24,17 @@ def fixture():
 
 @unittest.skipIf(QtWidgets is None,'Optional Qt runtime is not installed')
 class BadgeGeometryTests(unittest.TestCase):
+    def test_canonical_logical_hull_inverts_fractional_projection_without_double_ceil(self):
+        import math
+        from badge_contract import logical_hull_from_physical
+        self.assertEqual(logical_hull_from_physical(779,65,1.25),(623,52))
+        for dpr in (.5,.75,1,1.25,1.5,1.75,2,2.5,3,4):
+            for logical_width in range(104,1600):
+                physical=math.ceil(logical_width*dpr)
+                recovered=logical_hull_from_physical(physical,math.ceil(52*dpr),dpr)
+                self.assertEqual(math.ceil(recovered[0]*dpr),physical)
+                self.assertGreaterEqual(recovered[0],logical_width)
+
     def test_fractional_native_hull_preserves_last_logical_child(self):
         bounds,regions=align_physical_regions(((0,0,302,104),(307,0,302,104),(615,0,302,104)),2,151)
         self.assertEqual(bounds,(0,0,918,104))
@@ -209,6 +220,29 @@ class BadgeQtTests(unittest.TestCase):
         changed=sum(before.pixelColor(x,y)!=after.pixelColor(x,y)
                     for x in range(round(50*dpr),round(100*dpr)) for y in range(round(32*dpr)))
         self.assertGreater(changed,0)
+
+    def test_post_show_native_rounding_is_corrected_exactly_or_rejected(self):
+        bounds=[79,145,780,65];calls=[]
+        def read(hwnd,ptr):
+            r=ptr._obj;r.left,r.top=bounds[:2];r.right=r.left+bounds[2];r.bottom=r.top+bounds[3];return True
+        def position(hwnd,z,x,y,w,h,flags):
+            calls.append((x,y,w,h));bounds[:]=[x,y,w,h];return True
+        self.o.capture=SimpleNamespace(u=SimpleNamespace(GetWindowRect=read,SetWindowPos=position))
+        self.o._ensure_badge_bounds((79,145,779,65))
+        self.assertEqual(calls,[(79,145,779,65)]);self.assertEqual(bounds,[79,145,779,65])
+        self.o._ensure_badge_bounds((79,145,779,65));self.assertEqual(len(calls),1)
+        bounds[2]=780;self.o.capture.u.SetWindowPos=lambda *args:False
+        with self.assertRaises(CaptureUnavailable):self.o._ensure_badge_bounds((79,145,779,65))
+        self.o.capture.u.SetWindowPos=lambda *args:True
+        with self.assertRaises(CaptureUnavailable):self.o._ensure_badge_bounds((79,145,779,65))
+        self.o.capture=None
+
+    def test_failed_post_show_bounds_proof_hides_cached_badges(self):
+        from unittest.mock import patch
+        self.show();self.assertTrue(self.o.isVisible())
+        with patch.object(self.o,'_ensure_badge_bounds',side_effect=CaptureUnavailable('owned bounds mismatch')):
+            with self.assertRaises(CaptureUnavailable):self.show()
+        self.assertFalse(self.o.isVisible());self.assertIsNone(self.o._placed_key)
 
     def test_source_hint_elision_retains_exact_accessible_text(self):
         full='搭配：无限循环往复、纯粹主义者 - 术师'

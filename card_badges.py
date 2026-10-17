@@ -13,7 +13,7 @@ import os
 from PySide6 import QtCore, QtGui, QtWidgets
 from screen_capture import CaptureUnavailable
 
-from badge_contract import WIDTH, MIN_WIDTH, HEIGHT, GAP, TIER_ROW_HEIGHT, HINT_FONT_SIZE, choose_width, align_physical_regions, top_gap
+from badge_contract import WIDTH, MIN_WIDTH, HEIGHT, GAP, TIER_ROW_HEIGHT, HINT_FONT_SIZE, choose_width, align_physical_regions, top_gap, logical_hull_from_physical
 COLORS = {'T1':'#F2CE86','T2':'#79D9EF','T3':'#B2BED2','T4':'#AEB6C2'}
 
 
@@ -254,6 +254,19 @@ class BadgeOverlayMixin:
     def _refresh_badges(self):
         for card in self.cards:
             self._badge_widgets[card['slot']-1].set_card(card,self._rechecking,self._identity_provenance)
+    def _ensure_badge_bounds(self,bounds):
+        if not self.capture:return
+        hwnd=int(self.winId())
+        def actual_bounds():
+            actual=W.RECT()
+            if not self.capture.u.GetWindowRect(hwnd,ctypes.byref(actual)):
+                raise CaptureUnavailable('无法复核评级实际位置。')
+            return actual.left,actual.top,actual.right-actual.left,actual.bottom-actual.top
+        if actual_bounds()!=bounds:
+            if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),*bounds,0x0010):
+                raise CaptureUnavailable('无法校正评级缩放位置。')
+            if actual_bounds()!=bounds:raise CaptureUnavailable('评级实际缩放位置不一致，已隐藏。')
+
     def _show_badges_at(self,rect,target):
         try:
             anchors=self._badge_anchors
@@ -262,7 +275,7 @@ class BadgeOverlayMixin:
             hwnd=int(self.winId());dpr=float(self.windowHandle().devicePixelRatio())
             key=(rect,self._layout_revision,dpr,anchors,tuple(slots))
             if self._placed_key==key:
-                self.show();self.configure();native_region(hwnd,self._badge_regions,verify_only=True)
+                self.show();self.configure();self._ensure_badge_bounds(self._badge_bounds);native_region(hwnd,self._badge_regions,verify_only=True)
                 if self.capture:self._verify_rect(rect)
                 if float(self.windowHandle().devicePixelRatio())==dpr:return
             self.hide('layout')
@@ -275,7 +288,7 @@ class BadgeOverlayMixin:
             for _ in range(3):
                 bounds,regions=badge_placement(rect,dpr,anchors,slots)
                 x,y,width,height=bounds
-                self.resize(math.ceil(width/dpr),math.ceil(height/dpr))
+                self.resize(*logical_hull_from_physical(width,height,dpr))
                 if self.capture:
                     if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),x,y,width,height,0x0010):raise CaptureUnavailable('无法定位独立评级。')
                 else:self.move(round(x/dpr),round(y/dpr))
@@ -288,8 +301,8 @@ class BadgeOverlayMixin:
                     region=region.united(QtGui.QRegion(logical));badge=self._badge_widgets[slot];badge.setFixedSize(logical.size());badge.move(logical.topLeft());badge.show()
                 self.setMask(region)
                 native_region(hwnd,regions)
-                self._badge_regions=regions
-                self.show();self.configure();native_region(hwnd,regions,verify_only=True)
+                self._badge_regions=regions;self._badge_bounds=bounds
+                self.show();self.configure();self._ensure_badge_bounds(bounds);native_region(hwnd,regions,verify_only=True)
                 if self.capture:self._verify_rect(rect)
                 final_dpr=float(self.windowHandle().devicePixelRatio())
                 if final_dpr==dpr:

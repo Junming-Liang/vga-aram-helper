@@ -37,7 +37,7 @@ EXPECTED_SOURCE = ['源评级']*3
 SCOPE = {
     'execution': 'Python source Overlay on actual Windows Qt platform',
     'scaling': 'Controlled per-process QT_SCALE_FACTOR simulation on unchanged OS desktop',
-    'target': 'Original owned Win32 STATIC target in the same process',
+    'target': 'Original owned hit-testable nontext Win32 STATIC target in the same process',
     'pixels_captured': False,
     'input_simulated': False,
     'os_display_settings_changed': False,
@@ -108,6 +108,8 @@ def case_issues(row):
     visible = row['visible']
     error = row.get('error')
     expectation = row['expectation']
+    if row.get('native_badge_regions_verified') is True and row.get('target_hit_test_baseline') is not True:
+        issues.append('target_hit_test_baseline_missing')
     if expectation == 'visible' and (not visible or error):
         issues.append('required_visible_layout_missing')
     if expectation == 'hidden' and visible:
@@ -311,11 +313,11 @@ class OwnedWindows:
         if self.target is None:
             # Borderless native STATIC fixture, shown without activating it.
             self.target = self.u.CreateWindowExW(0x08000080, 'STATIC', 'VGA original DPI fixture',
-                0x80000000, wanted['x'], wanted['y'], width, height, None, None, None, None)
+                0x80000104, wanted['x'], wanted['y'], width, height, None, None, None, None)
             if not self.target:
                 raise ctypes.WinError(ctypes.get_last_error())
         self.require_owned(self.target)
-        if not self.u.SetWindowPos(self.target, None, wanted['x'], wanted['y'], width, height, 0x0010 | 0x0040 | 0x0004):
+        if not self.u.SetWindowPos(self.target, W.HWND(-1), wanted['x'], wanted['y'], width, height, 0x0010 | 0x0040):
             raise ctypes.WinError(ctypes.get_last_error())
         return self.client_rect(self.target)
 
@@ -409,7 +411,12 @@ def run_child(args):
         for case in CASES:
             ident, width, height, offset, _ = case
             expectation = expectation_for(case, result['qt_scale_factor'])
+            overlay.hide('layout');pump(app,QtCore)
             target_rect = native.position_target(width, height, offset)
+            native.u.WindowFromPoint.argtypes=[W.POINT];native.u.WindowFromPoint.restype=W.HWND
+            baseline_point=W.POINT(target_rect['x']+width//2,target_rect['y']+height//2)
+            baseline_hit=int(native.u.WindowFromPoint(baseline_point) or 0)
+            assert baseline_hit==int(native.target), ('Owned target baseline hit differs',baseline_hit,int(native.target),target_rect)
             target = WindowInfo(int(native.target), os.getpid(), 'VGA original DPI fixture', 'Static')
             error = None
             try:
@@ -438,17 +445,28 @@ def run_child(args):
                 bw,bh=math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)
                 physical=[(round(target_rect['x']+(x+cw/2)*width-bw/2),math.floor(target_rect['y']+y*height-top_gap(dpr)-bh),bw,bh) for x,y,cw,ch in overlay._badge_anchors.rects]
                 expected_bounds,expected_regions=align_physical_regions(physical,dpr,logical_width)
-                assert tuple(own_rect[k] for k in ('x','y','width','height'))==expected_bounds
+                assert tuple(own_rect[k] for k in ('x','y','width','height'))==expected_bounds, ('Actual/expected badge bounds',own_rect,expected_bounds,dpr,overlay.size().toTuple())
                 assert tuple(overlay._badge_regions)==expected_regions
                 native.u.WindowFromPoint.argtypes=[W.POINT];native.u.WindowFromPoint.restype=W.HWND
-                # Even with click-through disabled, holes are absent from HWND.
-                overlay.click_through=False;overlay.configure()
-                for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
-                    px=own_rect['x']+(first[0]+first[2]+second[0])//2
-                    py=own_rect['y']+first[1]+first[3]//2
-                    assert int(native.u.WindowFromPoint(W.POINT(px,py)) or 0)==int(native.target)
-                overlay.click_through=True;overlay.configure();gap_verified=True
-            row = dict(id=ident, expectation=expectation, target_client_physical=target_rect,
+                # Diagnostic-only direct backend override: production badges
+                # intentionally force passthrough even if their UI flag is off.
+                try:
+                    delegate.configure_overlay(hwnd,False,opaque=True)
+                    assert not (int(delegate.get_long(hwnd,-20)) & 0x20), 'Diagnostic overlay still clickthrough'
+                    for bx,by,bw,bh in overlay._badge_regions:
+                        point=W.POINT(own_rect['x']+bx+bw//2,own_rect['y']+by+bh//2)
+                        hit=int(native.u.WindowFromPoint(point) or 0)
+                        assert hit==hwnd, ('Badge center hit differs',hit,hwnd,point.x,point.y)
+                    for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
+                        px=own_rect['x']+(first[0]+first[2]+second[0])//2
+                        py=own_rect['y']+first[1]+first[3]//2
+                        hit=int(native.u.WindowFromPoint(W.POINT(px,py)) or 0)
+                        assert hit==int(native.target), ('Badge gap hit differs',hit,int(native.target),px,py,own_rect)
+                    gap_verified=True
+                finally:
+                    overlay.configure()
+                    assert int(overlay.winId())==hwnd and int(delegate.get_long(hwnd,-20))&0x20, 'Normal badge passthrough not restored'
+            row = dict(id=ident, expectation=expectation,target_hit_test_baseline=baseline_hit==int(native.target), target_client_physical=target_rect,
                 target_window_physical=native.window_rect(native.target), overlay_window_physical=own_rect,
                 target_native_visible=bool(native.u.IsWindowVisible(native.target)),
                 target_fully_onscreen=contains(native.work_area, target_rect)

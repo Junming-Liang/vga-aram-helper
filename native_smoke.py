@@ -202,6 +202,31 @@ class _DutyResultDispatch(QtCore.QObject):
         self.before=self.after=self.failed=None
 
 
+def prove_badge_native_hits(capture, overlay, target_hwnd, rect):
+    """Owned diagnostic only: prove holes independently of whole-HWND passthrough."""
+    hwnd=int(overlay.winId());regions=tuple(overlay._badge_regions)
+    assert len(regions)==3
+    centers=gaps=0
+    try:
+        capture.configure_overlay(hwnd,False,opaque=True)
+        assert int(overlay.winId())==hwnd,'Diagnostic changed the owned overlay HWND'
+        assert not int(capture.get_long(hwnd,-20))&0x20,'Native transparency remains enabled'
+        def hit(x,y):
+            return int(capture.u.GetAncestor(capture.u.WindowFromPoint(W.POINT(x,y)),2) or 0)
+        for x,y,width,height in regions:
+            actual=hit(rect.left+x+width//2,rect.top+y+height//2)
+            assert actual==hwnd,('Opaque badge center did not hit overlay',actual,hwnd)
+            centers+=1
+        for first,second in zip(regions,regions[1:]):
+            actual=hit(rect.left+(first[0]+first[2]+second[0])//2,rect.top+first[1]+first[3]//2)
+            assert actual==target_hwnd,('Native badge gap did not hit target',actual,target_hwnd)
+            gaps+=1
+    finally:
+        overlay.configure()
+        assert int(overlay.winId())==hwnd and int(capture.get_long(hwnd,-20))&0x20,'Normal badge transparency was not restored'
+    return dict(opaque_center_hits=centers,target_gap_hits=gaps,normal_transparency_restored=True)
+
+
 def _duty_session_observation(capture, receipt, *, hidden):
     """Independent live OS checks of the exact returned session receipt.
 
@@ -935,10 +960,7 @@ def start_smoke(control,report_path,screenshot_path):
         point=W.POINT(rect.left+(rect.right-rect.left)//2,rect.top+20)
         hit=int(u.GetAncestor(u.WindowFromPoint(point),2) or 0)
         assert hit==control.target.hwnd,('Transparent overlay intercepted point',hit,control.target.hwnd)
-        control.toggle_clickthrough();style_off=int(control.capture.get_long(int(overlay.winId()),-20));assert not style_off&0x20
-        for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
-            point=W.POINT(rect.left+(first[0]+first[2]+second[0])//2,rect.top+first[1]+first[3]//2)
-            assert int(u.GetAncestor(u.WindowFromPoint(point),2) or 0)==control.target.hwnd,'Gap remains a native hole with click-through disabled'
+        report['badge_native_hit_evidence']=prove_badge_native_hits(control.capture,overlay,control.target.hwnd,rect)
         report['badge_gap_hit_test_passed']=True
         dpr=float(overlay.windowHandle().devicePixelRatio())
         from badge_contract import WIDTH,HEIGHT,GAP,choose_width,align_physical_regions,top_gap
@@ -976,8 +998,8 @@ def start_smoke(control,report_path,screenshot_path):
         report['source_hint_visible_text']=badge.display_hint
         overlay.set_cards(control.state.hero,original_cards);overlay.show_at(client,control.target);app.processEvents()
         inspect_smoke_layout(overlay);native_region(hwnd,overlay._badge_regions,verify_only=True)
-        control.toggle_clickthrough();style_on=int(control.capture.get_long(int(overlay.winId()),-20));assert style_on&0x20
-        report['click_through_passed']=True;checks.append('Real OS point hit testing reaches the mock through overlay; click-through toggle changes WS_EX_TRANSPARENT')
+        style_on=int(control.capture.get_long(int(overlay.winId()),-20));assert style_on&0x20
+        report['click_through_passed']=True;checks.append('Real OS point hit testing proves opaque badge centers and target gaps with native transparency disabled, then restores normal click-through')
         assert control.hotkey_registered,'Ctrl+Alt+O registration failed in test session';checks.append('RegisterHotKey succeeded without input hooks')
         # Compose ONLY our two rendered widgets; never save a user desktop screenshot.
         mock_pixels=mock.grab();mock_pixels.setDevicePixelRatio(1);overlay_pixels=overlay.grab();overlay_pixels.setDevicePixelRatio(1)

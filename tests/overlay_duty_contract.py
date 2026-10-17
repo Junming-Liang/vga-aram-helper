@@ -427,6 +427,11 @@ def _validate_mode(report, mode, scene):
 
 def validate_badge_regions(report):
     """Validate measured exact-region receipts in addition to native readback flags."""
+    hit=report.get('badge_native_hit_evidence')
+    require(type(hit) is dict and set(hit)=={'opaque_center_hits','target_gap_hits','normal_transparency_restored'}
+            and type(hit['opaque_center_hits']) is int and hit['opaque_center_hits']==3
+            and type(hit['target_gap_hits']) is int and hit['target_gap_hits']==2
+            and hit['normal_transparency_restored'] is True,'Native badge center/gap hit proof missing')
     dpr=report.get('overlay_qwindow_dpr')
     require(type(dpr) in (int,float) and math.isfinite(dpr) and dpr>0,'Invalid badge DPR')
     regions=report.get('badge_regions_physical');cards=report.get('badge_card_bounds_physical')

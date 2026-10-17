@@ -59,7 +59,7 @@ def source_matrix_fixture():
                 qt_window_dpr=float(scale), target_qt_scale_mismatch=float(scale) != 1.,
                 target_client_physical=harness.rectangle(10 + offset, 10 + offset, width, height),
                 overlay_window_physical=harness.rectangle(20 + offset, 20 + offset, min(width - 20, 900), min(height - 20, 200)),
-                native_badge_regions_verified=shown, gap_hit_test_passed=shown, badge_above_cards_verified=shown,
+                native_badge_regions_verified=shown, target_hit_test_baseline=shown, gap_hit_test_passed=shown, badge_above_cards_verified=shown,
                 geometry_mapping_matches=True, layout_issues=[], visible_card_count=3 if shown else 0,
                 visible_tier_count=3 if shown else 0,
                 visible_card_names=list(harness.EXPECTED_CARD_NAMES) if shown else [],
