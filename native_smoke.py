@@ -413,6 +413,13 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     original.retire_session();wait_cleanup(original,start_baseline)
 
 
+def visible_badge_slots(overlay, native_visible, *, qt_visible=None):
+    """Actual visible slots, not Qt child visibility relative to a hidden parent."""
+    if qt_visible is None:qt_visible=overlay.isVisible()
+    if qt_visible is not True or native_visible is not True:return []
+    return [i+1 for i,badge in enumerate(overlay._badge_widgets) if badge.isVisibleTo(overlay)]
+
+
 def _schedule_duty_mode_wait(control, active, single_shot, run, delay):
     """Honor production readiness scheduling, but never start a second capture."""
     trace=active[0]
@@ -637,10 +644,11 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     assert code&0xffffffff!=0xc0000005,'Stop observed native access-violation crash'
                     assert code==0 or trace.stop_cleanup['termination_requested_while_alive'] is True,'Nonzero Stop exit lacks observed parent termination'
                 if trace.name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
+                    final_qt_visible=overlay.isVisible();final_native_visible=native_visible()
                     value=trace.summary();value.update(mode=mode,capture_backend=trace.backend,
                         capture_duration_ms=round(trace.events['capture_return']-trace.events['capture_start'],3),
-                        final_visible_slots=[i+1 for i,b in enumerate(overlay._badge_widgets) if b.isVisibleTo(overlay)],
-                        final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=overlay.isVisible(),final_native_visible=native_visible(),
+                        final_visible_slots=visible_badge_slots(overlay,final_native_visible,qt_visible=final_qt_visible),
+                        final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=final_qt_visible,final_native_visible=final_native_visible,
                         final_state_generation=control.state.generation,final_result_generation=trace.final_generation,final_captured_at=trace.final_value['_capturedAt'],
                         final_last_observation=control.last_observation,final_candidate_names=[item['name'] for item in trace.final_value.get('automatic_candidates',[])],final_hero_observation={key:trace.final_value['hero_observation'].get(key) for key in ('hero','confident')})
                     if mode=='one-shot':value.update(helper_count=len(trace.helpers),helper_exit_codes=[process.poll() for process in trace.helpers],

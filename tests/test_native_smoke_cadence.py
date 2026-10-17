@@ -338,5 +338,25 @@ class DutyModeWaitSchedulingTests(unittest.TestCase):
                 queued[0]();self.assertEqual(calls,[])
 
 
+@unittest.skipIf(QtWidgets is None,'Optional Qt runtime is not installed')
+class ActualBadgeVisibilityReceiptTests(unittest.TestCase):
+    def test_hidden_parent_never_reports_relatively_visible_children(self):
+        from native_smoke import visible_badge_slots
+        app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        parent=QtWidgets.QWidget();self.addCleanup(parent.close)
+        parent._badge_widgets=[QtWidgets.QWidget(parent) for _ in range(3)]
+        parent.show();app.processEvents()
+        self.assertEqual(visible_badge_slots(parent,True),[1,2,3])
+        parent._badge_widgets[0].hide();parent._badge_widgets[1].hide()
+        self.assertEqual(visible_badge_slots(parent,True),[3])
+        parent.hide();app.processEvents()
+        self.assertTrue(parent._badge_widgets[2].isVisibleTo(parent))
+        self.assertEqual(visible_badge_slots(parent,False),[])
+        self.assertEqual(visible_badge_slots(parent,True),[])
+        parent.show();app.processEvents()
+        self.assertEqual(visible_badge_slots(parent,False),[])
+        self.assertEqual(visible_badge_slots(parent,True),[3])
+
+
 if __name__ == '__main__':
     unittest.main()
