@@ -1,4 +1,16 @@
-# v0.4.10 published preview (2026-10-17 UTC)
+# v0.4.11 published preview (2026-10-17 UTC)
+
+[Complete Windows release run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768) passed all required gates and published [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11). Source/tag: `a33045e981b84d33eabdc4c8bdf9dca55ace0da8`; tree `968d50746c1e7d3133fc729befb96569cd77d713`. The minimal-OpenCV final EXE is **107,044,393 bytes**; SHA-256: `60d147ba8ba975885060eec8ad8fe597967cef91e2b53855ba9f9ddf3eff3d3f`.
+
+Both full Python test rounds and JavaScript checks passed. The same-run source and final EXE passed WGC, persistent-session and visible-overlay capture at three application scales, native overlay/OCR at 100%/150%/200%, selection handoff, browser smoke and same-binary OTA success/rollback. The five-scale source layout, approved minimal-OpenCV build and fixed same-machine comparison, exact custom-library restoration, package evidence, source access and license checks also passed. The publication step verified all remote asset sizes and SHA-256 digests before exposing the prerelease.
+
+This release fixes a regression path in which a capture cleanup wait reverses a pending visible-mode request. New targeted regressions fail on the original runtime and pass on the fix. Authorized LCU reads no longer depend on screenshot availability, API failures preserve independent screenshot confirmation, and the dashboard exposes explicit current-launch selection consent. These tests establish reproducible code behavior, not the cause of every user-observed flicker or repeated “复核中”.
+
+Historical genuine-image reports keep their original `applicationVersion: 0.4.10`. They were not rerun or relabeled for v0.4.11. The verifier accepts this exact version transition only after all evaluated implementation-module hashes match the release source; current source/frozen Windows gates remain mandatory. This exception does not cover changes to those evaluated modules.
+
+An anonymous post-publication check confirmed a public non-draft prerelease with 15 uploaded assets, the tag bound to the tested commit, matching manifest/checksum/asset digests, and a successful bounded EXE download. This remains a non-latest prerelease excluded from stable OTA. Real LoL/Vanguard, the user's game and current live-client compatibility remain unverified.
+
+## Historical v0.4.10 published preview (2026-10-17 UTC)
 
 [Complete Windows release run #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) passed all required gates and published [v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10). Source/tag: `389aeed46ded389071e4d2e740a63a5db14a1343`; tree `c625d06fd313ae31da1917efec8e993acb07ff32`. EXE: **107,040,179 bytes (102.08 MiB)**; SHA-256: `baf2e281b14a27cf4a6e08282f262012be75a727c387393182cf94cc16128e2b`.
 

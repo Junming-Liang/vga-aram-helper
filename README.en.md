@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.10-0891b2" alt="Source version v0.4.10"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.10 preview"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.11-0891b2" alt="Source version v0.4.11"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.11 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -24,7 +24,7 @@ VGA ARAM Helper (VGA乱斗助手) is an open-source Windows helper for **League 
 
 The own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
 
-Champion-select handoff: the highlighted own row must agree with the central champion name before carrying this session’s current assignment into its new game window. Unverified HUD identity is explicitly labeled as coming from champion select.
+Champion-select handoff: when a client is detected, click “开启本机选人识别” to authorize the read-only local selection API for this launch. Screenshot fallback remains available when disabled or unavailable; it requires agreement between the highlighted own row and central champion name before carrying this session’s assignment into its new game window. Unverified HUD identity is explicitly labeled as coming from champion select.
 
 ## ARAM: Mayhem helper features
 
@@ -39,13 +39,14 @@ Champion-select handoff: the highlighted own row must agree with the central cha
 
 ### Windows
 
-1. Download the [v0.4.10 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/vga-aram-helper-0.4.10-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/SHA256SUMS.txt).
+1. Download the [v0.4.11 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/vga-aram-helper-0.4.11-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Keep automatic League discovery selected and click Start. The control window stays visible by default and waits for or follows your client/game without selecting a window. The first launch prepares about 5 MB of public portrait templates.
+4. To use the selection API, click “开启本机选人识别” in the dashboard after client detection. Consent lasts for this launch only and is off again after restart.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) includes test evidence and corresponding source.
 
-The v0.4.10 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+The v0.4.11 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -57,6 +58,14 @@ python launcher.py
 ```
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
+
+## v0.4.11: capture transitions and selection recognition
+
+[v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) was published on 2026-10-17 after the [complete Windows release run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768) passed every required gate. Capture cleanup waits now preserve a pending visible-mode request, addressing a reproducible path to repeated hiding and candidate rechecks. Freshness and occlusion checks remain enforced.
+
+Authorized selection API reads run independently of screenshot availability. API failure schedules a separate screenshot fallback and reports a bounded reason. The dashboard now provides “开启本机选人识别”; this separate permission remains off by default and lasts for the current launch only.
+
+The same final EXE passed three-scale capture/overlay, selection handoff and OTA rollback checks. Real-client and user-game behavior still require validation. Historical v0.4.10 static-image reports retain their original version and are accepted only when every evaluated module hash matches; they were not rerun for v0.4.11. See [validation scope](reports/VALIDATION.md).
 
 ## v0.4.10: same-game identity and above-card tiers
 
@@ -111,7 +120,7 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
-[v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) is available as a non-latest prerelease and requires manual download. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
+[v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) is available as a non-latest prerelease and requires manual download. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
 
 ### Historical v0.4.7 and earlier releases
 
@@ -131,7 +140,7 @@ v0.4.2 fixes the confirmed Qt logical/Win32 physical coordinate mismatch and rig
 
 The [Windows EXE release tests](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029) passed at controlled 100%, 150% and 200% application process scaling using the same EXE and a fixed 960×600-pixel original mock window. Checks cover capture/OCR, automatic champion and three-choice display, card bounds and text layout, stale-state clearing and shutdown cleanup. Champion-select recognition and session handoff also passed. The same build’s source matrix passed 35 window cases at 100%–250% scaling, including small-window hiding and recovery. Actual OS DPI, mixed-monitor transitions, fully visible 4K layouts and the cause of the reported user error remain unconfirmed.
 
-In the small public screenshot sample actually rerun with current v0.4.10 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
+In the historical public screenshot sample rerun with v0.4.10 source on Linux using the official wheel, 2 of 3 own-champion examples were recognized (Samira and Katarina); Milio abstained. All 3 death/scoreboard, spectator and portrait-crop negatives abstained. v0.4.11 retains the original reports and verifies every evaluated module hash; it does not relabel these as a fresh run. This does not establish general game accuracy or Windows custom-wheel recognition performance. See [automatic recognition scope](AUTO_RECOGNITION.md) and [per-case results](reports/hero-recognition-genuine.json).
 
 The following are **historical v0.3.0 baseline checks**, not proof of the new automatic champion feature:
 
@@ -154,6 +163,6 @@ Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helpe
 
 Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
 
 This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.

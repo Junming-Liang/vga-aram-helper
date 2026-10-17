@@ -2,11 +2,11 @@
 
 ## 下载与发布状态
 
-[v0.4.10 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) 已于 2026-10-17 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/vga-aram-helper-0.4.10-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/SHA256SUMS.txt)。
+[v0.4.11 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) 已于 2026-10-17 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/vga-aram-helper-0.4.11-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/SHA256SUMS.txt)。
 
-- 完整发布运行：[Windows #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655)，全部必需门禁通过。
-- 源码 / 标签：`389aeed46ded389071e4d2e740a63a5db14a1343` / `v0.4.10`；树：`c625d06fd313ae31da1917efec8e993acb07ff32`。
-- EXE：**107,040,179 字节（102.08 MiB）**；SHA-256：`baf2e281b14a27cf4a6e08282f262012be75a727c387393182cf94cc16128e2b`。
+- 完整发布运行：[Windows 验收与发布](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768)，全部必需门禁通过。
+- 源码 / 标签：`a33045e981b84d33eabdc4c8bdf9dca55ace0da8` / `v0.4.11`；树：`968d50746c1e7d3133fc729befb96569cd77d713`。
+- EXE：**107,044,393 字节**；SHA-256：`60d147ba8ba975885060eec8ad8fe597967cef91e2b53855ba9f9ddf3eff3d3f`。
 - 15 项发布资产；保持 prerelease / 非 latest，稳定 `/releases/latest` OTA 不自动发现，需手动下载。受控 Windows 验收不代表真实 LoL/Vanguard 或用户对局验证。
 
 ### v0.4.6 已发布预览版（历史构建说明）
@@ -18,11 +18,11 @@
 
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
-**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10)，并核对同版 SHA-256；构建结果见 [Windows 发布运行 #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655)。
+**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11)，并核对同版 SHA-256；构建结果见 [Windows 完整发布运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768)。
 
 ## 运行
 
-本局英雄只读核验默认开启，可关闭；独立的选人客户端 API 仍默认关闭。同一核验游戏会话中的可靠英雄可跨死亡倒计时保留，候选仍需新鲜确认。见[实现范围](DEATH_IDENTITY_AND_CARD_BADGES.md)。
+本局英雄只读核验默认开启，可关闭；独立的选人客户端 API 仍默认关闭。检测到客户端后，主界面“开启本机选人识别”按钮提供仅本次启动的明确授权；接口读取不再依赖截图成功，失败后另行安排截图回退。同一核验游戏会话中的可靠英雄可跨死亡倒计时保留，候选仍需新鲜确认。见[实现范围](DEATH_IDENTITY_AND_CARD_BADGES.md)。
 
 取得构建产物后：
 
@@ -30,8 +30,8 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
-3. v0.4.10 默认使用“自动识别英雄联盟”，点击开始即可。开始后自动最小化默认关闭，可在设置中开启；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
-4. v0.4.10 评级与可用搭配提示显示在三个候选卡片上方；候选评级始终鼠标穿透；`Ctrl+Alt+O` 切换交互/参考模式设置，不会让候选评级拦截点击。关闭主控制窗口会停止监测并关闭叠加层。
+3. v0.4.11 默认使用“自动识别英雄联盟”，点击开始即可。开始后自动最小化默认关闭，可在设置中开启；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。需要选人接口时，点击主界面“开启本机选人识别”。
+4. v0.4.11 评级与可用搭配提示显示在三个候选卡片上方；候选评级始终鼠标穿透；`Ctrl+Alt+O` 切换交互/参考模式设置，不会让候选评级拦截点击。关闭主控制窗口会停止监测并关闭叠加层。
 
 首次启动需要解压内置依赖并检查数据，可能稍慢。请使用普通用户权限运行，避免放入系统目录。Windows ARM64、32 位和 Windows 7/8 暂不支持，Wine 未验证。
 
