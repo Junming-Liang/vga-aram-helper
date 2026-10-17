@@ -179,11 +179,11 @@ def verify_product_modules(archive):
 
 
 def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
-                    foreign_proof=None, foreign_fixture_sha256=None):
+                    foreign_proof=None, foreign_fixture_sha256=None, version=__version__):
     if (type(value) is not dict or value.get('status') != 'passed' or 'error' in value
         or value.get('schema_version') != 1 or type(value.get('schema_version')) is not int
         or value.get('scope') != SCOPE or not same_json(value.get('limitations'),LIMITATIONS)
-        or value.get('applicationVersion') != __version__ or value.get('frozen') is not frozen
+        or value.get('applicationVersion') != version or value.get('frozen') is not frozen
         or value.get('qt_platform') != 'windows' or value.get('constructor') != 'ControlWindow()'
         or value.get('visible_capture_enabled') is not True
         or value.get('executable_sha256') != executable_sha256):

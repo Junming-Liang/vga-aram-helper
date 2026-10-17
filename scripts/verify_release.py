@@ -827,6 +827,7 @@ def verify_visible_capture_bundle(files, source_archive, version, source_sha, bu
                         dict(manifest=helper, sha256=helper['sha256'], size=helper['size'])),
                         'Visible raw helper inventory types or values differ: ' + name)
                 fixture.validate_report(detail, scale=scale, frozen=frozen, helper=helper,
+                    version=version,
                     executable_sha256=checksum if frozen else None,
                     foreign_proof=run.get('foreign'), foreign_fixture_sha256=foreign['executable_sha256'])
                 validated.append({'scale': scale, 'report': name, 'sha256': run['report_sha256'],

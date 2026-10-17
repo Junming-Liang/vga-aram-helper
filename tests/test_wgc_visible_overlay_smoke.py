@@ -181,6 +181,15 @@ class VisibleContracts(unittest.TestCase):
     def test_complete_synthetic_report_contract(self):
         value,kwargs=fixture();self.assertIs(harness.validate_report(value,**kwargs),value)
 
+    def test_explicit_release_version_binds_the_detail_report(self):
+        value,kwargs=fixture()
+        version='99.0.0'
+        self.assertNotEqual(harness.__version__,version)
+        with self.assertRaises(RuntimeError):harness.validate_report(value,version=version,**kwargs)
+        value['applicationVersion']=version
+        self.assertIs(harness.validate_report(value,version=version,**kwargs),value)
+        with self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+
     def test_visible_limits_truthfully_enable_only_the_ordinary_product(self):
         from wgc_session_smoke import LIMITATIONS as session_limits
         self.assertIs(session_limits['production_enabled'],False)

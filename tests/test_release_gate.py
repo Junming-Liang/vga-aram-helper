@@ -283,6 +283,7 @@ class ReleaseFixture(unittest.TestCase):
             if frozen:report.update(executable_sha256=self.hash, executable_size=self.exe.stat().st_size)
             for scale in (1,1.5,2):
                 detail=wgc_report(scale=scale,frozen=frozen)
+                detail['applicationVersion'] = VERSION
                 detail['helper']={'manifest':helper,'sha256':helper['sha256'],'size':helper['size']}
                 report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-{kind}-scale{round(scale*100)}.json', detail=detail))
             self.wgc_reports[kind]=report
@@ -306,6 +307,7 @@ class ReleaseFixture(unittest.TestCase):
                                     archive_inventory=copy.deepcopy(self.build['archive_inventory']))
             for scale in (1,1.5,2):
                 detail=session_report(scale=scale,frozen=frozen,application=True)
+                detail['applicationVersion'] = VERSION
                 detail['helper']={'manifest':session_helper,'sha256':session_helper['sha256'],'size':session_helper['size']}
                 report['runs'].append(dict(app_scale=scale, report=f'windows-wgc-session-application-{kind}-scale{round(scale*100)}.json', detail=detail))
             self.session_capture_reports[kind]=report

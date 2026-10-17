@@ -40,7 +40,8 @@ def visible_reports(source_entries, helper, inventory, checksum, exe_size, sourc
                           archive_inventory=copy.deepcopy(inventory), product_modules=copy.deepcopy(modules))
         for scale in gate.visible_capture_fixture.SCALES:
             detail, kwargs = fixture()
-            detail.update(frozen=frozen, requested_app_scale=scale, measured_qt_scale=scale,
+            detail.update(applicationVersion=report['applicationVersion'],
+                          frozen=frozen, requested_app_scale=scale, measured_qt_scale=scale,
                           executable_sha256=checksum if frozen else None,
                           helper=dict(manifest=copy.deepcopy(helper), sha256=helper['sha256'], size=helper['size']))
             foreign = kwargs['foreign_proof']
