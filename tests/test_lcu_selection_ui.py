@@ -1,6 +1,7 @@
 """Owned synthetic Qt checks. No actual League client or credentials accessed."""
 import unittest
-from unittest.mock import patch
+import threading
+from unittest.mock import Mock,patch
 from tests import test_client_feedback as fixtures
 
 @unittest.skipIf(fixtures.QtWidgets is None,'Qt unavailable')
@@ -24,8 +25,91 @@ class LCUDisplayTests(unittest.TestCase):
         w.monitor.stop()
     def test_opt_in_off_default_and_revokes_on_change(self):
         self.assertFalse(self.window.lcu_toggle.isChecked());w=self.prepare();self.deliver(100.);self.deliver(101.);self.assertTrue(w.overlay.isVisible());w.lcu_toggle.setChecked(False);self.assertFalse(w.state.running);self.assertFalse(w.overlay.isVisible());self.assertIsNone(w.lcu_snapshot.value)
+    def test_default_client_dashboard_has_explicit_opt_in_and_restart(self):
+        w=self.prepare_client();w.refresh_status_badge()
+        self.assertFalse(w.lcu_toggle.isChecked());self.assertFalse(w.selection_optin.isHidden())
+        self.assertFalse(w.advanced_panel.isAncestorOf(w.selection_optin_button))
+        with patch.object(w,'start_monitor') as restart:w.selection_optin_button.click()
+        self.assertTrue(w.lcu_toggle.isChecked());restart.assert_called_once()
+        self.assertTrue(w.selection_optin.isHidden())
     def test_own_team_bench_literal_tiers(self):
         w=self.prepare();self.deliver(100.);self.assertFalse(w.overlay.isVisible());self.deliver(101.);text=' '.join(x.text() for x in w.overlay.tier_labels);self.assertIn('本人',text);self.assertIn('T5',text);self.assertIn('T2',text);self.assertIn('备选席',text)
+
+    def test_read_only_selection_does_not_require_pixels_ocr_or_capture_mode(self):
+        from screen_capture import CaptureUnavailable
+        from session_windows import ProcessMetadata
+        w=self.prepare();w.client_phase=lambda:True
+        w.capture_metadata=lambda:ProcessMetadata(r'C:\League\LeagueClientUx.exe',1)
+        w.capture.capture=Mock(side_effect=CaptureUnavailable('owned unavailable pixel backend'))
+        w.capture.prepare_capture_mode=Mock(side_effect=AssertionError('API must not prepare pixel capture'))
+        value={'scene':'assigned-selection','assigned':True,'championId':'9001',
+               'teamChampionIds':('9001',),'benchChampionIds':('9002',),
+               'method':'lcu-read-only','_lcuInstance':(12,100,1)}
+        with patch('lcu_selection.LocalSelectionReader') as reader,patch('local_ocr.LocalOCR') as ocr:
+            reader.return_value.read.side_effect=lambda **kwargs:dict(value)
+            for _ in range(2):
+                w.capture_tick();self.pump(lambda:not w.ocr_busy);w.monitor.stop()
+            self.assertEqual(reader.return_value.read.call_count,2)
+            w.capture.capture.assert_not_called();w.capture.prepare_capture_mode.assert_not_called()
+            ocr.assert_not_called()
+        self.assertTrue(w.overlay.isVisible());self.assertIsNotNone(w.lcu_snapshot.value)
+        self.assertFalse(w.overlay._rechecking);self.assertFalse(w._visible_previous)
+
+    def test_confirmed_selection_status_does_not_wait_for_in_game_hud(self):
+        w=self.prepare();self.deliver(100.);self.deliver(101.)
+        with patch('native_ui.time.monotonic',return_value=101.2):w.refresh_status_badge()
+        self.assertIn('当前选人资料已确认',w.status_chip.text())
+        self.assertIn('仍可交换',w.status_chip.text());self.assertNotIn('等待核对',w.status_chip.text())
+        self.assertFalse(w.state.confirmed)  # Selection never confirms augment choices.
+
+    def test_stop_discards_held_api_read_without_starting_pixel_fallback(self):
+        from session_windows import ProcessMetadata
+        w=self.prepare();w.client_phase=lambda:True
+        w.capture_metadata=lambda:ProcessMetadata(r'C:\League\LeagueClientUx.exe',1)
+        entered=threading.Event();release=threading.Event();self.addCleanup(release.set)
+        def read(**kwargs):
+            entered.set()
+            if not release.wait(2):raise RuntimeError('owned read did not release')
+            return {'scene':'assigned-selection','assigned':True,'championId':'9001',
+                    'teamChampionIds':('9001',),'method':'lcu-read-only'}
+        with patch('lcu_selection.LocalSelectionReader') as reader:
+            reader.return_value.read.side_effect=read
+            w.capture_tick();self.pump(entered.is_set)
+            w.stop_monitor();release.set();self.pump(lambda:not w.ocr_busy)
+        self.assertFalse(w.state.running);self.assertFalse(w.state.hero)
+        self.assertFalse(w.overlay.isVisible());self.assertFalse(w._lcu_pixel_fallback)
+
+    def test_failed_api_polls_do_not_reset_independent_pixel_pair(self):
+        w=self.prepare()
+        def failure(stamp):
+            value={'_lcuUnavailable':'lockfile_missing','_capturedAt':stamp,
+                   '_sessionGeneration':w.selection_session.generation,
+                   '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+            with patch('native_ui.time.monotonic',return_value=stamp+.1):
+                w.task_result('selection',value,w.state.generation)
+            w.monitor.stop()
+        failure(100.);self.assertTrue(w._lcu_pixel_fallback)
+        self.assertIn('lockfile',w.hero_status.text())
+        self.deliver(101.,method='client-own-row-and-center-ocr')
+        self.assertEqual(w.selection_session.candidate_frames,1)
+        failure(102.)
+        self.assertEqual(w.selection_session.candidate_frames,1)
+        self.deliver(103.,method='client-own-row-and-center-ocr')
+        self.assertEqual(w.selection_session.candidate_frames,2)
+        self.assertTrue(w.overlay.isVisible());self.assertFalse(w._lcu_pixel_fallback)
+
+    def test_failed_api_revokes_its_own_previous_assignment(self):
+        w=self.prepare();self.deliver(100.);self.deliver(101.)
+        self.assertTrue(w.overlay.isVisible())
+        value={'_lcuUnavailable':'local_client_tls_error','_capturedAt':102.,
+               '_sessionGeneration':w.selection_session.generation,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        with patch('native_ui.time.monotonic',return_value=102.1):
+            w.task_result('selection',value,w.state.generation)
+        w.monitor.stop()
+        self.assertFalse(w.state.hero);self.assertFalse(w.overlay.isVisible())
+        self.assertIsNone(w.lcu_snapshot.value);self.assertTrue(w._lcu_pixel_fallback)
+        self.assertIn('证书',w.hero_status.text())
     def test_swap_hides_until_second_and_stop_clears(self):
         w=self.prepare();self.deliver(100.);self.deliver(101.);self.deliver(102.,own='9002',bench=());self.assertIsNone(w.lcu_snapshot.value);self.deliver(103.,own='9002',bench=());self.assertIsNotNone(w.lcu_snapshot.value);w.stop_monitor();self.assertIsNone(w.lcu_snapshot.value)
     def test_bench_before_own_assignment_does_not_invent_identity(self):

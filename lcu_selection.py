@@ -17,6 +17,22 @@ PATHS = frozenset(('/lol-gameflow/v1/gameflow-phase', '/lol-gameflow/v1/session'
                    '/lol-champ-select/v1/session'))
 MAX_RESPONSE = 512 * 1024
 
+UNAVAILABLE_REASONS = {
+    'local_client_unavailable': '本机客户端只读连接暂不可用',
+    'lockfile_missing': '已核验的客户端目录中未找到 lockfile',
+    'lockfile_denied': '无法读取已核验客户端的 lockfile',
+    'local_client_tls_error': '本机客户端证书核验失败',
+    'local_client_timeout': '本机客户端只读请求超时',
+    'client_identity_changed': '客户端进程或安装路径已变化',
+    'local_request_cancelled': '本次客户端读取已取消',
+}
+
+
+def unavailable_reason(code):
+    """Only fixed public messages; never expose raw network errors or tokens."""
+    if not isinstance(code, str):code = 'local_client_unavailable'
+    return UNAVAILABLE_REASONS.get(code, UNAVAILABLE_REASONS['local_client_unavailable'])
+
 class LCUUnavailable(Exception):
     """Fixed, non-sensitive public error; never include credentials or payload."""
 
@@ -46,8 +62,10 @@ def selection_observation(phase, flow, session):
     """Minimize input to IDs only; never retain player names/PUUIDs/chat."""
     unknown = {'scene': 'unknown', 'championId': None, 'assigned': False,
                'reason': '本地客户端当前不在已核验的海克斯大乱斗选人阶段', 'method': 'lcu-read-only'}
-    if phase != 'ChampSelect' or not isinstance(flow, dict) or not isinstance(session, dict):
-        return unknown
+    if phase != 'ChampSelect':
+        return {**unknown, 'reason': '本机客户端当前不在选人阶段'}
+    if not isinstance(flow, dict) or not isinstance(session, dict):
+        return {**unknown, 'reason': '本机客户端未提供完整的选人资料'}
     # Fail closed for other modes. Queue 2400 is ARAM: Mayhem, not ordinary ARAM.
     queue = flow.get('gameData', {}).get('queue', {}) if isinstance(flow.get('gameData'), dict) else {}
     if not isinstance(queue, dict) or type(queue.get('id')) is not int or queue['id'] != 2400:
@@ -103,6 +121,15 @@ class LocalSelectionReader:
             raise LCUUnavailable('client_identity_changed')
         return metadata
 
+    def _read_lockfile(self):
+        try:
+            with Path(str(self.root / 'lockfile')).open('rb') as handle:
+                return handle.read(1025)
+        except FileNotFoundError:
+            raise LCUUnavailable('lockfile_missing') from None
+        except PermissionError:
+            raise LCUUnavailable('lockfile_denied') from None
+
     def _get(self, credentials, path, context, deadline, cancelled):
         if path not in PATHS or cancelled.is_set():
             raise LCUUnavailable('local_request_cancelled')
@@ -134,8 +161,7 @@ class LocalSelectionReader:
     def read(self, *, cancelled):
         try:
             if cancelled.is_set(): raise LCUUnavailable('local_request_cancelled')
-            lockfile = Path(str(self.root / 'lockfile'))
-            with lockfile.open('rb') as handle: raw = handle.read(1025)
+            raw = self._read_lockfile()
             credentials = parse_lockfile(raw)
             metadata = self._metadata(credentials)
             context = ssl.create_default_context(cafile=str(self.ca_file))
@@ -149,7 +175,7 @@ class LocalSelectionReader:
             if phase_after != phase:return selection_observation(phase_after,None,None)
             if metadata != self._metadata(credentials) or cancelled.is_set():
                 raise LCUUnavailable('client_identity_changed')
-            with lockfile.open('rb') as handle: current = handle.read(1025)
+            current = self._read_lockfile()
             if current != raw: raise LCUUnavailable('client_identity_changed')
             result=selection_observation(phase, flow, session)
             game_data=flow.get('gameData',{}) if isinstance(flow,dict) else {}
@@ -159,6 +185,10 @@ class LocalSelectionReader:
             return result
         except LCUUnavailable:
             raise
+        except ssl.SSLError:
+            raise LCUUnavailable('local_client_tls_error') from None
+        except TimeoutError:
+            raise LCUUnavailable('local_client_timeout') from None
         except Exception:
             raise LCUUnavailable('local_client_unavailable') from None
 

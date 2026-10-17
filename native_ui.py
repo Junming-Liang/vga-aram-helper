@@ -285,7 +285,7 @@ class ControlWindow(QtWidgets.QWidget):
         super().__init__();self.state=RecognitionState();self.hero_continuity=HeroIdentityContinuity();self.data=None;self.startup_error='';self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         from lcu_selection import SelectionSnapshot
-        self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None
+        self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
         self._capture_serial=0;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
         self.partial_candidates=PartialCandidateState();self._partial_revision=0;self._partial_hero='';self._partial_scope=None;self._partial_displayed=False
         if type(enable_visible_capture) is not bool:raise TypeError('Visible capture requires an explicit boolean')
@@ -318,6 +318,10 @@ class ControlWindow(QtWidgets.QWidget):
         self.monitor_actions=QtWidgets.QStackedWidget();self.monitor_actions.setFixedWidth(152);self.monitor_actions.setFixedHeight(46);self.monitor_actions.addWidget(self.start_button);self.monitor_actions.addWidget(self.stop_button);hero_row.addWidget(self.monitor_actions)
         main.addSpacing(4);main.addLayout(hero_row);main.addSpacing(4)
         main.addWidget(label('非 Riot 官方或背书产品；完整声明见“关于”。',True))
+        self.selection_optin=QtWidgets.QFrame();selection_optin_layout=QtWidgets.QVBoxLayout(self.selection_optin);selection_optin_layout.setContentsMargins(0,0,0,0)
+        selection_optin_layout.addWidget(label('选人截图尚不稳定时，可开启本机只读识别，显示当前英雄、队伍与备选席评级；仅本次启动有效。',True))
+        self.selection_optin_button=QtWidgets.QPushButton('开启本机选人识别');self.selection_optin_button.clicked.connect(self.enable_client_selection);selection_optin_layout.addWidget(self.selection_optin_button)
+        main.addWidget(self.selection_optin);self.selection_optin.hide()
         self.trust_button=QtWidgets.QPushButton('确认自己的游戏安装目录…');self.trust_button.hide();self.trust_button.clicked.connect(self.confirm_game_installation);main.addWidget(self.trust_button);self.unverified_candidate=None
         divider=QtWidgets.QFrame();divider.setObjectName('divider');divider.setFixedHeight(1);main.addWidget(divider)
         section_row=QtWidgets.QHBoxLayout();heading=label('候选强化');heading.setObjectName('section-title');section_row.addWidget(heading);section_row.addStretch();self.candidate_caption=label('等待三个候选稳定确认',True);section_row.addWidget(self.candidate_caption);main.addLayout(section_row)
@@ -511,6 +515,10 @@ class ControlWindow(QtWidgets.QWidget):
     def lcu_consent_changed(self,*_):
         self.stop_monitor();self.lcu_snapshot.clear()
         self.footer_note.setText('截图 + 本机只读接口' if self.lcu_toggle.isChecked() or self.live_identity_toggle.isChecked() else '仅窗口像素 · 兼容性待验证')
+    def enable_client_selection(self):
+        running=self.state.running
+        self.lcu_toggle.setChecked(True)
+        if running:self.start_monitor()
         self.status.setText('本机只读接口权限已改变，请重新开始监测。')
     def game_identity_scope(self,value):
         if not self.state.running or not self.hero_auto.isChecked() or self.client_phase():return None
@@ -627,6 +635,7 @@ class ControlWindow(QtWidgets.QWidget):
         hero=self.state.hero if self.state.running and self.state.hero else ''
         from hero_strength import hero_strength_reference
         client_auto=self.client_assignment_visible() and self.hero_auto.isChecked()
+        self.selection_optin.setVisible(bool(self.state.running and client_auto and not self.lcu_toggle.isChecked()))
         strength=self.client_strength_reference() if client_auto else hero_strength_reference(self.data,hero) if hero else None
         if client_auto and not strength:hero=''
         self.hero_title.setText(hero or '等待识别');self.refresh_hero_portrait(hero)
@@ -647,6 +656,10 @@ class ControlWindow(QtWidgets.QWidget):
         self._refresh_badge()
         self.refresh_history()
         if self.last_timings:
+            if self.last_timings.get('backend')=='lcu-read-only':
+                from lcu_selection import unavailable_reason
+                self.capture_diagnostic.setText('本机选人接口 · 本次未截图\n读取 '+str(self.last_timings.get('inference_ms','未知'))+' ms'+('\n'+unavailable_reason(self._lcu_error) if self._lcu_error else ''))
+                return
             mode=getattr(self.capture,'visible_capture_status','unknown')
             mode_text={'eligible':'保护显示捕获：截图时无需隐藏评级','interactive':'交互模式：每次截图需暂时隐藏；开启鼠标穿透可尝试保护显示','backend_unavailable':'当前后端需隐藏截图，可能短暂闪烁','exclusion_unregistered':'系统未确认叠加排除：暂用隐藏截图','cleanup_pending':'等待上次截图关闭，暂不开始新截图','disabled':'保护显示捕获未启用','stopped':'截图已停止'}.get(mode,'截图模式待确认')
             self.capture_diagnostic.setText(mode_text+'\n'+f"最近后端 {getattr(self.capture,'last_backend','未知')} · 截图 {self.last_timings.get('capture_ms','未知')} ms · 本地识别 {self.last_timings.get('inference_ms','未知')} ms\n若已识别但游戏内不可见，请比较全屏与无边框；当前诊断不能证明真实独占全屏兼容。")
@@ -680,6 +693,7 @@ class ControlWindow(QtWidgets.QWidget):
         elif self.overlay._rechecking:state,text='working','上次资料 · 正在复核'
         elif self.state.confirmed:state,text='confirmed','资料已确认'
         elif any(self.current_partial_names()):state,text='working','部分候选已确认'
+        elif self.client_selection_reference():state,text='provisional','当前选人资料已确认 · 仍可交换'
         elif self.ocr_busy:state,text='working','正在识别'
         elif self.target is None:state,text='waiting','等待连接'
         else:state,text='waiting','等待核对'
@@ -690,7 +704,9 @@ class ControlWindow(QtWidgets.QWidget):
         self.status_chip.setText(text)
         mode=getattr(self.capture,'visible_capture_status','unknown') if self.capture else 'unknown'
         mode_text={'eligible':'保护显示捕获','interactive':'交互模式，需隐藏截图','exclusion_unregistered':'排除未确认，需隐藏截图','backend_unavailable':'后端需隐藏截图','cleanup_pending':'等待截图清理','disabled':'隐藏截图','stopped':'截图停止'}.get(mode,'等待截图')
-        self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
+        if self.client_assignment_visible():
+            self.footer_note.setText(('本机选人接口 · 正在截图回退' if self._lcu_error else '本机选人接口已开启') if self.lcu_toggle.isChecked() else '截图选人 · 选人接口未开启')
+        else:self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
         self.debug_state(state)
     def spawn(self,kind,fn,generation=0):
         logger=self.debug_log;queued_at=time.monotonic()
@@ -860,6 +876,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.debug_event('invalidate',reason=debug_reason)
         self.debug_event('cancel',reason=debug_reason,cancelled=True)
         self._visible_previous=False
+        self._lcu_pixel_fallback=False;self._lcu_error=''
         self.lcu_snapshot.clear()
         self._capture_cancel.set();self.ocr_reuse.clear()
         self.retire_capture_session()
@@ -911,7 +928,7 @@ class ControlWindow(QtWidgets.QWidget):
         self._geometry_frame=None
         self.hero_continuity.clear()
         self.clear_partial_candidates()
-        self.lcu_snapshot.clear();self.last_selection_source=None
+        self.lcu_snapshot.clear();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
         self.debug_event('cancel',reason='stop',cancelled=True)
         self._visible_previous=False
         self.retire_capture_session()
@@ -1045,11 +1062,18 @@ class ControlWindow(QtWidgets.QWidget):
     def capture_tick(self):
         if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:return
         if not self.target or not self.capture.foreground(self.target):self.schedule_capture(400);return
-        self.debug_event('capture',capture_mode=getattr(self.capture,'visible_capture_status','unknown'))
+        if self.client_phase() and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and not self._lcu_pixel_fallback:
+            self.capture_selection();return
+        mode=getattr(self.capture,'visible_capture_status','unknown')
+        self.debug_event('capture',capture_mode=mode)
         was_visible=self.overlay.isVisible() or bool(self.capture and hasattr(self.capture,'u') and self.capture.u.IsWindowVisible(int(self.overlay.winId())))
         fresh_previous=bool(self.client_selection_reference() or (self.state.confirmed or any(self.current_partial_names())) and 0<=time.monotonic()-self.last_observation<=4)
         previous=bool(self.enable_visible_capture and was_visible and fresh_previous and self.overlay.click_through)
-        visible=bool(previous and getattr(self.capture,'can_request_visible_overlay',False))
+        # Cleanup temporarily revokes readiness while preserving the requested
+        # transition. Switching back to hidden here would cancel that transition
+        # on every poll and repeatedly retire otherwise healthy sessions.
+        waiting_visible=bool(self._mode_wait_started is not None and self._visible_previous and mode=='cleanup_pending')
+        visible=bool(previous and (getattr(self.capture,'can_request_visible_overlay',False) or waiting_visible))
         try:
             # Only this v2 preparation owns a GUI-safe drain barrier. Pending
             # legacy v1 process/pipe cleanup must be drained by the subsequent
@@ -1062,7 +1086,7 @@ class ControlWindow(QtWidgets.QWidget):
                 if now-self._mode_wait_started>8:
                     self.stop_monitor();self.status.setText('上一次截图尚未确认关闭；监测已停止，请检查后重新开始。');return
                 self.debug_event('capture',phase='requested',reason='mode_wait',visible_capture=visible)
-                self._visible_previous=previous;self.overlay.set_rechecking(previous)
+                self._visible_previous=visible;self.overlay.set_rechecking(previous)
                 self.refresh_status_badge();self.schedule_capture(50);return
             self._mode_wait_started=None
         except (CapturePaused,CaptureUnavailable) as exc:
@@ -1077,6 +1101,41 @@ class ControlWindow(QtWidgets.QWidget):
         # Legacy/unsupported paths remain strict-hide. The explicit experiment
         # uses only the exact registered opaque v2 window, never v1/GDI.
         QtCore.QTimer.singleShot(self.overlay.hidden_settle_ms() if not visible else 0,lambda:self.capture_hidden(generation,serial,allow_visible_overlay=visible))
+    def capture_selection(self):
+        """Read opted-in client state without making pixels a prerequisite.
+
+        The GUI still proves the same foreground client/geometry before and
+        after the worker. API failure schedules a separate strict pixel request;
+        a worker can never hide widgets or silently switch capture backends.
+        """
+        try:
+            if not self.target_allowed():raise CapturePaused('客户端连接正在更新，稍后自动继续。')
+            target=self.target;rect=self.capture.rect(target);metadata=self.capture_metadata()
+            generation=self.state.generation;session_generation=self.selection_session.generation if self.selection_session else None
+            self.monitor.stop();self._capture_serial+=1;serial=self._capture_serial
+            self._capture_cancel=threading.Event();cancelled=self._capture_cancel
+            self.ocr_busy=True;self.capture_pending=False;self._active_capture_generation=generation
+            self.ocr_started=time.monotonic();self.ocr_timed_out=False;self._restore_while_ocr=False
+            self._visible_previous=bool(self.overlay.isVisible() and self.client_selection_reference())
+            self.overlay.set_rechecking(self._visible_previous)
+            self.status.setText('正在读取本机客户端选人资料…');self.refresh_status_badge()
+            def read_selection():
+                from lcu_selection import LocalSelectionReader,LCUUnavailable,UNAVAILABLE_REASONS
+                from session_windows import process_metadata
+                captured_at=time.monotonic()
+                try:result=LocalSelectionReader(metadata,resolver=process_metadata).read(cancelled=cancelled)
+                except LCUUnavailable as exc:
+                    code=str(exc) if str(exc) in UNAVAILABLE_REASONS else 'local_client_unavailable'
+                    result={'_lcuUnavailable':code}
+                result.update(_capturedAt=captured_at,_completedAt=time.monotonic(),
+                    _sessionGeneration=session_generation,_windowIdentity=target.identity,
+                    _captureRect=rect,_captureSerial=serial,
+                    _timings={'capture_ms':0.,'inference_ms':round((time.monotonic()-captured_at)*1000,1),'backend':'lcu-read-only'})
+                return result
+            self.spawn('selection',read_selection,generation)
+        except (CapturePaused,CaptureUnavailable) as exc:
+            self.ocr_busy=False;self.capture_pending=False
+            self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.schedule_capture(1000)
     def capture_hidden(self,generation,serial=None,*,allow_visible_overlay=False):
         if serial is not None and serial!=self._capture_serial:
             self.debug_event('cancel',reason='serial_changed',cancelled=True);return
@@ -1119,6 +1178,7 @@ class ControlWindow(QtWidgets.QWidget):
             self._capture_cancel=threading.Event();cancelled=self._capture_cancel
             detector=self.selection_detector
             lcu_enabled=bool(client_phase and self.lcu_toggle.isChecked())
+            lcu_error=self._lcu_error
             verified_game=bool((self.automatic_policy and self.automatic_policy.bound and self.automatic_policy.bound.role=='game') or (self.window_policy and frame_window.identity==self.window_policy.game_identity))
             live_identity_enabled=bool(verified_game and not client_phase and self.live_identity_toggle.isChecked() and self.hero_auto.isChecked())
             canonical_map=self.canonical_champion_map() if live_identity_enabled else {}
@@ -1198,15 +1258,8 @@ class ControlWindow(QtWidgets.QWidget):
                         proof['_liveIdentityUnavailable']=True
                         return hud
                     return reconcile_identity(hud,api,source_heroes)
-                result=None
-                if lcu_enabled:
-                    from lcu_selection import LocalSelectionReader,LCUUnavailable
-                    from session_windows import process_metadata
-                    try:result=LocalSelectionReader(expected_metadata,resolver=process_metadata).read(cancelled=cancelled)
-                    except LCUUnavailable:pass
-                if result is None:
-                    result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,inference_worker=self.frame_inference_worker,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
-                    if lcu_enabled:result['lcuFallback']=True
+                result=detector.recognize(image) if client_phase else recognize_frame(image,roi,TimedOCR(),vocabulary,matcher,before_match=before_match,before_ocr=before_ocr,inference_worker=self.frame_inference_worker,prepared_frame=lambda rgb:decoded_frame.append(rgb),prior_card_geometry=(previous_geometry[1] if previous_geometry and previous_geometry[0]==proof['_frameScope'] else None),**({'resolve_hero':resolve_hero} if live_identity_enabled else {}))
+                if lcu_enabled:result.update(lcuFallback=True,lcuError=lcu_error)
                 if current_crop and not client_phase:
                     from card_title_proof import make_title_proof
                     result['_titleProof']=make_title_proof(current_crop[-1],result.get('automatic_candidates'),result.get('image_size'))
@@ -1374,13 +1427,27 @@ class ControlWindow(QtWidgets.QWidget):
                 self.check_target()
             elif kind=='selection':
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
-                self.clear_partial_candidates()
                 self._visible_previous=False
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
                 if not self.captured_frame_current(value):return
                 if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                     self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
+                if value.get('_lcuUnavailable'):
+                    from lcu_selection import unavailable_reason
+                    self._lcu_pixel_fallback=True;self._lcu_error=value['_lcuUnavailable']
+                    self.lcu_snapshot.clear()
+                    if self.last_selection_source and self.last_selection_source[0]=='lcu-read-only':
+                        self.selection_session.clear('Local client unavailable; require fresh pixel evidence')
+                        self.last_selection_source=None
+                        if self.hero_auto.isChecked():
+                            self.state.hero='';self.hero_box.blockSignals(True);self.hero_box.setCurrentText('');self.hero_box.blockSignals(False)
+                        self.overlay.hide('selection_changed')
+                    self.hero_status.setText(unavailable_reason(self._lcu_error)+'；正在尝试截图识别。')
+                    self.status.setText(self.hero_status.text());return
+                self._lcu_pixel_fallback=False
+                if value.get('method')=='lcu-read-only':self._lcu_error=''
+                self.clear_partial_candidates()
                 self.hero_continuity.clear()
                 now=time.monotonic()
                 selection_source=(value.get('method'),value.get('_lcuInstance'))
@@ -1398,7 +1465,9 @@ class ControlWindow(QtWidgets.QWidget):
                 self.refresh_card_details()
                 self.hero_status.setText(('当前分配：'+hero+'；仍可交换，切入本局游戏后复核') if stable and hero else '选人文字尚不确定：'+value.get('reason',''))
                 if not stable and not self.lcu_toggle.isChecked():self.hero_status.setText(self.hero_status.text()+'；可在设置开启客户端选人只读资料，辅助显示英雄评级。')
-                if value.get('lcuFallback'):self.hero_status.setText('本机只读连接不可用，已回退截图识别。'+self.hero_status.text())
+                if value.get('lcuFallback'):
+                    from lcu_selection import unavailable_reason
+                    self.hero_status.setText(unavailable_reason(value.get('lcuError'))+'；已回退截图识别。'+self.hero_status.text())
                 elif value.get('method')=='lcu-read-only':self.hero_status.setText('本机客户端只读选人资料 · '+self.hero_status.text())
                 self.status.setText(self.hero_status.text());self.check_target()
             elif kind=='ocr':

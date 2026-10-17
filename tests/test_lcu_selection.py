@@ -66,7 +66,17 @@ class LCUReadBoundaryTests(unittest.TestCase):
         a,b,c=inputs();self.assertFalse(self.read_with([a,b,c,'InProgress'])['assigned'])
     def test_tls_error_is_sanitized(self):
         with self.assertRaises(LCUUnavailable) as error:self.read_with([],get_error=ssl.SSLCertVerificationError('synthetic_token PRIVATE'))
-        self.assertEqual(str(error.exception),'local_client_unavailable')
+        self.assertEqual(str(error.exception),'local_client_tls_error')
+        self.assertNotIn('PRIVATE',unavailable_reason(str(error.exception)))
+    def test_lockfile_errors_are_specific_and_do_not_expose_paths(self):
+        for failure,code in [(FileNotFoundError('PRIVATE'),'lockfile_missing'),(PermissionError('PRIVATE'),'lockfile_denied')]:
+            with self.subTest(code=code),patch('lcu_selection.Path.open',side_effect=failure):
+                with self.assertRaises(LCUUnavailable) as error:self.reader().read(cancelled=threading.Event())
+                self.assertEqual(str(error.exception),code)
+                self.assertNotIn('PRIVATE',unavailable_reason(code))
+    def test_unknown_failure_detail_cannot_enter_public_status(self):
+        for value in ('PRIVATE synthetic_token',None,{}):
+            self.assertEqual(unavailable_reason(value),UNAVAILABLE_REASONS['local_client_unavailable'])
     def test_lockfile_rotation_rejected(self):
         a,b,c=inputs()
         with self.assertRaises(LCUUnavailable):self.read_with([a,b,c,a],raw_after=b'LeagueClient:12:12345:different_token:https')

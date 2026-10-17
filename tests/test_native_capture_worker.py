@@ -592,6 +592,36 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.assertFalse(w.state.running);self.assertFalse(w.overlay.isVisible());self.assertFalse(w.capture_pending)
         self.assertEqual(capture.plans,[]);self.assertIn('监测已停止',w.status.text())
 
+    def test_cleanup_readiness_does_not_reverse_requested_visible_mode(self):
+        w=self.window;capture,_,_=self.visible_capture_fixture()
+        class RetiringCapture(type(capture)):
+            pending=False
+            prepared=False
+            @property
+            def can_request_visible_overlay(inner):return not inner.pending
+            @property
+            def visible_capture_status(inner):return 'cleanup_pending' if inner.pending else 'eligible'
+            def prepare_capture_mode(inner,visible):
+                inner.plans.append(visible)
+                if visible!=inner.prepared:
+                    inner.prepared=visible;inner.pending=True
+                return not inner.pending
+        capture=RetiringCapture();capture.plans=[];w.capture=capture
+        scheduled=[];w.schedule_capture=lambda delay=None:scheduled.append(delay)
+        original_time=w.last_observation;generation=w.state.generation
+        with patch('native_ui.QtCore.QTimer.singleShot') as delayed:
+            for _ in range(4):w.capture_tick()
+            self.assertEqual(capture.plans,[True]*4)
+            self.assertEqual(scheduled,[50]*4);delayed.assert_not_called()
+            self.assertTrue(w.overlay.isVisible());self.assertTrue(w.overlay._rechecking)
+            self.assertEqual(w.last_observation,original_time)
+            self.assertEqual(w.state.generation,generation)
+            capture.pending=False;w.capture_tick()
+            self.assertEqual(capture.plans,[True]*5)
+            self.assertTrue(w.overlay.isVisible());self.assertTrue(w.capture_pending)
+            self.assertTrue(w._visible_previous);self.assertIsNone(w._mode_wait_started)
+            delayed.assert_called_once();self.assertEqual(delayed.call_args.args[0],0)
+
     def test_visible_changed_pixel_proof_stays_historical_until_fresh_final_result(self):
         w=self.window;capture,hero,names=self.visible_capture_fixture();release=threading.Event();self._release_events.append(release);requests=[]
         def acquire(*args,**kwargs):requests.append(kwargs);return b'owned changing frame',capture.rect(w.target)
