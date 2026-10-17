@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.9-0891b2" alt="源码版本 v0.4.9"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.9 预览版"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.10-0891b2" alt="源码版本 v0.4.10"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.10 预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -26,7 +26,7 @@ VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or 
 
 VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海克斯大乱斗（ARAM: Mayhem）的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
 
-v0.4.9 预览版已通过完整 Windows EXE 发布验收；真实对局反馈仍待验证。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
+v0.4.10 预览版已通过完整 Windows EXE 发布验收；真实对局反馈仍待验证。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
 
 默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
 
@@ -35,9 +35,9 @@ v0.4.9 预览版已通过完整 Windows EXE 发布验收；真实对局反馈仍
 ## 海克斯大乱斗辅助功能
 
 - **英雄专属海克斯评级**：展示虎牙公开源的 T1–T4 评级，保留三个候选的原始顺序；缺失数据标为“暂无评级”。
-- **自动本人英雄**：只在底部本人 HUD 区域匹配 Riot Data Dragon 头像，连续两帧一致后使用；不会从记分板或全屏人名猜英雄。
+- **自动本人英雄**：默认开启可关闭的本局只读 API 核验，并保留底部本人 HUD 头像匹配；可靠身份经独立确认后可在同一核验游戏会话内跨死亡倒计时保留。不会从记分板或全屏人名猜英雄。
 - **本地 OCR**：布局和置信度通过、连续两帧独立确认的候选栏可先显示；未知栏保持无评级，不借用旧结果。不确定时人工修正。
-- **紧凑原生界面**：v0.4.9 采用浅色仪表盘，开始/停止保持可达；设置、核对资料、关于位于次级页面，叠加按原三栏显示名称与评级，超过半屏高度则隐藏，支持鼠标穿透和 `Ctrl+Alt+O`。完整说明可在控制台按名称查阅，查阅不代表识别或确认。
+- **卡片上方评级**：三个独立区域保留原候选顺序，显示 T 级、身份来源与可用搭配提示；完整名称和说明可在控制台查阅。当前卡边界无法确认时隐藏，默认鼠标穿透。
 - **数据刷新与缓存**：启动时检查公开资料，离线时使用已验证缓存。
 - **软件更新**：检查稳定版 GitHub Release，确认后下载并校验安装。
 
@@ -45,13 +45,13 @@ v0.4.9 预览版已通过完整 Windows EXE 发布验收；真实对局反馈仍
 
 ### Windows
 
-1. 下载 [v0.4.9 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/vga-aram-helper-0.4.9-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/SHA256SUMS.txt)。
+1. 下载 [v0.4.10 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/vga-aram-helper-0.4.10-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/SHA256SUMS.txt)。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
-3. 保持默认“自动识别英雄联盟”，点击“开始本局监测”。助手会最小化，自动等待或接续客户端/游戏，无需选择窗口。首次启动会准备约 5 MB 的公开头像缓存。
+3. 保持默认“自动识别英雄联盟”，点击“开始本局监测”。默认保持控制台可见，自动等待或接续客户端/游戏，无需选择窗口。首次启动会准备约 5 MB 的公开头像缓存。
 
-单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9)提供测试证据和对应源码。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10)提供测试证据和对应源码。
 
-v0.4.9 预览版已发布，需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
+v0.4.10 预览版已发布，需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -63,6 +63,14 @@ python launcher.py
 ```
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## v0.4.10：同局英雄保留与卡片上方评级
+
+[v0.4.10 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) 已于 2026-10-17 发布，[Windows 完整运行 #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) 通过全部必需门禁，包括源码与同一 EXE 的三档原生捕获/评级、五档布局、逐栏恢复、选人衔接、同二进制 OTA 与最终源码/许可校验。
+
+本局英雄只读核验默认开启，可关闭；可靠身份在同一核验游戏会话中跨死亡倒计时保留，当前候选仍须独立确认并遵守四秒有效期。选人客户端 API 仍默认关闭。三个卡片上方独立区域显示 T 级和可用的公开源搭配文字；开始后自动最小化默认关闭，可自行开启。
+
+这是非 latest 预览版，稳定 `/releases/latest` OTA 不会发现，须手动下载。受控原创窗口通过验收不代表真实 LoL/Vanguard、用户对局或现行客户端 API 已验证；不保证消除所有闪烁或提高原始 OCR 速度。详见[实现与限制](DEATH_IDENTITY_AND_CARD_BADGES.md)。
 
 ## v0.4.9：窗口衔接、分栏识别与诊断
 
@@ -88,10 +96,10 @@ python launcher.py
 
 ## 使用方法
 
-- 保持默认自动识别窗口和本人 HUD 头像，点击开始后切回游戏；游戏未启动、最小化或被遮挡时会等待重试。存在多个候选或无法核验安装身份时会明确提示。
-- 高置信本人头像和三个牌面标题连续两帧一致后自动显示。不会自动选择游戏内选项。
-- 不确定时可关闭自动英雄、人工纠正英雄及候选。更换/未知英雄、候选变化、过期或切出窗口会隐藏旧资料，自动模式重新等待稳定画面。
-- `Ctrl+Alt+O` 切换鼠标穿透；停止监测或关闭主窗口即可结束捕获。
+- 保持默认自动识别窗口和本局英雄核验，点击开始后切回游戏；游戏未启动、最小化或被遮挡时会等待重试。存在多个候选或无法核验安装身份时会明确提示。
+- 独立确认的本局英雄身份与连续新鲜候选证据齐备后自动显示；同局可靠身份可跨死亡倒计时保留。不会自动选择游戏内选项。
+- 不确定时可关闭自动英雄、人工纠正英雄及候选。英雄身份冲突或无法可靠确认、候选变化、过期或切出窗口会隐藏旧资料，自动模式重新等待新鲜证据。
+- `Ctrl+Alt+O` 切换交互/参考模式设置，候选评级始终鼠标穿透；停止监测或关闭主窗口即可结束捕获。
 
 ### 从选人开始
 
@@ -109,7 +117,7 @@ v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，�
 
 ## 预览版与兼容性
 
-[v0.4.9](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已可下载，保持非 latest 预览版，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
+[v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) 已可下载，保持非 latest 预览版，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
 
 ### v0.4.7 与更早版本的历史记录
 
@@ -129,7 +137,7 @@ v0.4.2 修正已确认的 Qt 逻辑坐标与 Win32 物理坐标不一致，以�
 
 [Windows EXE 发布测试](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38281910029)在同一 EXE、固定 960×600 像素的原创模拟窗口中通过了 100%、150%、200% 应用进程缩放检查，覆盖捕获/OCR、自动英雄与三候选、资料卡边界与文字布局、状态清除及关闭清理；选人识别与本局接续检查也已通过。同次构建的源码测试通过了 100%–250% 缩放下的 35 个窗口用例，包括过小窗口隐藏与恢复。实际系统 DPI、多显示器切换、4K 完整可见布局及用户报告的具体报错原因仍未确认。
 
-当前 v0.4.9 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
+当前 v0.4.10 源码在 Linux 官方 wheel 上实际重跑的公开截图小样本中，3 个本人英雄样例识别 2 个（莎弥拉、卡特琳娜），米利欧头像未匹配而停止自动判断；3 个死亡/记分板、观战、竖向裁剪负例均停止判断。不能据此宣称总体识别率或自编译 Windows 包的识别表现。详见 [自动识别范围](AUTO_RECOGNITION.md) 和 [逐例结果](reports/hero-recognition-genuine.json)。
 
 以下为 **v0.3.0 历史基线**，不证明新版自动英雄在 Windows 对局中已通过：
 
@@ -152,6 +160,6 @@ EXE 尚无 Authenticode 签名，Windows 可能提示未知发布者。请核对
 
 原创代码、图标和合成测试数据采用 [MIT License](LICENSE)。Qt/PySide/Shiboken 使用适用的 LGPLv3 选项；OCR 依赖、模型及其他第三方组件遵循各自许可。Release 附完整许可、对应 Qt 源码和同提交应用源码，详见[第三方声明](THIRD_PARTY_NOTICES.md)。第三方游戏资料不在本项目 MIT 许可范围内。
 
-使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。自编译 OpenCV 与 WGC 辅助程序的 `/MT` 还包含微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可，更新这部分需要重建；详见[运行库范围说明](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)。
+使用前请阅读并同意 [Release 许可包](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/third-party-licenses.zip)中的微软运行库条款。这些条款仅适用于所列微软 DLL，不限制 MIT 应用源码或 Qt LGPL 权利。自编译 OpenCV 与 WGC 辅助程序的 `/MT` 还包含微软发行版 CRT 对象代码，适用微软条款独立于 OpenCV/Qt 许可，更新这部分需要重建；详见[运行库范围说明](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components)。
 
 本项目为独立实现，与 Riot Games、英雄联盟及虎牙无官方关联。

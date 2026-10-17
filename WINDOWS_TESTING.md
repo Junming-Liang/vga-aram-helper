@@ -1,5 +1,13 @@
 # Windows 测试
 
+## v0.4.10：同局英雄保留与卡片上方评级
+
+[v0.4.10 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) 已于 2026-10-17 发布，[Windows 完整运行 #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) 通过全部必需门禁，包括源码与同一 EXE 的三档原生捕获/评级、五档布局、逐栏恢复、选人衔接、同二进制 OTA 与最终源码/许可校验。
+
+本局英雄只读核验默认开启，可关闭；可靠身份在同一核验游戏会话中跨死亡倒计时保留，当前候选仍须独立确认并遵守四秒有效期。选人客户端 API 仍默认关闭。三个卡片上方独立区域显示 T 级和可用的公开源搭配文字；开始后自动最小化默认关闭，可自行开启。
+
+这是非 latest 预览版，稳定 `/releases/latest` OTA 不会发现，须手动下载。受控原创窗口通过验收不代表真实 LoL/Vanguard、用户对局或现行客户端 API 已验证；不保证消除所有闪烁或提高原始 OCR 速度。详见[实现与限制](DEATH_IDENTITY_AND_CARD_BADGES.md)。
+
 ## v0.4.9：窗口衔接、分栏识别与诊断
 
 [v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布，[Windows 完整发布运行 #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) 通过全部必需门禁，包括同一 EXE 的 100%/150%/200% 捕获、部分候选栏及恢复、选人衔接、同二进制更新和最终源码/许可校验。

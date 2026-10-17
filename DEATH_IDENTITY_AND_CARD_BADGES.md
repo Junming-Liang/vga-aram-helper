@@ -1,7 +1,6 @@
-# v0.4.10 candidate: game identity and per-card display
+# v0.4.10: published preview — game identity and per-card display
 
-This document describes the candidate implementation. It is not a claim that a
-new Windows build or live-client acceptance has passed.
+This implementation was released on 2026-10-17 after [Windows run #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) passed all required source/frozen gates. It remains a non-latest prerelease requiring manual download. Owned-fixture acceptance does not establish live-client or user-game acceptance.
 
 ## Current-game identity
 

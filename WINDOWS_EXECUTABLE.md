@@ -2,12 +2,12 @@
 
 ## 下载与发布状态
 
-[v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/vga-aram-helper-0.4.9-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.9/SHA256SUMS.txt)。
+[v0.4.10 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10) 已于 2026-10-17 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/vga-aram-helper-0.4.10-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.10/SHA256SUMS.txt)。
 
-- 完整发布运行：[Windows #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944)，全部必需门禁通过。
-- 最终源码 / 标签：`9a45c8d7a8cc476cd7c22081c1363f767f271553` / `v0.4.9`；源码树：`c987e998d3c0d9530d0cc2111053df5939b516e7`。
-- 最终 EXE：**106,971,324 字节（102.02 MiB）**；SHA-256：`a4ba18b95697195eb56635fec4a5779e6d9b6fd911f7db43fd1f69a8eafbcdf2`。
-- 发布校验绑定 15 项资产与 60 项证据，公开 EXE 身份与校验一致；保持 prerelease / 非 latest，稳定 `/releases/latest` OTA 不自动发现，需手动下载。对应源码、许可与证据见同版 Release。
+- 完整发布运行：[Windows #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655)，全部必需门禁通过。
+- 源码 / 标签：`389aeed46ded389071e4d2e740a63a5db14a1343` / `v0.4.10`；树：`c625d06fd313ae31da1917efec8e993acb07ff32`。
+- EXE：**107,040,179 字节（102.08 MiB）**；SHA-256：`baf2e281b14a27cf4a6e08282f262012be75a727c387393182cf94cc16128e2b`。
+- 15 项发布资产；保持 prerelease / 非 latest，稳定 `/releases/latest` OTA 不自动发现，需手动下载。受控 Windows 验收不代表真实 LoL/Vanguard 或用户对局验证。
 
 ### v0.4.6 已发布预览版（历史构建说明）
 
@@ -18,9 +18,11 @@
 
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
-**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.8](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.8)，并核对同版 SHA-256；构建结果见 [Windows 发布运行 #55](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38793233284)。
+**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10)，并核对同版 SHA-256；构建结果见 [Windows 发布运行 #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655)。
 
 ## 运行
+
+本局英雄只读核验默认开启，可关闭；独立的选人客户端 API 仍默认关闭。同一核验游戏会话中的可靠英雄可跨死亡倒计时保留，候选仍需新鲜确认。见[实现范围](DEATH_IDENTITY_AND_CARD_BADGES.md)。
 
 取得构建产物后：
 
@@ -28,19 +30,19 @@ Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Pyt
 
 1. 将 `vga-aram-helper-版本-windows-x64.exe` 放到自己有写入权限的文件夹。也可重命名为 `VGA-Aram-Helper.exe`。
 2. 双击后直接打开原生控制窗口，无需打开浏览器或输入网址。窗口先显示加载状态，再检查公开数据。
-3. v0.4.8 默认使用“自动识别英雄联盟”，点击开始即可。控制台会最小化以免遮挡游戏；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
-4. v0.4.8 资料显示在置顶叠加层中；默认鼠标穿透，`Ctrl+Alt+O` 可切换。关闭主控制窗口会停止监测并关闭叠加层。
+3. v0.4.10 默认使用“自动识别英雄联盟”，点击开始即可。开始后自动最小化默认关闭，可在设置中开启；先开助手后开游戏、已在对局、同目录重启和窗口重建均自动检测。默认自动识别本人英雄和三个候选；稳定高置信画面后显示资料，不确定时保留人工纠正。
+4. v0.4.10 评级与可用搭配提示显示在三个候选卡片上方；候选评级始终鼠标穿透；`Ctrl+Alt+O` 切换交互/参考模式设置，不会让候选评级拦截点击。关闭主控制窗口会停止监测并关闭叠加层。
 
 首次启动需要解压内置依赖并检查数据，可能稍慢。请使用普通用户权限运行，避免放入系统目录。Windows ARM64、32 位和 Windows 7/8 暂不支持，Wine 未验证。
 
 v0.4.6 已发布 EXE：**106,553,042 字节（101.62 MiB）**，SHA-256 `0c2aef8e7759c149d6da90348d2ba065590c7e39b5f1522906d7e658b1b08d3a`；源码/标签 `f7ce587ee9a93fc509fd4b4e5b6a1cce150b2423`。稳定 OTA 不包含此预览版，请手动下载并核对同版清单。
 
-### v0.4.8 操作
+### 当前操作
 
 - 仪表盘显示本局英雄、监测状态和左/中/右三个候选，主按钮随状态切换“开始监测 / 停止监测”。“设置”管理连接、本人英雄和截图范围；“核对资料”用于人工纠正、明确确认和完整说明查阅；“关于”提供来源日期、数据包/游戏资料版本、许可和兼容性限制。次级页面仍能停止，按“返回”回到仪表盘。
-- 浅色不透明叠加只突出候选名称、原始 T1–T4 与公开源/演示标记，保留三项原位置和半屏高度上限；完整说明在控制台查看。选人阶段另有公开源英雄整体 T1–T5 条，明确“仍可交换，HUD未复核”，不生成强化候选。
+- 三个不透明评级区域突出原始 T1–T4、身份来源与可用搭配文字；完整名称和说明在控制台查看。选人阶段另有公开源英雄整体 T1–T5 条，明确“仍可交换，HUD未复核”，不生成强化候选。
 - “核对资料”保留单条内存记录“上次候选 · 最终选择未知”；它不会恢复当前确认或自动重新叠加，也不证明最终选中了哪一项。停止、新目标身份或不同已知英雄会清除记录。
-- `Ctrl+Alt+O` 切换鼠标穿透。用户明确关闭穿透后，先退役持续会话并完成清理，下一次请求改走严格隐藏的单次交互兼容路径。普通排除校验失败不会自动进入这个路径；首次初始化确实缺失/不支持时可用原有安全回退，已启动会话的身份、前台、几何或读回校验失效则拒绝结果，不偷偷回退绕过。
+- `Ctrl+Alt+O` 切换交互/参考模式设置，候选评级仍保持穿透。用户明确选择交互设置后，先退役持续会话并完成清理，下一次请求改走严格隐藏的单次交互兼容路径。普通排除校验失败不会自动进入这个路径；首次初始化确实缺失/不支持时可用原有安全回退，已启动会话的身份、前台、几何或读回校验失效则拒绝结果，不偷偷回退绕过。
 - 四秒过期仍隐藏旧资料，但不取消授权未变且自身仍新鲜的在途推理；真正的失焦、身份/几何/权限变化与停止仍撤销。仪表盘显示规范英雄 ID 对应的已核验缓存头像及公开源评级；头像呈现不代表自动识别证明。
 - 正常监测保留 Windows 捕获边框。默认可见捕获只在精确属于助手的不透明叠加 HWND、令牌/样式、`WDA_EXCLUDEFROMCAPTURE=0x11` 及身份/前台/ROI 运行时证明有效时保留标注的旧资料；新鲜识别完成后报告候选/英雄身份变化或不确定时隐藏；识别身份不变的无害 ROI 动画不要求隐藏。旧有严格隐藏路径与拒绝边界不变。空闲 GPU 帧池与异步退出限制见[隐私与验证边界](PLAY_FEEDBACK_FIXES.md)。
 

@@ -1,4 +1,13 @@
-# v0.4.9 published preview (2026-10-16 UTC)
+# v0.4.10 published preview (2026-10-17 UTC)
+
+[Complete Windows release run #71](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39015163655) passed all required gates and published [v0.4.10](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.10). Source/tag: `389aeed46ded389071e4d2e740a63a5db14a1343`; tree `c625d06fd313ae31da1917efec8e993acb07ff32`. EXE: **107,040,179 bytes (102.08 MiB)**; SHA-256: `baf2e281b14a27cf4a6e08282f262012be75a727c387393182cf94cc16128e2b`.
+
+The early source and frozen EXE native lifecycle gates passed at 100%/150%/200%, including actual independent badge regions, source hints, partial slots, title changes, hidden-parent visibility and verified capture retirement. Five-scale native geometry, source/frozen capture, selection handoff, same-binary OTA and final source/license checks also passed. These are owned synthetic fixtures, not live-client acceptance. Same-game death continuity has local real-pixel/OCR regression coverage; it is not a live Windows game test.
+
+Manual download is required: this remains a non-latest prerelease excluded from stable `/releases/latest` OTA. Current API compatibility, real LoL/Vanguard and the user's new-version gameplay remain unverified. The public catalog still reports package 395 / source date 2026-09-07 / patch 16.17, not the latest game patch.
+
+## Historical v0.4.9 published preview (2026-10-16 UTC)
+
 
 [Complete Windows release run #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) passed every required gate and published [v0.4.9](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9). Source/tag: `9a45c8d7a8cc476cd7c22081c1363f767f271553`; tree `c987e998d3c0d9530d0cc2111053df5939b516e7`. EXE: **106,971,324 bytes (102.02 MiB)**; SHA-256: `a4ba18b95697195eb56635fec4a5779e6d9b6fd911f7db43fd1f69a8eafbcdf2`.
 
