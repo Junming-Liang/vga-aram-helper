@@ -1,8 +1,8 @@
-# Capture stability diagnostic changes (unpublished)
+# Capture stability diagnostic changes (v0.4.12 prerelease)
 
 Baseline: `fcf6ed1c87c11ad18fddd5c793d1ad06fd5ab4ed` (v0.4.11).
-This is a source change and controlled Linux test result, not a Windows/live-game
-verification or a release. Public-image reports were regenerated only by actually
+This report records source, controlled local, and Windows synthetic-window validation;
+it does not establish live-game compatibility. Public-image reports were regenerated only by actually
 running the original validation scripts on the unchanged original image bytes.
 
 ## Changes
@@ -97,4 +97,13 @@ The tests do not prove every source of flicker is fixed. Unsupported Windows
 capture, title/geometry changes, timeout, focus/occlusion and uncertain hero
 identity intentionally withdraw stale badges. Logs distinguish these routes;
 they cannot themselves prove unknown driver/fullscreen/compositor behavior.
-Actual Windows/live-game behavior remains unverified.
+Actual live-game behavior remains unverified.
+
+## Published Windows verification
+
+- [Windows run 39037126275](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39037126275) passed all mandatory gates on 2026-10-17.
+- [v0.4.12 diagnostic prerelease](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12) is published, not latest, from exact source `966f79ea7305d716d6ae854432cf20a08344e985`.
+- Final prepublication local suite: 1654 tests passed, 14 platform/dependency skips.
+- Windows source/frozen WGC, visible-overlay and session tests at three scales, native OCR/overlay, selection handoff, rebuilt-library parity and same-binary OTA success/rollback passed. These are controlled fixtures, not a real LoL match or a genuine two-version OTA upgrade.
+- Downloaded EXE: 107,058,338 bytes; SHA256 `cf7564424e5981f0c56004547301acb78cd3f3c2896fe60a91b0c95d5f39aa3b`. Downloaded bytes match release API digest, update manifest, SHA256SUMS and Windows test evidence.
+- The local diagnostic ZIP is exported from **设置 → 导出调试 ZIP**; logs default on and can be disabled.
