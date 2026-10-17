@@ -119,17 +119,64 @@ class BadgeQtTests(unittest.TestCase):
             for badge in self.o._badge_widgets:
                 self.assertTrue(badge.isVisible());self.assertEqual(badge.source,marker)
                 self.assertIn(confirmation,badge.accessibleName());self.assertIn(confirmation,badge.toolTip())
-                font=badge.font();font.setPixelSize(9)
-                self.assertLessEqual(QtGui.QFontMetrics(font).horizontalAdvance(marker),104-54)
+                badge.setFixedWidth(104)
+                font,source_rect,tier_font,tier_rect,tier_lines=badge.top_text_layout()
+                self.assertGreaterEqual(font.pixelSize(),9)
+                self.assertLessEqual(QtGui.QFontMetrics(font).horizontalAdvance(marker),source_rect.width())
+                self.assertLessEqual(tier_rect.right()+4,source_rect.left())
+                self.assertTrue(badge.rect().contains(source_rect))
+                for line in tier_lines:self.assertLessEqual(QtGui.QFontMetrics(tier_font).horizontalAdvance(line),tier_rect.width())
             self.o.set_rechecking(True);self.app.processEvents()
             for badge in self.o._badge_widgets:
                 self.assertEqual(badge.source,marker);self.assertTrue(badge.display_hint.startswith('复核中'))
                 self.assertIn('候选复核中',badge.accessibleName());self.assertIn(confirmation,badge.toolTip())
 
+    def test_observed_windows_54px_warning_uses_measured_space_without_shrinking(self):
+        from unittest.mock import patch
+        from card_badges import TierBadge
+        badge=TierBadge(None);self.addCleanup(badge.close);badge.setFixedWidth(104)
+        badge.set_card(dict(slot=1,name='候选',sourceTier='T1'),identity_provenance='来自本局选人 · HUD未复核')
+        class Metrics:
+            def __init__(self,font):pass
+            def horizontalAdvance(self,text):return 54 if text=='HUD未复核' else 30
+        with patch('card_badges.QtGui.QFontMetrics',Metrics):
+            font,source_rect,_,tier_rect,_=badge.top_text_layout()
+        self.assertEqual(font.pixelSize(),9);self.assertEqual(source_rect.width(),54)
+        self.assertEqual(source_rect.x(),46);self.assertLessEqual(tier_rect.right()+4,source_rect.left())
+        self.assertTrue(badge.rect().contains(source_rect))
+
+    def test_all_painted_top_labels_fit_supported_font_fallbacks(self):
+        from card_badges import TierBadge
+        from PySide6 import QtGui
+        badge=TierBadge(None);self.addCleanup(badge.close);badge.setFixedWidth(104)
+        for family in ('Segoe UI','Microsoft YaHei UI','Microsoft YaHei','Noto Sans CJK SC'):
+            badge.setFont(QtGui.QFont(family))
+            for tier in ('T1','T2','T3','T4',None):
+                for source in ('源评级','演示评级','复核中','HUD未复核','本局已确认'):
+                    badge.set_card(dict(slot=1,name='候选',sourceTier=tier));badge.source=source
+                    font,source_rect,tier_font,tier_rect,lines=badge.top_text_layout()
+                    with self.subTest(family=family,tier=tier,source=source):
+                        self.assertGreaterEqual(font.pixelSize(),9)
+                        self.assertTrue(badge.rect().contains(source_rect))
+                        self.assertLessEqual(tier_rect.right()+4,source_rect.left())
+                        self.assertLessEqual(QtGui.QFontMetrics(tier_font).height(),32//len(lines))
+                        self.assertLessEqual(QtGui.QFontMetrics(font).height(),source_rect.height())
+                        self.assertLessEqual(QtGui.QFontMetrics(font).boundingRect(source).right()+1,source_rect.width())
+                        badge.hint='搭配：无限循环往复、纯粹主义者 - 术师';badge._pending_identity=True;badge._fit_hint()
+                        hint_font,hint_rect=badge.hint_text_layout();metrics=QtGui.QFontMetrics(hint_font)
+                        self.assertEqual(hint_font.pixelSize(),11);self.assertEqual(hint_font.weight(),QtGui.QFont.Weight.Normal)
+                        self.assertTrue(badge.rect().contains(hint_rect))
+                        self.assertLessEqual(metrics.horizontalAdvance(badge.display_hint),hint_rect.width())
+                        self.assertLessEqual(metrics.height(),hint_rect.height())
+                        self.assertGreaterEqual(hint_rect.top(),16+max(QtGui.QFontMetrics(font).height(),QtGui.QFontMetrics(tier_font).height())/2)
+
+
     def test_missing_tier_still_paints_provenance_at_minimum_width(self):
         from card_badges import TierBadge
         badge=TierBadge(None);self.addCleanup(badge.close);badge.setFixedWidth(104)
         badge.set_card(dict(slot=1,name='未知评级候选',sourceTier=None),identity_provenance='来自本局选人 · HUD未复核')
+        self.assertEqual(badge.top_text_layout()[-1],('暂无',))
+        self.assertIn('暂无评级',badge.accessibleName())
         badge.show();self.app.processEvents()
         before=badge.grab().toImage();badge.source='';badge.update();self.app.processEvents()
         after=badge.grab().toImage();dpr=before.devicePixelRatio()

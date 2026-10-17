@@ -165,10 +165,32 @@ class TierBadge(QtWidgets.QWidget):
         self.setAccessibleName(f"选项 {card['slot']} · {card['name']} · {self.tier} · {self.source}"+(f' · {identity_provenance}' if warning else '')+(' · 候选复核中' if warning and rechecking else '')+(f' · {self.hint}' if self.hint else ''))
         self.update()
     def _fit_hint(self):
-        font=self.font();font.setPixelSize(HINT_FONT_SIZE)
+        font=self.font();font.setPixelSize(HINT_FONT_SIZE);font.setWeight(QtGui.QFont.Weight.Normal)
         self.display_hint=QtGui.QFontMetrics(font).elidedText(('复核中 · ' if getattr(self,'_pending_identity',False) else '')+self.hint,QtCore.Qt.TextElideMode.ElideRight,self.width()-24)
     def resizeEvent(self,event):
         self._fit_hint();super().resizeEvent(event)
+    def hint_text_layout(self):
+        font=QtGui.QFont(self.font());font.setPixelSize(HINT_FONT_SIZE);font.setWeight(QtGui.QFont.Weight.Normal)
+        height=QtGui.QFontMetrics(font).height()
+        return font,QtCore.QRect(12,HEIGHT-3-height,self.width()-24,height)
+
+    def top_text_layout(self):
+        """Measure the exact paint fonts; never shrink identity warnings.
+
+        The fixed 50px source column clipped Windows CJK fallback glyphs.
+        Reclaim unused tier space instead; missing tier uses the compact 暂无 label.
+        """
+        source_font=QtGui.QFont(self.font());source_font.setPixelSize(9 if self.source in ('HUD未复核','本局已确认') else 10)
+        source_font.setWeight(QtGui.QFont.Weight.Normal)
+        source_width=QtGui.QFontMetrics(source_font).horizontalAdvance(self.source)
+        source_rect=QtCore.QRect(self.width()-4-source_width,0,source_width,TIER_ROW_HEIGHT)
+        tier_font=QtGui.QFont(self.font());tier_font.setPixelSize(10 if self.tier=='暂无评级' else 20)
+        tier_font.setWeight(QtGui.QFont.Weight.DemiBold)
+        tier_lines=('暂无',) if self.tier=='暂无评级' else (self.tier,)
+        tier_width=max(QtGui.QFontMetrics(tier_font).horizontalAdvance(line) for line in tier_lines)
+        tier_rect=QtCore.QRect(8,0,tier_width,TIER_ROW_HEIGHT)
+        return source_font,source_rect,tier_font,tier_rect,tier_lines
+
     def paintEvent(self,event):
         # Decorative chamfers are drawn INSIDE an opaque rectangular region.
         # No alpha/glow/shadow can change the capture or input contract.
@@ -177,16 +199,14 @@ class TierBadge(QtWidgets.QWidget):
         p.setPen(QtGui.QPen(QtGui.QColor('#46647A'),1))
         p.drawPolygon(QtGui.QPolygon([QtCore.QPoint(x,y) for x,y in ((1,7),(7,1),(width-8,1),(width-1,8),(width-1,HEIGHT-7),(width-7,HEIGHT-1),(8,HEIGHT-1),(1,HEIGHT-8))]))
         p.setPen(QtGui.QPen(QtGui.QColor(self.accent),2));p.drawLine(8,1,34,1);p.drawLine(width-26,HEIGHT-1,width-8,HEIGHT-1)
-        font=p.font();font.setPixelSize(20 if self.tier!='暂无评级' else 10);font.setWeight(QtGui.QFont.Weight.DemiBold);p.setFont(font);p.setPen(QtGui.QColor(self.accent))
-        if self.tier=='暂无评级':
-            p.drawText(QtCore.QRect(8,0,42,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.tier)
-        else:
-            p.drawText(QtCore.QRect(13,0,37,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.tier)
-        font.setPixelSize(9 if self.source in ('HUD未复核','本局已确认') else 10);font.setWeight(QtGui.QFont.Weight.Normal);p.setFont(font);p.setPen(QtGui.QColor('#AFC3D0'))
-        p.drawText(QtCore.QRect(50,0,width-54,TIER_ROW_HEIGHT),QtCore.Qt.AlignmentFlag.AlignVCenter,self.source)
+        source_font,source_rect,font,tier_rect,tier_lines=self.top_text_layout()
+        p.setFont(font);p.setPen(QtGui.QColor(self.accent))
+        p.drawText(tier_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,tier_lines[0])
+        p.setFont(source_font);p.setPen(QtGui.QColor('#AFC3D0'))
+        p.drawText(source_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,self.source)
         if self.display_hint:
-            font.setPixelSize(HINT_FONT_SIZE);font.setWeight(QtGui.QFont.Weight.Normal);p.setFont(font);p.setPen(QtGui.QColor('#D0DEE8'))
-            p.drawText(QtCore.QRect(12,TIER_ROW_HEIGHT-1,width-24,HEIGHT-TIER_ROW_HEIGHT-3),QtCore.Qt.AlignmentFlag.AlignVCenter,self.display_hint)
+            hint_font,hint_rect=self.hint_text_layout();p.setFont(hint_font);p.setPen(QtGui.QColor('#D0DEE8'))
+            p.drawText(hint_rect,QtCore.Qt.AlignmentFlag.AlignVCenter,self.display_hint)
         p.end()
 
 
