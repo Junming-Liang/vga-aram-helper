@@ -353,6 +353,12 @@ class OwnedWindows:
         return not self.target or not self.u.IsWindow(self.target)
 
 
+def hide_before_case(overlay, app, QtCore):
+    # QWidget.hide() and current Overlay.hide(reason='unknown') share this API.
+    overlay.hide()
+    pump(app, QtCore)
+
+
 def pump(app, QtCore, duration=.12):
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
@@ -435,7 +441,7 @@ def run_child(args):
         for case in CASES:
             ident, width, height, offset, _ = case
             expectation = expectation_for(case, result['qt_scale_factor'])
-            overlay.hide('layout');pump(app,QtCore)
+            hide_before_case(overlay,app,QtCore)
             target_rect = native.position_target(width, height, offset)
             native.u.WindowFromPoint.argtypes=[W.POINT];native.u.WindowFromPoint.restype=W.HWND
             baseline_point=W.POINT(target_rect['x']+width//2,target_rect['y']+height//2)

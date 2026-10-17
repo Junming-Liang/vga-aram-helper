@@ -51,6 +51,26 @@ class NativeHitDiagnostics(unittest.TestCase):
         self.assertEqual(value['hit_role'],'other');self.assertEqual(value['overlay']['hit_test'],-1)
         self.assertNotIn('title',str(value));self.assertEqual(value['above_overlay'],[])
 
+class HistoricalHideCompatibility(unittest.TestCase):
+    def test_no_argument_hide_supports_historical_and_current_signatures(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from windows_dpi_matrix import hide_before_case
+        calls=[]
+        def historical():calls.append('historical')
+        def current(reason='unknown'):calls.append(reason)
+        with patch('windows_dpi_matrix.pump') as pump:
+            for callback in (historical,current):hide_before_case(SimpleNamespace(hide=callback),1,2)
+        self.assertEqual(calls,['historical','unknown']);self.assertEqual(pump.call_count,2)
+    def test_current_hide_error_is_not_swallowed(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        from windows_dpi_matrix import hide_before_case
+        with patch('windows_dpi_matrix.pump') as pump:
+            with self.assertRaisesRegex(RuntimeError,'owned failure'):
+                hide_before_case(SimpleNamespace(hide=Mock(side_effect=RuntimeError('owned failure'))),1,2)
+        pump.assert_not_called()
+
 class Coordinates(unittest.TestCase):
     def test_fitting_but_obstructive_overlay_is_rejected(self):
         row=good_row(CASES[0],'1')
