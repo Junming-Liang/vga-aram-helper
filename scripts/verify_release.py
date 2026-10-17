@@ -25,7 +25,7 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.10'
+PREVIEW_VERSION = '0.4.11'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -494,6 +494,12 @@ def verify_selection_bundle(files, source_archive, version, source_commit, check
     return summaries
 
 
+def genuine_report_version_matches(recorded, version):
+    # v0.4.11 may carry the original v0.4.10 static-image observations only
+    # when the validators below prove every evaluated module is byte-identical.
+    return recorded == version or (version == '0.4.11' and recorded == '0.4.10')
+
+
 def verify_genuine_report(path, source_archive, version):
     """Bind limited, honestly partial still-image observations to released source.
 
@@ -501,7 +507,7 @@ def verify_genuine_report(path, source_archive, version):
     behavior. The genuine images themselves are never packaged or fetched here.
     """
     report = read_json(path)
-    require(report.get('schema_version') == 1 and report.get('applicationVersion') == version and
+    require(report.get('schema_version') == 1 and genuine_report_version_matches(report.get('applicationVersion'), version) and
             report.get('status') == 'partial_with_abstentions' and report.get('platform') == 'Linux',
             'Genuine screenshot report identity/scope differs from reviewed local evaluation')
     scope = report.get('scope', '')
@@ -570,7 +576,7 @@ def verify_genuine_report(path, source_archive, version):
 def verify_selection_genuine_report(path, source_archive, version):
     """Limited recorded client still images; not a current stock-client claim."""
     report = read_json(path)
-    require(report.get('schema_version') == 1 and report.get('applicationVersion') == version and
+    require(report.get('schema_version') == 1 and genuine_report_version_matches(report.get('applicationVersion'), version) and
             report.get('status') == 'passed' and report.get('platform') == 'Linux',
             'Champion-select screenshot report identity mismatch')
     scope = report.get('scope', '')
@@ -1170,10 +1176,14 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'wgc_visible_overlay_summary': visible_summary,
               'automatic_capture_source_summary': automatic_capture, 'native_scale_summary': native_scales, 'selection_summary': selection_summary, 'package_size': package_size, 'native_ota_summary': {'status': ota['status'], 'cases': [case['case'] for case in ota['cases']]},
               'genuine_screenshot_summary': genuine_counts, 'champion_select_screenshot_summary': selection_counts,
+              'genuine_report_versions': {name: read_json(files[name])['applicationVersion'] for name in
+                  ('hero-recognition-genuine.json', 'champion-select-genuine.json')},
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
+             '本版修正截图清理期间的模式反复切换，针对卡片持续“复核中”和截图闪烁；选人接口读取不再依赖截图成功，并在主界面增加“开启本机选人识别”入口。选人接口仍默认关闭，仅本次启动授权。Windows 受控验收不等同于用户国服实战已验收。\n\n'
+             'The public still-image reports retain their original v0.4.10 evaluation identity. Every evaluated module must match the release source byte-for-byte; these historical observations are not a newly executed v0.4.11 static-image evaluation.\n\n'
              'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate local API controls: current-game read-only identity is enabled by default with a saved Off switch; selection/bench access remains default-off for the current launch. '
              'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
              'This candidate combines the selected light dashboard with bounded HWND-only Windows Graphics Capture, off-GUI capture and cleanup, '

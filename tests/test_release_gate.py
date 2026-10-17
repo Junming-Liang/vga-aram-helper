@@ -27,7 +27,7 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 RUN_ID = 987654321
 RUN_ATTEMPT = 1
-VERSION = '0.4.10'
+VERSION = '0.4.11'
 
 
 def current_provenance():
@@ -436,7 +436,10 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_valid_bundle_and_exact_evidence_zip(self):
         result = self.verify()
-        self.assertEqual(result['tag'], 'v0.4.10')
+        self.assertEqual(result['tag'], 'v0.4.11')
+        self.assertEqual(result['genuine_report_versions'], {
+            'hero-recognition-genuine.json': '0.4.10',
+            'champion-select-genuine.json': '0.4.10'})
         self.assertEqual(result['exe_sha256'], self.hash)
         self.assertEqual(len(result['assets']), 15)
         self.assertEqual([row['requested_app_scale'] for row in result['native_scale_summary']], [1., 1.5, 2.])
@@ -1147,7 +1150,7 @@ class ReleaseFixture(unittest.TestCase):
         self.assertIn('requires agreement to their Microsoft end-user terms', notes)
         self.assertIn('not the MIT application or LGPL Qt components', notes)
         self.assertIn('runtime end-user terms themselves do not grant redistribution rights', notes)
-        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.10/third-party-licenses.zip', notes)
+        self.assertIn(f'https://github.com/{gate.REPOSITORY}/releases/download/v0.4.11/third-party-licenses.zip', notes)
 
     def test_microsoft_terms_and_build_provenance_must_be_present_and_exact(self):
         for name in ms_runtime.NOTICE_HASHES:
@@ -1272,11 +1275,11 @@ class ReleaseFixture(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): self.verify()
 
     def reference(self):
-        return {'ref': 'refs/tags/v0.4.10', 'object': {'sha': SHA, 'type': 'commit'}}
+        return {'ref': 'refs/tags/v0.4.11', 'object': {'sha': SHA, 'type': 'commit'}}
 
     def remote_release(self, result, draft=True):
-        return {'id': 123, 'tag_name': 'v0.4.10', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
-                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.10',
+        return {'id': 123, 'tag_name': 'v0.4.11', 'target_commitish': SHA, 'draft': draft, 'prerelease': True,
+                'html_url': f'https://github.com/{gate.REPOSITORY}/releases/tag/v0.4.11',
                 'assets': [{'name': a['name'], 'size': a['size'], 'state': 'uploaded',
                             'digest': 'sha256:' + a['sha256']} for a in result['assets']]}
 
@@ -1325,7 +1328,7 @@ class ReleaseFixture(unittest.TestCase):
         replies = [None, [], reference, reference, [draft], reference, final, reference]
         with patch.object(gate, 'gh_api', side_effect=replies) as api, patch.object(gate, 'gh_run') as run:
             self.assertEqual(gate.publish(result, self.output / 'release-notes.txt', current_provenance()), final['html_url'])
-        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.10', 'sha': SHA})
+        self.assertEqual(api.call_args_list[2].kwargs['fields'], {'ref': 'refs/tags/v0.4.11', 'sha': SHA})
         create, publish = [call.args[0] for call in run.call_args_list]
         self.assertIn('--draft', create)
         self.assertIn('--verify-tag', create)
@@ -1336,7 +1339,7 @@ class ReleaseFixture(unittest.TestCase):
                                    '-H', 'Accept: application/vnd.github+json',
                                    f'repos/{gate.REPOSITORY}/releases/123', '--field', 'draft=false',
                                    '--field', 'prerelease=true', '--raw-field', 'make_latest=false'])
-        self.assertNotIn('v0.4.10', ' '.join(publish))
+        self.assertNotIn('v0.4.11', ' '.join(publish))
         self.assertEqual(api.call_args_list[-2].args[0], f'repos/{gate.REPOSITORY}/releases/123')
         self.assertNotIn('--clobber', create)
 
@@ -1403,12 +1406,12 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_find_release_includes_drafts_and_handles_pagination(self):
         first = [{'tag_name': f'v0.0.{number}'} for number in range(100)]
-        draft = {'id': 12, 'tag_name': 'v0.4.10', 'draft': True}
+        draft = {'id': 12, 'tag_name': 'v0.4.11', 'draft': True}
         with patch.object(gate, 'gh_api', side_effect=[first, [draft]]) as api:
-            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.10'), draft)
+            self.assertEqual(gate.find_release(gate.REPOSITORY, 'v0.4.11'), draft)
         self.assertIn('page=2', api.call_args.args[0])
         with patch.object(gate, 'gh_api', return_value=[draft, draft]), self.assertRaises(gate.VerificationError):
-            gate.find_release(gate.REPOSITORY, 'v0.4.10')
+            gate.find_release(gate.REPOSITORY, 'v0.4.11')
 
     def test_api_only_explicit_404_is_absent(self):
         for stderr in ('HTTP 403', 'connection timed out', 'not found'):
@@ -1425,9 +1428,9 @@ class ReleaseFixture(unittest.TestCase):
         fake = subprocess.CompletedProcess([], 1, 'untrusted stdout', 'untrusted stderr')
         with patch.object(gate.subprocess, 'run', return_value=fake) as run:
             with self.assertRaises(gate.VerificationError) as error:
-                gate.gh_run(['release', 'create', 'v0.4.10'])
+                gate.gh_run(['release', 'create', 'v0.4.11'])
         self.assertNotIn('untrusted', str(error.exception))
-        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.10'])
+        self.assertEqual(run.call_args.args[0], ['gh', 'release', 'create', 'v0.4.11'])
         self.assertNotIn('shell', run.call_args.kwargs)
 
 
