@@ -761,6 +761,24 @@ def _manual_smoke_cadence(control):
 
 
 
+def _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,roi,*,hero_observation=None):
+    """Deliver one newly captured smoke observation with its current scope.
+
+    The optional identity override is an explicit handler-boundary negative
+    fixture, never production inference. It must share this new capture's
+    serial/scope, rather than replaying an earlier completed OCR callback.
+    """
+    control._capture_serial+=1
+    source=(id(control.data),json.dumps(control.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
+    value=dict(value,_capturedAt=captured_at,_captureSerial=control._capture_serial,
+        _windowIdentity=target.identity,_captureRect=capture_rect,
+        _frameScope=(target.identity,control.capture_metadata(),capture_rect,roi,tuple(control.data['augments']),source,
+            (control.hero_matcher,control.hero_matcher.proof_identity())))
+    if hero_observation is not None:value['hero_observation']=dict(hero_observation)
+    control.task_result('ocr',value,control.state.generation)
+    return value
+
+
 def _owned_hidden_capture(control, target, *, app, evidence, timeout=8.):
     """One diagnostic capture, after the production mode/cleanup barrier.
 
@@ -886,7 +904,7 @@ def start_smoke(control,report_path,screenshot_path):
         expected=['星火共鸣','晶盾回路','风步微光']
         control.hero_auto.setChecked(True);control.state.clear_hero();control.state.start(target.identity)
         assert control.state.hero=='' and control.hero_auto.isChecked()
-        def observe_current():
+        def observe_current(*,hero_observation=None):
             control.overlay.hide();assert not control.overlay.isVisible()
             assert not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
             pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights'])
@@ -895,15 +913,7 @@ def start_smoke(control,report_path,screenshot_path):
             if time.monotonic()-captured_at>3:
                 pixels,capture_rect,captured_at=_owned_hidden_capture(control,target,app=app,evidence=report['owned_capture_preflights']);value=recognize_frame(pixels,(.15,.25,.7,.35),engine,control.data['augments'],control.hero_matcher)
                 value['ocr_reused']=False # This branch called the actual engine, never its reuse cache.
-            control._capture_serial+=1
-            roi=(.15,.25,.7,.35)
-            source=(id(control.data),json.dumps(control.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
-            value.update(_capturedAt=captured_at,_captureSerial=control._capture_serial,
-                _windowIdentity=target.identity,_captureRect=capture_rect,
-                _frameScope=(target.identity,control.capture_metadata(),capture_rect,roi,tuple(control.data['augments']),source,
-                    (control.hero_matcher,control.hero_matcher.proof_identity())))
-            control.task_result('ocr',value,control.state.generation)
-            return value
+            return _dispatch_owned_ocr(control,target,value,capture_rect,captured_at,(.15,.25,.7,.35),hero_observation=hero_observation)
         observed_frame['refresh']=observe_current
         result=observe_current();assert not control.state.confirmed
         result=observe_current();names=[item['name'] for item in result['automatic_candidates']]
@@ -943,8 +953,9 @@ def start_smoke(control,report_path,screenshot_path):
         assert control.state.confirmed and control.state.offered==tuple(expected)
         report['partial_to_full_recovery_passed']=True
         report['targetForegroundBefore']=int(control.capture.u.GetForegroundWindow() or 0)
-        unknown={**result,'hero_observation':{'hero':None,'confident':False,'reason':'Synthetic unknown portrait'},'_capturedAt':time.monotonic()}
-        control.task_result('ocr',unknown,control.state.generation);assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True
+        unknown=observe_current(hero_observation={'hero':None,'confident':False,'reason':'Synthetic unknown portrait'})
+        assert control._completed_capture_serial==unknown['_captureSerial'],'Unknown-hero boundary fixture did not reach the current result handler'
+        assert not control.state.confirmed and control.state.hero=='' and not control.overlay.isVisible();report['auto_unknown_clears_passed']=True
         observe_current();observe_current();assert control.state.confirmed
         def change_hero(key,expected_hero):
             paint_mock(key);app.processEvents()
