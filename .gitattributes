@@ -96,3 +96,20 @@ lcu_selection.py text eol=lf
 live_client_identity.py text eol=lf
 public_payload.py text eol=lf
 assets/riotgames.pem -text
+
+# v0.4.10 identity and exact per-card display evidence.
+hero_identity_continuity.py text eol=lf
+monitor_preferences.py text eol=lf
+card_title_proof.py text eol=lf
+augment_card_geometry.py text eol=lf
+card_badges.py text eol=lf
+tests/windows_badge_regions.py text eol=lf
+
+tests/badge_fixture.py text eol=lf
+
+tests/test_badge_receipt_contract.py text eol=lf
+source_combo_hints.py text eol=lf
+badge_contract.py text eol=lf
+scripts/benchmark_card_geometry_pipeline.py text eol=lf
+scripts/validate_card_geometry_public.py text eol=lf
+tests/badge_fixture.py text eol=lf

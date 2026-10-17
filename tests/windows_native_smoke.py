@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace, terminate_tree
-from overlay_duty_contract import SOURCE_FILES, SCOPE as DUTY_SCOPE, validate_overlay_duty
+from overlay_duty_contract import SOURCE_FILES, SCOPE as DUTY_SCOPE, validate_overlay_duty, validate_badge_regions
 
 
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
@@ -80,7 +80,7 @@ def validate_report(result, version, app_scale=1, *, executable_sha256=None, exp
     if result.get('applicationVersion') != version:
         raise RuntimeError('Native executable version mismatch')
     for field in ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
-                  'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
+                  'source_hint_renderer_passed', 'three_badge_regions_verified', 'badge_gap_hit_test_passed', 'badge_above_cards_verified', 'badge_revocation_hidden_verified', 'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                   'source_tier_screen_order_preserved', 'source_tier_no_winrate_display'):
         if result.get(field) is not True:
             raise RuntimeError('Native evidence missing: ' + field)
@@ -91,14 +91,17 @@ def validate_report(result, version, app_scale=1, *, executable_sha256=None, exp
     for field in NATIVE_AUTOMATION_FIELDS:
         if result.get(field) is not True:
             raise RuntimeError('Automatic hero/candidate native proof missing: ' + field)
-    if result.get('card_names_rendered') != ['星火共鸣','晶盾回路','风步微光']:
-        raise RuntimeError('Native full visible card names are incomplete or reordered')
+    if result.get('card_names_accessible') != ['星火共鸣','晶盾回路','风步微光']:
+        raise RuntimeError('Native accessible card identities are incomplete or reordered')
     if result.get('source_tier_rendered') != ['T1','T2','T3']:
         raise RuntimeError('Native literal source-tier rendering evidence is incomplete')
-    if result.get('source_tier_accessible') != [f'虚构源评级（演示）：T{tier}' for tier in (1,2,3)]:
+    if result.get('source_tier_accessible') != [f'选项 {i} · {name} · T{i} · 演示评级' for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)]:
         raise RuntimeError('Native accessible source-tier evidence is incomplete')
-    if result.get('source_attribution_rendered') != '虚构演示 · 非 Riot 评级/批准' or result.get('source_details_reachable') is not True:
+    if result.get('badge_source_markers') != ['演示评级']*3 or result.get('source_details_reachable') is not True:
         raise RuntimeError('Native visible source and reachable source details are incomplete')
+    if result.get('source_hint_render_scope') != 'Original synthetic sourceHint renderer only; not live-game or source-combo accuracy' or not isinstance(result.get('source_hint_visible_text'),str) or not result['source_hint_visible_text']:
+        raise RuntimeError('Native owned source-hint renderer proof missing')
+    validate_badge_regions(result)
     validate_physical_geometry(result, app_scale)
     if executable_sha256 is not None and result.get('executable_sha256') != executable_sha256:
         raise RuntimeError('Native report tested different executable bytes')

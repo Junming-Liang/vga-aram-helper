@@ -68,6 +68,20 @@ class AdapterFixture:
 
 
 class AdapterTests(AdapterFixture, unittest.TestCase):
+    def test_visible_mode_reason_is_read_only_and_does_not_grant_capture(self):
+        self.assertEqual(self.adapter.visible_capture_status,'disabled')
+        self.adapter._allow_visible_overlay=True
+        self.assertEqual(self.adapter.visible_capture_status,'eligible')
+        self.adapter._interactive_overlay=True
+        self.assertEqual(self.adapter.visible_capture_status,'interactive')
+        self.adapter._interactive_overlay=False;self.adapter._overlay=None
+        self.assertEqual(self.adapter.visible_capture_status,'exclusion_unregistered')
+        self.adapter._unavailable='owned failure'
+        self.assertEqual(self.adapter.visible_capture_status,'backend_unavailable')
+        self.adapter.close()
+        self.assertEqual(self.adapter.visible_capture_status,'stopped')
+        self.factory.assert_not_called();self.proof.assert_not_called()
+
     def test_same_binding_reuses_instance_and_registration(self):
         for _ in range(3):
             self.assertIs(self.capture(), self.image)

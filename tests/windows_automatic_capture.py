@@ -42,7 +42,7 @@ from windows_selection_smoke import (assert_owned_window, child_environment,
 from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 
 MAX_SECONDS = 240
-SOURCE_FILES = ('automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
+SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
                 'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
                 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
@@ -361,6 +361,8 @@ def execute(reports, result):
                 control.last_observation = time.monotonic()
                 from native_state import display_cards
                 control.overlay.set_cards(hero, display_cards(control.data, hero, names), confirmation='Owned synthetic state')
+                from badge_fixture import seed_badge_geometry
+                seed_badge_geometry(control.overlay,names)
                 control.check_target()
                 events.wait(lambda: control.overlay.isVisible(), 'Owned helper overlay did not become visible')
                 return control.state.generation
@@ -374,6 +376,15 @@ def execute(reports, result):
                 require(control.capture is not None and control.window_list.currentIndex() == 0 and
                         control.window_list.currentData() is None and control.client_follow.isChecked() and
                         control.hero_auto.isChecked(), 'Normal default AUTO controls are not selected')
+                require(not control.minimize_on_start.isChecked(), 'Auto-minimize must default off')
+                control.show();app.processEvents()
+                start_with_explicit_capture(control)
+                events.wait(lambda: control.state.running and control.isVisible() and not control.isMinimized()
+                            and not control.capture.u.IsIconic(int(control.winId())),
+                            'Default Start hid or minimized the helper controls')
+                result['helper_visible_after_default_start'] = True
+                control.stop_monitor()
+                control.minimize_on_start.setChecked(True)
                 start_with_explicit_capture(control)
                 events.wait(lambda: control.state.running and control.automatic_policy is not None and
                             control.isMinimized() and control.capture.u.IsIconic(int(control.winId())),

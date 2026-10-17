@@ -79,6 +79,22 @@ class NativeDesignTests(unittest.TestCase):
         self.assertEqual(self.window.overlay.windowTitle(), OVERLAY_TITLE)
         self.assertEqual(CONTROL_TITLE, 'VGA乱斗助手 · 原生控制台')
 
+    def test_installation_confirmation_obeys_explicit_minimize_preference(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        w=self.window
+        self.assertFalse(w.minimize_on_start.isChecked())
+        policy=SimpleNamespace(confirm_installation=Mock(return_value=True))
+        candidate=SimpleNamespace(window=SimpleNamespace(title='Owned fixture'),metadata=SimpleNamespace(path='C:/Owned/Game/League of Legends.exe'))
+        w.state.start((1,1,'owned'));w.automatic_policy=policy
+        w.capture=SimpleNamespace(windows=lambda **kwargs:[])
+        for enabled in (False,True):
+            w.showNormal();w.minimize_on_start.setChecked(enabled);w.unverified_candidate=candidate
+            with patch.object(QtWidgets.QMessageBox,'question',return_value=QtWidgets.QMessageBox.StandardButton.Yes),patch.object(w,'queue_discovery'):
+                w.confirm_game_installation();self.app.processEvents()
+            self.assertEqual(w.isMinimized(),enabled)
+        w.automatic_policy=None
+
     def test_manual_recovery_expands_the_actual_existing_hero_control(self):
         w = self.window
         w.hero_auto.setChecked(False)
@@ -131,32 +147,107 @@ class NativeDesignTests(unittest.TestCase):
         self.assertLessEqual(w.status.heightForWidth(w.status.width()), w.status.height()+1)
         self.assertEqual(w.state.generation, before)
 
-    def test_overlay_remains_bounded_ordered_and_readable_at_three_budgets(self):
-        from native_state import display_cards
+    def badge_fixture(self):
+        from test_card_badges import fixture
+        c,g,cards=fixture();overlay=self.window.overlay
+        self.assertTrue(overlay.set_candidate_geometry(c,{'width':900,'height':600},(0,0,1,1),g))
+        overlay.set_cards('原创英雄',cards)
+        return overlay,c,g,cards
+
+    def test_three_badges_have_fixed_size_grade_source_and_accessible_identity(self):
         from native_smoke import inspect_smoke_layout
         from screen_capture import ClientRect
-        w = self.window; hero = next(iter(w.data['heroes']))
-        names = list(w.data['augments'])[:3]
-        cards = display_cards(w.data, hero, names)
-        cards[2]['sourceTier'] = None
-        overlay = w.overlay
-        overlay.set_cards(hero, cards, '2026-10-14', '数据包 演示 / 游戏资料 演示', '高置信自动识别')
-        for scale in (1,1.5,2):
-            with self.subTest(scale=scale):
-                overlay.hide()
-                x,y,width,height = overlay._fit_layout(ClientRect(-960,0,960,600), scale)
-                self.assertGreaterEqual(x, -960); self.assertGreaterEqual(y, 0)
-                self.assertLessEqual(x+width, 0); self.assertLessEqual(y+height, 600)
-                self.assertLessEqual(overlay.width(), 820)
-                overlay.show(); self.app.processEvents()
-                inspect_smoke_layout(overlay)
-                self.assertEqual([c['name'] for c in overlay.cards], names)
-                self.assertIn('暂无评级', overlay.tier_labels[2].text())
-                self.assertIn('来源日期', overlay.metadata_label.text())
-                self.assertLessEqual(height, 300)
-                self.assertIn('非 Riot', overlay.footer.text())
-                self.assertTrue(overlay.click_through)
-        self.assertTrue(overlay._compact)
+        overlay,c,g,cards=self.badge_fixture()
+        overlay.show_at(ClientRect(-960,0,960,600),None);self.app.processEvents()
+        inspect_smoke_layout(overlay)
+        self.assertEqual(overlay.mask().rectCount(),3)
+        self.assertFalse(overlay.panel.isVisibleTo(overlay))
+        self.assertEqual([b.tier for b in overlay._badge_widgets],['T1','T2','T3'])
+        self.assertTrue(overlay.click_through)
+        for card,badge in zip(cards,overlay._badge_widgets):
+            from badge_contract import MIN_WIDTH,WIDTH,HEIGHT
+            self.assertTrue(MIN_WIDTH<=badge.width()<=WIDTH);self.assertEqual(badge.height(),HEIGHT)
+            self.assertIn(card['name'],badge.accessibleName())
+            self.assertEqual(badge.findChildren(QtWidgets.QLabel),[])
+
+    def test_source_hint_fits_visible_badge_and_retains_full_accessible_text(self):
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        overlay,c,g,cards=self.badge_fixture()
+        cards[0]['sourceHint']='搭配：原创超长强化名称甲、原创超长强化名称乙'
+        overlay.set_cards('原创英雄',cards);overlay.show_at(ClientRect(0,0,900,600),None);self.app.processEvents()
+        inspect_smoke_layout(overlay)
+        badge=overlay._badge_widgets[0]
+        self.assertIn(cards[0]['sourceHint'],badge.accessibleName())
+        self.assertEqual(badge.toolTip(),cards[0]['sourceHint'])
+        self.assertTrue(badge.display_hint)
+        self.assertFalse(overlay._badge_widgets[1].hint)
+
+    def test_badges_keep_original_slots_and_hide_unknown_middle(self):
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        overlay,c,g,cards=self.badge_fixture();rect=ClientRect(0,0,900,600)
+        overlay.show_at(rect,None);self.app.processEvents();right=overlay._badge_widgets[2].pos()
+        cards[1]['pending']=True;cards[1]['name']='待识别';cards[1]['sourceTier']=None
+        overlay.set_cards('原创英雄',cards);overlay.show_at(rect,None);self.app.processEvents()
+        inspect_smoke_layout(overlay)
+        self.assertEqual(overlay.mask().rectCount(),2)
+        self.assertFalse(overlay._badge_widgets[1].isVisibleTo(overlay))
+        self.assertEqual(overlay._badge_widgets[2].pos(),right)
+        self.assertEqual(overlay._badge_widgets[2].tier,'T3')
+
+    def test_long_names_remain_accessible_and_unknown_rating_is_explicit(self):
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        overlay,c,g,cards=self.badge_fixture()
+        for card,candidate in zip(cards,c):
+            card['name']='超长中文海克斯标题用来核验完整无省略'+str(card['slot']);candidate['name']=card['name'];card['sourceTier']=None
+        overlay.set_candidate_geometry(c,{'width':900,'height':600},(0,0,1,1),g)
+        overlay.set_cards('原创英雄',cards);overlay.show_at(ClientRect(0,0,900,600),None);self.app.processEvents()
+        inspect_smoke_layout(overlay)
+        for card,badge in zip(cards,overlay._badge_widgets):
+            self.assertIn(card['name'],badge.accessibleName());self.assertEqual(badge.tier,'暂无评级')
+
+    def test_badge_diagnostic_rejects_size_tier_source_and_identity_corruption(self):
+        from native_smoke import inspect_smoke_layout
+        from screen_capture import ClientRect
+        overlay,c,g,cards=self.badge_fixture();overlay.show_at(ClientRect(0,0,900,600),None);self.app.processEvents()
+        badge=overlay._badge_widgets[0]
+        for field,bad in (('tier','T4'),('source',''),('accessibleName','T1')):
+            original=badge.accessibleName() if field=='accessibleName' else getattr(badge,field)
+            if field=='accessibleName':badge.setAccessibleName(bad)
+            else:setattr(badge,field,bad)
+            with self.subTest(field=field),self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
+            if field=='accessibleName':badge.setAccessibleName(original)
+            else:setattr(badge,field,original)
+        badge.setFixedSize(1,1)
+        with self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
+
+    def test_badges_require_geometry_and_top_space_at_all_dpi_budgets(self):
+        from card_badges import badge_placement,BadgeAnchors
+        from screen_capture import ClientRect,CaptureUnavailable
+        overlay,c,g,cards=self.badge_fixture()
+        for dpr in (1,1.25,1.5,2,2.5):
+            bounds,regions=badge_placement(ClientRect(-1800,-1200,1800,1200),dpr,overlay._badge_anchors,(0,1,2))
+            self.assertEqual(len(regions),3)
+            from badge_contract import GAP
+            for slot,(x,y,w,h) in enumerate(regions):
+                self.assertLessEqual(bounds[1]+y+h,-1200+overlay._badge_anchors.rects[slot][1]*1200-GAP*dpr)
+            with self.assertRaises(CaptureUnavailable):badge_placement(ClientRect(0,0,320,180),dpr,overlay._badge_anchors,(0,1,2))
+        overlay.clear_candidate_geometry();overlay.show_at(ClientRect(0,0,900,600),None)
+        self.assertFalse(overlay.isVisible())
+
+    def test_identical_payload_reuses_badges_and_changes_invalidate_placement(self):
+        import copy
+        from screen_capture import ClientRect
+        overlay,c,g,cards=self.badge_fixture();overlay.show_at(ClientRect(0,0,900,600),None)
+        badges=tuple(overlay._badge_widgets);revision=overlay._layout_revision
+        overlay.set_cards('原创英雄',copy.deepcopy(cards))
+        self.assertEqual(tuple(overlay._badge_widgets),badges);self.assertEqual(overlay._layout_revision,revision)
+        overlay.set_rechecking(True);overlay.set_cards('原创英雄',copy.deepcopy(cards));self.assertFalse(overlay._rechecking)
+        cards[0]['sourceTier']='T4';overlay.set_cards('原创英雄',cards)
+        self.assertGreater(overlay._layout_revision,revision);self.assertFalse(overlay.isVisible())
+        self.assertEqual(overlay._badge_widgets[0].tier,'T4')
 
     def test_dictionary_details_do_not_retain_current_hero_after_foreground_loss(self):
         from screen_capture import ClientRect, WindowInfo
@@ -194,70 +285,6 @@ class NativeDesignTests(unittest.TestCase):
         self.assertIn('虚构源评级（演示）：',w.card_details.text())
         self.assertFalse(w.state.confirmed)
 
-    def test_dense_compact_keeps_full_long_fixture_text_at_250_percent_budget(self):
-        from native_state import display_cards
-        from native_smoke import inspect_smoke_layout
-        from screen_capture import ClientRect
-        w = self.window; hero = '星火术士（演示）'
-        names = ['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']
-        cards = display_cards(w.data, hero, names)
-        for card in cards:
-            card['description'] = '原创合成布局测试说明。'*10
-            card['notes'] = ['原创条件说明：需要人工根据游戏机制判断。'*3]
-        overlay=w.overlay
-        overlay.set_cards(hero,cards,'虚构日期','虚构版本','来自本局选人 · HUD未复核')
-        _,_,_,height=overlay._fit_layout(ClientRect(0,0,964,602),2.5)
-        overlay.show();self.app.processEvents();inspect_smoke_layout(overlay)
-        # Installed font metrics may allow the ordinary compact branch; the
-        # contract is full readable content within the same physical budget.
-        self.assertLessEqual(height,301)
-        self.assertIn('HUD未复核',overlay.heading.text())
-        self.assertEqual([label.text() for label in overlay.tier_labels],
-                         ['T1','T2','T3'])
-
-    def test_over_half_client_height_is_suppressed_without_clipping(self):
-        from screen_capture import ClientRect, CaptureUnavailable
-        overlay = self.window.overlay
-        cards = [{'slot': i, 'name': '完整超长标题'*12, 'sourceTier': None,
-                  'sourceTierLabel': '虎牙公开源评级', 'description':'完整描述',
-                  'notes': []} for i in (1,2,3)]
-        overlay.set_cards('未知英雄', cards)
-        with self.assertRaisesRegex(CaptureUnavailable, '半屏高度'):
-            overlay._fit_layout(ClientRect(0,0,960,600),2)
-        self.assertFalse(overlay.isVisible())
-
-    def test_long_chinese_names_and_unknown_ratings_are_not_elided(self):
-        from native_smoke import inspect_smoke_layout
-        from screen_capture import ClientRect
-        cards = [{'slot': i, 'name': '超长中文海克斯标题用来核验自动换行'+str(i),
-                  'description': '完整效果说明。'*15, 'notes': ['只用于原创界面回归'],
-                  'sourceTier': None, 'sourceTierLabel':'虎牙公开源评级'} for i in (1,2,3)]
-        overlay = self.window.overlay
-        overlay.set_cards('当前英雄待人工复核',cards,'未知','数据包 未知 / 游戏资料 未知','人工确认')
-        overlay._fit_layout(ClientRect(0,0,1920,1080),2);overlay.show();self.app.processEvents()
-        inspect_smoke_layout(overlay)
-        for i,card in enumerate(cards):
-            labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
-            self.assertIn(card['name'], labels[0].text())
-            self.assertIn('暂无评级', overlay.tier_labels[i].text())
-
-    def test_compact_visible_source_and_accessible_identity_fail_closed(self):
-        from native_state import display_cards
-        from native_smoke import inspect_smoke_layout
-        from screen_capture import ClientRect
-        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3];overlay=w.overlay
-        overlay.set_cards(hero,display_cards(w.data,hero,names));overlay._fit_layout(ClientRect(0,0,1920,1080),1);overlay.show();self.app.processEvents()
-        inspect_smoke_layout(overlay)
-        overlay.footer.hide()
-        with self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
-        overlay.footer.show()
-        for widget,method,bad in ((overlay.footer,'setText','虎牙公开源 · 非 Riot 评级/批准'),(overlay._title_labels[0],'setText',names[2]),(overlay.tier_labels[0],'setText','T4'),(overlay.tier_labels[0],'setAccessibleName','虎牙公开源评级：T1')):
-            original=widget.accessibleName() if method=='setAccessibleName' else widget.text()
-            getattr(widget,method)(bad)
-            with self.subTest(method=method,bad=bad),self.assertRaises(AssertionError):inspect_smoke_layout(overlay)
-            getattr(widget,method)(original)
-        inspect_smoke_layout(overlay)
-
     def test_startup_failure_is_immediately_visible_on_main_without_guessing_text(self):
         w=self.window;w.data=None;w.startup_error=''
         w.task_error('load','Original fixture data error',0)
@@ -272,35 +299,6 @@ class NativeDesignTests(unittest.TestCase):
             bounds=QtCore.QRect(widget.mapTo(w.scroll.viewport(),QtCore.QPoint()),widget.size())
             self.assertTrue(w.scroll.viewport().rect().contains(bounds),(widget.accessibleName(),bounds,w.scroll.viewport().rect()))
         self.assertEqual(w.roi_layout.getItemPosition(w.roi_layout.indexOf(w.roi_fields[-1]))[:2],(1,1))
-
-    def test_slim_strip_keeps_existing_minimum_client_height_budget(self):
-        from screen_capture import ClientRect,CaptureUnavailable
-        overlay=self.window.overlay
-        cards=[dict(slot=i,name=f'原创候选{i}',sourceTier=f'T{i}',sourceTierLabel='原创测试评级',description='',notes=[]) for i in (1,2,3)]
-        overlay.set_cards('原创英雄',cards)
-        for scale in (1,1.25,1.5,2,2.5):
-            with self.subTest(scale=scale),self.assertRaises((CaptureUnavailable,ValueError)):
-                overlay._fit_layout(ClientRect(0,0,320,180),scale)
-            self.assertFalse(overlay.isVisible())
-        with self.assertRaisesRegex(CaptureUnavailable,'200逻辑像素'):
-            overlay._fit_layout(ClientRect(0,0,964,199),1)
-        self.assertLessEqual(overlay._fit_layout(ClientRect(0,0,964,200),1)[3],100)
-
-    def test_exact_windows_matrix_cases_keep_required_visible_and_hidden_contract(self):
-        from screen_capture import ClientRect,CaptureUnavailable
-        from native_smoke import inspect_smoke_layout
-        from windows_dpi_matrix import CASES,SCALES,expectation_for
-        overlay=self.window.overlay
-        overlay.set_cards('原创测试英雄',[dict(slot=i,name=f'原创候选{i}',sourceTier=f'T{i}',sourceTierLabel='原创测试评级',description='原创尺寸测试说明，验证三项文字是否完整显示。'*3,notes=['原创条件提醒，仅用于布局检查。']) for i in (1,2,3)],'2026-10-12','合成布局测试')
-        for scale in SCALES:
-            for case in CASES:
-                name,width,height,offset,_=case;expected=expectation_for(case,scale);overlay.hide()
-                with self.subTest(scale=scale,case=name):
-                    try:physical=overlay._fit_layout(ClientRect(10+offset,10+offset,width,height),float(scale))
-                    except (CaptureUnavailable,ValueError):
-                        self.assertNotEqual(expected,'visible');self.assertFalse(overlay.isVisible());continue
-                    self.assertNotEqual(expected,'hidden');self.assertLessEqual(physical[3]*2,height)
-                    overlay.show();self.app.processEvents();inspect_smoke_layout(overlay)
 
     def test_main_is_read_only_and_typed_names_never_become_live_cards(self):
         w=self.window
@@ -429,26 +427,6 @@ class NativeDesignTests(unittest.TestCase):
                     self.assertFalse(w.overlay.isVisible());self.assertFalse(w.state.hero);self.assertFalse(w.state.confirmed)
                     self.assertIsNone(w.client_strength_reference())
                     self.assertEqual([v['name'].text() for v in w.candidate_views],['等待识别']*3)
-
-    def test_identical_card_payload_reuses_widgets_but_every_visible_change_rebuilds(self):
-        from native_state import display_cards
-        import copy
-        w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]
-        cards=display_cards(w.data,hero,names);overlay=w.overlay
-        overlay.set_cards(hero,cards,'2026-10-14','owned-v1','人工确认')
-        titles=tuple(overlay._title_labels);tiers=tuple(overlay.tier_labels);revision=overlay._layout_revision
-        overlay.set_cards(hero,copy.deepcopy(cards),'2026-10-14','owned-v1','人工确认')
-        self.assertEqual(tuple(overlay._title_labels),titles);self.assertEqual(tuple(overlay.tier_labels),tiers);self.assertEqual(overlay._layout_revision,revision)
-        overlay.set_rechecking(True);overlay.set_cards(hero,copy.deepcopy(cards),'2026-10-14','owned-v1','人工确认')
-        self.assertEqual(tuple(overlay._title_labels),titles);self.assertFalse(overlay._rechecking)
-        for field in ('tier','name','source','hero','date','version','confirmation'):
-            changed=copy.deepcopy(cards);args=[hero,changed,'2026-10-14','owned-v1','人工确认']
-            if field=='tier':changed[0]['sourceTier']=None
-            elif field=='name':changed[0]['name']+='（变化）'
-            elif field=='source':changed[0]['sourceTierLabel']='来源待核对'
-            else:args[{'hero':0,'date':2,'version':3,'confirmation':4}[field]]+=' changed'
-            old=tuple(overlay._title_labels);overlay.set_cards(*args)
-            self.assertNotEqual(tuple(overlay._title_labels),old,field)
 
     def test_history_keeps_one_literal_snapshot_without_reviving_live_or_selected_state(self):
         w=self.window;hero=next(iter(w.data['heroes']));names=list(w.data['augments'])[:3]

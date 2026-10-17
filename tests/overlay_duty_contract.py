@@ -6,8 +6,10 @@ include explicit diagnostic holds and are never advertised as production speed.
 from __future__ import annotations
 import math
 import re
+from badge_contract import WIDTH,MIN_WIDTH,HEIGHT,GAP,choose_width,align_physical_regions,top_gap
 
-SOURCE_FILES = ('frame_inference_worker.py', 'partial_candidates.py', 'lcu_selection.py', 'live_client_identity.py',
+SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py',
+    'frame_inference_worker.py', 'partial_candidates.py', 'lcu_selection.py', 'live_client_identity.py',
     'assets/riotgames.pem', 'public_payload.py', 'native_smoke.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'hero_recognition.py', 'hero_portraits.py',
     'local_ocr.py', 'ocr_privacy.py', 'model_inventory.py', 'frame_ocr_cache.py', 'native_state.py',
     'screen_capture.py', 'wgc_capture.py', 'persistent_capture_adapter.py', 'wgc_session_capture.py',
@@ -15,7 +17,7 @@ SOURCE_FILES = ('frame_inference_worker.py', 'partial_candidates.py', 'lcu_selec
     'scripts/build_wgc_capture.py', 'session_windows.py', 'synthetic_vision.py', 'overlay_geometry.py',
     'hero_strength.py', 'engine.py', 'launcher.py', 'tests/windows_native_smoke.py',
     'tests/overlay_duty_contract.py', 'fixtures/auto-scene.png', 'fixtures/demo.json')
-CASES = ('unchanged', 'changed_roi', 'changed_hud', 'unknown_hud', 'stop_late')
+CASES = ('unchanged', 'changed_roi', 'changed_title', 'changed_hud', 'unknown_hud', 'stop_late')
 STATE_FIELDS = ('last_observation', 'automatic_frames', 'hero_stable_frames', 'stable_frames',
                 'generation', 'accepted_observed_at')
 SCOPE = ('Original synthetic native Windows HWND + real capture/PortraitMatcher/OCR; controlled '
@@ -96,14 +98,14 @@ def validate_overlay_duty(native, *, expected_fixture_sha256):
     require(type(native) is dict and native.get('overlay_duty_cycle_passed') is True,
             'Native overlay duty proof missing')
     report = native.get('overlay_duty_cycle')
-    require(type(report) is dict and type(report.get('schema_version')) is int and report['schema_version'] == 2,
+    require(type(report) is dict and type(report.get('schema_version')) is int and report['schema_version'] == 3,
             'Overlay duty schema differs')
     require(report.get('scope') == SCOPE and type(report.get('artificial_hold_target_ms')) is int
             and report['artificial_hold_target_ms'] == 350, 'Duty diagnostic hold/scope disclosure differs')
     scene = report.get('scene_binding')
     scene_keys = {'window_identity', 'target_created', 'capture_rect', 'overlay_hwnd', 'overlay_extended_style',
                   'overlay_affinity', 'overlay_opaque', 'fixture_sha256', 'qt_translucent_background', 'qt_opaque_paint_event',
-                  'qt_window_opacity', 'surface_has_alpha', 'surface_alpha_buffer_size', 'outer_corner_rgba'}
+                  'qt_window_opacity', 'surface_has_alpha', 'surface_alpha_buffer_size', 'badge_corner_rgba'}
     require(type(scene) is dict and set(scene) == scene_keys, 'Duty exact shared scene binding missing')
     identity=scene['window_identity'];rect=scene['capture_rect']
     require(type(identity) is list and len(identity)==3
@@ -122,8 +124,8 @@ def validate_overlay_duty(native, *, expected_fixture_sha256):
     require(scene['qt_translucent_background'] is False and scene['qt_opaque_paint_event'] is True
             and type(scene['qt_window_opacity']) in (int,float) and scene['qt_window_opacity'] == 1
             and scene['surface_has_alpha'] is False and type(scene['surface_alpha_buffer_size']) is int
-            and scene['surface_alpha_buffer_size'] in (-1,0) and scene['outer_corner_rgba'] == [[250,252,255,255]]*4
-            and all(type(channel) is int for pixel in scene['outer_corner_rgba'] for channel in pixel),
+            and scene['surface_alpha_buffer_size'] in (-1,0) and scene['badge_corner_rgba'] == [[[11,20,30,255]]*4]*3
+            and all(type(channel) is int for badge in scene['badge_corner_rgba'] for pixel in badge for channel in pixel),
             'Duty scene lacks the actual opaque Qt renderer/surface/corner evidence')
     require(type(scene['fixture_sha256']) is str and re.fullmatch(r'[0-9a-f]{64}', scene['fixture_sha256']),
             'Duty fixture digest missing')
@@ -137,7 +139,7 @@ def validate_overlay_duty(native, *, expected_fixture_sha256):
         cleanup=baseline.get(label)
         require(type(cleanup) is dict and set(cleanup)==cleanup_keys,
                 'Duty baseline was not completely cleaned before the persistent adapter swap')
-        integer(cleanup['helper_count'], 'baseline helpers', minimum=15, maximum=15)
+        integer(cleanup['helper_count'], 'baseline helpers', minimum=18, maximum=18)
         for key in cleanup_keys-{'helper_count'}:
             require(cleanup[key] is True, 'Duty baseline cleanup proof missing: ' + label + '.' + key)
     require(baseline['cleanup']==baseline['cleanup_before_persistent'], 'Duty baseline swap cleanup changed')
@@ -163,7 +165,7 @@ def validate_overlay_duty(native, *, expected_fixture_sha256):
             for key in ('window_identity','capture_rect','roi','candidate_roi_sha256','accepted_candidate_roi_sha256',
                         'hud_input_sha256','accepted_hud_input_sha256','vocabulary_sha256','source_metadata_sha256','matcher_configuration'):
                 require(bp[key] == pp[key], 'Duty modes used different actual scene/matcher inputs: ' + key)
-    return {'schema_version':2, 'baseline':baseline_summary, 'persistent':persistent_summary, 'scene_binding':scene}
+    return {'schema_version':3, 'baseline':baseline_summary, 'persistent':persistent_summary, 'scene_binding':scene}
 
 
 def _validate_mode(report, mode, scene):
@@ -212,7 +214,7 @@ def _validate_mode(report, mode, scene):
         held_samples = integer(row.get('held_state_unchanged_samples'), 'unchanged held-state samples', minimum=4)
         require(held_samples <= samples, 'Held-state samples exceed native visibility samples')
         transitions = row.get('sampled_visibility_transitions')
-        pattern = [True, False] + ([True] if expected in ('unchanged', 'changed_roi', 'stop_late') else []) + ([False] if expected == 'stop_late' else [])
+        pattern = [True, False] + ([True] if expected in ('unchanged', 'changed_roi', 'changed_title', 'stop_late') else []) + ([False] if expected == 'stop_late' else [])
         require(type(transitions) is list and len(transitions) == len(pattern), 'Duty visibility transition count differs')
         for transition, wanted in zip(transitions, pattern):
             require(type(transition) is dict and set(transition) == {'at_ms', 'visible'} and transition['visible'] is wanted,
@@ -221,14 +223,15 @@ def _validate_mode(report, mode, scene):
         times = [point['at_ms'] for point in transitions]
         require(all(left < right for left, right in zip(times, times[1:])) and times[1] <= timings['capture_start'],
                 'Duty overlay was not hidden before acquisition or transition order differs')
-        if expected in ('unchanged', 'stop_late'):
+        if expected in ('unchanged', 'changed_roi', 'stop_late'):
             require(timings['before_match_applied'] <= times[2] <= timings['before_match_applied']+gap+.05,
                     'Duty overlay restore timing differs from early phase')
         if expected == 'changed_roi':
             require(row.get('fixture_change') == 'Original 12x12 non-text patch inside candidate ROI, above title band; synthetic animation analogue, not actual gameplay measurement',
                     'Changed ROI fixture disclosure missing')
-            require(timings['result_received'] <= times[2] <= timings['final']+.05,
-                    'Changed candidate ROI showed prior cards before the final result')
+            require(all(p.get('title_regions_unchanged') is True for p in row['phases']), 'Animated background lacks exact unchanged title proof')
+        if expected=='changed_title':
+            require(timings['result_received']<=times[2]<=timings['final']+.05, 'Changed title exposed a badge before final OCR')
         if expected == 'stop_late':
             require(timings['stop'] <= times[3] <= timings['stop']+row.get('stop_return_ms', 0)+gap+.05,
                     'Stop did not promptly hide the native overlay')
@@ -293,7 +296,7 @@ def _validate_mode(report, mode, scene):
             require(type(phase.get('state_unchanged')) is bool and phase['state_unchanged'] == (before == during),
                     'Duty state-unchanged flag disagrees with observed operands')
             for key in ('restored', 'qt_visible', 'native_visible'):
-                require(phase.get(key) is (expected in ('unchanged', 'stop_late')),
+                require(phase.get(key) is (expected in ('unchanged', 'changed_roi', 'stop_late')),
                         'Duty phase restored changed/unknown HUD or hid unchanged HUD: ' + key)
             identity = phase.get('window_identity')
             current_identity = phase.get('current_window_identity')
@@ -317,10 +320,12 @@ def _validate_mode(report, mode, scene):
                         'accepted_hud_input_sha256', 'vocabulary_sha256', 'source_metadata_sha256'):
                 require(type(phase.get(key)) is str and re.fullmatch(r'[0-9a-f]{64}', phase[key]),
                         'Duty exact pixel/source binding missing: ' + key)
-            require((phase['candidate_roi_sha256'] == phase['accepted_candidate_roi_sha256']) == (expected != 'changed_roi'),
+            require((phase['candidate_roi_sha256'] == phase['accepted_candidate_roi_sha256']) == (expected not in ('changed_roi','changed_title')),
                     'Duty candidate ROI changed from accepted cards')
             require((phase['hud_input_sha256'] == phase['accepted_hud_input_sha256'])
-                    == (expected in ('unchanged', 'changed_roi', 'stop_late')), 'Duty HUD digest observation does not match case')
+                    == (expected in ('unchanged', 'changed_roi', 'changed_title', 'stop_late')), 'Duty HUD digest observation does not match case')
+            require(phase.get('card_geometry_unchanged') is True, 'Duty lacks fresh full-frame card geometry proof')
+            require(phase.get('title_regions_unchanged') is (expected!='changed_title'), 'Duty exact title region match differs from case')
             require(phase.get('scope_matches_accepted') is True
                     and phase.get('matcher_instance_matches_accepted') is True
                     and phase.get('matcher_type') == 'PortraitMatcher', 'Duty scope/matcher identity changed')
@@ -360,7 +365,7 @@ def _validate_mode(report, mode, scene):
         else:
             require(last_observed in (phases[0]['state_before']['last_observation'], final_captured),
                     'Duty final observation time does not match captured pixels')
-        require(row.get('final_candidate_names') == ['星火共鸣', '晶盾回路', '风步微光'],
+        require(row.get('final_candidate_names') == (['晶盾回路','星火共鸣','风步微光'] if expected=='changed_title' else ['星火共鸣', '晶盾回路', '风步微光']),
                 'Duty actual final OCR candidate names changed or reordered')
         hero = row.get('final_hero_observation')
         require(type(hero) is dict and set(hero) == {'hero', 'confident'} and type(hero['confident']) is bool,
@@ -371,11 +376,12 @@ def _validate_mode(report, mode, scene):
             require(hero['confident'] is True and hero['hero'] == ('磐石守卫（演示）' if expected == 'changed_hud' else '星火术士（演示）'),
                     'Duty concrete matcher returned the wrong hero')
         for key in ('final_confirmed', 'final_running', 'final_qt_visible', 'final_native_visible'):
-            wanted = (expected in ('unchanged', 'changed_roi')) if key != 'final_running' else expected != 'stop_late'
+            wanted = (expected in ('unchanged', 'changed_roi')) if key=='final_confirmed' else (expected in ('unchanged','changed_roi','changed_title')) if key!='final_running' else expected!='stop_late'
             require(row.get(key) is wanted, 'Duty final state differs: ' + key)
-        if expected == 'unchanged':
+        require(row.get('final_visible_slots') == ([3] if expected=='changed_title' else [1,2,3] if expected in ('unchanged','changed_roi') else []),'Final visible badge slots differ from newly proved identities')
+        if expected in ('unchanged','changed_roi'):
             require(inference >= 500, 'Unchanged overlay was not visible through controlled inference holds')
-        elif expected in ('changed_roi', 'changed_hud', 'unknown_hud'):
+        elif expected in ('changed_title', 'changed_hud', 'unknown_hud'):
             require(inference == 0, 'Changed/unknown HUD exposed prior cards during inference')
         else:
             require(inference >= 500 and timings['before_ocr_applied'] < timings['stop'] < timings['final']
@@ -417,3 +423,32 @@ def _validate_mode(report, mode, scene):
             summaries[-1]['session_capture'] = row['session_capture']
             if expected == 'stop_late':summaries[-1]['stop_cleanup'] = row['stop_cleanup']
     return summaries
+
+
+def validate_badge_regions(report):
+    """Validate measured exact-region receipts in addition to native readback flags."""
+    dpr=report.get('overlay_qwindow_dpr')
+    require(type(dpr) in (int,float) and math.isfinite(dpr) and dpr>0,'Invalid badge DPR')
+    regions=report.get('badge_regions_physical');cards=report.get('badge_card_bounds_physical')
+    require(type(regions) is list and len(regions)==3 and type(cards) is list and len(cards)==3,'Exactly three native badge/card rectangles required')
+    window=report.get('overlay_window_physical',{})
+    require(all(type(card) is list and len(card)==4 and all(type(v) in (int,float) and math.isfinite(v) for v in card) for card in cards),'Invalid physical card bounds')
+    try:logical_width=choose_width([card[0]+card[2]/2 for card in cards],dpr)
+    except ValueError as exc:raise RuntimeError('Invalid badge spacing') from exc
+    bw,bh=math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)
+    physical=[(round(c[0]+c[2]/2-bw/2),math.floor(c[1]-top_gap(dpr)-bh),bw,bh) for c in cards]
+    expected_window,expected_regions=align_physical_regions(physical,dpr,logical_width)
+    require(tuple(window[k] for k in ('x','y','width','height'))==expected_window,'Native window differs from exact logical-grid hull')
+    require(tuple(tuple(r) for r in regions)==expected_regions,'Badge is not centered over its original card on the exact logical grid')
+    for index,(region,card) in enumerate(zip(regions,cards)):
+        require(type(region) is list and len(region)==4 and all(type(v) is int for v in region),'Invalid physical badge region')
+        x,y,w,h=region
+        require(x>=0 and y>=0 and (w,h)==(math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)),'Badge dimensions differ from shared responsive contract')
+        require(type(card) is list and len(card)==4 and all(type(v) in (int,float) and math.isfinite(v) for v in card) and card[2]>0 and card[3]>0,'Invalid physical card bounds')
+        gap=card[1]-(window['y']+y+h)
+        require(top_gap(dpr)<=gap<top_gap(dpr)+dpr+1.01,'Badge is not8DIP above original card')
+        for other in regions[:index]:
+            ox,oy,ow,oh=other
+            require(x>=ox+ow or ox>=x+w or y>=oy+oh or oy>=y+h,'Native badge rectangles overlap')
+    require(min(r[0] for r in regions)==min(r[1] for r in regions)==0 and max(r[0]+r[2] for r in regions)<=window['width'] and max(r[1]+r[3] for r in regions)<=window['height'],'Native regions escape exact logical-grid hull')
+    return regions

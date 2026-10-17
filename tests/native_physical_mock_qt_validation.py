@@ -28,9 +28,11 @@ from native_ui import Overlay
 from native_state import display_cards
 from screen_capture import ClientRect
 overlay=Overlay();overlay.set_cards('星火术士（演示）',display_cards(data,'星火术士（演示）',['星火共鸣','晶盾回路','风步微光']),'虚构日期','数据包演示 / 游戏资料演示','高置信自动识别')
-overlay._fit_layout(ClientRect(20,20,width,height),dpr);overlay.show();app.processEvents()
-layout_rows=inspect_smoke_layout(overlay);assert ('来源日期' in overlay.metadata_label.text() and overlay.metadata_label.isVisibleTo(overlay) is (not overlay._compact))
-overlay.tier_labels[0].resize(1,1)
+assert result.get('_cardGeometry') is not None, 'Actual owned OCR fixture must supply proven card bounds'
+overlay.set_candidate_geometry(result['candidates'],result['image_size'],(.15,.25,.7,.35),result['_cardGeometry'])
+overlay.show_at(ClientRect(20,20,width,height),None);app.processEvents()
+layout_rows=inspect_smoke_layout(overlay);assert not overlay.panel.isVisibleTo(overlay)
+overlay.tier_labels[0].setFixedSize(1,1)
 try:inspect_smoke_layout(overlay)
 except AssertionError:pass
 else:raise AssertionError('Diagnostic accepted deliberately clipped tier label')

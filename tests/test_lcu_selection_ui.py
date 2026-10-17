@@ -41,10 +41,10 @@ class LCUDisplayTests(unittest.TestCase):
         value={'scene':'assigned-selection','assigned':True,'championId':'9001','method':'lcu-read-only','_capturedAt':101.,'_sessionGeneration':session,'_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
         with patch('native_ui.time.monotonic',return_value=101.1):w.task_result('selection',value,token)
         self.assertFalse(w.state.running);self.assertFalse(w.overlay.isVisible());self.assertIsNone(w.lcu_snapshot.value)
-    def test_live_identity_opt_in_default_and_revocation(self):
-        self.assertFalse(self.window.live_identity_toggle.isChecked())
+    def test_live_identity_default_on_and_explicit_off_revocation(self):
+        self.assertTrue(self.window.live_identity_toggle.isChecked())
         w=self.prepare();self.deliver(100.);self.deliver(101.)
-        w.live_identity_toggle.setChecked(True)
+        w.live_identity_toggle.setChecked(False)
         self.assertFalse(w.state.running);self.assertIsNone(w.lcu_snapshot.value);self.assertFalse(w.overlay.isVisible())
     def test_api_hud_conflict_cannot_borrow_selection_identity(self):
         from screen_capture import WindowInfo
@@ -65,7 +65,7 @@ class LCUDisplayTests(unittest.TestCase):
         (cache/'roster-16.17.1.json').write_bytes(raw+b' ');self.assertEqual(w.canonical_champion_map(),{})
     def test_stale_game_api_result_after_scope_generation_change_is_ignored(self):
         from screen_capture import WindowInfo
-        w=self.prepare();old=w.state.generation;w.live_identity_toggle.setChecked(True)
+        w=self.prepare();old=w.state.generation;w.live_identity_toggle.setChecked(False)
         game=WindowInfo(2,20,'owned game','RiotWindowClass');w.target=game;w.state.start(game.identity)
         value={'hero_observation':{'hero':self.hero,'championId':'9001','confident':True,'method':'game-client-api'},'_capturedAt':103.,'_windowIdentity':game.identity,'_captureRect':self.proof['rect']}
         with patch('native_ui.time.monotonic',return_value=103.1):w.task_result('ocr',value,old)

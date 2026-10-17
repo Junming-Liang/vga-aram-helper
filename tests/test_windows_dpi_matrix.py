@@ -14,7 +14,8 @@ def good_row(case, scale):
         target_pmv2=True, overlay_pmv2=True, target_dpi=96,
         qt_window_dpr=float(scale), target_qt_scale_mismatch=float(scale)!=1., target_client_physical=rectangle(10+offset,10+offset,width,height),
         overlay_window_physical=rectangle(20+offset,20+offset, min(width-20, 900), min(height-20, 200)),
-        geometry_mapping_matches=True, layout_issues=[], visible_card_count=3 if shown else 0,
+        native_badge_regions_verified=shown, gap_hit_test_passed=shown, badge_above_cards_verified=shown,
+                geometry_mapping_matches=True, layout_issues=[], visible_card_count=3 if shown else 0,
         visible_tier_count=3 if shown else 0,
         visible_card_names=list(EXPECTED_CARD_NAMES) if shown else [], visible_tier_text=list(EXPECTED_TIERS) if shown else [],
         visible_source_attribution=EXPECTED_SOURCE if shown else None, tier_accessible_names=list(EXPECTED_ACCESSIBLE_TIERS) if shown else [],
@@ -25,7 +26,7 @@ def good_row(case, scale):
 def good_matrix():
     return dict(scope=copy.deepcopy(SCOPE), os_name='nt', children=[
         dict(qt_scale_factor=s, status='completed', process_exit_code=0,
-            qt_platform='windows', frozen=False, process_pmv2=True,
+            qt_platform='windows', frozen=False, process_pmv2=True, badge_lifecycle_verified=True, badge_reference_transition_verified=True,
             owned_windows_destroyed=True, cases=[good_row(c,s) for c in CASES]) for s in SCALES])
 
 

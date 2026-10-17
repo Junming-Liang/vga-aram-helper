@@ -161,7 +161,7 @@ class ControlledCaptureIdleTests(unittest.TestCase):
         execute = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'execute')
         starts = [node for node in ast.walk(execute) if isinstance(node, ast.Call) and
                   isinstance(node.func, ast.Name) and node.func.id == 'start_with_explicit_capture']
-        self.assertEqual(len(starts), 2)
+        self.assertEqual(len(starts), 3)
         self.assertNotIn('control.start_button.click()', ast.get_source_segment(source, execute))
         seed = next(node for node in ast.walk(execute) if isinstance(node, ast.FunctionDef) and node.name == 'seed_stale_state')
         self.assertEqual(ast.unparse(seed.body[0]), 'require_capture_idle(control)')
@@ -287,11 +287,15 @@ class ControlledCaptureCadenceQtTests(unittest.TestCase):
         w.state.select_hero(hero); w.state.confirm(names, w.data['augments'])
         w.last_observation = time.monotonic()
         w.overlay.set_cards(hero, display_cards(w.data, hero, names), confirmation='Owned synthetic state')
+        from tests.badge_fixture import seed_badge_geometry
+        seed_badge_geometry(w.overlay,names)
         w.check_target()
         self.assertTrue(w.overlay.isVisible())
 
     def test_both_starts_keep_discovery_and_watchdog_but_only_explicit_capture_runs(self):
         w = self.window
+        self.assertFalse(w.minimize_on_start.isChecked())
+        w.minimize_on_start.setChecked(True)
         for index in range(2):
             with self.subTest(start=index):
                 start_with_explicit_capture(w)

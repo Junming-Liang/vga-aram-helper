@@ -1,0 +1,97 @@
+{
+  "checkedAt": "2026-10-17T04:58:00+00:00",
+  "scope": "Public Huya source fields and text-only UI component inspection; no live client interaction or private model claim.",
+  "currentWiki": {
+    "version": "395",
+    "sourceDataDate": "2026-09-07",
+    "gamePatch": "16.17",
+    "sourceUrl": "https://gametool.huya.com/league-of-legends/wiki/index.html?embed=1",
+    "dataUrl": "https://fileserver.cdn.huya.com/game_tools/1-p81hl812-395/395/champion-detail.json",
+    "heroCount": 172,
+    "heroesWithCombos": 135,
+    "comboCount": 644,
+    "combosWithNonemptyTier": 0,
+    "heroesWithEquipmentBuilds": 172,
+    "heroesWithAiSummary": 172,
+    "augmentsWithStagePerformance": 0,
+    "uiEvidence": {
+      "componentUrl": "https://huyafedltc.msstatic.com/gametool/league-of-legends/wiki/assets/index-qP06yioy.js",
+      "route": "/champion-stats/:championId",
+      "visibleLabel": "推荐海克斯组合",
+      "fieldsUsed": [
+        "topAugmentCombos",
+        "equipmentBuilds",
+        "championAiSummary"
+      ]
+    },
+    "examples": [
+      {
+        "hero": "迅捷斥候 提莫",
+        "championId": "17",
+        "comboIds": [
+          "1029",
+          "1388",
+          "2018"
+        ],
+        "comboNames": [
+          "虚幻武器",
+          "无限循环往复",
+          "纯粹主义者 - 术师"
+        ],
+        "apCoreItems": [
+          "残疫",
+          "法师之靴",
+          "兰德里的折磨"
+        ]
+      }
+    ],
+    "limitations": [
+      "Static hero templates; no verified conditional next-pick service or already-selected history in these files.",
+      "All combo tier strings empty; no combo score or ranking claim.",
+      "championAiSummary narrative may cite a different internal update date; do not treat as live advice."
+    ]
+  },
+  "legacy": {
+    "pageUrl": "https://gametool.huya.com/lolhex",
+    "discovery": "Current page bundle literal hashed assets, downloaded directly as public reference; not claimed to supersede current wiki.",
+    "guideGroups": 21,
+    "latestGuideDate": "2026-06-22",
+    "latestChangelogDate": "2026-07-17",
+    "conflictingTopLevelLastUpdate": "2026-02-04",
+    "examples": [
+      {
+        "guide": "灵魄炸弹推荐玩法",
+        "date": "2026-06-22",
+        "branches": [
+          "AP软辅流",
+          "蛋白粉花剑流"
+        ],
+        "paraphrase": "Guide relates 灵魄炸弹 to 主玩辅助 and gives separate AP-support or protein/magic-sword equipment branches."
+      },
+      {
+        "hero": "迷失之牙",
+        "paraphrase": "Hero relation warns 连拨击锤 synergy changes after transformation; marks 珠光护手 as a trap for the W three-hit effect. Old source claim, not current-patch verification."
+      }
+    ],
+    "artifacts": {
+      "relations": {
+        "url": "https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/relations-CFaVM0ij.json",
+        "sha256": "679d99351ae4f8458a669eb1941dcbdd0fe3727ce6fc35abde40d5bdec25a94d"
+      },
+      "combinations": {
+        "url": "https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/combinations-z-aDMf_y.json",
+        "sha256": "59efae786e7ff293a51bcc7ede5a234a50b4ae97b46c3ec0659cec50e8c3a4bf"
+      },
+      "augments": {
+        "url": "https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/augments-CcCw5SNQ.json",
+        "sha256": "a5a629b441e79c83075d75a9dc56d9894bd127abdf185fbe983934502cd1a4d5"
+      },
+      "changelogs": {
+        "url": "https://huyafedltc.msstatic.com/gametool/league-of-legends/work/assets/changelogs-C1-QQJxS.json",
+        "sha256": "51c7ea2755f443862905fcc14ccf1e14ae14cf8057be62067d5b3e45d13ed87c"
+      }
+    }
+  },
+  "implementationScope": "Per-card source combo example only, stable IDs, no automatic chosen-history assumption, no legacy guide ingestion, no equipment recommendation inference, no full AI paragraph or rates/ranks exposed.",
+  "reuseCaution": "Public availability alone does not establish permission to redistribute complete third-party data. No complete dataset added to repository."
+}

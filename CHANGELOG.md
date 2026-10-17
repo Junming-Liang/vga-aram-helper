@@ -1,5 +1,13 @@
 # Changelog / 变更日志
 
+## v0.4.10 candidate · 同局英雄保留与独立卡片评级
+
+候选开发版本，尚未声明 Windows 发布验证通过。默认开启可关闭的本局英雄只读核验；同一核验游戏进程中的可靠英雄身份可跨死亡倒计时保留，评级仍需当前候选和四秒新鲜度。开始后自动最小化改为默认关闭、保留可选设置。
+
+卡片上方使用三个独立区域的小型评级标记，基于当前卡边界；准确标题区域不变时允许背景动画，变更候选/英雄立即撤销旧建议。附带有来源的英雄专属强化搭配文字，不转换胜率或宣称实时最优。捕获诊断说明何时仍必须隐藏截图。
+
+English: Unreleased candidate. Verified same-game hero continuity survives death/countdown obstruction; offers retain fresh-frame and four-second expiry guards. Current-game read-only identity is on by default, automatic minimization is off by default, and both have saved controls. Three separately bounded above-card badges include source-backed combo hints. Windows/native release gates and live-client limitations remain explicit. See [implementation scope](DEATH_IDENTITY_AND_CARD_BADGES.md).
+
 ## v0.4.9：窗口衔接、分栏识别与诊断
 
 [v0.4.9 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.9) 已于 2026-10-16 发布，[Windows 完整发布运行 #62](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/38946465944) 通过全部必需门禁，包括同一 EXE 的 100%/150%/200% 捕获、部分候选栏及恢复、选人衔接、同二进制更新和最终源码/许可校验。

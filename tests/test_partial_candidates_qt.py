@@ -52,8 +52,8 @@ class PartialCandidatesQtTests(unittest.TestCase):
                 self.assertEqual(card['description'], '')
                 self.assertEqual(card['notes'], [])
                 self.assertTrue(card['pending'])
-                self.assertEqual(w.overlay.tier_labels[index].text(), '')
-                self.assertFalse(w.overlay.tier_labels[index].isVisible())
+                self.assertFalse(w.overlay._badge_widgets[index].isVisibleTo(w.overlay))
+                self.assertEqual(len(w.overlay._badge_regions),sum(bool(n) for n in names))
 
     def assert_blank(self):
         w = self.window

@@ -32,8 +32,8 @@ CASES = (
 )
 EXPECTED_CARD_NAMES = [f'原创候选{i}' for i in (1, 2, 3)]
 EXPECTED_TIERS = [f'T{i}' for i in (1, 2, 3)]
-EXPECTED_ACCESSIBLE_TIERS = [f'原创测试评级：T{i}' for i in (1,2,3)]
-EXPECTED_SOURCE = '来源待核对 · 非 Riot 评级/批准'
+EXPECTED_ACCESSIBLE_TIERS = [f'选项 {i} · 原创候选{i} · T{i} · 源评级' for i in (1,2,3)]
+EXPECTED_SOURCE = ['源评级']*3
 SCOPE = {
     'execution': 'Python source Overlay on actual Windows Qt platform',
     'scaling': 'Controlled per-process QT_SCALE_FACTOR simulation on unchanged OS desktop',
@@ -127,6 +127,10 @@ def case_issues(row):
             issues.append('qt_logical_to_native_physical_mismatch')
         if row['layout_issues']:
             issues.append('qt_child_or_text_layout_clipped')
+        if row.get('native_badge_regions_verified') is not True or row.get('gap_hit_test_passed') is not True:
+            issues.append('independent_native_badge_regions_not_verified')
+        if row.get('badge_above_cards_verified') is not True:
+            issues.append('badge_card_anchors_not_verified')
         if row['visible_card_count'] != 3 or row['visible_tier_count'] != 3:
             issues.append('three_card_content_missing')
         if row.get('visible_card_names') != EXPECTED_CARD_NAMES or row.get('visible_tier_text') != EXPECTED_TIERS:
@@ -153,6 +157,8 @@ def validate_matrix(report, expect):
             continue
         if child.get('qt_platform') != 'windows' or child.get('frozen') is not False:
             errors.append(prefix + 'not_real_windows_source_qt')
+        if expect == 'candidate' and (child.get('badge_lifecycle_verified') is not True or child.get('badge_reference_transition_verified') is not True):
+            errors.append(prefix + 'badge_lifecycle_not_verified')
         if not child.get('process_pmv2') or not child.get('owned_windows_destroyed'):
             errors.append(prefix + 'awareness_or_cleanup_not_verified')
         cases = child.get('cases', [])
@@ -215,7 +221,7 @@ def clean_child_environment(environ, scale):
 
 
 def source_metadata(implementation, support):
-    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'portrait_display.py', 'local_debug.py')]
+    files = [implementation] + [support / p for p in ('screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'portrait_display.py', 'local_debug.py', 'card_badges.py', 'augment_card_geometry.py', 'badge_contract.py')]
     return [dict(path=str(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
             for p in files if p.is_file()]
 
@@ -396,6 +402,10 @@ def run_child(args):
             sourceTierLabel='原创测试评级', description='原创尺寸测试说明，验证三项文字是否完整显示。' * 3,
             notes=['原创条件提醒，仅用于布局检查。']) for i in (1, 2, 3)],
             source_date='2026-10-12', source_version='合成布局测试')
+        from badge_fixture import seed_badge_geometry
+        from card_badges import native_region
+        from badge_contract import WIDTH, HEIGHT, GAP, choose_width, align_physical_regions, top_gap
+        if args.expect == 'candidate':seed_badge_geometry(overlay)
         for case in CASES:
             ident, width, height, offset, _ = case
             expectation = expectation_for(case, result['qt_scale_factor'])
@@ -413,6 +423,31 @@ def run_child(args):
             dpr = float(overlay.windowHandle().devicePixelRatio())
             visible = bool(overlay.isVisible() and native.u.IsWindowVisible(hwnd))
             widgets, layout_issues = inspect_layout(overlay, QtCore, QtWidgets) if visible else ([], [])
+            region_verified = gap_verified = anchors_verified = False
+            if visible and args.expect == 'candidate':
+                native_region(hwnd,overlay._badge_regions,verify_only=True)
+                assert len(overlay._badge_regions)==3
+                region_verified=True
+                anchors_verified=True
+                logical_width=choose_width([(x+cw/2)*width for x,y,cw,ch in overlay._badge_anchors.rects],dpr)
+                for slot,(bx,by,bw,bh) in enumerate(overlay._badge_regions):
+                    x,y,cw,ch=overlay._badge_anchors.rects[slot]
+                    assert (bw,bh)==(math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr))
+                    gap=target_rect['y']+y*height-(own_rect['y']+by+bh)
+                    assert top_gap(dpr)<=gap<top_gap(dpr)+dpr+1.01
+                bw,bh=math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)
+                physical=[(round(target_rect['x']+(x+cw/2)*width-bw/2),math.floor(target_rect['y']+y*height-top_gap(dpr)-bh),bw,bh) for x,y,cw,ch in overlay._badge_anchors.rects]
+                expected_bounds,expected_regions=align_physical_regions(physical,dpr,logical_width)
+                assert tuple(own_rect[k] for k in ('x','y','width','height'))==expected_bounds
+                assert tuple(overlay._badge_regions)==expected_regions
+                native.u.WindowFromPoint.argtypes=[W.POINT];native.u.WindowFromPoint.restype=W.HWND
+                # Even with click-through disabled, holes are absent from HWND.
+                overlay.click_through=False;overlay.configure()
+                for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
+                    px=own_rect['x']+(first[0]+first[2]+second[0])//2
+                    py=own_rect['y']+first[1]+first[3]//2
+                    assert int(native.u.WindowFromPoint(W.POINT(px,py)) or 0)==int(native.target)
+                overlay.click_through=True;overlay.configure();gap_verified=True
             row = dict(id=ident, expectation=expectation, target_client_physical=target_rect,
                 target_window_physical=native.window_rect(native.target), overlay_window_physical=own_rect,
                 target_native_visible=bool(native.u.IsWindowVisible(native.target)),
@@ -432,17 +467,62 @@ def run_child(args):
                 geometry_mapping_matches=abs(overlay.width()*dpr-own_rect['width']) <= 2
                     and abs(overlay.height()*dpr-own_rect['height']) <= 2,
                 visible=visible, compact=getattr(overlay, '_compact', None),
-                visible_card_count=sum(bool(overlay.row.itemAt(i).widget().isVisibleTo(overlay)) for i in range(overlay.row.count())) if visible else 0,
+                native_badge_regions_verified=region_verified, gap_hit_test_passed=gap_verified, badge_above_cards_verified=anchors_verified,
+                badge_regions_physical=[list(r) for r in overlay._badge_regions] if visible and args.expect=='candidate' else [],
+                visible_card_count=sum(bool(b.isVisibleTo(overlay)) for b in overlay._badge_widgets) if visible and args.expect=='candidate' else overlay.row.count() if visible else 0,
                 visible_tier_count=sum(bool(w.isVisibleTo(overlay)) for w in overlay.tier_labels) if visible else 0,
-                visible_card_names=[overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)[0].text()
-                    for i in range(overlay.row.count())] if visible else [],
-                visible_tier_text=[w.text() for w in overlay.tier_labels if w.isVisibleTo(overlay)] if visible else [],
-                visible_source_attribution=overlay.footer.text() if visible and overlay.footer.isVisibleTo(overlay) else None,
+                visible_card_names=[card['name'] for card in overlay.cards] if visible else [],
+                visible_tier_text=[w.tier if args.expect=='candidate' else w.text() for w in overlay.tier_labels if w.isVisibleTo(overlay)] if visible else [],
+                visible_source_attribution=[w.source for w in overlay.tier_labels] if visible and args.expect=='candidate' else overlay.footer.text() if visible else None,
                 tier_accessible_names=[w.accessibleName() for w in overlay.tier_labels] if visible else [],
                 widgets=widgets, layout_issues=layout_issues,
                 error=str(error) if error else None, error_type=type(error).__name__ if error else None)
             row['candidate_issues'] = case_issues(row)
             result['cases'].append(row)
+        if args.expect == 'candidate':
+            # Exercise native regions after partial recognition, recovery and reflow.
+            original=[dict(card) for card in overlay.cards]
+            overlay.hide('capture_pending');pump(app,QtCore)
+            assert not native.u.IsWindowVisible(int(overlay.winId()))
+            partial=[dict(card) for card in original];partial[1]['pending']=True
+            overlay.set_cards('原创测试英雄',partial);overlay.show_at(ClientRect(**target_rect),target);pump(app,QtCore)
+            native_region(int(overlay.winId()),overlay._badge_regions,verify_only=True)
+            assert len(overlay._badge_regions)==2 and not overlay._badge_widgets[1].isVisibleTo(overlay)
+            assert overlay._badge_widgets[2].tier=='T3'
+            overlay.set_cards('原创测试英雄',original);overlay.show_at(ClientRect(**target_rect),target);pump(app,QtCore)
+            native_region(int(overlay.winId()),overlay._badge_regions,verify_only=True)
+            assert len(overlay._badge_regions)==3
+            reference=dict(hero='原创测试英雄',championId='9001',sourceTier='T2',sourceTierLabel='原创测试评级',isDemo=True,sourceUrl='',sourceDataDate='原创日期',sourceVersion='原创资料',gamePatch='原创版本',wikiDataVersion='原创包')
+            original_hwnd=int(overlay.winId())
+            overlay.set_hero_reference(reference);overlay.show_at(ClientRect(**target_rect),target);pump(app,QtCore)
+            assert int(overlay.winId())==original_hwnd and overlay.isVisible() and overlay.panel.isVisibleTo(overlay)
+            full=native.window_rect(original_hwnd)
+            # Read the entire native region, not only a single input point.
+            gdi=ctypes.WinDLL('gdi32',use_last_error=True)
+            gdi.CreateRectRgn.argtypes=[ctypes.c_int]*4;gdi.CreateRectRgn.restype=W.HANDLE
+            gdi.EqualRgn.argtypes=[W.HANDLE,W.HANDLE];gdi.EqualRgn.restype=W.BOOL
+            gdi.DeleteObject.argtypes=[W.HANDLE];gdi.DeleteObject.restype=W.BOOL
+            native.u.GetWindowRgn.argtypes=[W.HWND,W.HANDLE];native.u.GetWindowRgn.restype=ctypes.c_int
+            actual=gdi.CreateRectRgn(0,0,0,0);expected=gdi.CreateRectRgn(0,0,full['width'],full['height'])
+            assert actual and expected
+            try:
+                kind=native.u.GetWindowRgn(original_hwnd,actual)
+                assert kind==0 or gdi.EqualRgn(actual,expected), 'Reference retained nonrectangular badge clipping'
+            finally:gdi.DeleteObject(actual);gdi.DeleteObject(expected)
+            overlay.click_through=False;overlay.configure()
+            hit=native.u.WindowFromPoint(W.POINT(full['x']+full['width']//2,full['y']+full['height']//2))
+            native.u.GetAncestor.argtypes=[W.HWND,W.UINT];native.u.GetAncestor.restype=W.HWND
+            assert int(native.u.GetAncestor(hit,2) or 0)==original_hwnd, 'Old badge holes clipped reference panel'
+            overlay.click_through=True;overlay.configure()
+            overlay.set_cards('原创测试英雄',original);overlay.show_at(ClientRect(**target_rect),target);pump(app,QtCore)
+            assert int(overlay.winId())==original_hwnd
+            native_region(original_hwnd,overlay._badge_regions,verify_only=True);assert len(overlay._badge_regions)==3
+            result['badge_reference_transition_verified']=True
+            overlay.clear_candidate_geometry();pump(app,QtCore)
+            assert not native.u.IsWindowVisible(int(overlay.winId()))
+            overlay.show_at(ClientRect(**target_rect),target);pump(app,QtCore)
+            assert not native.u.IsWindowVisible(int(overlay.winId()))
+            result['badge_lifecycle_verified']=True
         result['status'] = 'completed'
     except Exception as exc:
         result.update(error=repr(exc), traceback=traceback.format_exc())

@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "scope": "One genuine public modal still plus explicitly resized/occluded variants and one genuine scoreboard negative. Geometry only; not Windows live-game, multi-round accuracy or interior-occlusion proof. Screenshots not redistributed.",
+  "source_image_sha256": "62ea23e33139ad27159548ef84e2d619293da90b46f92360f1ae003c6301bed0",
+  "implementation_sha256": "2a38dd238035b852737dc3aa89481af4a3e8717f1d25330aa79724ba19ea9918",
+  "status": "passed",
+  "cases": [
+    {
+      "case": "public_modal_resized",
+      "scale": 0.4,
+      "size": [
+        1024,
+        576
+      ],
+      "rects": [
+        [
+          0.23046875,
+          0.16319444444444445,
+          0.1689453125,
+          0.4947916666666667
+        ],
+        [
+          0.4150390625,
+          0.16319444444444445,
+          0.169921875,
+          0.4947916666666667
+        ],
+        [
+          0.599609375,
+          0.16319444444444445,
+          0.169921875,
+          0.4947916666666667
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal_resized",
+      "scale": 0.5,
+      "size": [
+        1280,
+        720
+      ],
+      "rects": [
+        [
+          0.23046875,
+          0.1638888888888889,
+          0.16875,
+          0.4930555555555556
+        ],
+        [
+          0.415625,
+          0.1638888888888889,
+          0.16875,
+          0.4930555555555556
+        ],
+        [
+          0.6,
+          0.1638888888888889,
+          0.16875,
+          0.4930555555555556
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal_resized",
+      "scale": 0.625,
+      "size": [
+        1600,
+        900
+      ],
+      "rects": [
+        [
+          0.230625,
+          0.16444444444444445,
+          0.16875,
+          0.4922222222222222
+        ],
+        [
+          0.415625,
+          0.16444444444444445,
+          0.16875,
+          0.4922222222222222
+        ],
+        [
+          0.6,
+          0.16555555555555557,
+          0.16875,
+          0.49
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal_resized",
+      "scale": 0.75,
+      "size": [
+        1920,
+        1080
+      ],
+      "rects": [
+        [
+          0.23072916666666668,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.4898148148148148
+        ],
+        [
+          0.415625,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.49074074074074076
+        ],
+        [
+          0.6005208333333333,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.4898148148148148
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal",
+      "scale": 1,
+      "size": [
+        2560,
+        1440
+      ],
+      "rects": [
+        [
+          0.23125,
+          0.16597222222222222,
+          0.167578125,
+          0.4895833333333333
+        ],
+        [
+          0.416015625,
+          0.16597222222222222,
+          0.16796875,
+          0.4895833333333333
+        ],
+        [
+          0.60078125,
+          0.16597222222222222,
+          0.16796875,
+          0.4895833333333333
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal_resized",
+      "scale": 1.25,
+      "size": [
+        3200,
+        1800
+      ],
+      "rects": [
+        [
+          0.23125,
+          0.16555555555555557,
+          0.168125,
+          0.4905555555555556
+        ],
+        [
+          0.4159375,
+          0.1661111111111111,
+          0.168125,
+          0.49
+        ],
+        [
+          0.600625,
+          0.1661111111111111,
+          0.168125,
+          0.49
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "public_modal_resized",
+      "scale": 1.5,
+      "size": [
+        3840,
+        2160
+      ],
+      "rects": [
+        [
+          0.23125,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.49074074074074076
+        ],
+        [
+          0.4158854166666667,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.49074074074074076
+        ],
+        [
+          0.60078125,
+          0.16574074074074074,
+          0.16822916666666668,
+          0.49074074074074076
+        ]
+      ],
+      "pass": true,
+      "source_url": "https://raw.githubusercontent.com/Nyx0ra/lol-aram-mayhem-hextech-helper/main/docs/demo.png"
+    },
+    {
+      "case": "left_border_occlusion",
+      "transformed": true,
+      "pass": true
+    },
+    {
+      "case": "top_border_occlusion",
+      "transformed": true,
+      "pass": true
+    },
+    {
+      "case": "card_removed",
+      "transformed": true,
+      "pass": true
+    },
+    {
+      "case": "all_three_outer_borders_occluded",
+      "transformed": true,
+      "pass": true
+    },
+    {
+      "case": "fresh_reproof_rejects_all_three_occlusions",
+      "transformed": true,
+      "pass": true
+    },
+    {
+      "case": "public_non_modal_scoreboard",
+      "image_sha256": "4cc05c62f544f7192dfb6dd9bbc56ee30aac1cb9d89b3fe427d02288befffe1b",
+      "size": [
+        2560,
+        1440
+      ],
+      "pass": true,
+      "source_url": "https://turbo-uploads.s3.eu-north-1.amazonaws.com/i_just_played_an_all_prismatics_aram_mayhem_fa9d4de2a0.webp"
+    }
+  ],
+  "geometry_only_timing": {
+    "full_detection_ms": [
+      274.769,
+      270.993,
+      271.357,
+      274.714,
+      275.524
+    ],
+    "fresh_strip_reproof_ms": [
+      60.294,
+      61.347,
+      62.283,
+      61.141,
+      60.519
+    ],
+    "same_call_decoded_reproof_ms": [
+      3.882,
+      3.774,
+      3.818,
+      3.908,
+      3.927
+    ],
+    "full_detection_median_ms": 274.714,
+    "fresh_strip_reproof_median_ms": 61.141,
+    "same_call_decoded_reproof_median_ms": 3.882
+  }
+}

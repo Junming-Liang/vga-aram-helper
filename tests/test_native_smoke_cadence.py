@@ -41,6 +41,7 @@ class NativeSmokeCadenceTests(unittest.TestCase):
             overlay=SimpleNamespace(set_rechecking=lambda value: None),
             captured_frame_current=lambda value: False,
             refresh_status_badge=lambda: None)
+        self.control.discard_stale_capture_callback = MethodType(ControlWindow.discard_stale_capture_callback, self.control)
         self.control.schedule_capture = MethodType(ControlWindow.schedule_capture, self.control)
         self.original_schedule = self.control.schedule_capture
 

@@ -244,6 +244,13 @@ class Win32Capture:
         # that worker from ever running; no native wait belongs on the GUI.
         return ready
     @property
+    def visible_capture_status(self):
+        adapter=getattr(self,'_persistent',None)
+        if adapter is None:return 'backend_unavailable'
+        if self.cleanup_pending:return 'cleanup_pending'
+        return adapter.visible_capture_status
+
+    @property
     def can_request_visible_overlay(self):
         """GUI-safe eligibility only; callers still explicitly opt in per capture.
 

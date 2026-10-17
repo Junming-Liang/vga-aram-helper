@@ -21,6 +21,7 @@ from PySide6 import QtCore,QtWidgets
 from native_ui import ControlWindow
 from native_state import display_cards
 from native_smoke import inspect_smoke_layout
+from badge_fixture import seed_badge_geometry
 from engine import load_data
 from screen_capture import CaptureUnavailable,ClientRect
 from app_version import __version__
@@ -93,19 +94,21 @@ def main():
             w.hero_origin='client-provisional';w.refresh_status_badge()
             overlay=w.overlay;cards=display_cards(w.data,hero,names)
             overlay.set_cards(hero,cards,'2026-10-14','数据包 演示 / 游戏资料 演示','来自本局选人 · HUD未复核')
+            seed_badge_geometry(overlay)
+            overlay.capture=None # Presentation-only geometry; never Windows evidence.
             for name,client in [('small-client',ClientRect(0,0,960,600)),('large-client',ClientRect(0,0,1920,1080))]:
-                overlay.hide();x,y,width,height=overlay._fit_layout(client,scale);overlay.show();app.processEvents()
+                overlay.hide();overlay.show_at(client,None);app.processEvents();width,height=round(overlay.width()*scale),round(overlay.height()*scale)
                 assert abs(float(overlay.windowHandle().devicePixelRatio())-scale)<.01
                 rows=inspect_smoke_layout(overlay);assert height<=client.height*.5
-                assert 'HUD未复核' in overlay.heading.text() and overlay.heading.isVisibleTo(overlay)
+                assert not overlay.panel.isVisibleTo(overlay)
                 observations.append(dict(case=name,client_physical=[client.width,client.height],overlay_physical=[width,height],compact=overlay._compact,visible_labels=[row['text'] for row in rows if 'text' in row]))
                 save(overlay,'overlay-'+name,'Original synthetic cards, including one missing tier and explicit provisional identity; not a game screenshot')
             overlay.hide();overlay.set_cards(hero,cards,'2026-10-14','数据包 演示 / 游戏资料 演示','英雄/候选连续高置信自动识别')
-            x,y,width,height=overlay._fit_layout(ClientRect(0,0,960,600),scale);overlay.show();app.processEvents();inspect_smoke_layout(overlay)
+            overlay.show_at(ClientRect(0,0,960,600),None);app.processEvents();inspect_smoke_layout(overlay);height=round(overlay.height()*scale)
             assert height<=300
             save(overlay,'overlay-hud-verified','Original synthetic fully confirmed HUD presentation; not an actual recognition result')
-            overlay.set_rechecking(True);overlay._fit_layout(ClientRect(0,0,960,600),scale);app.processEvents()
-            assert '上次候选复核中' in overlay.heading.text() and overlay.heading.isVisibleTo(overlay)
+            overlay.set_rechecking(True);overlay.show_at(ClientRect(0,0,960,600),None);app.processEvents()
+            assert all(b.source=='复核中' for b in overlay._badge_widgets)
             save(overlay,'overlay-rechecking','Original synthetic previous-candidate recheck label; no live capture or freshness claim')
             overlay.hide();overlay.set_rechecking(False)
             from hero_strength import hero_strength_reference

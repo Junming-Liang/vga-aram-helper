@@ -23,7 +23,7 @@ def smoke_dimensions(width,height):
         raise ValueError('Physical desktop work area cannot fit the fixed960x600 own-HUD mock with20px margins')
     return 960,600
 
-def smoke_pixmap(portrait,cards_path,width,height,dpr,*,changed_roi=False):
+def smoke_pixmap(portrait,cards_path,width,height,dpr,*,changed_roi=False,changed_title=False):
     """Original fixed-physical diagnostic artwork, never a user screenshot."""
     from PIL import Image
     from synthetic_vision import frame,encoded
@@ -35,6 +35,12 @@ def smoke_pixmap(portrait,cards_path,width,height,dpr,*,changed_roi=False):
         # Original non-text animation analogue: inside the candidate crop but
         # entirely above the .32h+ title band and outside the own-HUD input.
         left,top=round(width*.20),round(height*.27);canvas.paste((75,60,85),(left,top,left+12,top+12))
+    if changed_title:
+        # Swap two actual original title pixel blocks; OCR must independently
+        # observe the changed order, no fabricated recognition payload.
+        first=(round(width*180/960),round(height*235/600),round(width*295/960),round(height*290/600))
+        second=(round(width*407/960),first[1],round(width*522/960),first[3])
+        a,b=canvas.crop(first),canvas.crop(second);canvas.paste(b,first[:2]);canvas.paste(a,second[:2])
     pixmap=QtGui.QPixmap()
     if not pixmap.loadFromData(encoded(canvas)):raise RuntimeError('Original mock artwork could not be decoded')
     pixmap.setDevicePixelRatio(dpr)
@@ -58,7 +64,7 @@ def inspect_smoke_layout(overlay):
         if not widget.isVisibleTo(overlay):continue
         parent=widget.parentWidget();pos=widget.mapTo(overlay,QtCore.QPoint(0,0))
         assert widget.width()>0 and widget.height()>0
-        assert pos.x()>=0 and pos.y()>=0 and pos.x()+widget.width()<=overlay.width() and pos.y()+widget.height()<=overlay.height(),'Visible widget escapes overlay'
+        assert pos.x()>=0 and pos.y()>=0 and pos.x()+widget.width()<=overlay.width() and pos.y()+widget.height()<=overlay.height(),('Visible widget escapes overlay',type(widget).__name__,pos.toTuple(),widget.size().toTuple(),overlay.size().toTuple(),overlay._badge_regions)
         if parent:
             assert widget.x()>=0 and widget.y()>=0 and widget.x()+widget.width()<=parent.width() and widget.y()+widget.height()<=parent.height(),'Visible widget escapes parent'
         row={'type':type(widget).__name__,'logical_rect':{'x':pos.x(),'y':pos.y(),'width':widget.width(),'height':widget.height()}}
@@ -68,16 +74,35 @@ def inspect_smoke_layout(overlay):
             assert minimum<=widget.width()+1,('Label width clipped',widget.text(),minimum,widget.width())
             row.update(text=widget.text(),required_height_at_width=required,minimum_width=minimum)
         rows.append(row)
-    assert len(overlay.cards)==3 and len(overlay.tier_labels)==3 and all(label.isVisibleTo(overlay) for label in overlay.tier_labels)
-    assert overlay.metadata_label.isVisibleTo(overlay) is (not overlay._compact)
-    assert '来源日期' in overlay.metadata_label.text() and '非 Riot' in overlay.footer.text()
-    assert overlay.footer.isVisibleTo(overlay) and overlay.footer.text()==overlay._source_marker+' · 非 Riot 评级/批准'
-    for i,card in enumerate(overlay.cards):
-        labels=overlay.row.itemAt(i).widget().findChildren(QtWidgets.QLabel)
-        assert labels[0].isVisibleTo(overlay) and labels[0].text()==card['name']
-        assert labels[0].accessibleName()==f"选项 {card['slot']} · {card['name']}"
-        assert overlay.tier_labels[i].text()==(card.get('sourceTier') or '暂无评级')
-        assert overlay.tier_labels[i].accessibleName()==f"{card.get('sourceTierLabel','虎牙公开源评级')}：{card.get('sourceTier') or '暂无评级'}"
+    from badge_contract import WIDTH, MIN_WIDTH, HEIGHT, HINT_FONT_SIZE, TIER_ROW_HEIGHT
+    assert overlay.cards and not overlay.panel.isVisibleTo(overlay)
+    anchors = overlay._badge_anchors
+    assert anchors is not None
+    expected = [card for card in overlay.cards if not card.get('pending')
+                and anchors.names[card['slot']-1] == card['name']]
+    shown = [badge for badge in overlay._badge_widgets if badge.isVisibleTo(overlay)]
+    assert len(shown) == len(expected) == len(overlay._badge_regions)
+    assert overlay.mask().rectCount() >= len(expected)
+    for card in overlay.cards:
+        badge = overlay._badge_widgets[card['slot']-1]
+        assert badge.isVisibleTo(overlay) is (card in expected)
+        if card not in expected: continue
+        assert MIN_WIDTH <= badge.width() <= WIDTH and badge.height() == HEIGHT
+        assert badge.tier == (card.get('sourceTier') or '暂无评级')
+        source = '复核中' if overlay._rechecking else '演示评级' if card.get('sourceTierLabel') == '虚构源评级（演示）' else '源评级'
+        assert badge.source == source
+        hint=str(card.get('sourceHint') or '').strip()
+        assert badge.hint == hint and badge.toolTip() == hint
+        assert badge.accessibleName() == f"选项 {card['slot']} · {card['name']} · {badge.tier} · {source}" + (' · '+hint if hint else '')
+        font=badge.font();font.setPixelSize(HINT_FONT_SIZE);metrics=QtGui.QFontMetrics(font)
+        assert badge.display_hint == metrics.elidedText(hint,QtCore.Qt.TextElideMode.ElideRight,badge.width()-24)
+        assert metrics.horizontalAdvance(badge.display_hint) <= badge.width()-24
+        assert metrics.height() <= HEIGHT-TIER_ROW_HEIGHT-3
+        assert not badge.findChildren(QtWidgets.QLabel), 'Names must stay in accessibility, not badge pixels'
+    for i, (x,y,w,h) in enumerate(overlay._badge_regions):
+        for xx,yy,ww,hh in overlay._badge_regions[i+1:]:
+            assert x+w <= xx or xx+ww <= x or y+h <= yy or yy+hh <= y, 'Badge regions overlap'
+
     return rows
 
 
@@ -249,7 +274,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
     original=control.capture;overlay=control.overlay;baseline=[None]
     assert type(original) is Win32Capture,'Duty persistent pass requires the actual default product adapter'
     assert original._persistent._enabled is True
-    report['overlay_duty_cycle']={'schema_version':2,
+    report['overlay_duty_cycle']={'schema_version':3,
         'scope':'Original synthetic native Windows HWND + real capture/PortraitMatcher/OCR; controlled diagnostic holds, not live-game or user-machine latency',
         'artificial_hold_target_ms':350,'active_mode':'initial-cleanup','mode':'persistent','adapter_constructor':'Win32Capture()',
         'baseline':{'mode':'one-shot','adapter_constructor':'Win32Capture(persistent_sessions=False)','cases':[]},'cases':[]}
@@ -273,11 +298,13 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
         translucent=overlay.testAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
         opaque_paint=overlay.testAttribute(QtCore.Qt.WidgetAttribute.WA_OpaquePaintEvent)
         format=overlay.windowHandle().format();opacity=overlay.windowOpacity()
-        image=overlay.grab().toImage()
-        corners=[list(image.pixelColor(x,y).getRgb()) for x,y in ((0,0),(image.width()-1,0),
-            (0,image.height()-1),(image.width()-1,image.height()-1))]
+        badge_pixels=[]
+        assert len(overlay._badge_regions)==3
+        for badge in overlay._badge_widgets:
+            image=badge.grab().toImage()
+            badge_pixels.append([list(image.pixelColor(x,y).getRgb()) for x,y in ((0,0),(image.width()-1,0),(0,image.height()-1),(image.width()-1,image.height()-1))])
         assert not translucent and opaque_paint and opacity==1 and not format.hasAlpha() and format.alphaBufferSize() in (-1,0)
-        assert corners==[[250,252,255,255]]*4,'Actual opaque product overlay has unpainted/translucent outer corners'
+        assert badge_pixels==[[[11,20,30,255]]*4]*3,'Actual badge region contains unpainted/translucent edge pixels'
         rect=capture.rect(control.target);hwnd=int(overlay.winId());affinity=W.DWORD()
         assert capture.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11
         assert capture._opaque_layered(hwnd)
@@ -285,7 +312,7 @@ def start_overlay_duty_probe(control,*,app,u,paint_mock,report,checks,save,run,d
             capture_rect={key:getattr(rect,key) for key in ('x','y','width','height')},overlay_hwnd=hwnd,
             overlay_extended_style=int(capture.get_long(hwnd,-20))&0xffffffff,overlay_affinity=int(affinity.value),overlay_opaque=True,
             qt_translucent_background=bool(translucent),qt_opaque_paint_event=bool(opaque_paint),qt_window_opacity=opacity,
-            surface_has_alpha=bool(format.hasAlpha()),surface_alpha_buffer_size=format.alphaBufferSize(),outer_corner_rgba=corners,
+            surface_has_alpha=bool(format.hasAlpha()),surface_alpha_buffer_size=format.alphaBufferSize(),badge_corner_rgba=badge_pixels,
             fixture_sha256=hashlib.sha256((Path(__file__).resolve().parent/'fixtures/auto-scene.png').read_bytes()).hexdigest())
         if 'scene_binding' not in duty:duty['scene_binding']=scene
         assert scene==duty['scene_binding'],'Mode swap changed the actual owned scene or opaque overlay'
@@ -404,7 +431,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
         def phase(name,callback,*values):
             assert trace is not None and 'capture_return' in trace.events and acquisition_complete(trace),'Phase preceded completed guarded capture return'
             trace.mark(name+'_emitted');mode_report['active_case']['phase_state']=name+'-emitted'
-            if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+            if trace.name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
                 trace.holds[name]=threading.Event();trace.hold_started[name]=trace.clock()
             callback(*values)
             if name in trace.holds:
@@ -436,6 +463,8 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     'capture_rect':rectangle(value['_captureRect']),'current_rect':rectangle(current_rect),
                     'candidate_roi_sha256':value.get('_roiDigest'),'accepted_candidate_roi_sha256':accepted.get('digest'),
                     'hud_input_sha256':value.get('_hudInputDigest'),'accepted_hud_input_sha256':accepted.get('hud_digest'),
+                    'card_geometry_unchanged':bool(accepted.get('card_geometry') is not None and value.get('_matchingCardGeometry') is accepted.get('card_geometry')),
+                    'title_regions_unchanged':bool(accepted.get('title_proof') is not None and value.get('_matchingTitleProof') is accepted.get('title_proof')),
                     'scope_matches_accepted':scope==accepted.get('scope'),'roi':list(scope[3]),
                     'vocabulary_sha256':hashlib.sha256(json.dumps(scope[4],ensure_ascii=False).encode()).hexdigest(),
                     'source_metadata_sha256':hashlib.sha256(scope[5][1].encode()).hexdigest(),
@@ -445,9 +474,9 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     'compositor_checked_after_capture':trace.events.get('gui_compositor_validated',-1)>=trace.events['capture_return']}
                 trace.phases.append(phase)
                 assert acquisition_complete(trace) and current,'Native capture proof is no longer current'
-                if trace.name in ('unchanged','stop_late'):
+                if trace.name in ('unchanged','changed_roi','stop_late'):
                     assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
-                elif trace.name in ('changed_roi','changed_hud','unknown_hud'):
+                elif trace.name in ('changed_title','changed_hud','unknown_hud'):
                     assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
                     expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if trace.name in ('changed_hud','unknown_hud') and name=='before_ocr' else trace.before
                     assert phase['state_at_phase']==expected_state,'Intermediate proof may only revoke unsafe evidence, never refresh TTL or promote counters'
@@ -486,7 +515,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
         mode_report['active_case']={'mode':mode,'name':name,'phase_state':'waiting-for-capture','timings_ms':trace.events,'phases':trace.phases,
             'measurement_clock':dict(trace.measurement_clock),'initial_native_visible':trace.initial_native_visible,'initial_qt_visible':trace.initial_qt_visible}
         trace.sample(trace.initial_native_visible)
-        if name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+        if name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
             assert trace.initial_native_visible and trace.initial_qt_visible,'Measured duty case must begin with the accepted overlay genuinely visible'
         control.capture_tick();trace.sample(native_visible())
         deadline=time.monotonic()+8
@@ -509,7 +538,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                             trace.sample(native_visible())
                         release.set()
                     QtCore.QTimer.singleShot(10,lambda:run(poll));return
-                assert not control.ocr_busy and not control.capture_pending
+                assert not control.ocr_busy and not control.capture_pending,(trace.name,control.ocr_busy,control.capture_pending,trace.events)
                 if trace.stopped and mode=='persistent':
                     mode_report['active_case']['phase_state']='stop-cleanup'
                     trace.stop_cleanup=_duty_session_cleanup(capture_adapter,trace.owner,trace.transport,trace.session_capture['receipt'],
@@ -520,9 +549,10 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     code=trace.stop_cleanup['process_exit_code']
                     assert code&0xffffffff!=0xc0000005,'Stop observed native access-violation crash'
                     assert code==0 or trace.stop_cleanup['termination_requested_while_alive'] is True,'Nonzero Stop exit lacks observed parent termination'
-                if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late'):
+                if trace.name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
                     value=trace.summary();value.update(mode=mode,capture_backend=trace.backend,
                         capture_duration_ms=round(trace.events['capture_return']-trace.events['capture_start'],3),
+                        final_visible_slots=[i+1 for i,b in enumerate(overlay._badge_widgets) if b.isVisibleTo(overlay)],
                         final_confirmed=control.state.confirmed,final_running=control.state.running,final_qt_visible=overlay.isVisible(),final_native_visible=native_visible(),
                         final_state_generation=control.state.generation,final_result_generation=trace.final_generation,final_captured_at=trace.final_value['_capturedAt'],
                         final_last_observation=control.last_observation,final_candidate_names=[item['name'] for item in trace.final_value.get('automatic_candidates',[])],final_hero_observation={key:trace.final_value['hero_observation'].get(key) for key in ('hero','confident')})
@@ -542,9 +572,15 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                         assert trace.final_value['hero_observation']['hero']=='星火术士（演示）'
                     elif trace.name=='changed_roi':
                         value['fixture_change']='Original 12x12 non-text patch inside candidate ROI, above title band; synthetic animation analogue, not actual gameplay measurement'
-                        assert control.state.confirmed and overlay.isVisible() and native_visible() and value['sampled_inference_visible_ms']==0
+                        assert control.state.confirmed and overlay.isVisible() and native_visible() and value['sampled_inference_visible_ms']>=500
+                        assert all(phase['title_regions_unchanged'] for phase in value['phases'])
                         assert value['final_candidate_names']==['星火共鸣','晶盾回路','风步微光']
                         assert all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in value['phases'])
+                    elif trace.name=='changed_title':
+                        assert not control.state.confirmed and native_visible() and value['sampled_inference_visible_ms']==0
+                        assert value['final_visible_slots']==[3] and overlay._badge_widgets[2].tier=='T3'
+                        assert value['final_candidate_names']==['晶盾回路','星火共鸣','风步微光']
+                        assert all(not phase['title_regions_unchanged'] for phase in value['phases'])
                     elif trace.name in ('changed_hud','unknown_hud'):
                         assert not control.state.confirmed and not native_visible() and value['sampled_inference_visible_ms']==0
                         hero=trace.final_value['hero_observation']
@@ -579,14 +615,16 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
             begin('independent_first',lambda:assert_first_then(lambda:established(next_step)))
         ready()
     def changed_roi():
-        paint_mock(changed_roi=True);app.processEvents();begin('changed_roi',lambda:recover(changed,reset=True))
+        paint_mock(changed_roi=True);app.processEvents();begin('changed_roi',lambda:recover(changed_title,reset=True))
+    def changed_title():
+        paint_mock(changed_title=True);app.processEvents();begin('changed_title',lambda:recover(changed,reset=True))
     def changed():
         paint_mock('9002');app.processEvents();begin('changed_hud',lambda:recover(unknown))
     def unknown():
         paint_mock(gray=True);app.processEvents();begin('unknown_hud',lambda:recover(stop_late))
     def stop_late():begin('stop_late',lambda:recover(finish,restart=True))
     def finish():
-        assert [row['name'] for row in rows]==['unchanged','changed_roi','changed_hud','unknown_hud','stop_late']
+        assert [row['name'] for row in rows]==['unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late']
         if mode=='one-shot':
             mode_report['cleanup']=dict(helper_count=len(all_helpers),helpers_exited=all(process.poll() is not None for process in all_helpers),
                 pipes_closed=all(_duty_one_shot_process_closed(process) for process in all_helpers),
@@ -640,8 +678,15 @@ def _owned_hidden_capture(control, target, *, app, evidence, timeout=8.):
     return pixels, rect, captured_at
 
 
+def native_report_payload(report):
+    # Six observed cases in both capture modes retain all evidence inside the
+    # original bounded 128KiB diagnostic envelope. Omit formatting only.
+    return json.dumps(report,ensure_ascii=False,separators=(',',':'))+'\n'
+
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
+    observed_frame={}
     report={'status':'running','executable_sha256':hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest() if getattr(sys,'frozen',False) else None,'backend':'qtwidgets','qt_platform':app.platformName(),'frozen':bool(getattr(sys,'frozen',False)),'applicationVersion':control.current_version,'native_window':False,'window_closed':False,'capture_passed':False,'ocr_passed':False,'click_through_passed':False,'scope':'Original synthetic mock game only; not LoL/Vanguard, live-game accuracy or approval','checks':checks}
     control._smoke_objects=[]
     report['owned_capture_preflights']=[]
@@ -649,7 +694,7 @@ def start_smoke(control,report_path,screenshot_path):
     # This fixture owns every capture, including the real async and duty probes.
     restore_schedule=_manual_smoke_cadence(control)
     def save():
-        report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
+        report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(native_report_payload(report),encoding='utf8')
     def fail(exc):
         cleanup=getattr(control,'_smoke_duty_cleanup',None)
         if cleanup:
@@ -697,9 +742,9 @@ def start_smoke(control,report_path,screenshot_path):
     bank=portraits()
     configure_data(control.data)
     control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
-    def paint_mock(key='9001',*,gray=False,changed_roi=False):
+    def paint_mock(key='9001',*,gray=False,changed_roi=False,changed_title=False):
         portrait=bank[key].convert('L').convert('RGB') if gray else bank[key]
-        image.setPixmap(smoke_pixmap(portrait,root/'fixtures/auto-scene.png',mock_width,mock_height,float(mock.windowHandle().devicePixelRatio()),changed_roi=changed_roi))
+        image.setPixmap(smoke_pixmap(portrait,root/'fixtures/auto-scene.png',mock_width,mock_height,float(mock.windowHandle().devicePixelRatio()),changed_roi=changed_roi,changed_title=changed_title))
     paint_mock();layout.addWidget(image)
     control._smoke_objects.append(mock)
     def prepare():
@@ -745,6 +790,7 @@ def start_smoke(control,report_path,screenshot_path):
                     (control.hero_matcher,control.hero_matcher.proof_identity())))
             control.task_result('ocr',value,control.state.generation)
             return value
+        observed_frame['refresh']=observe_current
         result=observe_current();assert not control.state.confirmed
         result=observe_current();names=[item['name'] for item in result['automatic_candidates']]
         assert names==expected,('OCR names',names)
@@ -772,6 +818,9 @@ def start_smoke(control,report_path,screenshot_path):
             assert control.overlay.cards[0]['sourceTier']=='T1' and control.overlay.cards[2]['sourceTier']=='T3'
             assert control.overlay.cards[1]['name']=='待识别' and control.overlay.cards[1]['sourceTier'] is None
             assert control.overlay.isVisible() and u.IsWindowVisible(int(control.overlay.winId()))
+            from card_badges import native_region
+            native_region(int(control.overlay.winId()),control.overlay._badge_regions,verify_only=True)
+            assert len(control.overlay._badge_regions)==2 and not control.overlay._badge_widgets[1].isVisibleTo(control.overlay)
             report['partial_candidate_slots_passed']=True
             checks.append('Actual OS capture and local OCR retain known left/right grades after two independent frames while an unsupported middle title stays ungraded in its fixed slot')
         finally:
@@ -808,26 +857,25 @@ def start_smoke(control,report_path,screenshot_path):
         checks.append('Both hero transitions immediately hide old cards; a reused title is discarded and exactly two independent new-hero OCR results are required')
         assert [card['name'] for card in control.overlay.cards]==names
         assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
-        assert [widget.text() for widget in control.overlay.tier_labels]==['T1','T2','T3']
-        assert [widget.accessibleName() for widget in control.overlay.tier_labels]==['虚构源评级（演示）：T1','虚构源评级（演示）：T2','虚构源评级（演示）：T3']
-        assert '来源日期' in control.overlay.metadata_label.text() and '数据包' in control.overlay.metadata_label.text() and '游戏资料' in control.overlay.metadata_label.text()
+        assert [widget.tier for widget in control.overlay.tier_labels]==['T1','T2','T3']
+        assert [widget.accessibleName() for widget in control.overlay.tier_labels]==[f'选项 {i} · {name} · T{i} · 演示评级' for i,name in enumerate(names,1)]
         control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
-        control.confirm();assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
+        control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay);assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
         report['source_tier_hero_specific']=True;report['auto_manual_fallback_passed']=not control.hero_auto.isChecked()
         tier_row=control.data['heroAugmentStats']['磐石守卫（演示）'][0];saved_tier=tier_row['tier']
         for missing in [None,'UNKNOWN']:
-            tier_row['tier']=missing;control.confirm();assert control.overlay.tier_labels[1].text()=='暂无评级' and control.overlay.tier_labels[1].accessibleName()=='虚构源评级（演示）：暂无评级'
+            tier_row['tier']=missing;control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay);assert control.overlay._badge_widgets[1].tier=='暂无评级' and '暂无评级' in control.overlay._badge_widgets[1].accessibleName()
         tier_row['tier']=saved_tier;report['source_tier_missing_passed']=True
-        control.hero_box.setCurrentText('星火术士（演示）');control.confirm()
+        control.hero_box.setCurrentText('星火术士（演示）');control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay)
         assert [card['name'] for card in control.overlay.cards]==names
         assert all('winRate' not in card and 'sourceRank' not in card and 'recommendedName' not in card for card in control.overlay.cards)
-        rendered=' '.join(widget.text() for widget in control.overlay.tier_labels)
+        rendered=' '.join(widget.tier for widget in control.overlay.tier_labels)
         assert all(value not in rendered for value in ['60.00%','55.00%','50.00%','胜率'])
         report.update(source_tier_display_passed=True,source_tier_screen_order_preserved=True,source_tier_no_winrate_display=True,
-                      source_tier_rendered=[widget.text() for widget in control.overlay.tier_labels],
-                      card_names_rendered=[widget.text() for widget in control.overlay._title_labels],
+                      source_tier_rendered=[widget.tier for widget in control.overlay.tier_labels],
+                      card_names_accessible=[card['name'] for card in control.overlay.cards],
                       source_tier_accessible=[widget.accessibleName() for widget in control.overlay.tier_labels],
-                      source_attribution_rendered=control.overlay.footer.text())
+                      badge_source_markers=[widget.source for widget in control.overlay.tier_labels])
         before=(control.state.generation,control.state.confirmed,control.state.offered,control.overlay.isVisible())
         control.show_page('about');app.processEvents()
         assert control.source.isVisibleTo(control) and control.compatibility.isVisibleTo(control)
@@ -868,12 +916,57 @@ def start_smoke(control,report_path,screenshot_path):
         report.update(overlay_qwindow_dpr=float(overlay.windowHandle().devicePixelRatio()),overlay_window_physical=native_rect(hwnd),overlay_compact=overlay._compact)
         assert inside(report['clientRect'],report['overlay_window_physical']),'Actual native overlay escaped fixed physical mock'
         report['overlay_layout_widgets']=inspect_smoke_layout(overlay);report['overlay_layout_passed']=True
+        from card_badges import native_region
+        native_region(hwnd,overlay._badge_regions,verify_only=True)
+        assert len(overlay._badge_regions)==3
+        report['three_badge_regions_verified']=True
+        report['badge_regions_physical']=[list(region) for region in overlay._badge_regions]
         # Actual Win32 point hit test at a point inside the overlay; no game input.
         rect=W.RECT();u.GetWindowRect.argtypes=[W.HWND,ctypes.POINTER(W.RECT)];u.GetWindowRect.restype=W.BOOL;assert u.GetWindowRect(hwnd,ctypes.byref(rect))
         point=W.POINT(rect.left+(rect.right-rect.left)//2,rect.top+20)
         hit=int(u.GetAncestor(u.WindowFromPoint(point),2) or 0)
         assert hit==control.target.hwnd,('Transparent overlay intercepted point',hit,control.target.hwnd)
         control.toggle_clickthrough();style_off=int(control.capture.get_long(int(overlay.winId()),-20));assert not style_off&0x20
+        for first,second in zip(overlay._badge_regions,overlay._badge_regions[1:]):
+            point=W.POINT(rect.left+(first[0]+first[2]+second[0])//2,rect.top+first[1]+first[3]//2)
+            assert int(u.GetAncestor(u.WindowFromPoint(point),2) or 0)==control.target.hwnd,'Gap remains a native hole with click-through disabled'
+        report['badge_gap_hit_test_passed']=True
+        dpr=float(overlay.windowHandle().devicePixelRatio())
+        from badge_contract import WIDTH,HEIGHT,GAP,choose_width,align_physical_regions,top_gap
+        client=control.capture.rect(control.target)
+        report['badge_card_bounds_physical']=[]
+        logical_width=choose_width([(x+cw/2)*client.width for x,y,cw,ch in overlay._badge_anchors.rects],dpr)
+        for slot,(bx,by,bw,bh) in enumerate(overlay._badge_regions):
+            x,y,cw,ch=overlay._badge_anchors.rects[slot]
+            assert (bw,bh)==(math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr))
+            report['badge_card_bounds_physical'].append([client.x+x*client.width,client.y+y*client.height,cw*client.width,ch*client.height])
+            gap=client.y+y*client.height-(rect.top+by+bh)
+            assert top_gap(dpr)<=gap<top_gap(dpr)+dpr+1.01
+        bw,bh=math.ceil(logical_width*dpr),math.ceil(HEIGHT*dpr)
+        physical=[(round(c[0]+c[2]/2-bw/2),math.floor(c[1]-top_gap(dpr)-bh),bw,bh) for c in report['badge_card_bounds_physical']]
+        expected_bounds,expected_regions=align_physical_regions(physical,dpr,logical_width)
+        assert tuple(report['overlay_window_physical'][k] for k in ('x','y','width','height'))==expected_bounds
+        assert tuple(overlay._badge_regions)==expected_regions
+        report['badge_above_cards_verified']=True
+        # Renderer-only original hint; this is explicitly not source-combo or
+        # live-game evidence. The ordinary demo data correctly abstains.
+        from copy import deepcopy
+        original_cards=deepcopy(overlay.cards);hint_cards=deepcopy(original_cards)
+        original_regions=tuple(overlay._badge_regions)
+        synthetic_hint='搭配：原创超长强化名称甲、原创超长强化名称乙'
+        hint_cards[0]['sourceHint']=synthetic_hint
+        overlay.set_cards(control.state.hero,hint_cards);overlay.show_at(client,control.target);app.processEvents()
+        inspect_smoke_layout(overlay);native_region(hwnd,overlay._badge_regions,verify_only=True)
+        badge=overlay._badge_widgets[0]
+        assert tuple(overlay._badge_regions)==original_regions,'Hint must preserve exact native badge regions'
+        assert badge.hint==synthetic_hint and badge.toolTip()==synthetic_hint and synthetic_hint in badge.accessibleName()
+        assert badge.display_hint and badge.display_hint!=synthetic_hint and badge.tier==original_cards[0]['sourceTier']
+        assert all(not b.hint for b in overlay._badge_widgets[1:])
+        report['source_hint_renderer_passed']=True
+        report['source_hint_render_scope']='Original synthetic sourceHint renderer only; not live-game or source-combo accuracy'
+        report['source_hint_visible_text']=badge.display_hint
+        overlay.set_cards(control.state.hero,original_cards);overlay.show_at(client,control.target);app.processEvents()
+        inspect_smoke_layout(overlay);native_region(hwnd,overlay._badge_regions,verify_only=True)
         control.toggle_clickthrough();style_on=int(control.capture.get_long(int(overlay.winId()),-20));assert style_on&0x20
         report['click_through_passed']=True;checks.append('Real OS point hit testing reaches the mock through overlay; click-through toggle changes WS_EX_TRANSPARENT')
         assert control.hotkey_registered,'Ctrl+Alt+O registration failed in test session';checks.append('RegisterHotKey succeeded without input hooks')
@@ -885,9 +978,9 @@ def start_smoke(control,report_path,screenshot_path):
         checks.append('Original synthetic native mock/overlay rendering saved, with no user desktop pixels')
         control.task_result('ocr',{'candidates':[],'_capturedAt':time.monotonic()},control.state.generation);assert not control.state.confirmed and not overlay.isVisible();checks.append('Production OCR result handler hides overlay on scene/candidate loss')
         old_generation=control.state.generation;control.hero_box.setCurrentText('磐石守卫（演示）');assert control.state.generation>old_generation;checks.append('Actual hero selection signal invalidates prior scene state')
-        control.state.confirm(names,control.data['augments']);control.last_observation=__import__('time').monotonic();control.last_rect=control.capture.rect(control.target)
+        control.state.confirm(names,control.data['augments']);control.last_observation=__import__('time').monotonic();control.last_rect=control.capture.rect(control.target);observed_frame['refresh']();assert overlay.isVisible()
         mock.move(mock.x()+7,mock.y()+5);QtWidgets.QApplication.processEvents();control.check_target();assert control.state.confirmed and overlay.isVisible();overlay._verify_rect(control.capture.rect(control.target));checks.append('Real same-size mock translation preserves fresh confirmed identity/offers and repositions overlay inside the new physical client bounds')
-        control.last_observation=time.monotonic()-5;control.check_target();assert not control.state.confirmed and not overlay.isVisible();checks.append('Expired observations cannot be revived by translating the target window')
+        control.last_observation=time.monotonic()-5;control.check_target();assert not control.state.confirmed and not overlay.isVisible() and not u.IsWindowVisible(hwnd);report['badge_revocation_hidden_verified']=True;checks.append('Expired observations cannot be revived by translating the target window')
         control.state.confirm(names,control.data['augments']);control.last_observation=time.monotonic()
         before_resize=control.capture.rect(control.target);shrink_smoke_mock(mock,image);after_resize=control.capture.rect(control.target)
         assert after_resize.width<before_resize.width and after_resize.height<before_resize.height,'Actual physical mock size did not shrink'

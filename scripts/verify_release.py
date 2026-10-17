@@ -25,16 +25,16 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.9'
+PREVIEW_VERSION = '0.4.10'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
-                         'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
+                         'source_hint_renderer_passed', 'three_badge_regions_verified', 'badge_gap_hit_test_passed', 'badge_above_cards_verified', 'badge_revocation_hidden_verified', 'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                          'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
 NATIVE_SCALES = ((1.0, 'windows-native'), (1.5, 'windows-native-scale150'), (2.0, 'windows-native-scale200'))
-AUTO_SOURCE_FILES = ('automatic_windows.py','native_ui.py','portrait_display.py', 'local_debug.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
-AUTO_CAPTURE_FIELDS = ('wait_without_window','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
-DPI_SOURCE_FILES = ('native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py')
+AUTO_SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py','native_ui.py','portrait_display.py', 'local_debug.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
+AUTO_CAPTURE_FIELDS = ('wait_without_window','helper_visible_after_default_start','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
+DPI_SOURCE_FILES = ('native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'card_badges.py', 'augment_card_geometry.py', 'badge_contract.py')
 # Load only the trusted local pure validator, never Python from a source archive.
 # An installed package named "tests" must not select a different validator.
 _dpi_spec = importlib.util.spec_from_file_location('release_windows_dpi_matrix',
@@ -388,15 +388,16 @@ def verify_native_scale(files, checksum, version, scale, prefix, source_archive,
             'Required native window/capture/OCR/click-through/close/source-tier proof missing: ' + prefix)
     require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
             'Automatic hero/candidate native lifecycle proof missing: ' + prefix)
+    require(native.get('source_hint_render_scope') == 'Original synthetic sourceHint renderer only; not live-game or source-combo accuracy' and isinstance(native.get('source_hint_visible_text'),str) and native['source_hint_visible_text'], 'Native owned source-hint renderer proof missing: '+prefix)
     require(native.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光'],
             'Actual native OCR did not recognize the three original mock choices: ' + prefix)
-    require(native.get('card_names_rendered') == ['星火共鸣','晶盾回路','风步微光'],
-            'Native full visible ordered card names missing: ' + prefix)
+    require(native.get('card_names_accessible') == ['星火共鸣','晶盾回路','风步微光'],
+            'Native ordered accessible card identities missing: ' + prefix)
     require(native.get('source_tier_rendered') == ['T1', 'T2', 'T3'],
             'Actual native literal source-tier rendering evidence is missing or changed: ' + prefix)
-    require(native.get('source_tier_accessible') == ['虚构源评级（演示）：T1', '虚构源评级（演示）：T2', '虚构源评级（演示）：T3'],
+    require(native.get('source_tier_accessible') == [f'选项 {i} · {name} · T{i} · 演示评级' for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)],
             'Native exact accessible source-tier evidence missing: ' + prefix)
-    require(native.get('source_attribution_rendered') == '虚构演示 · 非 Riot 评级/批准' and native.get('source_details_reachable') is True,
+    require(native.get('badge_source_markers') == ['演示评级']*3 and native.get('source_details_reachable') is True,
             'Native visible source or reachable full source details missing: ' + prefix)
     require(isinstance(native.get('screenshot_method'), str) and native['screenshot_method'].strip(),
             'Native screenshot method missing: ' + prefix)
@@ -417,6 +418,10 @@ def verify_native_scale(files, checksum, version, scale, prefix, source_archive,
     require(contains_rectangle(work, mock) and contains_rectangle(mock, client) and
             contains_rectangle(client, overlay, strict=True), 'Native physical windows escaped their required bounds: ' + prefix)
     require(overlay['height']*2<=client['height'], 'Native overlay exceeds the half-client-height budget: ' + prefix)
+    try:
+        duty_contract.validate_badge_regions(native)
+    except (RuntimeError,KeyError,TypeError,ValueError) as exc:
+        raise VerificationError('Native badge-region receipt invalid: '+str(exc)) from exc
     verify_png(files[prefix + '-overlay.png'])
     require(smoke.get('native_report_sha256') == digest(files[prefix + '-overlay.json']) and
             smoke.get('native_screenshot_sha256') == digest(files[prefix + '-overlay.png']),
@@ -1168,7 +1173,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     notes = (f'VGA native overlay PREVIEW {version} (pre-release).\n\n'
-             'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate default-off, current-session local API identity options. '
+             'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate local API controls: current-game read-only identity is enabled by default with a saved Off switch; selection/bench access remains default-off for the current launch. '
              'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
              'This candidate combines the selected light dashboard with bounded HWND-only Windows Graphics Capture, off-GUI capture and cleanup, '
              'fixes Chinese exact-title matching and reuses identical title OCR only after two independent confirmations. '
@@ -1181,7 +1186,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'The unchanged OCR models and approved minimal OpenCV package profile are retained. '
              'This candidate adds stable window-identity comparisons independent of caption changes, verified untitled-window discovery, and bounded window/focus/capture diagnostic reasons. '
              'One reusable bounded worker overlaps same-frame HUD and OCR processing; this is not a guaranteed live-game speedup. '
-             'Two separate opt-in controls permit verified local HTTPS read-only selection/bench IDs and current-self identity; failure falls back to screenshot recognition, with no raw identities or credentials logged. '
+             'Two separate controls permit verified local HTTPS read-only selection/bench IDs and current-self identity, with no raw identities or credentials logged. Two independently confirmed own identities may be retained through death/countdown or transient API failure only within the exact verified game process and canonical source mapping. Retained identity is labelled historical; current cards still require independent fresh proof and expire after four seconds. Stop, process/client/source changes and explicit contradictions revoke identity. Starting monitoring stays visible by default, with optional saved auto-minimization. Three disjoint opaque native regions display tiers and short source-backed combo examples above freshly detected card bounds; no win rates, selected-history assumptions or live-optimal claims are shown. '
              'The confirmed Qt logical/Win32 physical coordinate mismatch and rigid overlay layout fixes remain included. '
              'The historical cache-lock owner is not established; current diagnostics distinguish observed write failures without inventing their owner. '
              'Screenshot-only champion-select name detection now exposes the exact assigned hero’s public T1–T5 overall tier as a separate provisional reference, without confirming augment choices. '

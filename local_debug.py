@@ -30,6 +30,7 @@ _ENUMS = {
                        'selection', 'capture-proof', 'unknown'}),
     'phase': frozenset({'queued', 'started', 'completed', 'error', 'cancelled',
                         'discarded', 'requested', 'retired', 'acquired'}),
+    'capture_mode': frozenset({'eligible','disabled','backend_unavailable','interactive','exclusion_unregistered','cleanup_pending','stopped','unknown'}),
     'backend': frozenset({'windows-graphics-capture-session', 'windows-graphics-capture',
                           'bounded-compositor', 'window-dc', 'unknown'}),
     'state': frozenset({'error', 'waiting', 'idle', 'working', 'confirmed', 'provisional'}),

@@ -7,6 +7,8 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from PySide6 import QtWidgets
 from native_ui import Overlay
 from native_state import display_cards
+from badge_fixture import seed_badge_geometry
+from native_smoke import inspect_smoke_layout
 from screen_capture import ClientRect,CaptureUnavailable
 from engine import load_data
 app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -32,6 +34,7 @@ records=load_data(ROOT/'fixtures/demo.json');names=['星火共鸣（演示）','
 cards=display_cards(records,'星火术士（演示）',names)
 for card in cards:card['description']='原创合成布局测试说明。'*10;card['notes']=['原创条件说明：需要人工根据游戏机制判断。'*3]
 overlay.set_cards('星火术士（演示）',cards,'虚构日期','虚构版本','来自本局选人 · HUD未复核')
+seed_badge_geometry(overlay)
 checks=[];cases=[]
 for width,height in [(800,600),(964,602),(1024,768),(1280,720),(1920,1080),(2560,1440),(3440,1440),(3840,2160),(5120,1440),(7680,2160)]:
  for x,y in [(0,0),(-width,0),(0,-height),(-width,-height)]:
@@ -40,7 +43,7 @@ for width,height in [(800,600),(964,602),(1024,768),(1280,720),(1920,1080),(2560
   except CaptureUnavailable as exc:
    assert width==800 and overlay.devicePixelRatioF()>=2.5 and not overlay.isVisible(),(width,height,str(exc))
    cases.append({'client':[width,height],'origin':[x,y],'dpr':overlay.devicePixelRatioF(),'status':'explicit-safe-hide','reason':str(exc)});continue
-  app.processEvents();assert overlay.isVisible()
+  app.processEvents();assert overlay.isVisible();inspect_smoke_layout(overlay)
   for lab in overlay.findChildren(QtWidgets.QLabel):
    if not lab.isVisible():continue
    required=lab.heightForWidth(lab.width())

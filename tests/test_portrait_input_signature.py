@@ -137,8 +137,23 @@ class PortraitInputSignatureTests(unittest.TestCase):
             def recognize(inner, crop, vocabulary):
                 events.append('ocr'); crops.append(crop)
                 return {'ocr_lines': [], 'candidates': []}
+        # Opening a PNG header is not a pixel decode. Track each lazy source's
+        # first load with pending decoder tiles so geometry's size-only header
+        # check cannot hide an accidental second full-frame decompression.
+        original_open = Image.open
+        sources, decoded_sources = [], []
+        def observe_open(*args, **kwargs):
+            source = original_open(*args, **kwargs)
+            sources.append(source)
+            original_load = source.load
+            def observe_load(*load_args, **load_kwargs):
+                if getattr(source, 'tile', None):
+                    decoded_sources.append(source)
+                return original_load(*load_args, **load_kwargs)
+            source.load = observe_load
+            return source
         with patch.object(cv2, 'matchTemplate', wraps=cv2.matchTemplate) as match, \
-                patch.object(Image, 'open', wraps=Image.open) as opened:
+                patch.object(Image, 'open', side_effect=observe_open) as opened:
             def before_match(signature, crop):
                 self.assertRegex(signature, r'^[0-9a-f]{64}$')
                 self.assertEqual(match.call_count, 0)
@@ -149,7 +164,9 @@ class PortraitInputSignatureTests(unittest.TestCase):
                 events.append('before_ocr'); crops.append(crop)
             result = recognize_frame(payload, (.15, .25, .7, .35), OCR(), (), matcher,
                                      before_match=before_match, before_ocr=before_ocr)
-            self.assertEqual(opened.call_count, 1)
+            self.assertEqual(opened.call_count, 2)  # Decode plus size-only header validation.
+            self.assertEqual(decoded_sources, [sources[0]])
+            self.assertIsNot(sources[0], sources[1])
             self.assertEqual(match.call_count, len(self.bank)*15)
         self.assertEqual(events, ['before_match', 'before_ocr', 'ocr'])
         self.assertTrue(all(crop is crops[0] for crop in crops))

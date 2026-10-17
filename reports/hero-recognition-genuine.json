@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.9",
+  "applicationVersion": "0.4.10",
   "status": "partial_with_abstentions",
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
-    "hero_recognition.py": "5a22ac634ce751ae6e6cdb1bed1aea7568050cbc000f51253609e505cf05b88b",
+    "hero_recognition.py": "323def8436a5826f6d05dd2da66565463c0b1173e3277b4a8c8515869364f9d6",
     "hero_portraits.py": "a6d320b8cc8f586e74b2e5fecb266f1fecbfe5f706844c89f19714356f1a97a3",
     "local_ocr.py": "71033d9be8c218a8ed5b35ba3755fa2e3d5b87df92fd50e246ea18320915967b",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
     "model_inventory.py": "c847e69c04ffb84fb2af6eb7acf781b1146f06005cd336a19125093f91c67032",
-    "screen_capture.py": "bf17fe9eaf59557b157f7de96bffc7b018bed36cad1cef21b0ecc4957a58e030",
-    "native_state.py": "376e1e7c7794b54c8f0af841fbb9294cf0b896e366a8018a59a408f1c99c13b4",
-    "engine.py": "865f96b3e96807493c3cce23dea7ff5f06c3ac59058f5702f7d97c263a09de3e"
+    "screen_capture.py": "8776e185be2607b19849c432e513e5b1e5037581a88510472152751fe34c5118",
+    "native_state.py": "f6685159ea6c4845eafc7b5e9dbdafe2c9f08623765a41b8ee653d1a49575e40",
+    "engine.py": "a645aa7438e1d5e876320a4743abffd7eddbd297dc88ad4e3fcdbbc536ea8118"
   },
   "templates": {
     "source_url": "https://ddragon.leagueoflegends.com/api/versions.json",
@@ -49,6 +49,7 @@
         "confident": false,
         "method": "own-hud-portrait",
         "reason": "本人头像匹配不够确定",
+        "abstentionKind": "portrait-unavailable",
         "score": 0.7307,
         "margin": 0.0065,
         "box": [
@@ -63,7 +64,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.614,
+      "elapsed_seconds": 0.625,
       "image_redistributed": false
     },
     {
@@ -90,7 +91,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.001,
+      "elapsed_seconds": 0.0,
       "image_redistributed": false
     },
     {
@@ -127,7 +128,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.673,
+      "elapsed_seconds": 0.643,
       "image_redistributed": false
     },
     {
@@ -149,6 +150,7 @@
         "confident": false,
         "method": "own-hud-portrait",
         "reason": "本人头像匹配不够确定",
+        "abstentionKind": "portrait-unavailable",
         "score": 0.7945,
         "margin": 0.0306,
         "box": [
@@ -163,7 +165,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.581,
+      "elapsed_seconds": 0.562,
       "image_redistributed": false
     },
     {
@@ -185,6 +187,7 @@
         "confident": false,
         "method": "own-hud-portrait",
         "reason": "本人头像匹配不够确定",
+        "abstentionKind": "portrait-unavailable",
         "score": 0.779,
         "margin": 0.0228,
         "box": [
@@ -199,7 +202,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.624,
+      "elapsed_seconds": 0.657,
       "image_redistributed": false
     },
     {
@@ -236,7 +239,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.641,
+      "elapsed_seconds": 0.678,
       "image_redistributed": false
     }
   ],

@@ -64,6 +64,19 @@ class SameFrameParallelTests(unittest.TestCase):
         self.assertEqual(result['hero_observation']['hero'],'owned')
         self.assertFalse(self.worker._busy)
 
+    def test_new_unknown_hud_replaces_parallel_cache_hit_with_one_fresh_ocr(self):
+        from hero_recognition import recognize_frame
+        calls=[]
+        class OCR:
+            def recognize(inner,payload,vocabulary):
+                calls.append('cached');return {'ocr_lines':[],'ocr_reused':True}
+            def recognize_fresh(inner,payload,vocabulary):
+                calls.append('fresh');return {'ocr_lines':[],'ocr_reused':False}
+        self.matcher._recognize_prepared=lambda prepared:{'hero':None,'confident':False}
+        result=recognize_frame(self.image,(.15,.25,.7,.35),OCR(),(),self.matcher,inference_worker=self.worker)
+        self.assertEqual(calls,['cached','fresh']);self.assertFalse(result['ocr_reused'])
+        self.assertFalse(result['hero_observation']['confident']);self.assertFalse(self.worker._busy)
+
     def test_failed_callback_still_drains_same_frame_ocr(self):
         from hero_recognition import recognize_frame
         entered=threading.Event();proof=threading.Event();done=threading.Event()

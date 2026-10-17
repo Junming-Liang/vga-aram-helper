@@ -122,7 +122,10 @@ def adapt_official_wiki(raw):
 def normalize(raw):
     """Whitelist text fields; discard remote images, executable markup and extras."""
     raw = adapt_official_wiki(raw)
+    from source_combo_hints import normalize_source_combos
+    source_combos = normalize_source_combos(raw)
     data = {"metadata": deepcopy(raw.get("metadata", {})), "heroes": {}, "augments": {}, "items": {}, "relations": {}, "combinations": [], "heroAugmentStats": {}}
+    data['heroSourceCombos'] = source_combos
     for kind in ["heroes", "augments", "items"]:
         source = raw.get(kind, {})
         if not isinstance(source, dict):

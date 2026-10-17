@@ -66,6 +66,20 @@ class PersistentCaptureAdapter:
         self._unavailable = None
 
     @property
+    def visible_capture_status(self):
+        """Bounded routing reason only; never a grant or native exclusion proof."""
+        with self._lock:
+            if self._closed:return 'stopped'
+            if not self._allow_visible_overlay:return 'disabled'
+            if not self._enabled or self._unavailable is not None:return 'backend_unavailable'
+            if self._interactive_overlay:return 'interactive'
+            if self._overlay is None:return 'exclusion_unregistered'
+            owner=self._owner
+            if owner is not None and not self._complete(owner) and (owner.revoked.is_set() or self._native_revoked(owner)):
+                return 'cleanup_pending'
+            return 'eligible'
+
+    @property
     def can_request_visible_overlay(self):
         """GUI-safe routing hint, NOT proof of exclusion or a capture permit.
 

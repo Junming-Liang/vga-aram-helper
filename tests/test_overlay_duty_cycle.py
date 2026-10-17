@@ -196,7 +196,8 @@ class DutyTraceTests(unittest.TestCase):
         try:
             overlay.set_cards('星火术士（演示）',display_cards(data,'星火术士（演示）',names),
                 '2026-10-14','数据包 演示 / 游戏资料 演示','英雄/候选连续高置信自动识别')
-            overlay._fit_layout(ClientRect(20,20,960,600),1);overlay.show();app.processEvents()
+            from tests.badge_fixture import seed_badge_geometry
+            seed_badge_geometry(overlay);overlay.show_at(ClientRect(20,20,960,600),None);app.processEvents()
             value=overlay_duty_fixture();value.update(NativePackagingTests.geometry_fixture())
             value.update(overlay_layout_widgets=inspect_smoke_layout(overlay),
                 status='failed',error='X'*2000,error_traceback='T'*4000,error_type='AssertionError',
@@ -215,8 +216,9 @@ class DutyTraceTests(unittest.TestCase):
                             for key in phase[state]:phase[state][key]=1000000000.123456
             duty['active_mode']='persistent';duty['active_case']=copy.deepcopy(duty['cases'][-1])
             duty['active_case']['phase_state']='stop-cleanup'
-            encoded=(json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
-            self.assertGreater(len(encoded),100_000)
+            from native_smoke import native_report_payload
+            encoded=native_report_payload(value).encode('utf-8')
+            self.assertEqual(json.loads(encoded),value)
             self.assertLessEqual(len(encoded),128*1024)
         finally:
             overlay.close();overlay.deleteLater()
@@ -359,12 +361,15 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 configure_data(control.data);bank=portraits();pixels=[None]
                 control.hero_matcher=PortraitMatcher(bank,control.data['heroes'])
                 control.ocr=LocalOCR()
-                def paint(key='9001',*,gray=False,changed_roi=False):
+                def paint(key='9001',*,gray=False,changed_roi=False,changed_title=False):
                     portrait=bank[key].convert('L').convert('RGB') if gray else bank[key]
                     canvas=frame(portrait,width=960,height=600)
                     cards=Image.open(root/'fixtures/auto-scene.png').convert('RGB').resize((960,600),Image.Resampling.LANCZOS)
                     canvas.paste(cards.crop((0,0,960,480)),(0,0))
                     if changed_roi:canvas.paste((75,60,85),(192,162,204,174))
+                    if changed_title:
+                        a,b=canvas.crop((180,235,295,290)),canvas.crop((407,235,522,290))
+                        canvas.paste(b,(180,235));canvas.paste(a,(407,235))
                     pixels[0]=encoded(canvas)
                 paint()
                 u=SimpleNamespace(IsWindowVisible=lambda hwnd:control.overlay.isVisible())
@@ -397,8 +402,8 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 # Portable plumbing never sets the full two-mode native acceptance flag.
                 self.assertNotIn('overlay_duty_cycle_passed',report)
                 rows=report['cases']
-                self.assertEqual([row['name'] for row in rows],['unchanged','changed_roi','changed_hud','unknown_hud','stop_late'])
-                patterns=([True,False,True],[True,False,True],[True,False],[True,False],[True,False,True,False])
+                self.assertEqual([row['name'] for row in rows],['unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'])
+                patterns=([True,False,True],[True,False,True],[True,False,True],[True,False],[True,False],[True,False,True,False])
                 for row,pattern in zip(rows,patterns):
                     self.assertEqual(row['capture_backend'],'owned-portable-fixture')
                     self.assertIs(row['initial_native_visible'],True)
@@ -417,14 +422,14 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                         self.assertEqual(phase['state_at_phase'],expected)
                         self.assertEqual(phase['state_unchanged'],before==expected)
                 self.assertGreaterEqual(rows[0]['sampled_inference_visible_ms'],500)
-                self.assertEqual(rows[1]['sampled_inference_visible_ms'],0)
+                self.assertGreaterEqual(rows[1]['sampled_inference_visible_ms'],500)
                 self.assertEqual(rows[2]['sampled_inference_visible_ms'],0)
                 self.assertEqual(rows[3]['sampled_inference_visible_ms'],0)
                 self.assertTrue(rows[1]['final_confirmed'])
                 self.assertTrue(all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in rows[1]['phases']))
-                self.assertTrue(rows[4]['late_final_discarded'])
-                self.assertFalse(rows[4]['final_qt_visible'])
-                self.assertFalse(rows[4]['final_native_visible'])
+                self.assertTrue(rows[5]['late_final_discarded'])
+                self.assertFalse(rows[5]['final_qt_visible'])
+                self.assertFalse(rows[5]['final_native_visible'])
                 self.assertTrue(control.state.confirmed)
                 self.assertEqual(control.state.automatic_frames,2)
                 self.assertIs(hero_recognition.recognize_frame,original_recognize)
@@ -448,8 +453,8 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
             return trace
         with patch('native_smoke.OverlayDutyTrace',side_effect=shifted_trace):
             self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
-        measured=[trace for trace in traces if trace.name in ('unchanged','changed_roi','changed_hud','unknown_hud','stop_late')]
-        self.assertEqual(len(measured),5)
+        measured=[trace for trace in traces if trace.name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late')]
+        self.assertEqual(len(measured),6)
         for trace in measured:
             self.assertGreater(trace.started,1_000_000.)
             self.assertLess(trace.elapsed_ms(),45_000.)
@@ -486,7 +491,7 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
             result=show(overlay,*args,**kwargs)
             active=captured.get('report',{}).get('active_case',{})
             timings=active.get('timings_ms',{})
-            if active.get('name')=='changed_roi' and 'result_received' in timings and 'final' not in timings and not inside[0]:
+            if active.get('name')=='changed_title' and 'result_received' in timings and 'final' not in timings and not inside[0]:
                 inside[0]=True
                 try:
                     time.sleep(.025);self.app.processEvents();reentered.append(True)
@@ -495,7 +500,7 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
         with patch(__name__+'._start_overlay_duty_mode',side_effect=observed_start),patch.object(Overlay,'show_at',reenter):
             self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
         self.assertTrue(reentered)
-        row=captured['report']['cases'][1];timings=row['timings_ms']
+        row=captured['report']['cases'][2];timings=row['timings_ms']
         self.assertEqual(row['sampled_inference_visible_ms'],0.)
         self.assertLess(timings['result_received'],row['sampled_visibility_transitions'][2]['at_ms'])
         self.assertLess(row['sampled_visibility_transitions'][2]['at_ms'],timings['final'])

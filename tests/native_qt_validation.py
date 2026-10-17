@@ -25,13 +25,14 @@ with patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen te
     names=['星火共鸣（演示）','晶盾回路（演示）','风步微光（演示）']
     for edit,name in zip(w.inputs,names):edit.setText(name)
     w.confirm();assert w.state.confirmed;assert len(w.overlay.cards)==3;checks.append('Manual hero+three confirmation creates three screen-ordered source-tier cards')
-    labels=' '.join(widget.text() for widget in w.overlay.findChildren(QtWidgets.QLabel))
-    assert all(name in labels for name in names);assert 'T1' in labels and '虚构演示' in w.overlay.footer.text() and w.overlay.tier_labels[0].accessibleName()=='虚构源评级（演示）：T1' and '源顺位' not in labels and '60.00%' not in labels and 'winRate' not in labels;checks.append('Native overlay shows literal hero-specific source tier without win rates or sorting')
-    assert '来源日期' in labels and '数据包' in labels and '游戏资料' in labels;checks.append('Overlay identifies source date and package/game-data versions')
+    assert [badge.tier for badge in w.overlay._badge_widgets]==['T1','T2','T3']
+    assert all(name in badge.accessibleName() for name,badge in zip(names,w.overlay._badge_widgets))
+    assert not w.overlay.isVisible(), 'Manual names alone must not fabricate card geometry'
+    checks.append('Ordered source tiers retain accessible identity; manual names alone cannot display unproven badge locations')
     assert [card['name'] for card in w.overlay.cards]==names and [card['sourceTier'] for card in w.overlay.cards]==['T1','T2','T3']
     w.hero_box.setCurrentText('磐石守卫（演示）');assert not w.state.confirmed and not w.overlay.isVisible();checks.append('Hero change hides stale overlay')
     w.target_allowed=lambda:True;w.state.start((1,1,'synthetic'));w.confirm();assert [card['name'] for card in w.overlay.cards]==names and [card['sourceTier'] for card in w.overlay.cards]==['T3','T1','T2'];checks.append('Hero change clears old view, then recomputes that hero’s literal tiers in the same screen order')
-    rows=w.data['heroAugmentStats']['磐石守卫（演示）'];saved=rows[0]['tier'];rows[0]['tier']=None;w.confirm();labels=' '.join(widget.text() for widget in w.overlay.findChildren(QtWidgets.QLabel));assert '暂无评级' in labels;rows[0]['tier']=saved;checks.append('Missing hero source tier is visibly ungraded rather than inferred')
+    rows=w.data['heroAugmentStats']['磐石守卫（演示）'];saved=rows[0]['tier'];rows[0]['tier']=None;w.confirm();assert any(badge.tier=='暂无评级' for badge in w.overlay._badge_widgets);rows[0]['tier']=saved;checks.append('Missing hero source tier is visibly ungraded rather than inferred')
     w.show_page('correction');w.inputs[0].setFocus();QtTest.QTest.keyClicks(w.inputs[0],'x');assert not w.state.confirmed;checks.append('Actual Qt input editing invalidates confirmed candidates')
     class FakeCapture:
         def rect(self,target):return ClientRect(0,0,1000,700)

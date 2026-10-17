@@ -98,6 +98,7 @@ def display_cards(data, hero, offered):
             rows.setdefault(row['augmentName'],row)
     relation=data.get('relations',{}).get(hero,{})
     cards=[]
+    from source_combo_hints import source_combo_hint
     is_demo=data.get('metadata',{}).get('isDemo') is True
     for slot,name in enumerate(offered,1):
         row=rows.get(name,{});item=data.get('augments',{}).get(name,{})
@@ -106,6 +107,9 @@ def display_cards(data, hero, offered):
             'sourceTier':source_tier(row.get('tier')),'notes':notes,
             'sourceTierLabel':'虚构源评级（演示）' if is_demo else '虎牙公开源评级',
             'sourceLabel':'虚构演示' if is_demo else '英雄专属公开资料快照；非云端实时评级；非 Riot 批准'})
+        hint=source_combo_hint(data,hero,name) if not is_demo else None
+        if hint:
+            cards[-1]['sourceHint']=hint['text'];cards[-1]['sourceHintProvenance']=hint
     return cards
 
 

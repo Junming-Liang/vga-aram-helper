@@ -8,7 +8,7 @@
 - `augment-list.json`、`augment-detail.json`
 - `item-detail.json`
 
-英雄专属推荐来自 `champion-detail` 的 `augmentRecommendations`。内部导入/缓存保留数组顺序，以及各项的 `tier`、`winRate`、`pickRate`、`numGames`；玩家界面和公开 HTTP 响应只输出原始评级及机制资料，过滤胜率、选取率、样本量和推荐排名，不输出唯一最佳项。字段解释见 [DATA.md](DATA.md)，发现、验证和缓存流程见 [UPDATES.md](UPDATES.md)。
+英雄专属推荐来自 `champion-detail` 的 `augmentRecommendations`。内部导入/缓存保留数组顺序，以及各项的 `tier`、`winRate`、`pickRate`、`numGames`；玩家界面和公开 HTTP 响应只输出原始评级及机制资料，过滤胜率、选取率、样本量和推荐排名，不输出唯一最佳项。v0.4.10 原生候选版另对 `topAugmentCombos` 做稳定 ID 投影，只给当前英雄/强化匹配的组合示例，不推断已选内容或实时最优。字段解释见 [DATA.md](DATA.md)，发现、验证和缓存流程见 [UPDATES.md](UPDATES.md)。
 
 ### 已检查快照
 

@@ -147,7 +147,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
             hero_calls.append(image)
             if before_ocr:before_ocr({'hero': hero, 'confident': True},b'exact-title-crop')
             result = ocr.recognize(b'exact-title-crop', vocabulary)
@@ -191,7 +191,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
                 return {'automatic_candidates': copy.deepcopy(candidates),
                         'candidates': copy.deepcopy(candidates),
                         'image_size': {'width': 900, 'height': 400}}
-        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None):
+        def recognize(image, roi, ocr, vocabulary, matcher, *, before_match=None,before_ocr=None,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
             if before_ocr:before_ocr({'hero': selected[0], 'confident': True},b'unchanged-owned-titles')
             result = ocr.recognize(b'unchanged-owned-titles', vocabulary)
             result['hero_observation'] = {'hero': selected[0], 'confident': True}
@@ -239,7 +239,10 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         self.window.state.confirm(list(self.window.data['augments'])[:3], self.window.data['augments'])
         self.window.last_observation = time.monotonic()
         self.window.last_rect = rect
-        self.window.overlay.cards = [{'name': 'owned synthetic card'}]
+        from tests.badge_fixture import seed_badge_geometry
+        from native_state import display_cards
+        self.window.overlay.set_cards(self.window.state.hero,display_cards(self.window.data,self.window.state.hero,self.window.state.offered))
+        seed_badge_geometry(self.window.overlay,list(self.window.state.offered))
         self.window.overlay.hide()
         self.window.ocr_busy = True
         self.window.ocr_started = time.monotonic()
@@ -283,15 +286,20 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def rect(inner,target):return rect
             def foreground(inner,target):return True
         w.hero_matcher=Matcher();w.capture=Capture();w.state.hero=hero;w.state.hero_observed=hero;w.state.hero_stable_frames=2;w.state.confirm(names,w.data['augments'],automatic=True)
-        w.overlay.set_cards(hero,display_cards(w.data,hero,names));w.overlay.hide()
+        w.overlay.set_cards(hero,display_cards(w.data,hero,names))
+        from tests.badge_fixture import seed_badge_geometry
+        seed_badge_geometry(w.overlay,names);w.overlay.hide()
         w.last_observation=time.monotonic()-.1;w.last_rect=rect;w.ocr_started=time.monotonic()
         scope=(w.target.identity,None,rect,tuple(s.value()/100 for s in w.roi),tuple(w.data['augments']),
             (id(w.data),json.dumps(w.data['metadata'],sort_keys=True,ensure_ascii=False)),(w.hero_matcher,w.hero_matcher.proof_identity()))
         value={'_windowIdentity':w.target.identity,'_captureRect':rect,'_frameScope':scope,'_roiDigest':hashlib.sha256(b'owned-crop').hexdigest(),
             '_hudInputDigest':'a'*64,'_capturedAt':w.last_observation,'hero_observation':{'hero':hero,'confident':True}}
+        # Explicit owned presentation fixture, not a pixel detector claim.
+        geometry=SimpleNamespace(matches=lambda image,**kwargs:True)
+        value['_cardGeometry']=geometry
         w.remember_accepted_frame(value)
         w.check_target=lambda:ControlWindow.check_target(w)
-        fresh=dict(value,_capturedAt=time.monotonic(),_captureSerial=w._capture_serial)
+        fresh=dict(value,_capturedAt=time.monotonic(),_captureSerial=w._capture_serial,_matchingCardGeometry=geometry)
         fresh.pop('hero_observation')
         return fresh,hero,names
 
@@ -301,7 +309,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         w.capture_pending=True;w.ocr_busy=True
         w.task_result('capture-proof',value,w.state.generation)
         self.assertFalse(w.capture_pending);self.assertTrue(w.ocr_busy);self.assertTrue(w.overlay.isVisible())
-        self.assertIn('上次候选复核中',w.overlay.heading.text())
+        self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets))
         self.assertEqual(w.last_observation,old_time);self.assertEqual((w.state.automatic_frames,w.state.hero_stable_frames,w.state.generation),old_counts)
         changed=dict(value,hero_observation={'confident':False},automatic_candidates=[],candidates=[],image_size={'width':900,'height':400})
         w.task_result('ocr',changed,w.state.generation)
@@ -310,7 +318,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
     def test_fast_restore_rejects_every_changed_or_expired_reference_scope(self):
         w=self.window;value,hero,names=self.accepted_proof_fixture()
         self.assertTrue(w.may_restore_accepted_frame(value))
-        for field,replacement in (('_roiDigest','b'*64),('_hudInputDigest',None),('_capturedAt',w.last_observation)):
+        for field,replacement in (('_roiDigest','b'*64),('_hudInputDigest',None),('_matchingCardGeometry',None),('_matchingCardGeometry',object()),('_capturedAt',w.last_observation)):
             with self.subTest(field=field):self.assertFalse(w.may_restore_accepted_frame(dict(value,**{field:replacement})))
         for index in range(7):
             scope=list(value['_frameScope']);scope[index]='changed-proof-scope'
@@ -347,7 +355,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def foreground(inner,target):return True
         w.capture=Capture()
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
             before_match('a'*64,b'owned-crop')
             if not release.wait(2):raise RuntimeError('owned inference timeout')
             before_ocr({'hero':hero,'confident':True},b'owned-crop')
@@ -356,8 +364,8 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             w.capture_hidden(w.state.generation);self.wait(lambda:w.overlay.isVisible())
             self.assertTrue(w.ocr_busy);self.assertFalse(w.capture_pending)
             old_time=w.last_observation;w.capture_tick();self.assertEqual(calls,[1]);self.assertEqual(w.last_observation,old_time)
-            self.assertIn('复核中',w.overlay.heading.text());release.set();self.wait(lambda:not w.ocr_busy)
-        self.assertTrue(w.state.confirmed);self.assertNotIn('复核中',w.overlay.heading.text());self.assertEqual(calls,[1])
+            self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets));release.set();self.wait(lambda:not w.ocr_busy)
+        self.assertTrue(w.state.confirmed);self.assertFalse(any(b.source=='复核中' for b in w.overlay._badge_widgets));self.assertEqual(calls,[1])
 
     def test_completion_cadence_is_single_shot_bounded_and_never_overlaps(self):
         from native_ui import ControlWindow
@@ -533,7 +541,8 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             def foreground(inner,target):return True
             def rect(inner,target):return ClientRect(0,0,900,600)
             def prepare_capture_mode(inner,visible):inner.plans.append(visible);return True
-        w.capture=Capture();w.overlay.show();w.refresh_status_badge()
+        from tests.badge_fixture import seed_badge_geometry
+        w.capture=Capture();seed_badge_geometry(w.overlay);w.overlay.show_at(w.capture.rect(w.target),None);w.refresh_status_badge()
         return w.capture,hero,names
 
     def test_guarded_visible_capture_is_default_and_previous_label_does_not_refresh_evidence(self):
@@ -542,7 +551,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         old_counts=(w.state.generation,w.state.automatic_frames,w.state.hero_stable_frames);calls=[]
         with patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:calls.append((delay,fn))):w.capture_tick()
         self.assertEqual(capture.plans,[True]);self.assertTrue(w.overlay.isVisible());self.assertTrue(w.capture_pending)
-        self.assertIn('上次候选复核中',w.overlay.heading.text());self.assertIn('尚非本帧结果',w.candidate_caption.text())
+        self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets));self.assertIn('尚非本帧结果',w.candidate_caption.text())
         self.assertNotIn('资料已确认',w.status_chip.text());self.assertEqual(w.last_observation,old_time)
         self.assertEqual((w.state.generation,w.state.automatic_frames,w.state.hero_stable_frames),old_counts);self.assertEqual(calls[0][0],0)
         w.capture_pending=False;w.enable_visible_capture=False
@@ -589,7 +598,7 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         capture.capture=acquire
         candidates=[{'name':name,'recognized_text':name,'match_method':'exact','ocr_confidence':.99,
             'box':[[x-40,150],[x+40,150],[x+40,180],[x-40,180]]} for x,name in zip((150,450,750),names)]
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
             before_match('changed-HUD-animation',b'changed-whole-ROI-animation')
             if not release.wait(2):raise RuntimeError('owned timeout')
             before_ocr({'hero':hero,'confident':True},b'changed-whole-ROI-animation')
@@ -599,15 +608,15 @@ class NativeCaptureWorkerTests(unittest.TestCase):
             w.capture_hidden(w.state.generation,allow_visible_overlay=True)
             self.wait(lambda:bool(requests) and not w.capture_pending)
             self.assertTrue(w.overlay.isVisible());self.assertTrue(w.ocr_busy);self.assertEqual(w.last_observation,old)
-            self.assertIn('上次候选复核中',w.overlay.heading.text());self.assertTrue(requests[0]['allow_visible_overlay'])
+            self.assertTrue(all(b.source=='复核中' for b in w.overlay._badge_widgets));self.assertTrue(requests[0]['allow_visible_overlay'])
             release.set();self.wait(lambda:not w.ocr_busy)
-        self.assertTrue(w.state.confirmed);self.assertFalse(w._visible_previous);self.assertNotIn('复核中',w.overlay.heading.text())
+        self.assertTrue(w.state.confirmed);self.assertFalse(w._visible_previous);self.assertFalse(any(b.source=='复核中' for b in w.overlay._badge_widgets))
 
     def test_resolved_hero_conflict_hides_while_title_ocr_is_still_held(self):
         w=self.window;capture,hero,names=self.visible_capture_fixture()
         release=threading.Event();resolved=threading.Event();self._release_events.append(release)
         capture.capture=lambda *args,**kwargs:(b'owned synthetic conflict',capture.rect(w.target))
-        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None):
+        def recognize(image,roi,ocr,vocabulary,matcher,*,before_match,before_ocr,inference_worker=None,prior_card_geometry=None,prepared_frame=None):
             before_match('owned-digest',b'owned-crop')
             observation={'hero':None,'confident':False,'method':'game-client-api'}
             before_ocr(observation,b'owned-crop');resolved.set()
@@ -672,17 +681,9 @@ class NativeCaptureWorkerTests(unittest.TestCase):
     def test_rechecking_heading_does_not_revoke_cached_native_placement(self):
         import ctypes
         w=self.window;_,_,_=self.visible_capture_fixture();overlay=w.overlay;rect=w.capture.rect(w.target)
-        class Capture:
-            class User:
-                def GetWindowRect(inner,hwnd,output):
-                    import native_ui
-                    native=ctypes.cast(output,ctypes.POINTER(native_ui.W.RECT)).contents
-                    native.left=rect.x;native.top=rect.y;native.right=rect.x+800;native.bottom=rect.y+80
-                    return True
-            u=User()
-            def configure_overlay(inner,*args,**kwargs):pass
-        overlay.capture=Capture();dpr=float(overlay.windowHandle().devicePixelRatio());key=(rect,overlay._layout_revision,dpr)
-        overlay._placed_key=key;before=overlay.size();hides=[]
+        # Actual badge placement already established by the explicit owned
+        # presentation fixture. Rechecking must preserve its full anchor key.
+        overlay.capture=None;key=overlay._placed_key;before=overlay.size();hides=[]
         class HideObserver(QtCore.QObject):
             def eventFilter(inner,obj,event):
                 if event.type()==QtCore.QEvent.Type.Hide:hides.append(1)
