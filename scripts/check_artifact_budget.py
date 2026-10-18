@@ -22,7 +22,7 @@ def fetch_json(url):
     return json.loads(data)
 
 
-def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_only=False):
+def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_only=False, output_path=None):
     if repository != REPOSITORY:
         raise RuntimeError('Unexpected repository for artifact budget')
     existing = 0
@@ -54,15 +54,26 @@ def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_on
             evidence += genuine_report.stat().st_size
     if not evidence_only and release <= 0:
         raise RuntimeError('Release artifact is missing')
-    # Conservative archive headers/compression overhead plus room for evidence.
-    proposed = math.ceil((release + evidence) * 1.03) + 1_000_000
+    # Full candidate uploads contain the evidence ZIP and its separately exposed
+    # original screenshot. Also count the existing small-evidence upload again:
+    # the remote inventory may not yet reflect that upload. The 1 MB allowance
+    # covers bounded staging receipts/notes; 3% remains for archive overhead.
+    screenshot = root / 'reports' / 'windows-native-overlay.png'
+    extra_screenshot = screenshot.stat().st_size if not evidence_only and screenshot.is_file() else 0
+    counted_evidence = evidence if evidence_only else 2 * evidence
+    proposed = math.ceil((release + counted_evidence + extra_screenshot) * 1.03) + 1_000_000
     report = {'existing_repository_artifact_bytes': existing, 'proposed_upper_estimate_bytes': proposed,
               'projected_bytes': existing + proposed, 'project_budget_bytes': BUDGET_BYTES,
               'reserve_bytes': RESERVE_BYTES, 'upload_scope': 'evidence-only' if evidence_only else 'release-and-evidence',
               'scope': 'This repository only; not a claim about other account/repository storage usage.'}
     report['status'] = 'passed' if report['projected_bytes'] <= BUDGET_BYTES - RESERVE_BYTES else 'blocked'
-    (root / 'reports').mkdir(exist_ok=True)
-    (root / 'reports' / 'windows-artifact-budget.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    output = Path(output_path) if output_path is not None else root / 'reports' / 'windows-artifact-budget.json'
+    if output_path is not None and not output.is_absolute():
+        output = root / output
+    if output.is_symlink():
+        raise RuntimeError('Artifact budget output cannot be a symlink')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     if report['status'] != 'passed':
         raise RuntimeError('Artifact budget would be exceeded; no new executable artifact may be uploaded')
     return report
@@ -70,7 +81,8 @@ def check_budget(root, repository=REPOSITORY, fetcher=fetch_json, *, evidence_on
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--evidence-only', action='store_true', help='Use only when no EXE/source Actions artifact will be uploaded')
+    parser.add_argument('--evidence-only', action='store_true', help='Estimate the small-evidence upload only; any EXE/source upload needs a separate full gate')
+    parser.add_argument('--output', type=Path, help='Write a separate budget report without replacing already-verified evidence')
     args = parser.parse_args()
     print(json.dumps(check_budget(Path(__file__).resolve().parents[1], os.environ.get('GITHUB_REPOSITORY', REPOSITORY),
-                                 evidence_only=args.evidence_only), indent=2))
+                                 evidence_only=args.evidence_only, output_path=args.output), indent=2))

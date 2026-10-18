@@ -25,7 +25,7 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.13'
+PREVIEW_VERSION = '0.4.14'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -242,7 +242,8 @@ def verify_budget(budget, release_dir, evidence):
     require(budget['projected_bytes'] == budget['existing_repository_artifact_bytes'] + budget['proposed_upper_estimate_bytes'] and
             budget['projected_bytes'] <= budget['project_budget_bytes'] - budget['reserve_bytes'],
             'Artifact budget arithmetic or capacity check failed')
-    # EXE/source files go directly to Releases, never duplicate Actions storage.
+    # This report gates the small-evidence upload only. Non-publishing candidate
+    # retention has a separate full budget gate after verification and staging.
     measured = sum(path.stat().st_size for name, path in evidence.items() if name != 'windows-artifact-budget.json')
     require(budget['proposed_upper_estimate_bytes'] >= measured, 'Artifact budget underestimates uploaded evidence')
 
@@ -1181,9 +1182,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
-    notes = (f'VGA capture stability DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
-             '诊断测试版默认开启可关闭的本地日志：有界日志文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。实际对局的闪烁、复核和延迟仍未验证。\n\n'
+    notes = (f'VGA startup recovery DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
+             '诊断测试版默认开启可关闭的本地日志：有界日志文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。用户反馈闪烁已不再出现，但有一次初始识别未成功；未取得该次诊断 ZIP，原因尚不能确认，完整实战验收仍未完成。\n\n'
              '本版不再仅因标题原始像素变化而隐藏或重绘评级；以同帧新鲜语义检查撤销已变化或不确定的标题，保留显示的旧已接受证明仍遵守原有四秒截止时间，绝不因复核而续期。部分候选独立核验已确认槽位，未知卡片不显示旧评级；新 OCR 返回前可能短暂保留旧评级，不保证即时发现换牌。单独的关键事件记录与常规采样保留小体积因果日志。新增选人路径门槛诊断，不宣称已修好真实客户端。接受阈值、歧义规则、新鲜度和失败时隐藏的安全边界不放宽；选人接口仍默认关闭，仅本次启动授权。Windows 受控验收不等同于用户国服实战已验收。\n\n'
+             '本候选修复可复现的启动恢复缺陷：空头像库遇临时失败时按 30/60/120/300 秒有上限退避重试；完整已验证缓存先交付，再尝试联网刷新；完整头像库写盘失败时使用不可变的已验证内存规范映射；畸形 roster 和缓存对象安全拒绝，不阻断独立 HUD/卡片 OCR。保留单工作租约、停止/关闭/模式门槛与身份、新鲜度、两次独立确认等约束。可复现缺陷不等于已确认用户那次初始漏识别的原因。\n\n'
              f'The public still-image reports were rerun for v{version}; every evaluated module must match the release source byte-for-byte. These limited Linux still-image observations are not actual-game verification.\n\n'
              'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate local API controls: current-game read-only identity is enabled by default with a saved Off switch; selection/bench access remains default-off for the current launch. '
              'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
@@ -1208,7 +1210,8 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'Correlated frame IDs, hide reasons, stage timings, confirmation gates and matched catalog hero/augment names are recorded; screenshots, raw OCR text, player/account identity, credentials and private paths are excluded. '
              'A separate critical-event ledger and routine sampling preserve compact causal diagnostics; bounded lifetime summaries survive rotation, and exports disclose dropped or truncated detail. '
              'Raw title pixel variation alone no longer hides or repaints grades. Fresh same-frame semantic checks revoke changed or uncertain titles; any retained accepted proof keeps its original four-second deadline, never renewed by rechecking. Partial candidates preserve independently verified known slots without grading unknown slots. A real reroll may retain its old grade until fresh OCR returns; detection is not instantaneous. Controlled non-game fixtures do not establish live-game stability. Selection-route gate diagnostics explain eligibility and routing; they are not proof of a fixed real-client selection path. Earlier same-card provenance/tier stability and threshold-equivalent fuzzy pruning remain included. '
-             'The reported flashing/rechecking and latency in actual gameplay remain unverified; this is a diagnostic build, not a claim that the live-game problem is solved. '
+             'Startup recovery now retries an empty portrait bank after transient download failure with 30/60/120/300-second capped backoff and a single worker lease. A complete validated cache is delivered before network refresh; a failed or empty refresh cannot remove it. A completely verified bank has an immutable in-memory fallback for the canonical public token-to-ID map when disk persistence fails. Explicit shape checks reject malformed nested roster data and invalid cache objects without aborting independent HUD/card OCR. Stop/Start does not reset backoff; stopped monitoring, manual mode, disabled updates, Close, stale attempts and duplicate callbacks cannot overlap retries or replace current assets. No cached player identity is added; API double-read/self-match, process scope, HUD contradiction, per-slot confirmation and freshness thresholds are unchanged. '
+             'User feedback reports that flicker is no longer observed, but an isolated initial recognition miss remains unexplained; no incident diagnostic ZIP was supplied. The reproduced recovery defects are not a confirmed cause of that incident. Other startup failures and broader acceptance in actual gameplay remain unverified; this is a diagnostic build, not a claim that every live-game cause is fixed. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
              'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
