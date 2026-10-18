@@ -316,10 +316,50 @@ class ClientDisplayTests(unittest.TestCase):
         w = self.prepare_client(); w.portrait_bank.replace({})
         self.deliver(100., 100.1); self.deliver(101., 101.1)
         self.assertNotEqual(self.center_color(w.hero_avatar), (220, 30, 60))
-        with patch('native_ui.time.monotonic', return_value=101.2), patch('hero_recognition.PortraitMatcher'):
+        w.overlay._placed_key=(self.proof['rect'],w.overlay._layout_revision,w.overlay.devicePixelRatioF())
+        w.overlay.set_rechecking(True)
+        state=dict(vars(w.state));session=dict(vars(w.selection_session));reference=dict(w.overlay.reference)
+        matcher=w.hero_matcher;model_key=w._portrait_model_key;bank=w._portraits_bank
+        serial=w._capture_serial;layout=w.overlay._layout_revision;placement=w.overlay._placed_key
+        portrait=w.overlay.hero_portrait;row=w.overlay.row.itemAt(0).widget()
+        with patch('native_ui.time.monotonic', return_value=101.2), patch('hero_recognition.PortraitMatcher') as constructor, \
+                patch.object(w.overlay,'hide',wraps=w.overlay.hide) as hide:
             deliver_portraits(w, ({'9001': Image.new('RGB', (120, 120), (220, 30, 60))}, {'message': 'owned bank'}))
+            revision=w.portrait_bank.revision;pixmap_key=portrait.pixmap().cacheKey()
+            pending_matcher=w._pending_portraits[3]
+            for _ in range(3):
+                deliver_portraits(w, ({'9001': Image.new('RGB', (120, 120), (220, 30, 60))}, {'message': 'same verified pixels'}))
+                self.assertEqual(w.portrait_bank.revision,revision)
+                self.assertEqual(portrait.pixmap().cacheKey(),pixmap_key)
+                self.assertIs(w._pending_portraits[3],pending_matcher)
+            constructor.assert_called_once();hide.assert_not_called()
         self.assertEqual(self.center_color(w.hero_avatar), (220, 30, 60))
         self.assertEqual(self.center_color(w.overlay.hero_portrait), (220, 30, 60))
+        self.assertEqual(vars(w.state),state);self.assertEqual(vars(w.selection_session),session)
+        self.assertEqual(w.overlay.reference,reference);self.assertIs(w.hero_matcher,matcher)
+        self.assertEqual(w._portrait_model_key,model_key);self.assertIs(w._portraits_bank,bank)
+        self.assertEqual(w._capture_serial,serial);self.assertEqual(w.overlay._layout_revision,layout)
+        self.assertEqual(w.overlay._placed_key,placement);self.assertIs(w.overlay.hero_portrait,portrait)
+        self.assertIs(w.overlay.row.itemAt(0).widget(),row);self.assertTrue(w.overlay.isVisible())
+        self.assertTrue(w.overlay._rechecking)
+
+    def test_same_reference_portrait_lookup_change_stays_neutral_without_layout_mutation(self):
+        w = self.prepare_client();self.deliver(100.,100.1);self.deliver(101.,101.1)
+        w.overlay._placed_key=(self.proof['rect'],w.overlay._layout_revision,w.overlay.devicePixelRatioF())
+        portrait=w.overlay.hero_portrait;reference=dict(w.overlay.reference)
+        layout=w.overlay._layout_revision;placement=w.overlay._placed_key
+        state=dict(vars(w.state));session=dict(vars(w.selection_session))
+        self.assertEqual(self.center_color(portrait),(220,30,60))
+        with patch.object(w.overlay,'hide',wraps=w.overlay.hide) as hide:
+            for lookup in (None,'9002'):
+                with patch.object(w.overlay,'hero_id_lookup',return_value=lookup):
+                    w.overlay.set_hero_reference(reference)
+                self.assertNotEqual(self.center_color(portrait),(220,30,60))
+                self.assertEqual(portrait.accessibleName(),'通用身份占位图，不是英雄画像')
+            hide.assert_not_called()
+        self.assertIs(w.overlay.hero_portrait,portrait);self.assertEqual(w.overlay._layout_revision,layout)
+        self.assertEqual(w.overlay._placed_key,placement);self.assertEqual(w.overlay.reference,reference)
+        self.assertEqual(vars(w.state),state);self.assertEqual(vars(w.selection_session),session)
 
     def test_alias_detector_rebuilds_only_when_verified_roster_availability_changes(self):
         w = self.window; sentinel = object(); w.selection_detector = sentinel

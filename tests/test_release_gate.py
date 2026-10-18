@@ -763,7 +763,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_overlay_geometry_and_matrix_harness_are_required_source_inputs(self):
         source = self.release / self.access['application_source']['filename']
-        for missing in ('overlay_geometry.py', 'screen_capture.py', 'tests/windows_dpi_matrix.py'):
+        for missing in ('capture_cadence.py', 'overlay_geometry.py', 'screen_capture.py', 'tests/windows_dpi_matrix.py'):
             with zipfile.ZipFile(source, 'w') as archive:
                 archive.comment = SHA.encode()
                 for name, data in self.source_entries.items():
@@ -788,9 +788,18 @@ class ReleaseFixture(unittest.TestCase):
                        'not proof of a fixed real-client selection path',
                        '30/60/120/300-second capped backoff', 'before network refresh',
                        'immutable in-memory fallback', 'malformed nested roster data',
-                       'no incident diagnostic ZIP', 'not a confirmed cause of that incident'):
+                       'no incident diagnostic ZIP', 'not a confirmed cause of that incident',
+                       'three reproducible defects', '0.4.14 warm-cache refresh',
+                       'preserve the existing model object', 'without existing display authority',
+                       'Measured capture plus inference latency', '50 ms floor',
+                       'unchanged four-second deadline', 'still hide expired grades',
+                       'complete validated official roster', 'before image downloads complete',
+                       'installed version, game stage and field cause remain unknown',
+                       'REGRESSION_RECOVERY.md'):
             self.assertIn(phrase, notes)
         self.assertNotIn('default-off, current-launch local debug', notes)
+        self.assertNotIn('flicker is no longer observed', notes)
+        self.assertNotIn('用户反馈闪烁已不再出现', notes)
         self.assertNotIn('retain their original v0.4.10 evaluation identity', notes)
 
     def test_scaling_notes_preserve_the_confirmed_fix_and_unverified_user_error_limits(self):
@@ -1339,6 +1348,21 @@ class ReleaseFixture(unittest.TestCase):
             gate.publish(bad, self.output/'release-notes.txt', current_provenance())
         api.assert_not_called()
 
+    def test_publish_does_not_accept_a_historical_or_future_version(self):
+        result = self.verify()
+        for version in ('0.4.14', '0.4.16'):
+            wrong = copy.deepcopy(result)
+            wrong.update(version=version, tag='v' + version)
+            for asset in wrong['assets']:
+                if asset['name'] == self.filename:
+                    asset['name'] = f'vga-aram-helper-{version}-windows-x64.exe'
+            with self.subTest(version=version), patch.object(gate, 'gh_api') as api, \
+                 patch.object(gate, 'gh_run') as run, \
+                 self.assertRaisesRegex(gate.VerificationError, 'Preview source/run/version/EXE identity'):
+                gate.publish(wrong, self.output / 'release-notes.txt', current_provenance())
+            api.assert_not_called()
+            run.assert_not_called()
+
     def test_publish_reserves_tag_then_draft_verifies_then_publishes(self):
         result = self.verify()
         draft = self.remote_release(result)
@@ -1502,19 +1526,61 @@ class AdoptedTimingTests(unittest.TestCase):
         with self.assertRaises(gate.VerificationError): gate.verify_adopted_performance(report)
 
 
+class PreviewVersionIdentityTests(unittest.TestCase):
+    @staticmethod
+    def receipt(version):
+        return dict(source_sha=SHA, run_id=RUN_ID, run_attempt=RUN_ATTEMPT,
+                    version=version, tag='v' + version,
+                    exe_sha256='d' * 64, exe_size=123,
+                    assets=[dict(name=f'vga-aram-helper-{version}-windows-x64.exe',
+                                 sha256='d' * 64, size=123)])
+
+    def test_current_publication_rejects_historical_or_future_receipt_version(self):
+        gate.check_preview_identity(self.receipt(VERSION), current_provenance())
+        for version in ('0.4.14', '0.4.16'):
+            with self.subTest(version=version), self.assertRaises(gate.VerificationError):
+                gate.check_preview_identity(self.receipt(version), current_provenance())
+
+    def test_fixed_historical_identity_rejects_current_or_wrong_asset_version(self):
+        historical = self.receipt('0.4.14')
+        gate.check_preview_identity(historical, current_provenance(),
+                                    expected_version='0.4.14')
+        for version in ('0.4.13', VERSION):
+            with self.subTest(version=version), self.assertRaises(gate.VerificationError):
+                gate.check_preview_identity(self.receipt(version), current_provenance(),
+                                            expected_version='0.4.14')
+        historical['assets'][0]['name'] = f'vga-aram-helper-{VERSION}-windows-x64.exe'
+        with self.assertRaisesRegex(gate.VerificationError, 'EXE identity'):
+            gate.check_preview_identity(historical, current_provenance(),
+                                        expected_version='0.4.14')
+
+
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.14')
+        self.assertEqual(VERSION, '0.4.15')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
         self.assertIn(f'group: vga-native-preview-v{VERSION}', text)
         self.assertIn('DIAGNOSTIC prerelease', text)
         self.assertTrue(gate.genuine_report_version_matches(VERSION, VERSION))
-        for old in ('0.4.10', '0.4.11', '0.4.12', '0.4.13'):
+        for old in ('0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14'):
             self.assertFalse(gate.genuine_report_version_matches(old, VERSION))
         # Preserve the narrowly scoped historical exception, not for this release.
         self.assertTrue(gate.genuine_report_version_matches('0.4.10', '0.4.11'))
+
+    def test_capture_cadence_is_bound_to_windows_source_evidence(self):
+        path = ROOT / 'tests/windows_automatic_capture.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        inventories = [ast.literal_eval(node.value) for node in tree.body
+                       if isinstance(node, ast.Assign) and
+                       any(isinstance(target, ast.Name) and target.id == 'SOURCE_FILES'
+                           for target in node.targets)]
+        self.assertEqual(len(inventories), 1)
+        self.assertIn('capture_cadence.py', inventories[0])
+        self.assertIn('capture_cadence.py', gate.AUTO_SOURCE_FILES)
+        self.assertEqual(set(inventories[0]), set(gate.AUTO_SOURCE_FILES))
+        self.assertEqual(len(inventories[0]), len(set(inventories[0])))
 
     def test_windows_git_archive_preserves_every_probe_and_recipe_input(self):
         from scripts.probe_opencv_parity import SOURCE_FILES

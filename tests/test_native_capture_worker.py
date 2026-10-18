@@ -518,11 +518,11 @@ class NativeCaptureWorkerTests(unittest.TestCase):
         from types import SimpleNamespace
         w=self.window;w.last_observation=100.;w.state.confirmed=False
         with patch('native_ui.time.monotonic',return_value=103.9):
-            ControlWindow.schedule_capture(w);self.assertLessEqual(w.monitor.interval(),20);w.monitor.stop()
+            ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),50);w.monitor.stop()
         w.client_phase=lambda:True;w.selection_session=SimpleNamespace(active=False,last_client_frame=100.,stop=lambda:None)
         w.last_observation=0.
         with patch('native_ui.time.monotonic',return_value=103.9):
-            ControlWindow.schedule_capture(w);self.assertLessEqual(w.monitor.interval(),20);w.monitor.stop()
+            ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),50);w.monitor.stop()
         with patch('native_ui.time.monotonic',return_value=104.1):
             ControlWindow.schedule_capture(w);self.assertEqual(w.monitor.interval(),200);w.monitor.stop()
         w.selection_session=None

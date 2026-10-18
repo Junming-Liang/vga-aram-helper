@@ -125,6 +125,34 @@ class OfflineTestCase(unittest.TestCase):
 
 
 class PromotionIdentityTests(OfflineTestCase):
+    def test_historical_recovery_identity_uses_its_fixed_version(self):
+        self.assertEqual(promotion.VERSION, '0.4.14')
+        self.assertEqual(promotion.gate.PREVIEW_VERSION, '0.4.15')
+        receipt = dict(source_sha=promotion.SOURCE_SHA, run_id=promotion.RUN_ID,
+                       run_attempt=promotion.RUN_ATTEMPT, version=promotion.VERSION,
+                       tag='v' + promotion.VERSION, exe_sha256=promotion.EXE_SHA256,
+                       exe_size=promotion.EXE_SIZE,
+                       assets=[dict(name=f'vga-aram-helper-{promotion.VERSION}-windows-x64.exe',
+                                    sha256=promotion.EXE_SHA256, size=promotion.EXE_SIZE)])
+        # This deliberately incomplete receipt must pass only the fixed identity
+        # check, then fail the real complete-asset guard before any file access.
+        with patch.object(promotion.gate, 'read_json', return_value=receipt), \
+             patch.object(promotion.gate, 'check_preview_identity',
+                          wraps=promotion.gate.check_preview_identity) as identity, \
+             self.assertRaisesRegex(RuntimeError, 'Staged asset inventory changed'):
+            promotion.verify_bundle(self.root, self.root, expected_provenance(), self.root)
+        identity.assert_called_once_with(receipt, expected_provenance(),
+                                         expected_version='0.4.14')
+        self.command_guard.assert_not_called()
+        for version in ('0.4.13', promotion.gate.PREVIEW_VERSION):
+            changed = dict(receipt, version=version, tag='v' + version)
+            with self.subTest(version=version), \
+                 patch.object(promotion.gate, 'read_json', return_value=changed), \
+                 patch.object(promotion.gate, 'check_preview_identity') as identity, \
+                 self.assertRaisesRegex(RuntimeError, 'Unexpected staged version'):
+                promotion.verify_bundle(self.root, self.root, expected_provenance(), self.root)
+            identity.assert_not_called()
+
     def test_only_the_pinned_artifact_and_source_are_accepted(self):
         args = [promotion.RUN_ID, promotion.SOURCE_SHA, promotion.RUN_ATTEMPT,
                 promotion.ARTIFACT_ID, promotion.ARTIFACT_SHA256]

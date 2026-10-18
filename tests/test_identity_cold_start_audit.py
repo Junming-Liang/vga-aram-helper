@@ -8,8 +8,9 @@ Baseline audit reproduced: one cold asset failure stayed unavailable forever,
 warm verified portraits waited behind a remote versions request, and malformed
 image records aborted capture before HUD/OCR. Their tests now require recovery.
 Memory-only complete banks also provide a verified map without disk persistence.
-The conservative boundary remains: a map arrives only after the whole bank is
-verified, so an incomplete download never supplies identity evidence.
+The complete, strictly validated official roster now independently supplies the
+API dictionary before portrait images finish. A partial image bank still never
+becomes a HUD matcher, and fresh scoped API observations remain mandatory.
 """
 import copy
 import hashlib
@@ -155,25 +156,26 @@ class IdentityColdStartAudit(unittest.TestCase):
         self.assertEqual(w.state.hero, self.hero)
         self.assertEqual(self.identity()['api_outcome'], 'verified')
 
-    def test_cold_single_asset_failure_retries_when_due_and_restores_both_sources(self):
+    def test_cold_asset_failure_keeps_verified_api_and_retries_portraits_when_due(self):
         w = self.prepare_game()
         server = OwnedPortraitServer(fail_once='/Owned100.png')
         self.start_portraits_through_load_result(server)
         self.portraits_settled()
         self.assertIsNone(w.hero_matcher)
         self.assertFalse((w.state_dir / 'hero-portraits/manifest.json').exists())
-        self.assertEqual(w.canonical_champion_map(), {})
+        self.assertEqual(len(w.canonical_champion_map()), 100)
         self.assertIsNone(server.fail_once)  # All later server responses are healthy.
         self.assertFalse(w._portraits_busy)
         self.assertEqual(w._portraits_failures, 1)
         self.assertGreater(w._portraits_retry_at, time.monotonic() + 28)
         self.assertLess(w._portraits_retry_at, time.monotonic() + 31)
         calls_after_failure = len(server.calls)
-        for _ in range(3):
+        for frame in range(3):
             http = self.run_frame()
-            http.assert_not_called()  # Healthy API is never tried without the map.
-            self.assertFalse(w.state.hero)
-            self.assertEqual(self.identity()['api_outcome'], 'map_invalid')
+            self.assertEqual(http.call_count, 4)
+            self.assertEqual(w.state.hero, self.hero if frame else '')
+            self.assertEqual(self.identity()['api_outcome'], 'verified')
+            self.assertEqual(self.identity()['map_outcome'], 'verified_roster')
             self.assertEqual(self.identity()['hud_outcome'], 'templates_unavailable')
         self.assertEqual(len(server.calls), calls_after_failure)
         w.retry_portraits()
@@ -190,18 +192,29 @@ class IdentityColdStartAudit(unittest.TestCase):
         self.run_frame()
         self.assertEqual(w.state.hero, self.hero)
 
-    def test_current_boundary_cold_map_waits_for_complete_portrait_bank(self):
+    def test_cold_verified_roster_enables_api_while_second_portrait_waits(self):
         w = self.prepare_game()
-        server = OwnedPortraitServer(block_suffix='/Owned100.png')
+        server = OwnedPortraitServer(block_suffix='/Owned2.png')
         self.start_portraits_through_load_result(server)
         self.wait(server.entered.is_set)
+        self.wait(lambda: len(w._verified_roster_map) == 100)
         self.assertIn('champion.json', server.calls[1])
         self.assertEqual(len(hero_portraits.parse_roster(server.roster, server.version)), 100)
         self.assertFalse((w.state_dir / 'hero-portraits/roster-16.20.1.json').exists())
-        self.assertEqual(w.canonical_champion_map(), {})
-        http = self.run_frame()
-        http.assert_not_called()
-        self.assertEqual(self.identity()['api_outcome'], 'map_invalid')
+        self.assertFalse((w.state_dir / 'hero-portraits/manifest.json').exists())
+        self.assertIsNone(w.hero_matcher)
+        self.assertEqual(len(w.canonical_champion_map()), 100)
+        for frame in range(2):
+            http = self.run_frame()
+            self.assertEqual(http.call_count, 4)
+            self.assertEqual(self.identity()['map_outcome'], 'verified_roster')
+            self.assertEqual(self.identity()['api_outcome'], 'verified')
+            self.assertEqual(self.identity()['hud_outcome'], 'templates_unavailable')
+            self.assertEqual(w.state.hero, self.hero if frame else '')
+            self.assertIsNone(w.hero_matcher)
+            self.assertTrue(w._portraits_busy)
+            self.assertFalse(server.release.is_set())
+        self.assertEqual(w.hero_continuity.hero, self.hero)
         server.release.set()
         self.portraits_settled()
         self.assertEqual(len(w.canonical_champion_map()), 100)
@@ -235,7 +248,7 @@ class IdentityColdStartAudit(unittest.TestCase):
         self.assertEqual(w.portrait_bank.revision, cached_revision)
         self.assertFalse(w._portraits_busy)
 
-    def test_memory_only_complete_portraits_allow_fresh_api_without_disk_mapping(self):
+    def test_memory_only_portraits_and_roster_allow_fresh_api_without_disk_mapping(self):
         w = self.prepare_game()
         server = OwnedPortraitServer()
         with patch.object(hero_portraits, '_write_cache', side_effect=PermissionError('Owned read-only cache')):
@@ -258,7 +271,7 @@ class IdentityColdStartAudit(unittest.TestCase):
         self.assertEqual(http.call_count, 4)
         self.assertEqual(w.state.hero, self.hero)
         self.assertEqual(self.identity()['api_outcome'], 'verified')
-        self.assertEqual(self.identity()['map_outcome'], 'verified_memory')
+        self.assertEqual(self.identity()['map_outcome'], 'verified_roster')
 
     def test_new_game_api_failure_never_carries_previous_identity_then_recovers(self):
         from session_windows import ProcessMetadata

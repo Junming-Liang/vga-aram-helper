@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
-    from PySide6 import QtCore, QtWidgets
+    from PySide6 import QtCore, QtWidgets, QtTest
     import native_smoke
     from native_ui import ControlWindow
 except ImportError:
@@ -33,9 +33,9 @@ class NativeSmokeCadenceTests(unittest.TestCase):
             closed=False, current_version='owned-test',
             state=SimpleNamespace(running=True, generation=2, confirmed=False),
             ocr_busy=False, capture_pending=False, monitor=self.monitor,
-            # The production scheduler selects zero delay near the freshness
-            # boundary. The fixed clock below avoids a test-machine timing race.
-            last_observation=100., selection_session=None,
+            # The production scheduler retains a 50ms idle floor even near
+            # expiry. The fixed clock avoids a test-machine age race.
+            last_observation=100., selection_session=None, last_timings=None,
             client_phase=lambda: False, client_selection_reference=lambda: None,
             current_partial_names=lambda: ('', '', ''),
             overlay=SimpleNamespace(set_rechecking=lambda value: None),
@@ -55,8 +55,8 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         self.monitor.stop()
         self.complete_observation()
         self.assertTrue(self.monitor.isActive())
-        self.assertEqual(self.monitor.interval(), 0)
-        self.app.processEvents()
+        self.assertEqual(self.monitor.interval(), 50)
+        QtTest.QTest.qWait(100)
         self.assertEqual(self.unsolicited, [True])
 
     def test_manual_results_and_event_pumps_do_not_add_captures(self):
@@ -84,6 +84,9 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         control._capture_serial = 0
         control._accepted_frame = None
         control._accepted_partial_frame = None
+        control.hero_matcher = None
+        control._pending_portraits = None
+        control.activate_idle_first_portraits = MethodType(ControlWindow.activate_idle_first_portraits, control)
         control.debug_event = lambda *args, **kwargs: None
         control.debug_selection_gate = lambda *args, **kwargs: None
         control.debug_log = SimpleNamespace(sample=lambda *args, **kwargs: None)
