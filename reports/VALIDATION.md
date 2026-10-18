@@ -1,78 +1,83 @@
-# v0.4.15 regression recovery candidate (2026-10-18 UTC)
+# v0.4.16 selection-routing recovery candidate (2026-10-18 UTC)
 
-Local preparation only: no v0.4.15 candidate commit, Windows build, EXE identity,
-workflow run or publication is recorded here. The v0.4.14 diagnostic prerelease
-is already published; the earlier checkpoint saying that its tag was absent
-applied only before that publication and is superseded. This local v0.4.15
-candidate is based on remote main `04e30a5`; the read-only public tag query on
-2026-10-18 found no `v0.4.15` tag. That base is not a final candidate SHA.
-The manual workflow remains `publish_preview=false` by default. After every gate
-passes, non-publishing validation stages the complete verified release/evidence
-bundle and retains it for one day as `verified-candidate-<exact source SHA>`.
-The separate full-bundle budget check follows the small-evidence upload and
-writes outside the already-hashed evidence. It conservatively counts both
-evidence copies, the separately exposed screenshot and bounded staging metadata;
-an unknown or exceeded budget blocks the candidate upload. This does not create
-a public release or change billing settings.
+Local candidate preparation only: no v0.4.16 Windows EXE, final candidate commit,
+workflow run or publication is recorded here. A read-only remote check at
+17:00 UTC found no v0.4.16 tag. The current working tree starts from
+`e7bae29914d08573f93a70fc9f705eea445be606`; that historical v0.4.15 source is
+not the final v0.4.16 candidate SHA. The published download remains v0.4.14,
+with reported flicker and initial-recognition issues. No interim v0.4.15 release
+is planned; its changes are included in v0.4.16.
 
-The [regression recovery investigation](../REGRESSION_RECOVERY.md) records three
-reproducible defects: equivalent warm-cache replacement during recognition,
-fixed idle delay consuming the refresh budget, and API lookup waiting for every
-portrait. Changes preserve equivalent model objects, defer real replacements to
-safe boundaries, schedule around measured latency with a 50 ms floor and an
-unchanged four-second expiry, and expose only a complete validated roster before
-full image readiness. The [startup recovery audit](../STARTUP_RECOVERY.md)
-remains historical context for v0.4.14.
+The [window-routing investigation](../WINDOW_ROUTING_RECOVERY.md) records two
+reproduced defects: automatic game-priority blocking a foreground client, and
+manual-client selection being sent to game OCR when handoff was disabled.
+Foreground/availability now select the role while preserving all same-role and
+installation ambiguity evidence. Adoption and permission use fresh snapshots;
+manual role classification is independent of handoff consent. Snapshot failure
+revokes stale GUI evidence and valid later queries recover safely. No title,
+class, renderer-process or LCU authorization expansion is included.
 
-After that publication, the user again reported flicker and initial recognition
-failure. No new incident diagnostic ZIP establishes the installed version,
-game stage or field cause. Controlled real Qt/local OCR and owned moving-pixel
-regressions establish the reproduced paths only; they are not Windows capture,
-packaged-runtime or actual-game proof. Pre-bump counts are not a v0.4.15 result.
+The earlier [warm-model/cadence/roster fixes](../REGRESSION_RECOVERY.md) remain.
+Artifact inventory queries now use the existing job token only at the fixed
+read-only endpoint and reject redirects. Existing budgets, reserve, conservative
+accounting and fail-closed inventory handling remain unchanged. No billing
+change is made. The manual workflow still defaults to `publish_preview=false`.
 
-## Final portable checkpoint (2026-10-18 UTC)
+## Current portable checkpoint
 
-The final candidate completed 1,920 Python tests in 231.865 seconds with 15
-platform-dependent skips. Both JavaScript test files passed, and all three
-JavaScript syntax checks passed. The real Qt/local-OCR dynamic regressions and
-bounded-log/privacy tests are included in that Python run. These are portable
-checks, not a Windows desktop or packaged-EXE pass.
+- The original public hero and selection screenshot runners genuinely
+  regenerated both reports for 0.4.16. Every evaluated-module hash was checked
+  against the source. Hero positives: 2 recognized, 1 safely abstained; all 3
+  negatives abstained. Selection: 1 positive recognized, all 3 negatives
+  abstained across 2 distinct negative scenes. Zero wrong-hero predictions were
+  observed in either small sample. Original images remain uncommitted.
+- JavaScript logic checks passed: 19 UI checks and 16 choices checks; all three
+  JavaScript syntax checks passed.
+- Final full Python suite: 2,043 tests in 244.431 seconds, passing with 15
+  platform-dependent skips. This follows the genuine report rerun and all
+  routing, budget-authentication and Windows-fixture edits.
+- Independent reviews passed the routing/privacy and fixed-endpoint budget
+  authentication checks. The final Windows-fixture/release-gate review ran
+  277 tests, passing with 2 Windows-only skips; its final phase-driver test
+  also passed separately. Actual Windows execution remains pending.
+- The earlier intermediate 2,022-test run had one stale hero-report hash
+  failure. The original generator was rerun, and the final full suite above
+  confirms that mismatch is resolved without modifying report hashes by hand.
 
-Both original public screenshot runners genuinely regenerated their 0.4.15
-reports; every recorded evaluated-module hash was then checked against this
-candidate. Hero positives: 2 recognized, 1 safely abstained; 3 negatives all
-abstained. Selection: 1 positive recognized and 3 negatives abstained, with
-zero wrong-hero predictions in either small sample. Original images remain
-uncommitted. Windows and actual-game results remain outstanding.
+The portable routing fixtures use owned window tables, injected metadata/trust
+and intercepted dispatch. Real Qt/OCR regressions and Linux stills are distinct
+from Windows capture and the packaged runtime. None confirms the user's field
+cause, current live-client compatibility or actual LoL/Vanguard acceptance.
 
-## Evidence required after the version bump
+## Required final-candidate evidence
 
-- Genuinely rerun both public still-image generators below against the final
-  implementation and the original permitted images/rosters/models. The hero
-  report must also exercise its full still-frame OCR path through `--data`.
-  Do not hand-edit report versions, source hashes or observations. The existing
-  historical 0.4.10-to-0.4.11 exception does not permit reuse for v0.4.15, even
-  if the selection modules themselves are unchanged.
-- Recheck the report `applicationVersion` and every evaluated module hash against
-  the final source. Preserve actual abstentions, source provenance and sample
-  limitations. These Linux stills do not demonstrate startup recovery or live
-  capture. If the original inputs are unavailable, keep the gate blocked.
-- Rerun Python and JavaScript checks after final edits; regenerate any supporting
-  offscreen reports being cited as candidate evidence. Preserve historical
-  reports as historical rather than changing their metadata.
-- Complete every source and exact-frozen-EXE Windows workflow gate on the final
-  committed source: three-scale WGC/session/visible-overlay, automatic lifecycle,
-  five-scale layout, native OCR/partial-slot recovery, selection handoff, browser,
-  same-binary OTA success/rollback, fixed post-build OpenCV comparison, package
-  size/budget and exact source/license checks. Bind the final verification to
-  that run and the one EXE's digest and size. Earlier runs or `/releases/latest`
-  cannot substitute for this candidate artifact.
-- Publication remains a separate authorized step after these gates; any eventual
-  candidate release must keep `prerelease=true` and `make_latest=false`. Nothing
-  in this local metadata preparation publishes a tag or release.
+- Preserve genuine runner output and recheck each report's application version
+  and evaluated-module hashes after final edits. If an evaluated module changes,
+  rerun its original generator; never hand-edit versions, hashes or observations.
+  The narrow historical 0.4.10-to-0.4.11 exception does not apply to v0.4.16.
+- Run final Python/JavaScript checks and record their actual results. Keep
+  historical/offscreen reports labeled with their original identity.
+- Complete every source and exact-frozen-EXE Windows gate on the final committed
+  source: three-scale WGC/session/visible-overlay, automatic lifecycle and role
+  routing, five-scale layout, native OCR/partial-slot recovery, selection
+  handoff and manual follow-off behavior, browser, same-binary OTA
+  success/rollback, fixed post-build OpenCV comparison, package budget and exact
+  source/license checks. New evidence must be produced by its actual runners.
+- Bind final verification to that run and one EXE's SHA-256 and size. Neither
+  the historical Run 81 runtime passes nor `/releases/latest` substitutes for
+  the final v0.4.16 artifact. Actual-game acceptance remains separate.
+- Only after every gate passes may non-publishing validation stage a complete
+  verified release/evidence bundle, retained for one day as
+  `verified-candidate-<exact source SHA>`. The separate full-bundle budget check
+  follows the small-evidence upload, writes outside already-hashed evidence and
+  conservatively counts both evidence copies, the exposed screenshot and
+  bounded staging metadata. Unknown or exceeded budget still blocks upload.
+- Publication is a separate authorized step with `prerelease=true` and
+  `make_latest=false`. The historical promotion workflow remains pinned to
+  v0.4.14 Run 78 and its original verifier; it is not a v0.4.16 release path.
 
-Reproduction commands use caller-supplied permitted cached inputs. The fixture
-images and complete third-party data are not committed or redistributed:
+Reproduction uses caller-supplied permitted cached inputs. Original images and
+complete third-party data are not committed or redistributed:
 
 ```sh
 ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" scripts/validate_hero_screenshots.py \
@@ -90,11 +95,28 @@ node tests/test_choices_ui.js
 ```
 
 Use `QT_QPA_PLATFORM=offscreen` only for non-Windows checks. The Windows workflow
-must test its real native desktop and exact EXE with the existing full gates.
-No complete Windows pass is asserted in this checkpoint. Post-bump genuine-image
-and portable test results must be recorded from the actual final runners.
-The historical promotion workflow remains pinned to the original v0.4.14 Run 78
-artifact and its unchanged original verifier; it is not a v0.4.15 release path.
+must test its real native desktop and exact EXE with the complete existing gates.
+
+## Historical v0.4.15 candidate: built but not released
+
+[Windows run #81](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39144535874),
+source `e7bae29914d08573f93a70fc9f705eea445be606`, built the EXE and passed both
+1,977-test Python rounds (5 skips each), existing source and exact-frozen
+100%/150%/200% runtime gates, selection handoff, browser and same-binary OTA.
+It failed only at the anonymous artifact-budget API HTTP 403 before final
+verification and publication. Thus it was not a complete release-gate pass and
+v0.4.15 was not published. Earlier statements that no v0.4.15 EXE had been built
+are superseded by this run.
+
+Run 80's intermittent helper-failure cause remains unknown. Later source/frozen
+32-switch diagnostics passed, but those fixtures do not establish a field fix.
+
+The earlier local pre-Windows checkpoint recorded 1,920 Python tests in 231.865
+seconds with 15 platform-dependent skips, both JavaScript test files and three
+syntax checks passing. The genuine 0.4.15 image reports had hero results of
+2 recognized/1 abstention and 3 negative abstentions; selection had 1 recognized
+positive and 3 negative abstentions, with zero wrong heroes in either sample.
+Those are historical pre-Run-81 observations, not v0.4.16 final-candidate proof.
 
 # v0.4.11 published preview (2026-10-17 UTC)
 
