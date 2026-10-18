@@ -648,12 +648,15 @@ class SessionFixtureTests(unittest.TestCase):
     def test_owned_game_focus_command_pins_current_job_canonical_image_and_creation(self):
         source=fixture.SOURCE.read_text()
         self.assertEqual(fixture.WM_FOCUS_OWNED_GAME,0x804C)
-        command=source.split('private static IntPtr FocusOwnedGame(',1)[1].split('private static int Number(',1)[0]
-        for required in ('IntPtr.Size != 8','hwnd != window || role != "client" || noActivate',
+        self.assertEqual(fixture.WM_FOCUS_OWNED_PAIR_CLIENT,0x804D)
+        self.assertNotIn('created <= ownCreated',source)
+        self.assertIn('FocusOwnedSibling(hwnd, wParam, lParam, false)',source)
+        command=source.split('private static IntPtr FocusOwnedSibling(',1)[1].split('private static int Number(',1)[0]
+        for required in ('IntPtr.Size != 8','role != (gameTarget ? "client" : "game")',
                 'expectedCreated.ToInt64() <= 0','targetValue.ToUInt64() > Int64.MaxValue',
                 'GetForegroundWindow() != window','GetAncestor(target, 2) != target',
-                '!IsWindowVisible(target) || IsIconic(target)','cls.ToString() != "RiotWindowClass"',
-                '!SameOwnedJob(pid)','created != expectedCreated.ToInt64()', 'created <= ownCreated',
+                '!IsWindowVisible(target) || IsIconic(target)','cls.ToString() != (gameTarget ? "RiotWindowClass" : "RCLIENT")',
+                '!SameOwnedJob(pid)','created != expectedCreated.ToInt64()',
                 'repeatedPid != pid','String.Equals(actual, sibling, StringComparison.OrdinalIgnoreCase)',
                 '"Game", "League of Legends.exe"', 'bool accepted = SetForegroundWindow(target)',
                 '!accepted ? 2 : GetForegroundWindow() == target ? 1 : 3'):

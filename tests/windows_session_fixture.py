@@ -26,9 +26,11 @@ CLASSES = {'client': 'RCLIENT', 'game': 'RiotWindowClass'}
 WM_FOCUS_OWNED_SINK = 0x8000 + 74
 WM_RETURN_OWNED_CLIENT = 0x8000 + 75
 # x64: exact destination HWND + expected creation FILETIME, no path argument.
-# Only the currently foreground client may focus its metadata-verified sibling.
+# Only the currently foreground owned role may focus its verified sibling.
+# Creation equality pins lifetime; relative age never grants focus authority.
 # Result: 0 rejected; 1 API true and observed; 2 API false; 3 true but not observed.
 WM_FOCUS_OWNED_GAME = 0x8000 + 76
+WM_FOCUS_OWNED_PAIR_CLIENT = 0x8000 + 77
 FOCUS_SINK_CLASS = 'VGAOwnedFocusSink'
 FOCUS_SINK_TITLE = 'VGA owned focus sink'
 FOCUS_SINK_BOUNDS = (0, 0, 160, 96)

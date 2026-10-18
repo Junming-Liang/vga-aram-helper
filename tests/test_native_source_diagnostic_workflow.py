@@ -45,9 +45,11 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
         self.steps = workflow_steps(self.configuration)
 
     def test_manual_fixed_workflow_and_public_owned_main_only(self):
-        self.assertEqual(section(self.configuration, '\non:\n', '\npermissions:').strip(), 'workflow_dispatch:')
-        self.assertNotIn('inputs.', self.configuration)
-        self.assertNotIn('inputs:', self.configuration)
+        self.assertEqual(section(self.configuration, '\non:\n', '\npermissions:').strip(), '\n'.join((
+            'workflow_dispatch:', '    inputs:', '      source_focus_only:',
+            "        description: 'Run all owned source focus/routing fixtures without an OpenCV rebuild or frozen EXE'",
+            '        type: boolean', '        default: false')))
+        self.assertEqual(set(re.findall(r'inputs\.([a-z_]+)', self.configuration)), {'source_focus_only'})
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && "
                       "github.event.repository.private == false && "
                       "github.repository == 'Junming-Liang/vga-aram-helper' && "
@@ -60,13 +62,16 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
         self.assertNotIn('windows-latest', self.configuration)
 
     def test_read_only_permission_and_no_explicit_credentials(self):
-        self.assertEqual(section(self.configuration, '\npermissions:\n', '\nconcurrency:').strip(), 'contents: read')
+        self.assertEqual(section(self.configuration, '\npermissions:\n', '\nconcurrency:').strip(), 'contents: read\n  actions: read')
         self.assertEqual(self.configuration.count('permissions:'), 1)
         for forbidden in ('contents: write', 'actions: write', 'id-token:', 'write-all',
-                          'GH_TOKEN', 'GITHUB_TOKEN', 'github.token', 'secrets.',
+                          'GH_TOKEN', 'GITHUB_TOKEN', 'secrets.',
                           'ssh-key:', 'gh auth', 'create-github-app-token'):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.configuration)
+        self.assertEqual(self.configuration.count('github.token'), 1)
+        self.assertEqual(self.configuration.count('VGA_ARTIFACT_READ_TOKEN:'), 1)
+        self.assertIn('          VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}', self.steps[-2])
 
     def test_exact_dispatch_checkout_and_fresh_outputs(self):
         self.assertEqual(self.steps[0].strip(), '\n'.join((
@@ -103,48 +108,88 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
         expected = ('python tests/windows_native_smoke.py --source --app-scale 1.5',
                     'python tests/windows_native_smoke.py --source',
                     'python tests/windows_native_smoke.py --source --app-scale 2')
-        for step, command in zip(self.steps[8:11], expected):
+        for step, command in zip(self.steps[14:17], expected):
             self.assertEqual(step.split('        run: ', 1)[1].strip(), command)
         normal_steps = workflow_steps(NORMAL_WORKFLOW.read_text(encoding='utf-8'))
-        for step in self.steps[11:14]:
+        for step in self.steps[18:21]:
             title = step.splitlines()[0]
             normal = next(block for block in normal_steps if block.splitlines()[0] == title)
-            self.assertEqual(step.strip(), normal.strip())
-        self.assertEqual(self.steps[14].split('        run: ', 1)[1].strip(), 'python scripts/build_windows.py')
+            self.assertEqual(step.replace('        if: ${{ !inputs.source_focus_only }}\n', '').strip(), normal.strip())
+        self.assertEqual(self.steps[21].split('        run: ', 1)[1].strip(), 'python scripts/build_windows.py')
         self.assertEqual(self.configuration.count('run: python scripts/build_windows.py'), 1)
         self.assertIn("      VGA_RELEASE_PACKAGE_PROFILE: 'minimal-opencv-v1'", self.configuration)
         self.assertEqual(self.configuration.count("VGA_RELEASE_PACKAGE_PROFILE:"), 1)
+
+    def test_source_only_commands_match_normal_gates_and_finish_before_custom_build(self):
+        commands = (
+            'python tests/windows_wgc_capture.py --reports reports',
+            'python tests/windows_wgc_session_capture.py --application --reports reports',
+            'python tests/windows_wgc_visible_overlay.py --reports reports',
+            'python tests/windows_selection_smoke.py --report-dir reports',
+            'python tests/windows_automatic_capture.py --reports reports',
+            'python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate')
+        normal = NORMAL_WORKFLOW.read_text(encoding='utf-8')
+        for step, command in zip(self.steps[8:14], commands):
+            self.assertEqual(step.split('        run: ', 1)[1].strip(), command)
+            self.assertIn(command, normal)
+            self.assertIn('        if: ${{ inputs.source_focus_only }}', step)
+        self.assertIn('        if: ${{ inputs.source_focus_only }}', self.steps[17])
+        self.assertIn('          VGA_FOCUS_STEP_RESULTS: ${{ toJSON(steps) }}', self.steps[17])
+        self.assertIn("$env:VGA_SOURCE_FOCUS_ONLY -cnotin @('true', 'false')", self.steps[3])
+        self.assertIn('      VGA_SOURCE_FOCUS_ONLY: ${{ toJSON(inputs.source_focus_only) }}', self.configuration)
+
+    def test_both_execution_branches_preserve_success_dependencies(self):
+        # Evaluate the complete fixed condition vocabulary for normal steps.
+        # Unknown conditions fail this test rather than silently becoming a skip.
+        def executed(source_only, success=True):
+            selected = []
+            for index, step in enumerate(self.steps[:28]):
+                conditions = re.findall(r'^        if: (.*)$', step, re.M)
+                self.assertLessEqual(len(conditions), 1)
+                expression = conditions[0] if conditions else None
+                gates = {None: True, '${{ inputs.source_focus_only }}': source_only,
+                         '${{ !inputs.source_focus_only }}': not source_only}
+                self.assertIn(expression, gates)
+                if success and gates[expression]:
+                    selected.append(index)
+            return selected
+        self.assertEqual(executed(False), list(range(8)) + list(range(14, 17)) + list(range(18, 28)))
+        self.assertEqual(executed(True), list(range(18)))
+        for source_only in (False, True):
+            self.assertEqual(executed(source_only, success=False), [])
 
     def test_four_fresh_frozen_processes_use_one_exe_and_stop_after_failure(self):
         cases = (
             ('frozen150-first', ' --app-scale 1.5'),
             ('frozen150-second', ' --app-scale 1.5 --report-dir build/native-frozen150-second/reports'),
             ('frozen100', ''), ('frozen200', ' --app-scale 2'))
-        for step, (label, options) in zip(self.steps[16:20], cases):
+        for step, (label, options) in zip(self.steps[23:27], cases):
             self.assertEqual(step.split('        run: |\n', 1)[1].strip(), '\n'.join((
                 'python build/native-diagnostic-bindings.py before ' + label,
                 '          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
                 '          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe' + options)))
             self.assertIn('        timeout-minutes: 6', step)
-        self.assertEqual(self.steps[20].split('        run: ', 1)[1].strip(), 'python build/native-diagnostic-bindings.py verify')
+        self.assertEqual(self.steps[27].split('        run: ', 1)[1].strip(), 'python build/native-diagnostic-bindings.py verify')
         self.assertEqual(self.configuration.count('python tests/windows_native_smoke.py'), 7)
-        for step in self.steps[:21]:
+        for step in self.steps[:8] + self.steps[14:17]:
             self.assertNotIn('        if:', step)
+        for step in self.steps[18:28]:
+            self.assertIn('        if: ${{ !inputs.source_focus_only }}', step)
         for forbidden in ('continue-on-error', '|| true', 'exit 0', 'QT_QPA_PLATFORM', '--skip', '--retry'):
             self.assertNotIn(forbidden, self.configuration)
 
     def test_no_release_publication_or_unrelated_acceptance_claim(self):
         for forbidden in ('verify_release.py', '--publish', 'publish_preview', 'gh release',
                           'gh api', 'git push', 'softprops/action-gh-release', 'actions/setup-node',
-                          'windows_ota_smoke', 'windows_automatic_capture', 'windows_wgc_capture.py'):
+                          'windows_ota_smoke', 'windows_gui_walkthrough', 'fetch_ota_fixture'):
             self.assertNotIn(forbidden, self.configuration)
         self.assertIn('Not complete release acceptance or proof of the original Run 80 cause.', self.configuration)
         self.assertIn('Evidence staging does not turn any failed or skipped check into a pass.', self.configuration)
 
     def test_always_bounded_text_evidence_and_exact_staging_budget(self):
-        postbuild, summary, budget, upload = self.steps[21:25]
-        self.assertEqual(len(self.steps), 25)
-        self.assertIn('        if: ${{ always() }}', postbuild)
+        postbuild, summary, budget, upload = self.steps[28:32]
+        self.assertEqual(len(self.steps), 32)
+        self.assertIn('        if: ${{ always() && !inputs.source_focus_only }}', postbuild)
         self.assertIn('python scripts/probe_opencv_postbuild.py summarize', postbuild)
         self.assertIn('        id: diagnostic_evidence', summary)
         self.assertIn('        if: ${{ always() }}', summary)
@@ -170,7 +215,7 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
                 self.assertNotIn('${{', step.split('        run:', 1)[1])
         self.assertEqual(section(self.configuration, '\nconcurrency:\n', '\njobs:').strip(),
                          'group: vga-native-source-diagnostic\n  cancel-in-progress: false')
-        for index in (0, 1):
+        for index in (0, 1, 2):
             compile(inline_code(index), str(WORKFLOW), 'exec')
 
 
@@ -187,7 +232,7 @@ class FreshExeBindingTests(unittest.TestCase):
         self.sha = 'a' * 40
         self.environment = {'GITHUB_SHA': self.sha, 'GITHUB_REPOSITORY': 'Junming-Liang/vga-aram-helper',
                             'GITHUB_RUN_ID': '12345', 'GITHUB_RUN_ATTEMPT': '1',
-                            'VGA_RELEASE_PACKAGE_PROFILE': 'minimal-opencv-v1'}
+                            'VGA_RELEASE_PACKAGE_PROFILE': 'minimal-opencv-v1', 'VGA_SOURCE_FOCUS_ONLY': 'false'}
         self.envpatch = patch.dict(os.environ, self.environment, clear=True)
         self.envpatch.start()
         self.addCleanup(self.envpatch.stop)
@@ -197,7 +242,7 @@ class FreshExeBindingTests(unittest.TestCase):
         self.addCleanup(self.stdout.__exit__, None, None, None)
         self.ns = {'__name__': 'offline_diagnostic_binding_fixture'}
         oldpath = list(sys.path)
-        exec(compile(inline_code(0), str(WORKFLOW), 'exec'), self.ns)
+        exec(compile(inline_code(1), str(WORKFLOW), 'exec'), self.ns)
         sys.path[:] = oldpath
         self.ns['ROOT'] = self.root
         self.checkout_sha = self.sha
@@ -287,6 +332,7 @@ class FreshExeBindingTests(unittest.TestCase):
             self.frozen_case(index)
         result = self.ns['verify_all']()
         self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['mode'], 'source-and-frozen')
         self.assertEqual(result['frozen_manual_switches'], 32)
         self.assertEqual(result['source_manual_switches'], 24)
         self.assertEqual(result['exe'], identity['exe'])
@@ -307,6 +353,13 @@ class FreshExeBindingTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}):
                 with self.assertRaisesRegex(RuntimeError, 'Wrong repository|Wrong active build profile'):
                     self.record()
+
+    def test_full_exe_proof_rejects_source_only_and_unknown_modes(self):
+        for mode in ('true', '', 'TRUE', 'full', 'null'):
+            with self.subTest(mode=mode), patch.dict(os.environ, {'VGA_SOURCE_FOCUS_ONLY': mode}):
+                with self.assertRaisesRegex(RuntimeError, 'explicit full diagnostic mode'):
+                    self.record()
+        self.assertFalse((self.root / self.ns['IDENTITY']).exists())
 
     def test_wrong_build_source_version_profile_and_experimental_are_rejected(self):
         for key, value in (('source_commit', 'b' * 40), ('version', '0.4.14'),
@@ -422,6 +475,14 @@ class FreshExeBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Bound proof inventory changed'):
             self.ns['check_identity']()
 
+    def test_full_receipt_cannot_change_into_a_source_only_mode(self):
+        self.record()
+        receipt = self.read_json(self.ns['IDENTITY'])
+        receipt['mode'] = 'source-focus-only'
+        self.write_json(self.ns['IDENTITY'], receipt)
+        with self.assertRaisesRegex(RuntimeError, 'Full EXE diagnostic mode changed'):
+            self.ns['check_identity']()
+
     def test_final_check_rejects_missing_failed_or_changed_exe(self):
         self.record()
         for index in range(3):
@@ -448,6 +509,282 @@ class FreshExeBindingTests(unittest.TestCase):
             self.ns['verify_all']()
 
 
+class SourceFocusCompletionTests(unittest.TestCase):
+    """Execute the real source-only receipt with synthetic files and validator stubs.
+
+    Stub validators let this safety audit run before Windows dependencies install.
+    Each production wrapper retains its own strict validator and Windows tests.
+    """
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.sha = 'a' * 40
+        self.ns = {'__name__': 'offline_source_focus_fixture'}
+        oldpath = list(sys.path)
+        exec(compile(inline_code(0), str(WORKFLOW), 'exec'), self.ns)
+        sys.path[:] = oldpath
+        self.ns['ROOT'] = self.root
+        self.environment = {'GITHUB_SHA': self.sha, 'GITHUB_REPOSITORY': 'Junming-Liang/vga-aram-helper',
+                            'GITHUB_RUN_ID': '12345', 'GITHUB_RUN_ATTEMPT': '1',
+                            'VGA_RELEASE_PACKAGE_PROFILE': 'minimal-opencv-v1', 'VGA_SOURCE_FOCUS_ONLY': 'true',
+                            'VGA_FOCUS_STEP_RESULTS': json.dumps({key: {'outcome': 'success'} for key in self.ns['STEP_IDS']})}
+        self.envpatch = patch.dict(os.environ, self.environment, clear=True)
+        self.envpatch.start()
+        self.addCleanup(self.envpatch.stop)
+        self.calls = []
+        self.reject_validator = None
+        def validator(label):
+            def validate(*args, **kwargs):
+                self.calls.append(label)
+                if self.reject_validator == label:
+                    raise RuntimeError('Existing strict validator rejected ' + label)
+                return args[0]
+            return validate
+        modules = {}
+        builder = types.ModuleType('scripts.build_windows')
+        self.checkout_sha = self.sha
+        builder.verify_source_checkout = lambda root, expected: self.checkout_sha
+        modules[builder.__name__] = builder
+        for name in (*self.ns['CONFIG_INPUTS'], 'native_ui.py'):
+            self.put(name, b'owned synthetic source bytes\n')
+        helpers = {}
+        for kind, suffix in (('wgc', ''), ('session', '-session')):
+            helpers[kind] = dict(status='passed', source_commit=self.sha, synthetic_helper=kind)
+            self.write_json('reports/windows-wgc' + suffix + '-build.json', helpers[kind])
+        for module_name, prefix, field in self.ns['CASES']:
+            module = types.ModuleType(module_name)
+            module.SOURCE_FILES = ('tests/' + module_name + '.py',)
+            modules[module_name] = module
+            for name in module.SOURCE_FILES:
+                self.put(name, b'owned source wrapper fixture\n')
+            value = dict(status='passed', source_commit=self.sha, frozen=False)
+            value[field] = {name: self.ns['record'](name)['sha256'] for name in module.SOURCE_FILES}
+            value['application_version' if field == 'source_sha256' else 'applicationVersion'] = __version__
+            if module_name == 'windows_automatic_capture':
+                value.update(platform='win32', checks_use_real_windows=True)
+                module.validate_source_report = validator(module_name + '.validate_source_report')
+            else:
+                value.update(scales=[1, 1.5, 2], runs=[])
+                if module_name == 'windows_wgc_capture':
+                    value['helper_build'] = helpers['wgc']
+                if module_name == 'windows_wgc_visible_overlay':
+                    value['foreign_fixture'] = {'executable_sha256': 'f' * 64}
+                    value['helper_build'] = helpers['session']
+                module.validate_report = validator(module_name + '.validate_report')
+                module.validate_acceptance = validator(module_name + '.validate_acceptance')
+                module.validate_aggregate = validator(module_name + '.validate_aggregate')
+                module.native_report_name = lambda frozen, scale: ('windows-selection-source-handoff' +
+                    ('' if scale == 1 else '-scale' + str(round(scale * 100))) + '.json')
+                module.read_bound_detail = lambda row, path, frozen: self.read_json(
+                    'reports/windows-wgc-visible-overlay-source-scale' + str(round(row['scale'] * 100)) + '.json')
+                for scale in (1, 1.5, 2):
+                    detail = dict(status='passed', applicationVersion=__version__, frozen=False, fixture_scale=scale)
+                    name = (module.native_report_name(False, scale) if module_name == 'windows_selection_smoke'
+                            else prefix + '-scale' + str(round(scale * 100)) + '.json')
+                    self.write_json('reports/' + name, detail)
+                    row = {'scale' if module_name == 'windows_wgc_visible_overlay' else 'app_scale': scale,
+                           'detail': detail, 'native_report_sha256': self.ns['record']('reports/' + name)['sha256']}
+                    if module_name == 'windows_wgc_visible_overlay':
+                        row.update(coordination='passed', exit_code=0, outer_cleanup_complete=True)
+                    value['runs'].append(row)
+            self.write_json('reports/' + prefix + '.json', value)
+        dpi = types.ModuleType('windows_dpi_matrix')
+        dpi.SCALES = ('1', '1.25', '1.5', '2', '2.5')
+        dpi.source_metadata = lambda implementation, support: [dict(path=str(implementation),
+                                                                 sha256=self.ns['record']('native_ui.py')['sha256'])]
+        def validate_matrix(value, expect):
+            validator('windows_dpi_matrix.validate_matrix')(value, expect)
+            return []
+        dpi.validate_matrix = validate_matrix
+        modules[dpi.__name__] = dpi
+        children = []
+        for scale in dpi.SCALES:
+            child = dict(status='completed', frozen=False, qt_scale_factor=scale)
+            self.write_json('reports/windows-dpi-candidate-scale-' + scale + '.json', child)
+            children.append(dict(child, process_exit_code=0, timed_out=False))
+        self.write_json('reports/windows-dpi-candidate-matrix.json', dict(status='candidate_passed',
+            expect='candidate', gate_errors=[], children=children,
+            source_metadata=dpi.source_metadata(self.root / 'native_ui.py', self.root)))
+        duty = types.ModuleType('overlay_duty_contract')
+        duty.SOURCE_FILES = ('native_ui.py',)
+        modules[duty.__name__] = duty
+        native = types.ModuleType('windows_native_smoke')
+        native.validate_report = validator('windows_native_smoke.validate_report')
+        def validate_manual(value):
+            validator('windows_native_smoke.validate_manual_hero_switches')(value)
+            if value != dict(required=8, attempted=8, completed=8):
+                raise RuntimeError('Eight manual switches required')
+        native.validate_manual_hero_switches = validate_manual
+        modules[native.__name__] = native
+        for prefix, scale in (('windows-native-source-scale150', 1.5), ('windows-native-source', 1),
+                              ('windows-native-source-scale200', 2)):
+            self.write_json('reports/' + prefix + '-overlay.json', {'status': 'passed', 'fixture_scale': scale})
+            self.write_json('reports/' + prefix + '-smoke.json', dict(status='passed', source_commit=self.sha,
+                applicationVersion=__version__, frozen=False, source_files={'native_ui.py': self.ns['record']('native_ui.py')['sha256']},
+                requested_app_scale=scale, process_exited=True, native_report=prefix + '-overlay.json',
+                native_report_sha256=self.ns['record']('reports/' + prefix + '-overlay.json')['sha256'],
+                manual_hero_switches=dict(required=8, attempted=8, completed=8)))
+        self.put('reports/windows-native-source-diagnostic-environment.txt', b'synthetic pinned environment\n')
+        self.modules = patch.dict(sys.modules, modules)
+        self.modules.start()
+        self.addCleanup(self.modules.stop)
+
+    def put(self, name, data):
+        target = self.root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+    def write_json(self, name, value):
+        self.put(name, (json.dumps(value) + '\n').encode('utf-8'))
+
+    def read_json(self, name):
+        return json.loads((self.root / name).read_text())
+
+    def complete(self):
+        with redirect_stdout(io.StringIO()):
+            return self.ns['complete_source_focus']()
+
+    def test_all_required_source_reports_bound_without_frozen_or_release_claim(self):
+        result = self.complete()
+        self.assertEqual(result['mode'], 'source-focus-only')
+        self.assertEqual(result['source_sha'], self.sha)
+        self.assertEqual(result['run_id'], '12345')
+        self.assertEqual(result['run_attempt'], '1')
+        self.assertEqual(result['required_steps'], {key: 'success' for key in self.ns['STEP_IDS']})
+        self.assertIs(result['frozen_executable_tested'], False)
+        self.assertIs(result['release_acceptance'], False)
+        self.assertNotIn('exe', result)
+        self.assertEqual(len(result['reports']), 32)
+        for name, expected in result['reports'].items():
+            self.assertEqual(expected, self.ns['record'](name))
+        expected_calls = {'windows_wgc_capture.validate_report': 3,
+                          'windows_wgc_session_capture.validate_acceptance': 1,
+                          'windows_wgc_visible_overlay.validate_report': 3,
+                          'windows_selection_smoke.validate_aggregate': 1,
+                          'windows_automatic_capture.validate_source_report': 1,
+                          'windows_dpi_matrix.validate_matrix': 1,
+                          'windows_native_smoke.validate_manual_hero_switches': 3,
+                          'windows_native_smoke.validate_report': 3}
+        self.assertEqual({key: self.calls.count(key) for key in set(self.calls)}, expected_calls)
+        self.assertFalse((self.root / 'reports/windows-native-diagnostic-result.json').exists())
+
+    def test_missing_failed_skipped_or_cancelled_required_step_cannot_complete(self):
+        for key in self.ns['STEP_IDS']:
+            for outcome in (None, 'failure', 'skipped', 'cancelled'):
+                values = {name: {'outcome': 'success'} for name in self.ns['STEP_IDS']}
+                if outcome is None:
+                    del values[key]
+                else:
+                    values[key]['outcome'] = outcome
+                    values[key]['conclusion'] = 'success'
+                with self.subTest(step=key, outcome=outcome), patch.dict(os.environ, {'VGA_FOCUS_STEP_RESULTS': json.dumps(values)}):
+                    with self.assertRaisesRegex(RuntimeError, 'Every required source step'):
+                        self.complete()
+        self.assertFalse((self.root / self.ns['RESULT']).exists())
+
+    def test_full_or_unknown_modes_and_wrong_dispatch_identity_cannot_complete(self):
+        mutations = [('VGA_SOURCE_FOCUS_ONLY', mode) for mode in ('false', '', 'TRUE', 'source', 'null')]
+        mutations += [('GITHUB_SHA', 'invalid'), ('GITHUB_SHA', 'b' * 40), ('GITHUB_REPOSITORY', 'someone/else'),
+                      ('GITHUB_RUN_ID', ''), ('GITHUB_RUN_ATTEMPT', '0'), ('VGA_RELEASE_PACKAGE_PROFILE', 'official')]
+        for field, value in mutations:
+            with self.subTest(field=field, value=value), patch.dict(os.environ, {field: value}):
+                with self.assertRaises(RuntimeError):
+                    self.complete()
+        self.assertFalse((self.root / self.ns['RESULT']).exists())
+
+    def test_missing_or_failed_required_report_cannot_complete(self):
+        paths = sorted(self.root.glob('reports/*.json'))
+        for path in paths:
+            original = path.read_bytes()
+            with self.subTest(name=path.name, failure='missing'):
+                path.unlink()
+                with self.assertRaises(RuntimeError):
+                    self.complete()
+                path.write_bytes(original)
+            with self.subTest(name=path.name, failure='failed'):
+                value = json.loads(original)
+                value['status'] = 'failed'
+                path.write_text(json.dumps(value))
+                with self.assertRaises(RuntimeError):
+                    self.complete()
+                path.write_bytes(original)
+        self.assertFalse((self.root / self.ns['RESULT']).exists())
+
+    def test_source_sha_bytes_version_mode_and_scale_mutations_fail_closed(self):
+        path = 'reports/windows-wgc-source.json'
+        original = self.read_json(path)
+        for key, value in (('source_commit', 'b' * 40), ('source_files', {}), ('applicationVersion', 'wrong'),
+                           ('frozen', True), ('executable_sha256', 'f' * 64), ('executable_size', 123),
+                           ('scales', [True, 1.5, 2]), ('scales', [1, 1.5]), ('runs', []), ('error', 'retained failure')):
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                self.write_json(path, {**original, key: value})
+                self.complete()
+        self.write_json(path, original)
+        source = self.root / 'tests/windows_wgc_capture.py'
+        source.write_bytes(b'changed source bytes')
+        with self.assertRaisesRegex(RuntimeError, 'identity/bytes/mode'):
+            self.complete()
+
+    def test_existing_strict_validator_failures_propagate(self):
+        for label in ('windows_wgc_capture.validate_report', 'windows_wgc_session_capture.validate_acceptance',
+                      'windows_wgc_visible_overlay.validate_report', 'windows_selection_smoke.validate_aggregate',
+                      'windows_automatic_capture.validate_source_report',
+                      'windows_dpi_matrix.validate_matrix', 'windows_native_smoke.validate_report',
+                      'windows_native_smoke.validate_manual_hero_switches'):
+            self.reject_validator = label
+            with self.subTest(label=label), self.assertRaisesRegex(RuntimeError, 'Existing strict validator rejected'):
+                self.complete()
+        self.assertFalse((self.root / self.ns['RESULT']).exists())
+
+    def test_frozen_outputs_cannot_coexist_with_source_only_completion(self):
+        for name in ('dist/VGA-Aram-Helper.exe', 'reports/windows-build.json',
+                     'reports/windows-native-diagnostic-identity.json', 'reports/windows-native-diagnostic-result.json'):
+            self.put(name, b'never source-only evidence')
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'cannot contain frozen build/proof'):
+                self.complete()
+            (self.root / name).unlink()
+
+    def test_changed_native_and_selection_bound_detail_bytes_rejected(self):
+        for prefix in ('windows-native-source', 'windows-selection-source'):
+            name = 'reports/' + prefix + ('-overlay.json' if 'native' in prefix else '-handoff.json')
+            original = (self.root / name).read_bytes()
+            self.put(name, original + b'\n')
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'bytes differ'):
+                self.complete()
+            self.put(name, original)
+
+    def test_geometry_raw_child_cannot_disagree_with_completed_source_matrix(self):
+        name = 'reports/windows-dpi-candidate-scale-1.json'
+        original = self.read_json(name)
+        for key, value in (('frozen', True), ('qt_scale_factor', '2'), ('unexpected', 'changed')):
+            self.write_json(name, {**original, key: value})
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, 'Geometry child source report differs'):
+                self.complete()
+
+    def test_visible_outer_process_failure_cannot_hide_behind_a_valid_detail(self):
+        name = 'reports/windows-wgc-visible-overlay-source.json'
+        original = self.read_json(name)
+        for key, value in (('coordination', 'failed'), ('exit_code', 1), ('exit_code', False),
+                           ('outer_cleanup_complete', False), ('outer_cleanup_errors', []),
+                           ('coordination_error', ''), ('detail_error', ''), ('report_binding_error', '')):
+            mutated = copy.deepcopy(original)
+            mutated['runs'][0][key] = value
+            self.write_json(name, mutated)
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, 'coordination/cleanup'):
+                self.complete()
+
+    def test_receipt_is_write_once_and_json_must_be_bounded_and_strict(self):
+        self.complete()
+        with self.assertRaises(FileExistsError):
+            self.complete()
+        (self.root / self.ns['RESULT']).unlink()
+        for raw in (b'{"status":"failed","status":"passed"}', b'{"status":"passed","number":NaN}', b'x' * (256 * 1024 + 1)):
+            self.put('reports/windows-wgc-source.json', raw)
+            with self.assertRaises(RuntimeError):
+                self.complete()
+
+
 class BoundedSourceDiagnosticEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -457,7 +794,7 @@ class BoundedSourceDiagnosticEvidenceTests(unittest.TestCase):
         self.reports.mkdir()
         self.stage = self.root / 'build/native-source-diagnostic-evidence/reports'
         self.environment = {'GITHUB_SHA': 'a' * 40, 'GITHUB_RUN_ID': '12345',
-                            'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_STEP_SUMMARY': str(self.root / 'summary.txt')}
+                            'GITHUB_RUN_ATTEMPT': '1', 'VGA_SOURCE_FOCUS_ONLY': 'false', 'GITHUB_STEP_SUMMARY': str(self.root / 'summary.txt')}
         self.output = io.StringIO()
 
     def run_evidence(self):
@@ -465,7 +802,7 @@ class BoundedSourceDiagnosticEvidenceTests(unittest.TestCase):
         try:
             os.chdir(self.root)
             with patch.dict(os.environ, self.environment, clear=True), redirect_stdout(self.output):
-                exec(compile(inline_code(1), str(WORKFLOW), 'exec'), {})
+                exec(compile(inline_code(2), str(WORKFLOW), 'exec'), {})
         finally:
             os.chdir(previous)
 
@@ -501,6 +838,41 @@ class BoundedSourceDiagnosticEvidenceTests(unittest.TestCase):
         self.run_evidence()
         self.assertIn('native-error-in-middle', self.output.getvalue())
         self.assertNotIn('middle omitted', self.output.getvalue())
+
+    def test_source_only_fixed_reports_are_staged_without_private_logs_or_images(self):
+        self.environment['VGA_SOURCE_FOCUS_ONLY'] = 'true'
+        names = [prefix + suffix + '.json'
+                 for prefix in ('windows-wgc-source', 'windows-wgc-session-application-source',
+                                'windows-wgc-visible-overlay-source')
+                 for suffix in ('', '-scale100', '-scale150', '-scale200')]
+        names += ['windows-selection-source.json', 'windows-selection-source-handoff.json',
+                  'windows-selection-source-handoff-scale150.json', 'windows-selection-source-handoff-scale200.json',
+                  'windows-automatic-capture.json', 'windows-dpi-candidate-matrix.json',
+                  'windows-source-focus-diagnostic-result.json']
+        names += ['windows-dpi-candidate-scale-' + scale + '.json' for scale in ('1', '1.25', '1.5', '2', '2.5')]
+        for name in names:
+            (self.reports / name).write_bytes(b'{"status":"failed","synthetic_fixture":true}')
+        private = ('windows-selection-source-scale100-private.txt', 'windows-automatic-private.log',
+                   'windows-wgc-visible-overlay-source-scale100.foreign-request.json',
+                   'windows-wgc-visible-overlay-source-scale100.png', 'windows-selection-source-handoff.exe')
+        for name in private:
+            (self.reports / name).write_bytes(b'never expose private or binary bytes')
+        self.run_evidence()
+        self.assertEqual({path.name for path in self.stage.iterdir()},
+                         set(names) | {'windows-native-source-diagnostic-inventory.json'})
+        inventory = json.loads((self.stage / 'windows-native-source-diagnostic-inventory.json').read_text())
+        self.assertEqual(inventory['mode'], 'source-focus-only')
+        self.assertNotIn('status', inventory)
+        self.assertIn('Source-only focus/routing', inventory['scope'])
+        self.assertNotIn('never expose', self.output.getvalue())
+        self.assertLess(sum(path.stat().st_size for path in self.stage.iterdir()), 2 * 1024 * 1024)
+
+    def test_unknown_mode_cannot_stage_mislabeled_evidence(self):
+        for mode in ('', 'TRUE', 'source-only', 'null'):
+            self.environment['VGA_SOURCE_FOCUS_ONLY'] = mode
+            with self.subTest(mode=mode), self.assertRaisesRegex(SystemExit, 'Unknown diagnostic mode'):
+                self.run_evidence()
+        self.assertFalse(self.stage.exists())
 
     def test_missing_reports_remain_missing_not_successful(self):
         self.run_evidence()

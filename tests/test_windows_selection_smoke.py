@@ -22,6 +22,20 @@ def replace_error(code=5):
     return error
 
 
+def good_owned_focus(role='client', *, route='pair', source_role=None):
+    ids={'client':(100,101,133000000000000001),'game':(500,501,133000000000000200),
+         'controller':(600,601,133000000000000050)}
+    def identity(role):
+        hwnd,pid,created=ids[role]
+        return dict(hwnd=hwnd,pid=pid,created=created,role=role)
+    target=identity(role);source=identity(source_role or ('game' if role=='client' else 'client'))
+    value=dict(route=route,target=target,focus=dict(sent=route!='already',result=1,
+        api=None if route=='already' else True,drained=False,
+        before=target['hwnd'] if route=='already' else source['hwnd'],after=target['hwnd']))
+    if route!='already':value['source']=source
+    return value
+
+
 class SelectionReportWriterTests(unittest.TestCase):
     def payload(self,value):
         return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf8')
@@ -241,9 +255,11 @@ class SelectionHarnessTests(unittest.TestCase):
                     provenance='client-provisional', renderedBadgeProvenance=[dict(slot=i,visible=True,text='HUD未复核',paintedText='HUD未复核',
                         accessible=f'选项 {i} · {name} · T{i} · HUD未复核 · 来自本局选人 · HUD未复核',
                         tooltip='来自本局选人 · HUD未复核\n') for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)],
-                    clientHwnd=100,clientPid=101,gameHwnd=200,gamePid=201,gameCreated=133000000000000400,clientGeneration=2,
+                    clientHwnd=100,clientPid=101,clientCreated=133000000000000001,gameHwnd=200,gamePid=201,gameCreated=133000000000000400,clientGeneration=2,
                     client_hero_reference=reference, client_hero_safety=dict.fromkeys(smoke.SAFETY_FIELDS,True),
                     **dict.fromkeys(smoke.FIELDS, True))
+        result['initial_focus']=dict(route='controller',source_hwnd=600,source_pid=601,source_created=133000000000000050,
+            target_hwnd=100,sent=True,api=True,drained=False,observed_hwnd=100)
         result['manual_client_follow_off']=dict(follow_enabled=False,target_hwnd=100,
             assigned='9001',observation_count=2,started_after=133000000000000100,game_hwnd=500,game_pid=501,game_created=133000000000000200,
             foreground_game_hwnd=500,fresh_no_handoff_age_seconds=.2,
@@ -276,6 +292,11 @@ class SelectionHarnessTests(unittest.TestCase):
             row['follow_off_fixture']={'hwnd':500,'pid':501,'created':133000000000000200,'class_name':smoke.CLASSES['game'],
                 'client_size':[964,602],'launched_after_selection_request':True,'process_exited':True,'closed_before_follow_on':True,
                 'focus':{'sent':True,'result':1,'api':True,'drained':False,'before':100,'after':500}}
+            row['application_process']={'pid':601,'created':133000000000000050,'hwnd':600}
+            row['negative_game_return_focus']=good_owned_focus()
+            row['final_game_focus']=good_owned_focus('game',route='already')
+            row['final_game_focus']['target'].update(hwnd=200,pid=201,created=row['detail']['gameCreated'])
+            row['final_game_focus']['focus'].update(before=200,after=200)
             row['focus_fixture']={key:copy.deepcopy(val) for key,val in row['detail']['foreground_transition'].items()
                                   if key not in ('sink_hwnd','sink_pid','overlay_hidden_after','overlay_hwnd',
                                                  'overlay_visible_before','overlay_native_visible_before')}
@@ -604,6 +625,7 @@ class SelectionHarnessTests(unittest.TestCase):
                 smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
 
     def test_actual_wrapper_phase_driver_closes_negative_game_before_final_request(self):
+        import ctypes
         # Execute the real nested driver with owned native-call fakes. Only its
         # closure addressing changes; no Windows or process-lifecycle claim.
         tree=ast.parse(Path(smoke.__file__).read_text())
@@ -611,8 +633,9 @@ class SelectionHarnessTests(unittest.TestCase):
         driver.body=[ast.copy_location(ast.Global(node.names),node) if isinstance(node,ast.Nonlocal) else node for node in driver.body]
         calls=[];current={'phase':'await-follow-off-game'};foreground=[100]
         app={'pid':1};client={'pid':101};negative={'pid':501,'handle':object()};window={'hwnd':500,'pid':501}
-        def focus(native,process,exe,role,observed,size):
-            calls.append(('foreground',role,observed['hwnd']));foreground[0]=observed['hwnd'];return True
+        def focus(native,target,owners,evidence):
+            self.assertEqual(foreground[0],500);native.close_window.assert_not_called()
+            calls.append(('foreground',target['role'],target['window']['hwnd']));foreground[0]=target['window']['hwnd'];return True
         def transfer(*args):
             calls.append(('owned-transfer',args[3]['hwnd'],args[7]['hwnd']));foreground[0]=args[7]['hwnd']
             args[-1]['focus']={'sent':True,'result':1,'api':True,'drained':False,'before':100,'after':500}
@@ -625,7 +648,8 @@ class SelectionHarnessTests(unittest.TestCase):
             sizes={'client':(964,602),'game':(964,602)},client_window={'hwnd':100,'pid':101},
             budget=SimpleNamespace(until=lambda seconds:seconds),
             report_when=lambda *args:current if current['phase']=='await-game-window' else None,
-            poll_owned_json=lambda *args:current,foreground_owned=focus,focus_owned_game=Mock(side_effect=transfer),client_created=100,
+            poll_owned_json=lambda *args:current,focus_owned_target=focus,focus_owned_game=Mock(side_effect=transfer),client_created=100,
+            client_owner=dict(role='client',window={'hwnd':100,'pid':101}),
             fixture_argv=Mock(return_value=['/owned/game.exe']),wait_fixture=Mock(return_value=window),
             assert_owned_window=Mock(),owned_process_created=Mock(return_value=133000000000000200))
         exec(compile(ast.fix_missing_locations(ast.Module(body=[driver],type_ignores=[])),'owned-phase-driver','exec'),namespace)
@@ -645,12 +669,42 @@ class SelectionHarnessTests(unittest.TestCase):
         native.close_window.assert_called_once_with(window)
         native.wait_exit.assert_called_once_with(negative,10)
         self.assertEqual(calls[-1],('foreground','client',100))
-        current['phase']='await-game-window';self.assertIs(advance(),current)
+        current['phase']='capturing-client';foreground[0]=999
+        with self.assertRaisesRegex(AssertionError,'during selection observation'):advance()
+        foreground[0]=100
+        current['phase']='await-game-window'
+        current['initial_focus']=self.good_report()['initial_focus']
+        namespace['app']['pid']=601;namespace['result']['application_process']={'pid':601,'created':133000000000000200}
+        def app_pid(hwnd,pointer):
+            self.assertEqual(hwnd,600)
+            ctypes.cast(pointer,ctypes.POINTER(smoke.W.DWORD)).contents.value=601;return 1
+        native.u.GetWindowThreadProcessId=app_pid
+        self.assertIs(advance(),current)
+        self.assertEqual(namespace['result']['application_process']['hwnd'],600)
         self.assertEqual(native.spawn.call_count,1)
-        native.wait_exit.return_value=1
+        native.wait_exit.return_value=1;native.close_window.reset_mock();foreground[0]=500
         namespace['result']['follow_off_fixture']['process_exited']=False
         current['phase']='closing-follow-off-game'
         with self.assertRaisesRegex(AssertionError,'did not exit cleanly'):advance()
+
+    def test_new_owned_focus_receipts_are_strict_at_each_scale_and_mode(self):
+        for frozen in (False,True):
+            for index in range(3):
+                for field,replacement in (('negative_game_return_focus',{}),('final_game_focus',{}),('application_process',{})):
+                    value=self.good_aggregate(frozen=frozen);value['runs'][index][field]=replacement
+                    with self.subTest(frozen=frozen,index=index,field=field),self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+                for field,replacement in (('source_pid',True),('source_created',0),('source_hwnd',100),
+                        ('target_hwnd',999),('observed_hwnd',0),('sent',1),('api',1),('drained',1)):
+                    value=self.good_aggregate(frozen=frozen);value['runs'][index]['detail']['initial_focus'][field]=replacement
+                    with self.subTest(frozen=frozen,index=index,initial=field),self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+                for key in ('pid','created','hwnd'):
+                    value=self.good_aggregate(frozen=frozen);value['runs'][index]['application_process'][key]+=1
+                    with self.subTest(frozen=frozen,index=index,application=key),self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+                value=self.good_aggregate(frozen=frozen);value['runs'][index]['negative_game_return_focus']['target']['created']+=1
+                with self.assertRaises(AssertionError):smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
 
     def test_literal_hero_reference_and_no_augment_confirmation_are_strict(self):
         mutations=[('assigned','9002'),('stage','assigning'),('state_hero',''),('observation_count',1),
@@ -809,13 +863,13 @@ class SelectionHarnessTests(unittest.TestCase):
     def test_focus_sink_commands_are_bounded_same_process_and_idempotent(self):
         import ctypes
         rect={'x':20,'y':20,'width':964,'height':602};window={'hwnd':100,'pid':101};sink={'hwnd':400,'pid':101}
-        native=Mock();result={};foreground=[400];live=[True]
+        native=Mock();result={};foreground=[100];live=[True]
         native.windows.return_value=[sink];native.u.IsWindowVisible.return_value=True
         native.u.GetForegroundWindow.side_effect=lambda:foreground[0]
         native.u.IsWindow.side_effect=lambda hwnd:live[0]
         def send(hwnd,message,wparam,lparam,flags,timeout,response):
             self.assertEqual((hwnd,wparam,lparam,flags,timeout),(100,0,0,2,1000))
-            if message==smoke.WM_FOCUS_OWNED_SINK:answer=400
+            if message==smoke.WM_FOCUS_OWNED_SINK:answer=400;foreground[0]=400
             else:
                 self.assertEqual(message,smoke.WM_RETURN_OWNED_CLIENT);answer=1;foreground[0]=100;live[0]=False
             ctypes.cast(response,ctypes.POINTER(ctypes.c_size_t)).contents.value=answer

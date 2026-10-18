@@ -28,6 +28,7 @@ internal static class SessionWindowFixture
     // x64 only: wParam is the exact game HWND; lParam is its creation FILETIME.
     // 0=rejected, 1=API true+observed, 2=API false, 3=API true+not observed.
     private const uint WM_FOCUS_OWNED_GAME = 0x8000 + 76;
+    private const uint WM_FOCUS_OWNED_PAIR_CLIENT = 0x8000 + 77;
     private const string FocusSinkClass = "VGAOwnedFocusSink";
     private const string FocusSinkTitle = "VGA owned focus sink";
     private static readonly WndProc WindowProcedure = Dispatch;
@@ -193,23 +194,27 @@ internal static class SessionWindowFixture
         finally { CloseHandle(handle); }
     }
 
-    private static IntPtr FocusOwnedGame(IntPtr hwnd, UIntPtr targetValue, IntPtr expectedCreated)
+    private static IntPtr FocusOwnedSibling(IntPtr hwnd, UIntPtr targetValue, IntPtr expectedCreated, bool gameTarget)
     {
-        if (IntPtr.Size != 8 || hwnd != window || role != "client" || noActivate ||
+        if (IntPtr.Size != 8 || hwnd != window || role != (gameTarget ? "client" : "game") ||
+            (role == "client" && noActivate) ||
             GetForegroundWindow() != window || expectedCreated.ToInt64() <= 0 ||
             targetValue.ToUInt64() == 0 || targetValue.ToUInt64() > Int64.MaxValue) return IntPtr.Zero;
         IntPtr target = new IntPtr((long)targetValue.ToUInt64());
         if (target == window || GetAncestor(target, 2) != target || !IsWindowVisible(target) || IsIconic(target)) return IntPtr.Zero;
         StringBuilder cls = new StringBuilder(256); uint pid, repeatedPid;
-        if (GetClassNameW(target, cls, 256) == 0 || cls.ToString() != "RiotWindowClass" ||
+        if (GetClassNameW(target, cls, 256) == 0 || cls.ToString() != (gameTarget ? "RiotWindowClass" : "RCLIENT") ||
             GetWindowThreadProcessId(target, out pid) == 0 || pid == GetCurrentProcessId() || !SameOwnedJob(pid)) return IntPtr.Zero;
         string actual, own; long created, ownCreated;
-        string sibling = CanonicalImage(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Game", "League of Legends.exe"));
+        string directory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+        string root = gameTarget ? directory : Path.GetDirectoryName(directory);
+        string sibling = CanonicalImage(gameTarget ? Path.Combine(root, "Game", "League of Legends.exe") : Path.Combine(root, "LeagueClientUx.exe"));
+        string expectedSelf = CanonicalImage(gameTarget ? Path.Combine(root, "LeagueClientUx.exe") : Path.Combine(root, "Game", "League of Legends.exe"));
         if (sibling == null || !ImageMetadata(pid, out actual, out created) ||
             !ImageMetadata(GetCurrentProcessId(), out own, out ownCreated) ||
             !String.Equals(actual, sibling, StringComparison.OrdinalIgnoreCase) ||
-            !String.Equals(own, CanonicalImage(System.Reflection.Assembly.GetExecutingAssembly().Location), StringComparison.OrdinalIgnoreCase) ||
-            created != expectedCreated.ToInt64() || created <= ownCreated ||
+            !String.Equals(own, expectedSelf, StringComparison.OrdinalIgnoreCase) || ownCreated <= 0 ||
+            created != expectedCreated.ToInt64() ||
             GetWindowThreadProcessId(target, out repeatedPid) == 0 || repeatedPid != pid ||
             GetForegroundWindow() != window) return IntPtr.Zero;
         bool accepted = SetForegroundWindow(target);
@@ -322,7 +327,9 @@ internal static class SessionWindowFixture
                     CloseOwnedFocusSink();
                     return window == hwnd && focusSink == IntPtr.Zero && GetForegroundWindow() == hwnd ? new IntPtr(1) : IntPtr.Zero;
                 case WM_FOCUS_OWNED_GAME:
-                    return FocusOwnedGame(hwnd, wParam, lParam);
+                    return FocusOwnedSibling(hwnd, wParam, lParam, true);
+                case WM_FOCUS_OWNED_PAIR_CLIENT:
+                    return FocusOwnedSibling(hwnd, wParam, lParam, false);
                 case WM_TIMER:
                     if (Clock.ElapsedMilliseconds >= lifetime * 1000L) DestroyWindow(hwnd);
                     return IntPtr.Zero;

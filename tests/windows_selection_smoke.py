@@ -24,7 +24,7 @@ from windows_exe_smoke import isolated_windows_environment, smoke_workspace
 from windows_ota_smoke import Deadline, NativeJob, read_json, sha256
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from windows_session_fixture import CLASSES, TITLES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
-from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT, WM_FOCUS_OWNED_GAME
+from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT, WM_FOCUS_OWNED_GAME, WM_FOCUS_OWNED_PAIR_CLIENT
 
 CLIENT_PNG = ROOT / 'fixtures' / 'champselect-synthetic.png'
 GAME_PNG = ROOT / 'fixtures' / 'auto-scene.png'
@@ -145,10 +145,8 @@ def assert_owned_window(native, process, executable, role, window, dimensions):
 
 
 def foreground_owned(native, process, executable, role, window, dimensions):
+    """Observation only; an external observer never acquires focus authority."""
     assert_owned_window(native, process, executable, role, window, dimensions)
-    if int(native.u.GetForegroundWindow() or 0) != window['hwnd']:
-        native.u.ShowWindow(window['hwnd'], 5)
-        native.u.SetForegroundWindow(window['hwnd'])
     return int(native.u.GetForegroundWindow() or 0) == window['hwnd']
 
 
@@ -164,33 +162,47 @@ def owned_process_created(native,process):
 
 def focus_owned_game(native,client,client_exe,client_window,client_size,
                      game,game_exe,game_window,game_size,client_created,evidence):
-    """One bounded request from the exact foreground client to its owned game.
+    """Selection-specific adapter; its new-game lifetime requirement remains."""
+    require(type(client_created)is int and type(evidence.get('created'))is int
+            and 0<client_created<evidence['created'],'Owned focus handshake identity is outside x64 range')
+    return transfer_owned_pair(native,
+        dict(process=client,exe=client_exe,window=client_window,size=client_size,role='client',created=client_created),
+        dict(process=game,exe=game_exe,window=game_window,size=game_size,role='game',created=evidence['created']),evidence)
+
+
+def transfer_owned_pair(native,source,target,evidence):
+    """One bounded, bidirectional focus request between the exact owned pair.
 
     The source fixture independently checks its current Job, canonical sibling
     executable and creation FILETIME. Result codes preserve the real focus API
     outcome; an unsuccessful request is never a product no-handoff observation.
+    Focus transfer never grants product adoption or changes its creation cutoff.
     """
     require('focus' not in evidence,'Owned focus handshake must not be retried')
+    require((source['role'],target['role']) in (('client','game'),('game','client')),
+            'Owned focus handshake requires opposite fixture roles')
     require(ctypes.sizeof(W.WPARAM)==ctypes.sizeof(W.LPARAM)==ctypes.sizeof(ctypes.c_void_p)==8,
             'Owned focus handshake requires x64 transport')
-    created=evidence.get('created');hwnd=game_window.get('hwnd')
+    created=target['created'];hwnd=target['window'].get('hwnd');source_hwnd=source['window'].get('hwnd')
     require(type(created)is int and 0<created<2**63 and type(hwnd)is int and 0<hwnd<2**63
-            and type(client_created)is int and 0<client_created<created,
+            and type(source['created'])is int and 0<source['created']<2**63
+            and type(source_hwnd)is int and 0<source_hwnd<2**63 and source_hwnd!=hwnd,
             'Owned focus handshake identity is outside x64 range')
     def identities():
-        assert_owned_window(native,client,client_exe,'client',client_window,client_size)
-        assert_owned_window(native,game,game_exe,'game',game_window,game_size)
-        require(owned_process_created(native,client)==client_created
-                and owned_process_created(native,game)==created,'Owned focus handshake process creation changed')
+        for item in (source,target):
+            assert_owned_window(native,item['process'],item['exe'],item['role'],item['window'],item['size'])
+        require(owned_process_created(native,source['process'])==source['created']
+                and owned_process_created(native,target['process'])==created,'Owned focus handshake process creation changed')
     identities()
     def foreground():
         actual=int(native.u.GetForegroundWindow()or 0)
-        return actual if actual in (client_window['hwnd'],hwnd) else 0  # Unknown window: no identity collection.
+        return actual if actual in (source_hwnd,hwnd) else 0  # Unknown window: no identity collection.
     before=foreground()
     observed=evidence['focus']={'sent':False,'result':0,'api':None,'drained':False,'before':before,'after':before}
-    require(before==client_window['hwnd'],'Owned focus handshake source is not foreground')
+    require(before==source_hwnd,'Owned focus handshake source is not foreground')
     response=ctypes.c_size_t()
-    observed['sent']=bool(native.u.SendMessageTimeoutW(client_window['hwnd'],WM_FOCUS_OWNED_GAME,
+    command=WM_FOCUS_OWNED_GAME if target['role']=='game' else WM_FOCUS_OWNED_PAIR_CLIENT
+    observed['sent']=bool(native.u.SendMessageTimeoutW(source_hwnd,command,
         hwnd,created,0x2,1000,ctypes.byref(response)))
     observed['result']=response.value if response.value in (0,1,2,3) else 4
     observed['api']=True if response.value in (1,3) else False if response.value==2 else None
@@ -208,6 +220,98 @@ def focus_owned_game(native,client,client_exe,client_window,client_size,
     return observed
 
 
+def focus_owned_target(native,target,owners,evidence,*,controller=None):
+    """Establish focus once, only from an actually foreground known owner.
+
+    Already-foreground is an observation, not an OS request. A controller branch
+    is allowed only for this Python process's exact HWND and creation identity.
+    Unknown foreground never becomes permission to activate a fixture.
+    """
+    require('focus' not in evidence,'Owned focus transition must not be retried')
+    def validate_target():
+        assert_owned_window(native,target['process'],target['exe'],target['role'],target['window'],target['size'])
+        require(owned_process_created(native,target['process'])==target['created'],'Owned focus target creation changed')
+    def identity(item):
+        return dict(hwnd=item['window']['hwnd'],pid=item['process']['pid'],role=item['role'],created=item['created'])
+    validate_target();hwnd=target['window']['hwnd'];before=int(native.u.GetForegroundWindow()or 0)
+    evidence['target']=identity(target)
+    if before==hwnd:
+        evidence.update(route='already',focus=dict(sent=False,result=1,api=None,drained=False,before=hwnd,after=hwnd))
+        validate_target();return evidence
+    sources=[item for item in owners if item['window']['hwnd']==before]
+    if len(sources)==1:
+        evidence.update(route='pair',source=identity(sources[0]))
+        transfer_owned_pair(native,sources[0],target,evidence);return evidence
+    if controller is not None and before==controller['hwnd']:
+        def validate_controller():
+            pid=W.DWORD()
+            require(controller['pid']==os.getpid() and
+                    native.u.GetWindowThreadProcessId(controller['hwnd'],ctypes.byref(pid)) and
+                    pid.value==controller['pid'] and native.image(pid.value)==controller['image'] and
+                    controller['image'] and owned_process_created(native,dict(handle=W.HANDLE(-1)))==controller['created'],
+                    'Owned foreground controller identity changed')
+        validate_controller()
+        evidence.update(route='controller',source=dict(hwnd=controller['hwnd'],pid=controller['pid'],
+            role='controller',created=controller['created']))
+        observed=evidence['focus']=dict(sent=False,result=0,api=None,drained=False,before=before,after=before)
+        require(int(native.u.GetForegroundWindow()or 0)==before,'Owned controller lost foreground before request')
+        observed['sent']=True;observed['api']=bool(native.u.SetForegroundWindow(hwnd))
+        after=int(native.u.GetForegroundWindow()or 0)
+        observed['result']=2 if not observed['api'] else 1 if after==hwnd else 3
+        if observed['api'] and after!=hwnd:
+            validate_target();response=ctypes.c_size_t()
+            observed['drained']=bool(native.u.SendMessageTimeoutW(hwnd,0,0,0,2,1000,ctypes.byref(response)))
+        after=int(native.u.GetForegroundWindow()or 0)
+        observed['after']=after if after in (before,hwnd) else 0
+        validate_controller();validate_target()
+        require(observed['api'] and observed['after']==hwnd
+                and (observed['result']==1 or observed['drained']),'Owned controller focus request failed')
+        return evidence
+    evidence.update(route='unknown',focus=dict(sent=False,result=0,api=None,drained=False,before=0,after=0))
+    raise AssertionError('Owned focus transition has no known foreground owner')
+
+
+def validate_owned_focus(value, *, target_role=None):
+    """Strict portable contract for successful bounded owned focus receipts."""
+    require(type(value)is dict and value.get('route') in ('already','pair','controller'),
+            'Owned focus route missing or unsuccessful')
+    target=value.get('target');source=value.get('source');focus=value.get('focus')
+    def identity(item,roles):
+        require(type(item)is dict and item.get('role') in roles and
+                all(type(item.get(k))is int and 0<item[k]<2**63 for k in ('hwnd','pid','created')),
+                'Owned focus identity is invalid')
+    identity(target,('client','game'))
+    require(target_role is None or target['role']==target_role,'Owned focus target role differs')
+    require(type(focus)is dict and type(focus.get('result'))is int and focus['result'] in (1,3)
+            and type(focus.get('before'))is int and type(focus.get('after'))is int
+            and focus['after']==target['hwnd'],'Owned focus result differs')
+    if value['route']=='already':
+        require(source is None and focus['before']==target['hwnd'] and focus['result']==1
+                and focus.get('sent')is False and focus.get('api')is None and focus.get('drained')is False,
+                'Already-foreground receipt implies an unexpected request')
+    else:
+        identity(source,('controller',) if value['route']=='controller' else ('client','game'))
+        require(source['hwnd']!=target['hwnd'] and source['pid']!=target['pid']
+                and source['role']!=target['role'] and focus['before']==source['hwnd']
+                and focus.get('sent')is True and focus.get('api')is True
+                and focus.get('drained')is (focus['result']==3),'Owned focus transfer evidence differs')
+    return value
+
+
+def validate_initial_focus(value,client_hwnd):
+    require(type(value)is dict and value.get('route') in ('already','controller')
+            and all(type(value.get(k))is int and 0<value[k]<2**63
+                for k in ('source_hwnd','source_pid','source_created','target_hwnd','observed_hwnd'))
+            and value['target_hwnd']==value['observed_hwnd']==client_hwnd
+            and value['source_hwnd']!=client_hwnd,'Initial owned client focus identity differs')
+    if value['route']=='already':
+        require(value.get('sent')is False and value.get('api')is None and value.get('drained')is False,
+                'Initial foreground observation has request evidence')
+    else:
+        require(value.get('sent')is True and value.get('api')is True and type(value.get('drained'))is bool,
+                'Initial owned controller focus did not complete')
+
+
 def client_physical_rect(native,window):
     rect=W.RECT();point=W.POINT(0,0)
     require(native.u.GetClientRect(window['hwnd'],ctypes.byref(rect))
@@ -222,7 +326,7 @@ def drive_focus_fixture(native,process,executable,window,dimensions,phase,result
     before=client_physical_rect(native,window)
     if phase=='testing-client-foreground-loss':
         if evidence.get('sink'):return
-        require(foreground_owned(native,process,executable,'client',window,dimensions),
+        require(int(native.u.GetForegroundWindow()or 0)==window['hwnd'],
                 'Owned client must be foreground before its focus-sink request')
         response=ctypes.c_size_t()
         sent=bool(native.u.SendMessageTimeoutW(window['hwnd'],WM_FOCUS_OWNED_SINK,0,0,0x2,1000,ctypes.byref(response)))
@@ -378,10 +482,11 @@ def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=N
                 and badge.get('accessible')==f'选项 {index} · {name} · {tier} · HUD未复核 · 来自本局选人 · HUD未复核'
                 and badge.get('tooltip')=='来自本局选人 · HUD未复核\n',
                 'Visible badge provisional identity differs')
-    for key in ('clientHwnd', 'clientPid', 'gameHwnd', 'gamePid', 'clientGeneration'):
+    for key in ('clientHwnd', 'clientPid', 'clientCreated', 'gameHwnd', 'gamePid', 'clientGeneration'):
         require(type(value.get(key)) is int and value[key] > 0, 'Selection identity missing: ' + key)
     require(value['clientHwnd'] != value['gameHwnd'] and value['clientPid'] != value['gamePid'],
             'Client and game identities must differ')
+    validate_initial_focus(value.get('initial_focus'),value['clientHwnd'])
     validate_follow_off(value.get('manual_client_follow_off'),value['clientHwnd'],value['clientPid'],value.get('gameCreated'))
     detail = value.get('client_hero_reference')
     require(type(detail) is dict, 'Hero reference measurements missing')
@@ -520,6 +625,26 @@ def validate_aggregate(value, version, *, frozen, source_commit=None, executable
                 and type(focus.get('before'))is int and focus['before']==row['detail']['clientHwnd']
                 and type(focus.get('after'))is int and focus['after']==negative['hwnd'],
                 'Owned negative-game focus handshake evidence differs')
+        for key,role,hwnd,pid in (('negative_game_return_focus','client',row['client']['hwnd'],row['client']['pid']),
+                ('final_game_focus','game',row['game']['hwnd'],row['game']['pid'])):
+            receipt=validate_owned_focus(row.get(key),target_role=role)
+            require(receipt['target']['hwnd']==hwnd and receipt['target']['pid']==pid,
+                    'Selection focus target differs from observed process')
+        require(row['negative_game_return_focus']['target']['created']==row['detail']['clientCreated'],
+                'Owned client creation differs across selection focus transitions')
+        final=row['final_game_focus']
+        if final['route']=='pair':
+            require(final['source']==row['negative_game_return_focus']['target'],
+                    'Final game focus source differs from the exact client')
+        returned=row['negative_game_return_focus']
+        require(returned['route']=='pair' and returned['source']==dict(hwnd=negative['hwnd'],pid=negative['pid'],
+                role='game',created=negative['created']), 'Negative game return lacks exact foreground source')
+        require(row['final_game_focus']['target']['created']==row['detail']['gameCreated'],
+                'Final focus game creation differs')
+        application=row.get('application_process');initial=row['detail']['initial_focus']
+        require(type(application)is dict and all(type(application.get(k))is int
+                and application[k]==initial['source_'+k] for k in ('pid','created','hwnd')),
+                'Initial focus controller differs from Job-owned application')
         observed=row.get('focus_fixture');transition=row['detail']['foreground_transition']
         require(type(observed)is dict and observed.get('sink')=={'hwnd':transition['sink_hwnd'],'pid':transition['sink_pid']}
                 and all(type(observed['sink'].get(k))is int for k in ('hwnd','pid')),
@@ -636,6 +761,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
             client = native.spawn(argv[0], argv[1:], env, work)
             client_window = wait_fixture(native, client, fixture['client_exe'], 'client', client_ready, sizes['client'], budget)
             client_created=owned_process_created(native,client)
+            client_owner=dict(process=client,exe=fixture['client_exe'],window=client_window,size=sizes['client'],role='client',created=client_created)
             input_path = work / 'selection-input.json'
             write_json(input_path, {'schemaVersion': 1, 'scope': 'owned-synthetic-only', 'client': client_window})
             handoff_path = work / native_report_name(frozen, scale)
@@ -643,6 +769,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 raise AssertionError('Selection handoff report must be fresh for this exact run')
             app = native.spawn(target, app_args + ['--selection-smoke-input', str(input_path),
                                         '--selection-smoke-report', str(handoff_path)], env, work)
+            result['application_process']={'pid':app['pid'],'created':owned_process_created(native,app)}
             negative_game=None;negative_window=None
 
             def awaiting_game():
@@ -653,11 +780,19 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 if value:
                     require(result.get('follow_off_fixture',{}).get('closed_before_follow_on')is True,
                             'Final game requested before negative-game cleanup')
+                    initial=value.get('initial_focus');validate_initial_focus(initial,client_window['hwnd'])
+                    pid=W.DWORD()
+                    require(native.u.GetWindowThreadProcessId(initial['source_hwnd'],ctypes.byref(pid))
+                            and pid.value==app['pid'] and native.poll(app)is None
+                            and owned_process_created(native,app)==result['application_process']['created'],
+                            'Initial controller HWND is not the exact Job-owned application')
+                    result['application_process']['hwnd']=initial['source_hwnd']
                     return value
                 current = poll_owned_json(handoff_path, read_json) or {}
                 phase=current.get('phase')
                 if phase=='await-follow-off-game' and negative_game is None:
-                    require(foreground_owned(native,client,fixture['client_exe'],'client',client_window,sizes['client']),
+                    assert_owned_window(native,client,fixture['client_exe'],'client',client_window,sizes['client'])
+                    require(int(native.u.GetForegroundWindow()or 0)==client_window['hwnd'],
                             'Owned client must be foreground before negative-game launch')
                     ready=work/'follow-off-game-ready.json'
                     argv=fixture_argv(fixture['game_exe'],'game',GAME_PNG,ready,x=x,y=y,
@@ -688,14 +823,20 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                     require(negative_game is not None,'Follow-off cleanup lacks its owned process')
                     if not result['follow_off_fixture']['process_exited']:
                         assert_owned_window(native,negative_game,fixture['game_exe'],'game',negative_window,sizes['game'])
+                        negative_owner=dict(process=negative_game,exe=fixture['game_exe'],window=negative_window,
+                            size=sizes['game'],role='game',created=result['follow_off_fixture']['created'])
+                        focus_owned_target(native,client_owner,[negative_owner],result.setdefault('negative_game_return_focus',{}))
                         native.close_window(negative_window)
                         require(native.wait_exit(negative_game,budget.until(10))==0,'Follow-off game did not exit cleanly')
                         result['follow_off_fixture'].update(process_exited=True,closed_before_follow_on=True)
-                    foreground_owned(native,client,fixture['client_exe'],'client',client_window,sizes['client'])
+                    require(int(native.u.GetForegroundWindow()or 0)==client_window['hwnd'],
+                            'Client foreground changed after negative-game cleanup')
                 elif phase in ('testing-client-foreground-loss','requesting-client-focus-return'):
                     drive_focus_fixture(native,client,fixture['client_exe'],client_window,sizes['client'],current['phase'],result)
-                else:
-                    foreground_owned(native, client, fixture['client_exe'], 'client', client_window, sizes['client'])
+                elif phase not in (None,'initializing','warming-client-ocr'):
+                    assert_owned_window(native,client,fixture['client_exe'],'client',client_window,sizes['client'])
+                    require(int(native.u.GetForegroundWindow()or 0)==client_window['hwnd'],
+                            'Client foreground changed during selection observation')
                 return None
 
             Deadline.wait(awaiting_game, budget.until(135), 'Application did not confirm selection before game launch')
@@ -708,8 +849,9 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
             game = native.spawn(argv[0], argv[1:], env, work)
             game_window = wait_fixture(native, game, fixture['game_exe'], 'game', game_ready, sizes['game'], budget)
             result['game'] = dict(game_window, class_name=CLASSES['game'], client_size=list(sizes['game']))
-            Deadline.wait(lambda: foreground_owned(native, game, fixture['game_exe'], 'game', game_window, sizes['game']),
-                          budget.until(10), 'Owned new game fixture could not become foreground')
+            game_owner=dict(process=game,exe=fixture['game_exe'],window=game_window,size=sizes['game'],
+                role='game',created=owned_process_created(native,game))
+            focus_owned_target(native,game_owner,[client_owner],result.setdefault('final_game_focus',{}))
 
             def completed():
                 value = report_when(handoff_path, terminal=True)

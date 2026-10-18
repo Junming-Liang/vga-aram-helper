@@ -269,6 +269,8 @@ class ReleaseFixture(unittest.TestCase):
         self.automatic_capture = dict(schema_version=1,status='passed',platform='win32',backend='qtwidgets',frozen=False,checks_use_real_windows=True,application_version=VERSION,source_commit=SHA,
             trust_injection=dict(source_only=True,exact_paths_and_sha256_only=True,real_process_metadata_unchanged=True,calls=2),
             source_sha256={name:hashlib.sha256(self.source_entries[name]).hexdigest() for name in gate.AUTO_SOURCE_FILES},**dict.fromkeys(gate.AUTO_CAPTURE_FIELDS,True))
+        from test_windows_automatic_capture import good_focus_transitions
+        self.automatic_capture['focus_transitions']=good_focus_transitions()
         from test_wgc_build import manifest as wgc_manifest, passing_report as wgc_report
         helper = wgc_manifest()
         helper.update(source_commit=SHA, source_sha256=hashlib.sha256(self.source_entries['native/wgc_capture.cpp']).hexdigest(),
@@ -426,6 +428,19 @@ class ReleaseFixture(unittest.TestCase):
             report=copy.deepcopy(self.automatic_capture);report[field]=False
             self.write_json(self.evidence/'windows-automatic-capture.json',report)
             with self.subTest(field=field),self.assertRaisesRegex(gate.VerificationError,'Automatic lifecycle'):self.verify()
+    def test_automatic_focus_ledger_rejects_missing_wrong_identity_and_typed_forgery(self):
+        for index in range(len(self.automatic_capture['focus_transitions'])):
+            for field,replacement in (('after',0),('sent',1),('result',True)):
+                report=copy.deepcopy(self.automatic_capture);report['focus_transitions'][index]['focus'][field]=replacement
+                self.write_json(self.evidence/'windows-automatic-capture.json',report)
+                with self.subTest(index=index,field=field),self.assertRaises(gate.VerificationError):
+                    gate.verify_automatic_capture(self.evidence/'windows-automatic-capture.json',Path('unused-source.zip'),VERSION,SHA)
+        for index in (4,5,6,8,11,12,13):
+            report=copy.deepcopy(self.automatic_capture);report['focus_transitions'][index]['target']['created']+=10
+            self.write_json(self.evidence/'windows-automatic-capture.json',report)
+            with self.subTest(index=index),self.assertRaises(gate.VerificationError):
+                gate.verify_automatic_capture(self.evidence/'windows-automatic-capture.json',Path('unused-source.zip'),VERSION,SHA)
+
     def test_automatic_capture_binds_exact_source_bytes(self):
         self.automatic_capture['source_sha256']['automatic_windows.py']='0'*64;self.write_reports()
         with self.assertRaisesRegex(gate.VerificationError,'different source bytes'):self.verify()

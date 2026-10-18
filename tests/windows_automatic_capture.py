@@ -38,14 +38,14 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import smoke_workspace
 from windows_ota_smoke import Deadline, NativeJob, read_json, sha256, write_json
 from windows_selection_smoke import (assert_owned_window, child_environment,
-    declare_desktop, fixture_dimensions, foreground_owned)
+    declare_desktop, fixture_dimensions, focus_owned_target, validate_owned_focus)
 from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 
 MAX_SECONDS = 240
 SOURCE_FILES = ('capture_cadence.py', 'badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
                 'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
-                'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
+                'tests/windows_automatic_capture.py', 'tests/windows_selection_smoke.py', 'tests/SessionWindowFixture.cs', 'owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
 WM_RECREATE_OWNED = 0x8000 + 73
 SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process metadata, '
          'Qt lifecycle, z-order guards and bounded OS pixels. Publisher verification '
@@ -59,6 +59,59 @@ SCOPE = ('SOURCE fixture, not frozen-EXE acceptance. Real Windows HWND/process m
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+CAPTURE_FIELDS = ('wait_without_window','helper_visible_after_default_start','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
+FOCUS_PHASES = (
+    ('initial client','client'),('new game','game'),
+    ('prepare client before game minimize','client'),('client while game minimized','client'),
+    ('restore game','game'),('occluder shown without activation','game'),('occluder closed','game'),
+    ('prepare client before game recreation','client'),('same-process HWND recreation','game'),
+    ('prepare client before game close','client'),('game process closed','client'),
+    ('game process restart','game'),('preexisting game before Start','game'),('preexisting game after Start','game'))
+
+
+def validate_focus_transitions(values):
+    require(type(values)is list and len(values)==len(FOCUS_PHASES),'Owned focus transition inventory differs')
+    for value,(phase,role) in zip(values,FOCUS_PHASES):
+        validate_owned_focus(value,target_role=role)
+        require(value.get('phase')==phase,'Owned focus transition chronology differs')
+    clients=[v['target'] for v in values if v['target']['role']=='client']
+    require(all(v==clients[0] for v in clients),'Owned client identity changed across lifecycle')
+    first=values[1]['target'];recreated=values[8]['target'];restarted=values[11]['target']
+    require(all(values[i]['target']==first for i in (4,5,6)), 'Owned game changed before recreation')
+    require(recreated['pid']==first['pid'] and recreated['created']==first['created']
+            and recreated['hwnd']!=first['hwnd'],'Owned HWND recreation lifetime differs')
+    require(restarted['created']>recreated['created'] and all(values[i]['target']==restarted for i in (12,13)),
+            'Owned restart/preexisting game lifetime differs')
+    controller=None
+    for index,value in enumerate(values):
+        if value['route']=='pair':
+            expected=clients[0] if value['target']['role']=='game' else first if index<8 else recreated
+            require(value['source']==expected,'Owned foreground pair source differs from lifecycle')
+        elif value['route']=='controller':
+            if controller is None:controller=value['source']
+            require(value['source']==controller,'Owned controller identity changed across lifecycle')
+    return values
+
+
+def validate_source_report(value, version, source_sha):
+    require(type(value)is dict and type(value.get('schema_version'))is int and value['schema_version']==1
+        and value.get('status')=='passed' and 'error' not in value and value.get('platform')=='win32'
+        and value.get('backend')=='qtwidgets' and value.get('frozen')is False
+        and value.get('checks_use_real_windows')is True and value.get('application_version')==version
+        and value.get('source_commit')==source_sha,'Automatic Windows source-fixture identity/scope mismatch')
+    require(all(value.get(field)is True for field in CAPTURE_FIELDS),'Automatic lifecycle/capture/cleanup evidence is incomplete')
+    trust=value.get('trust_injection')
+    require(type(trust)is dict and all(trust.get(field)is True for field in
+        ('source_only','exact_paths_and_sha256_only','real_process_metadata_unchanged'))
+        and type(trust.get('calls'))is int and trust['calls']>0,'Source fixture must disclose bounded trust injection separately')
+    hashes=value.get('source_sha256')
+    require(type(hashes)is dict and set(hashes)==set(SOURCE_FILES) and all(type(digest)is str
+        and len(digest)==64 and all(c in '0123456789abcdef' for c in digest) for digest in hashes.values()),
+        'Automatic source hash inventory differs')
+    validate_focus_transitions(value.get('focus_transitions'))
+    return value
 
 
 def require_capture_idle(control):
@@ -278,6 +331,9 @@ def execute(reports, result):
 
             sequence = 0
             owned = []
+            controller_metadata=process_metadata(os.getpid())
+            controller_image=native.image(os.getpid())
+            result['focus_transitions']=[]
 
             def launch(role, *, executable=None, dimensions=size, position=(x, y), image=png, no_activate=False):
                 nonlocal sequence
@@ -315,13 +371,17 @@ def execute(reports, result):
                 item['metadata'] = process_metadata(process['pid'])
                 require(normalized_path(item['metadata'].path) == normalized_path(str(executable)), 'Wrong real executable path')
                 require(item['metadata'].created > 0, 'Missing real process creation time')
+                item['created']=item['metadata'].created
                 return item
 
-            def foreground(item, phase):
-                events.wait(lambda: foreground_owned(native, item['process'], item['exe'], item['role'],
-                                                      item['window'], item['size']),
-                            'Owned fixture could not become foreground: ' + item['role'] + ' / ' + phase)
-                events.settle()
+            def foreground(item, phase, *, settle=True):
+                evidence={'phase':phase};result['focus_transitions'].append(evidence)
+                require(len(result['focus_transitions'])<=20,'Owned focus transition count exceeded')
+                owners=[owner for owner in owned if 'window' in owner and 'created' in owner
+                        and native.poll(owner['process']) is None and normalized_path(str(owner['exe'])) in allowed]
+                focus_owned_target(native,item,owners,evidence,controller=dict(hwnd=int(control.winId()),
+                    pid=os.getpid(),created=controller_metadata.created,image=controller_image))
+                if settle:events.settle()
 
             def close_owned(item):
                 if native.poll(item['process']) is None:
@@ -450,6 +510,10 @@ def execute(reports, result):
                 require(minimized_game_target is not None and
                         minimized_game_target.identity == (game['window']['hwnd'], game['process']['pid'], CLASSES['game']),
                         'Minimize fixture did not retain the exact authorized game identity')
+                foreground(client,'prepare client before game minimize',settle=False)
+                require(control.state.confirmed and control.overlay.isVisible() and
+                        control.target.identity==minimized_game_target.identity,
+                        'Focus preparation processed stale-display withdrawal before minimize')
                 native.u.ShowWindow(game['window']['hwnd'], 6)  # SW_MINIMIZE, owned window only.
                 events.wait(lambda: control.capture.u.IsIconic(game['window']['hwnd']) and
                             not control.state.confirmed and not control.overlay.isVisible(),
@@ -513,6 +577,7 @@ def execute(reports, result):
                 old_policy = control.automatic_policy
                 old_discovery = old_policy.discover(control.capture.windows())
                 old_window = dict(game['window'])
+                foreground(client,'prepare client before game recreation',settle=False)
                 require(native.u.PostMessageW(old_window['hwnd'], WM_RECREATE_OWNED, 0, 0), 'Owned HWND recreation request failed')
 
                 def recreated():
@@ -550,6 +615,7 @@ def execute(reports, result):
                 seed_stale_state()
                 previous_metadata = game['metadata']
                 previous_pid = game['process']['pid']
+                foreground(client,'prepare client before game close',settle=False)
                 close_owned(game)
                 foreground(client, 'game process closed')
                 bound(client)
@@ -574,6 +640,7 @@ def execute(reports, result):
                 # This game now really predates the next Start; no synthetic creation timestamps.
                 control.showNormal()
                 events.settle(.1)
+                foreground(game,'preexisting game before Start')
                 start_with_explicit_capture(control)
                 foreground(game, 'preexisting game after Start')
                 bound(game)
@@ -635,6 +702,7 @@ def main():
         execute(reports, result)
         require(result['source_sha256'] == {name: sha256(ROOT / name) for name in SOURCE_FILES},
                 'Source files changed during Windows acceptance')
+        validate_source_report(dict(result,status='passed'),__version__,revision)
         result['status'] = 'passed'
     except Exception as error:
         result['error'] = type(error).__name__ + ': ' + str(error)[:2400]

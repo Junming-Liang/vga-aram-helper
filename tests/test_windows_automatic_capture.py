@@ -23,6 +23,20 @@ from windows_ota_smoke import Deadline
 from windows_session_fixture import validate_png
 
 
+def good_focus_transitions():
+    from windows_automatic_capture import FOCUS_PHASES
+    from test_windows_selection_smoke import good_owned_focus
+    result=[]
+    for phase,role in FOCUS_PHASES:
+        item=good_owned_focus(role,route='already');item['phase']=phase
+        if role=='game' and len(result)>=8:
+            item['target']['hwnd']=550 if len(result)==8 else 700
+            if len(result)>=11:item['target'].update(pid=701,created=133000000000000400)
+            item['focus'].update(before=item['target']['hwnd'],after=item['target']['hwnd'])
+        result.append(item)
+    return result
+
+
 class AutomaticCaptureFixtureTests(unittest.TestCase):
     def test_actual_occluder_and_game_dimensions_produce_valid_nonblank_pngs(self):
         for dimensions in ((64, 64), (964, 602)):
