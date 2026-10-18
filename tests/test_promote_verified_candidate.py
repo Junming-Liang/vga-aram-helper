@@ -4,6 +4,9 @@ The integration fixture uses the existing ReleaseFixture's explicitly synthetic
 Windows reports and its documented native/archive stand-ins. The real release
 verifier, receipt comparisons, staging, ZIP extraction and draft-asset checks run.
 Every subprocess is intercepted, so no build, network call or release can occur.
+Separate tests exercise the unmodified OpenCV provenance validator and the
+original-checkout/credential-free subprocess boundary; the aggregate synthetic
+fixture substitutes that boundary to retain its documented native stand-ins.
 """
 import copy
 import hashlib
@@ -24,6 +27,9 @@ import zipfile
 from scripts import promote_verified_candidate as promotion
 from scripts import stage_verified_artifact as staging
 from scripts import probe_opencv_postbuild as postbuild
+from scripts import build_minimal_opencv as opencv_builder
+from scripts import minimal_opencv_package as opencv_package
+from tests.test_minimal_opencv import valid_provenance_fixture
 from tests import test_release_gate as fixtures
 
 
@@ -339,6 +345,306 @@ class CurrentPromotionProofTests(OfflineTestCase):
             with self.subTest(sha=sha, returncode=code), \
                  self.assertRaisesRegex(RuntimeError, 'checkout differs'):
                 self.call_proof(checkout_sha=sha, checkout_returncode=code)
+
+
+class OriginalOpenCVProvenanceRegressionTests(OfflineTestCase):
+    """Exercise the real validator that the larger release fixture substitutes."""
+    def setUp(self):
+        super().setUp()
+        self.original_sha = 'a' * 40
+        self.proof = valid_provenance_fixture(self.original_sha,
+                                             profile=promotion.gate.ADOPTED_PROFILE)
+
+    def fake_git_head(self, sha):
+        def run(arguments, **kwargs):
+            self.assertEqual(arguments, ['git', 'rev-parse', 'HEAD'])
+            self.assertEqual(kwargs['cwd'], opencv_builder.ROOT)
+            self.assertEqual(kwargs['timeout'], 30)
+            return subprocess.CompletedProcess(arguments, 0, stdout=sha + '\n')
+        return run
+
+    def test_parent_promoter_sha_reproduces_real_original_provenance_failure(self):
+        # The archived proof belongs to original HEAD, while the promotion
+        # workflow legitimately executes a later commit. Its SHA must not leak.
+        with patch.dict(os.environ, {'GITHUB_SHA': PROMOTION_SHA}, clear=True), \
+             patch.object(subprocess, 'run', side_effect=self.fake_git_head(self.original_sha)) as git, \
+             self.assertRaisesRegex(RuntimeError, 'Custom OpenCV source commit differs'):
+            opencv_package.checked_proof(self.proof, profile=promotion.gate.ADOPTED_PROFILE)
+        git.assert_not_called()
+
+    def test_unmodified_validator_derives_original_commit_from_git_without_sha_override(self):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(subprocess, 'run', side_effect=self.fake_git_head(self.original_sha)) as git:
+            self.assertEqual(opencv_package.checked_proof(
+                self.proof, profile=promotion.gate.ADOPTED_PROFILE), self.proof)
+        git.assert_called_once()
+
+    def test_wrong_checkout_commit_still_fails_without_github_sha(self):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(subprocess, 'run', side_effect=self.fake_git_head(PROMOTION_SHA)), \
+             self.assertRaisesRegex(RuntimeError, 'Custom OpenCV source commit differs'):
+            opencv_package.checked_proof(self.proof, profile=promotion.gate.ADOPTED_PROFILE)
+
+    def test_no_sha_override_does_not_weaken_other_original_provenance_checks(self):
+        self.proof['source']['sha256'] = '0' * 64
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(subprocess, 'run', side_effect=self.fake_git_head(self.original_sha)), \
+             self.assertRaisesRegex(RuntimeError, 'pinned input'):
+            opencv_package.checked_proof(self.proof, profile=promotion.gate.ADOPTED_PROFILE)
+
+
+class OriginalCheckoutTests(OfflineTestCase):
+    def setUp(self):
+        super().setUp()
+        self.checkout = self.root / 'original-source'
+        self.checkout.mkdir()
+        self.files = {'scripts/verify_release.py': b'# Synthetic original verifier fixture\n',
+                      'scripts/build_minimal_opencv.py': b'# Synthetic pinned recipe fixture\n',
+                      'README.md': b'Original fixture source bytes\n', '.gitattributes': b'* text=auto\n'}
+        for name, data in self.files.items():
+            path = self.checkout / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (self.checkout / '.git').mkdir()
+        (self.checkout / '.git' / 'config').write_text('Owned synthetic Git metadata')
+        self.source_archive = self.root / 'source.zip'
+        self.tree = b''.join(self.tree_row(name, data) for name, data in self.files.items())
+        self.archive()
+        self.git_commands = []
+
+    @staticmethod
+    def tree_row(name, data, *, mode='100644', kind='blob'):
+        digest = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+        return f'{mode} {kind} {digest}\t{name}\0'.encode()
+
+    def archive(self, files=None, comment=None):
+        if files is None:
+            files = list(self.files.items())
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(self.source_archive, 'w') as archive:
+                archive.comment = promotion.SOURCE_SHA.encode() if comment is None else comment
+                for name, data in files:
+                    archive.writestr(name, data)
+
+    def git(self, arguments, **kwargs):
+        self.git_commands.append(list(arguments))
+        self.assertEqual(arguments[:3], ['git', '-C', str(self.checkout.resolve())])
+        self.assertEqual(kwargs['timeout'], 60)
+        command = arguments[3:]
+        if command == ['rev-parse', 'HEAD']:
+            data = promotion.SOURCE_SHA.encode() + b'\n'
+        elif command == ['rev-parse', '--show-toplevel']:
+            data = str(self.checkout.resolve()).encode() + b'\n'
+        elif command == ['ls-tree', '-r', '-z', '--full-tree', promotion.SOURCE_SHA]:
+            data = self.tree
+        else:
+            raise AssertionError('Unexpected original-source command: ' + repr(arguments))
+        return subprocess.CompletedProcess(arguments, 0, stdout=data, stderr=b'')
+
+    def check(self, git=None):
+        with patch.object(subprocess, 'run', side_effect=git or self.git):
+            return promotion.check_original_source(self.checkout, self.source_archive)
+
+    def test_exact_original_git_tree_checkout_and_source_archive_agree(self):
+        with patch.dict(os.environ, {'GITHUB_SHA': PROMOTION_SHA}, clear=True):
+            self.assertEqual(self.check(), self.checkout.resolve())
+        self.assertEqual(len(self.git_commands), 3)
+        self.assertNotEqual(PROMOTION_SHA, promotion.SOURCE_SHA)
+        self.assertEqual((self.checkout / '.git' / 'config').read_text(), 'Owned synthetic Git metadata')
+
+    def test_wrong_source_head_or_nonindependent_root_fails(self):
+        for command, data, message in [(['rev-parse', 'HEAD'], PROMOTION_SHA.encode(), 'tested source commit'),
+                                       (['rev-parse', '--show-toplevel'], str(self.root).encode(), 'independent Git root')]:
+            def wrong(arguments, **kwargs):
+                if arguments[3:] == command:
+                    return subprocess.CompletedProcess(arguments, 0, stdout=data, stderr=b'')
+                return self.git(arguments, **kwargs)
+            with self.subTest(command=command), self.assertRaisesRegex(RuntimeError, message):
+                self.check(wrong)
+
+    def test_git_failure_stops_before_using_archive(self):
+        with self.assertRaisesRegex(RuntimeError, 'Git identity check failed'):
+            self.check(lambda args, **kwargs: subprocess.CompletedProcess(args, 1, stdout=b'', stderr=b'failed'))
+
+    def test_extra_missing_and_modified_checkout_files_fail(self):
+        extra = self.checkout / 'untracked.py'
+        extra.write_bytes(b'No untracked imports')
+        with self.assertRaisesRegex(RuntimeError, 'extra or missing'):
+            self.check()
+        extra.unlink()
+        target = self.checkout / 'README.md'
+        target.unlink()
+        with self.assertRaisesRegex(RuntimeError, 'extra or missing'):
+            self.check()
+        target.write_bytes(b'Modified original source')
+        with self.assertRaisesRegex(RuntimeError, 'checkout bytes differ'):
+            self.check()
+
+    def test_extra_bytecode_also_rejected_before_original_verifier_imports(self):
+        cache = self.checkout / 'scripts' / '__pycache__'
+        cache.mkdir()
+        (cache / 'verify_release.cpython-312.pyc').write_bytes(b'untrusted cached code')
+        with self.assertRaisesRegex(RuntimeError, 'extra or missing'):
+            self.check()
+
+    def test_checkout_file_and_directory_links_fail(self):
+        target = self.checkout / 'README.md'
+        target.unlink()
+        outside = self.root / 'owned-file'
+        outside.write_bytes(self.files['README.md'])
+        try:
+            target.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            self.skipTest('Host does not permit owned symlink fixtures')
+        with self.assertRaisesRegex(RuntimeError, 'contains a link'):
+            self.check()
+        target.unlink()
+        target.write_bytes(self.files['README.md'])
+        (self.checkout / 'linked-directory').symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, 'contains a link'):
+            self.check()
+
+    def test_unsupported_tree_modes_duplicate_names_or_empty_tree_fail(self):
+        original = self.tree
+        bad = [b'', self.tree + self.tree.split(b'\0')[0] + b'\0',
+               self.tree_row('README.md', self.files['README.md'], mode='120000'),
+               self.tree_row('README.md', self.files['README.md'], mode='160000', kind='commit')]
+        for index, tree in enumerate(bad):
+            self.tree = tree
+            with self.subTest(case=index), self.assertRaises(RuntimeError):
+                self.check()
+        self.tree = original
+
+    def test_source_archive_commit_inventory_duplicate_and_traversal_fail(self):
+        variants = [(list(self.files.items()), PROMOTION_SHA.encode()),
+                    (list(self.files.items())[:-1], None),
+                    (list(self.files.items()) + [('extra.py', b'unknown')], None),
+                    (list(self.files.items()) + [('README.md', b'duplicate')], None),
+                    (list(self.files.items())[:-1] + [('../escape', b'unsafe')], None)]
+        for index, (files, comment) in enumerate(variants):
+            self.archive(files, comment)
+            with self.subTest(case=index), self.assertRaises(RuntimeError):
+                self.check()
+
+    def test_archive_and_checkout_cannot_collude_to_change_pinned_git_blob(self):
+        changed = dict(self.files, **{'README.md': b'Changed in both places'})
+        self.archive(list(changed.items()))
+        (self.checkout / 'README.md').write_bytes(changed['README.md'])
+        with self.assertRaisesRegex(RuntimeError, 'blob differs from tested Git tree'):
+            self.check()
+
+    def test_source_archive_symlink_encryption_and_expansion_budget_fail(self):
+        link = zipfile.ZipInfo('README.md')
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        self.archive([(link if name == 'README.md' else name, data) for name, data in self.files.items()])
+        with self.assertRaisesRegex(RuntimeError, 'Unsafe original source archive'):
+            self.check()
+        self.archive()
+        data = bytearray(self.source_archive.read_bytes())
+        central = data.index(b'PK\x01\x02')
+        data[central + 8] |= 1
+        self.source_archive.write_bytes(data)
+        with self.assertRaisesRegex(RuntimeError, 'Unsafe original source archive'):
+            self.check()
+        self.archive()
+        data = bytearray(self.source_archive.read_bytes())
+        central = data.index(b'PK\x01\x02')
+        data[central + 24:central + 28] = (256 * 1024 * 1024 + 1).to_bytes(4, 'little')
+        self.source_archive.write_bytes(data)
+        with self.assertRaisesRegex(RuntimeError, 'exceeds budget'):
+            self.check()
+
+
+class OriginalVerifierProcessTests(OfflineTestCase):
+    def setUp(self):
+        super().setUp()
+        self.source = self.root / 'original-source'
+        self.bundle = self.root / 'bundle'
+        self.evidence = self.root / 'evidence'
+        self.work = self.root / 'work'
+        for path in (self.source, self.bundle, self.evidence, self.work):
+            path.mkdir()
+        self.parent_environment = {
+            **promotion_environment(), 'PATH': '/owned/bin', 'PATHEXT': '.EXE;.CMD',
+            'SystemRoot': 'C:\\Windows', 'TEMP': '/owned/tmp', 'HOME': '/owned/home',
+            'GH_TOKEN': 'synthetic-must-not-leak', 'GITHUB_TOKEN': 'synthetic-must-not-leak',
+            'ACTIONS_RUNTIME_TOKEN': 'synthetic-must-not-leak',
+            'AWS_SECRET_ACCESS_KEY': 'synthetic-must-not-leak',
+            'SOME_UNKNOWN_CREDENTIAL': 'synthetic-must-not-leak',
+            'PYTHONPATH': '/untrusted/imports', 'PYTHONHOME': '/untrusted/python',
+            'VGA_RELEASE_PACKAGE_PROFILE': 'untrusted', 'GIT_CONFIG_COUNT': '99'}
+
+    def test_child_environment_is_a_credential_free_allowlist_without_sha_override(self):
+        with patch.dict(os.environ, self.parent_environment, clear=True):
+            environment = promotion.verifier_environment()
+            self.assertEqual(os.environ['GITHUB_SHA'], PROMOTION_SHA)
+            self.assertEqual(os.environ['GH_TOKEN'], 'synthetic-must-not-leak')
+        self.assertEqual(environment, {'PATH': '/owned/bin', 'PATHEXT': '.EXE;.CMD',
+                                      'SystemRoot': 'C:\\Windows', 'TEMP': '/owned/tmp',
+                                      'HOME': '/owned/home', 'PYTHONUTF8': '1',
+                                      'PYTHONDONTWRITEBYTECODE': '1', 'ORT_DISABLE_TELEMETRY': '1'})
+        self.assertNotIn('synthetic-must-not-leak', environment.values())
+        self.assertNotIn('GITHUB_SHA', environment)
+
+    def test_child_runs_untouched_original_verifier_from_original_checkout_only(self):
+        # Process stdout is not trusted as the receipt. The file is read only
+        # after success; mocking its read here avoids inventing acceptance data.
+        receipt = {'unit_fixture': 'subprocess receipt transport only'}
+        def child(arguments, **kwargs):
+            self.assertEqual(arguments[0], sys.executable)
+            self.assertEqual(arguments[1], str(self.source / 'scripts' / 'verify_release.py'))
+            self.assertEqual(kwargs['cwd'], self.source)
+            self.assertEqual(kwargs['timeout'], 600)
+            self.assertFalse(kwargs['check'])
+            self.assertNotIn('GITHUB_SHA', kwargs['env'])
+            self.assertNotIn('GH_TOKEN', kwargs['env'])
+            self.assertNotIn('PYTHONPATH', kwargs['env'])
+            self.assertNotIn('--publish', arguments)
+            self.assertEqual(arguments[arguments.index('--source-sha') + 1], promotion.SOURCE_SHA)
+            self.assertEqual(arguments[arguments.index('--run-id') + 1], str(promotion.RUN_ID))
+            self.assertEqual(arguments[arguments.index('--run-attempt') + 1], str(promotion.RUN_ATTEMPT))
+            for flag, path in [('--release-dir', self.bundle), ('--evidence-dir', self.evidence),
+                               ('--output-dir', self.work / 'reverified')]:
+                self.assertEqual(arguments[arguments.index(flag) + 1], str(path.resolve()))
+            return subprocess.CompletedProcess(arguments, 0, stdout='synthetic stdout', stderr='synthetic stderr')
+        with patch.dict(os.environ, self.parent_environment, clear=True), \
+             patch.object(promotion, 'check_original_source', return_value=self.source) as source_check, \
+             patch.object(subprocess, 'run', side_effect=child) as command, \
+             patch.object(promotion.gate, 'read_json', return_value=receipt) as read:
+            self.assertEqual(promotion.reverify_original(self.bundle, self.evidence, self.work, self.source), receipt)
+            self.assertEqual(os.environ['GITHUB_SHA'], PROMOTION_SHA)
+        source_check.assert_called_once_with(self.source, self.bundle / f'vga-aram-helper-{promotion.VERSION}-source.zip')
+        command.assert_called_once()
+        read.assert_called_once_with((self.work / 'reverified' / 'verified-release.json').resolve())
+        self.assertEqual((self.work / 'original-verifier.log').read_text(), 'synthetic stdoutsynthetic stderr')
+
+    def test_source_rejection_never_runs_original_python(self):
+        with patch.object(promotion, 'check_original_source', side_effect=RuntimeError('wrong original source')), \
+             patch.object(promotion.gate, 'read_json') as read, \
+             self.assertRaisesRegex(RuntimeError, 'wrong original source'):
+            promotion.reverify_original(self.bundle, self.evidence, self.work, self.source)
+        self.command_guard.assert_not_called()
+        read.assert_not_called()
+
+    def test_child_failure_never_reads_or_reuses_a_receipt(self):
+        output = self.work / 'reverified'
+        output.mkdir()
+        (output / 'verified-release.json').write_text('{"unit_fixture": "stale receipt"}')
+        with patch.object(promotion, 'check_original_source', return_value=self.source), \
+             patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, stdout='', stderr='original gate failed')), \
+             patch.object(promotion.gate, 'read_json') as read, patch('sys.stderr', new_callable=io.StringIO), \
+             self.assertRaisesRegex(RuntimeError, 'Unchanged original-source verifier rejected'):
+            promotion.reverify_original(self.bundle, self.evidence, self.work, self.source)
+        read.assert_not_called()
+        self.assertEqual((output / 'verified-release.json').read_text(), '{"unit_fixture": "stale receipt"}')
+
+    def test_missing_receipt_after_success_is_not_accepted(self):
+        with patch.object(promotion, 'check_original_source', return_value=self.source), \
+             patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='', stderr='')), \
+             self.assertRaisesRegex(RuntimeError, 'Missing or symlinked'):
+            promotion.reverify_original(self.bundle, self.evidence, self.work, self.source)
 
 
 class ArtifactDownloadTests(OfflineTestCase):
@@ -659,6 +965,16 @@ class SyntheticVerifierIntegrationTests(OfflineTestCase):
         self.work = self.root / 'promotion'
         self.work.mkdir()
         self.provenance = expected_provenance()
+        self.source_checkout = self.root / 'synthetic-original-source'
+        self.source_checkout.mkdir()
+        # This fixture must remain inside the process that owns its documented
+        # native/archive stand-ins. Separate tests exercise the real boundary.
+        def synthetic_reverify(bundle, evidence, work, source_checkout):
+            self.assertEqual(source_checkout, self.source_checkout)
+            return fixtures.gate.verify(bundle, evidence, promotion.REPOSITORY,
+                                        promotion.SOURCE_SHA, work / 'reverified',
+                                        promotion.RUN_ID, promotion.RUN_ATTEMPT)
+        self.start_patch(promotion, 'reverify_original', synthetic_reverify)
 
     def save_receipt(self):
         (self.bundle / 'verified-release.json').write_text(json.dumps(self.receipt))
@@ -682,7 +998,7 @@ class SyntheticVerifierIntegrationTests(OfflineTestCase):
         self.update_asset_hash(archive_path.name)
 
     def verify(self):
-        return promotion.verify_bundle(self.bundle, self.work, self.provenance)
+        return promotion.verify_bundle(self.bundle, self.work, self.provenance, self.source_checkout)
 
     def test_real_verifier_rechecks_synthetic_bundle_and_keeps_original_zip(self):
         original_bytes = {p.name: p.read_bytes() for p in self.bundle.iterdir()}
@@ -777,7 +1093,7 @@ class SyntheticVerifierIntegrationTests(OfflineTestCase):
         arguments = ['promote_verified_candidate.py', '--run-id', str(promotion.RUN_ID),
                      '--source-sha', promotion.SOURCE_SHA, '--run-attempt', str(promotion.RUN_ATTEMPT),
                      '--artifact-id', str(promotion.ARTIFACT_ID), '--artifact-sha256', promotion.ARTIFACT_SHA256,
-                     '--work-dir', str(work)]
+                     '--work-dir', str(work), '--source-checkout', str(self.source_checkout)]
         environment = promotion_environment()
         with patch.object(sys, 'argv', arguments), patch.dict(os.environ, environment, clear=True), \
              patch.object(subprocess, 'run', side_effect=remote), patch('sys.stdout', new_callable=io.StringIO), \
@@ -810,7 +1126,8 @@ class PromotionMainSafetyTests(OfflineTestCase):
         self.arguments = ['promote_verified_candidate.py', '--run-id', str(promotion.RUN_ID),
                           '--source-sha', promotion.SOURCE_SHA, '--run-attempt', str(promotion.RUN_ATTEMPT),
                           '--artifact-id', str(promotion.ARTIFACT_ID),
-                          '--artifact-sha256', promotion.ARTIFACT_SHA256, '--work-dir', str(self.work)]
+                          '--artifact-sha256', promotion.ARTIFACT_SHA256, '--work-dir', str(self.work),
+                          '--source-checkout', str(self.root / 'original-source')]
         self.environment = promotion_environment()
 
     def test_wrong_execution_context_fails_before_network_or_writes(self):

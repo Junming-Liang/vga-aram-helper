@@ -84,8 +84,8 @@ class CandidatePromotionWorkflowTests(unittest.TestCase):
         self.assertNotIn('cancel-in-progress: true', self.configuration)
         self.assertIn('    timeout-minutes: 20\n', self.configuration)
         self.assertIn('        timeout-minutes: 1\n', self.step_blocks[0])
-        self.assertIn('        timeout-minutes: 6\n', self.step_blocks[3])
-        self.assertIn('        timeout-minutes: 12\n', self.step_blocks[4])
+        self.assertIn('        timeout-minutes: 6\n', self.step_blocks[4])
+        self.assertIn('        timeout-minutes: 12\n', self.step_blocks[5])
 
     def test_permissions_and_ephemeral_token_are_narrow(self):
         self.assertIn('\npermissions: {}\n', self.configuration)
@@ -125,11 +125,45 @@ class CandidatePromotionWorkflowTests(unittest.TestCase):
         self.assertIn('          persist-credentials: false', self.step_blocks[1])
         self.assertNotIn('inputs.', self.step_blocks[1])
 
+    def test_original_verifier_checkout_is_separate_and_immutable(self):
+        checkouts = [step for step in self.step_blocks
+                     if step.startswith('uses: actions/checkout@')]
+        self.assertEqual(len(checkouts), 2)
+        self.assertEqual(checkouts[0].strip(), '\n'.join((
+            'uses: actions/checkout@v4',
+            '        with:',
+            '          ref: ${{ github.sha }}',
+            '          persist-credentials: false',
+        )))
+        self.assertEqual(checkouts[1].strip(), '\n'.join((
+            'uses: actions/checkout@v4',
+            '        env:',
+            "          GIT_CONFIG_COUNT: '1'",
+            '          GIT_CONFIG_KEY_0: core.autocrlf',
+            "          GIT_CONFIG_VALUE_0: 'false'",
+            '        with:',
+            "          ref: '52b8720e2aa7f2b43afa5f1f73e884157f15deb6'",
+            '          path: build/original-source',
+            '          persist-credentials: false',
+        )))
+        self.assertEqual(self.step_blocks[2], checkouts[1])
+        self.assertNotIn('inputs.', checkouts[1])
+        self.assertNotIn('working-directory:', self.configuration)
+        self.assertNotIn('GITHUB_SHA:', self.configuration)
+        self.assertEqual(self.configuration.count('GIT_CONFIG_COUNT:'), 1)
+        self.assertEqual(self.configuration.count('GIT_CONFIG_KEY_0:'), 1)
+        self.assertEqual(self.configuration.count('GIT_CONFIG_VALUE_0:'), 1)
+        self.assertNotIn('GIT_CONFIG_', self.configuration.split('    steps:', 1)[0])
+        for step in self.step_blocks:
+            if step != checkouts[1]:
+                self.assertNotIn('GIT_CONFIG_', step)
+        self.assertNotIn('git config', self.configuration)
+
     def test_only_pinned_official_binary_verifier_dependencies_are_installed(self):
-        self.assertIn('uses: actions/setup-python@v5', self.step_blocks[2])
-        self.assertIn("          python-version: '3.12'", self.step_blocks[2])
-        self.assertIn('          architecture: x64', self.step_blocks[2])
-        install = self.step_blocks[3]
+        self.assertIn('uses: actions/setup-python@v5', self.step_blocks[3])
+        self.assertIn("          python-version: '3.12'", self.step_blocks[3])
+        self.assertIn('          architecture: x64', self.step_blocks[3])
+        install = self.step_blocks[4]
         self.assertIn(
             'python -m pip --isolated install --index-url https://pypi.org/simple '
             '--only-binary=:all: -r requirements-build.txt', install,
@@ -140,7 +174,7 @@ class CandidatePromotionWorkflowTests(unittest.TestCase):
         self.assertNotIn('--trusted-host', self.configuration)
 
     def test_exact_promoter_cli_is_the_only_candidate_operation(self):
-        self.assertEqual(len(self.step_blocks), 5)
+        self.assertEqual(len(self.step_blocks), 6)
         promoter = self.step_blocks[-1]
         expected = '\n'.join((
             ' >-',
@@ -151,6 +185,7 @@ class CandidatePromotionWorkflowTests(unittest.TestCase):
             '          --artifact-id "$env:CANDIDATE_ARTIFACT_ID"',
             '          --artifact-sha256 "$env:CANDIDATE_ARTIFACT_SHA256"',
             '          --work-dir build/candidate-promotion',
+            '          --source-checkout build/original-source',
         ))
         self.assertEqual(promoter.split('        run:', 1)[1].rstrip(), expected)
         for forbidden in ('--publish', 'gh release', 'gh api', 'git push',
