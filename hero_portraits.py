@@ -142,7 +142,7 @@ def parse_roster(payload,version):
     return records
 
 
-def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=None, cached_callback=None):
+def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=None, cached_callback=None, roster_callback=None):
     """Return complete decoded bank + provenance/status; no dependency installs."""
     cache=Path(cache_dir);fetcher=fetcher or fetch_bytes;deadline=time.monotonic()+150
     cancelled=cancelled or threading.Event()
@@ -188,6 +188,17 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
         version=versions[0]
         if bank is not None and status['version']==version:return bank,{**status,'state':'current','message':status['message']+'；已检查官方版本'}
         roster_url=f'{BASE}/cdn/{version}/data/en_US/champion.json';roster=fetch(roster_url,2*1024*1024);records=parse_roster(roster,version)
+        # Canonical identity needs the complete verified official dictionary,
+        # not portrait pixels. Keep its immutable publication separate from
+        # the matcher bank and the all-images-complete cache manifest.
+        from live_client_identity import _valid_map
+        canonical_map={record['asset'][:-4]:record['championId'] for record in records}
+        canonical_snapshot=tuple(sorted(canonical_map.items()))
+        _check_active(cancelled,deadline)
+        if roster_callback is not None and _valid_map(canonical_map):
+            roster_callback(canonical_snapshot,{'state':'verified-roster','version':version,
+                'rosterSha256':hashlib.sha256(roster).hexdigest(),'count':len(canonical_snapshot)})
+        _check_active(cancelled,deadline)
         cache_failed=threading.Event()
         def persist(path,payload):
             _check_active(cancelled,deadline)
@@ -213,7 +224,7 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
         message=f'本人头像模板 {version}（Riot Data Dragon，{len(fresh_bank)} 英雄）'
         if cache_failed.is_set():
             message+='；本地缓存写入失败，本次仍可自动识别，下次启动可能需重新下载。请关闭其他助手实例后重试，并检查缓存目录是否可写。'
-        return fresh_bank,diagnostic_status({'state':'memory-only' if cache_failed.is_set() else 'fresh','canonicalMap':{record['asset'][:-4]:record['championId'] for record in records},'version':version,'source':VERSION_URL,'count':len(fresh_bank),'message':message})
+        return fresh_bank,diagnostic_status({'state':'memory-only' if cache_failed.is_set() else 'fresh','canonicalMap':dict(canonical_snapshot),'version':version,'source':VERSION_URL,'count':len(fresh_bank),'message':message})
     except Exception as exc:
         if bank is not None and not cancelled.is_set():return bank,diagnostic_status({**status,'message':status['message']+'；网络更新失败，头像版本可能较旧'})
         from local_debug import classify_worker_error

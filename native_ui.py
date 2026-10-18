@@ -147,6 +147,14 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         if portrait_id!=reference.get('championId'):portrait_id=None
         portrait_revision=(self.portrait_bank.revision,portrait_id)
         if self.reference==reference and self._portrait_revision==portrait_revision:return
+        if self.reference==reference and self.hero_portrait is not None:
+            # A verified image-cache update changes only these fixed-size
+            # decorative pixels, never assignment authority or placement.
+            self._portrait_revision=portrait_revision
+            portrait=self.portrait_bank.pixmap(portrait_id,40,float(self.devicePixelRatioF()))
+            self.hero_portrait.setPixmap(portrait if portrait is not None else ControlWindow.neutral_portrait(40))
+            self.hero_portrait.setAccessibleName(reference['hero']+' · 官方基础头像' if portrait is not None else '通用身份占位图，不是英雄画像')
+            return
         self._portrait_revision=portrait_revision
         self.cards=[];self.reference=dict(reference);self._rechecking=False;self._titles_pending=False;self.tier_labels=[];self._pill_labels=[];self._detail_labels=[];self._card_layouts=[];self._title_labels=[];self._layout_revision+=1;self._placed_key=None
         while self.row.count():
@@ -300,6 +308,8 @@ class ControlWindow(QtWidgets.QWidget):
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
         self.debug_log=LocalDebugLog(self.state_dir/'local-debug',version=current_version);self._debug_snapshot=None;self._debug_hero=None;self._debug_candidates=None;self._debug_hero_revision=0;self._debug_candidate_revision=0;self._debug_game_window=None
         self._portraits_busy=False;self._portraits_attempt=0;self._portraits_completed_attempt=None;self._portraits_failures=0;self._portraits_retry_at=None;self._portraits_bank=None;self._portrait_memory_map=()
+        self._portrait_model_key=None;self._pending_portraits=None;self._portrait_display_key=None
+        self._verified_roster_map=();self._verified_roster_source=None
         self.portrait_bank=PortraitDisplayBank();self._hero_portrait_key=None;self._selection_roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
         self.signals=TaskSignals(self);self.signals.result.connect(self.task_result);self.signals.error.connect(self.task_error)
         self.setWindowTitle(APP_NAME);self.setWindowIcon(QtGui.QIcon(str(ROOT/'assets/branding/vga.ico')));self.setStyleSheet(STYLE);self.resize(900,490)
@@ -582,6 +592,8 @@ class ControlWindow(QtWidgets.QWidget):
         from live_client_identity import report_outcome,MAP_OUTCOMES
         outcome='manifest_unavailable'
         try:
+            if self._verified_roster_map:
+                outcome='verified_roster';return dict(self._verified_roster_map)
             if self._portrait_memory_map:
                 outcome='verified_memory';return dict(self._portrait_memory_map)
             cache=self.state_dir/'hero-portraits'
@@ -792,22 +804,119 @@ class ControlWindow(QtWidgets.QWidget):
             with self._worker_lock:
                 if not self.closed and not self._cancel_workers.is_set():
                     self.signals.result.emit('portraits-cache',(bank,status),attempt)
+        def roster(mapping,status):
+            with self._worker_lock:
+                if not self.closed and not self._cancel_workers.is_set():
+                    self.signals.result.emit('portraits-roster',(mapping,status),attempt)
         self.spawn('portraits',lambda:load_portraits(self.state_dir/'hero-portraits',allow_download=self.enable_updates,
-            cancelled=self._cancel_workers,cached_callback=cached),attempt)
+            cancelled=self._cancel_workers,cached_callback=cached,roster_callback=roster),attempt)
     def retry_portraits(self):
-        if (self.closed or self._portraits_busy or self.hero_matcher is not None or not self.enable_updates
+        if (self.closed or self._portraits_busy or self.hero_matcher is not None or self._pending_portraits is not None or not self.enable_updates
                 or not self.state.running or not self.hero_auto.isChecked() or self._portraits_retry_at is None
                 or time.monotonic()<self._portraits_retry_at):return
         self.request_portraits()
     def finish_portrait_attempt(self):
         self._portraits_busy=False
-        if self.hero_matcher is not None:
+        if self.hero_matcher is not None or self._pending_portraits is not None:
             self._portraits_failures=0;self._portraits_retry_at=None
         elif self.enable_updates:
             self._portraits_failures+=1
             delay=(30,60,120,300)[min(self._portraits_failures-1,3)]
             self._portraits_retry_at=time.monotonic()+delay
             self.debug_log.record('templates',template_outcome='retry_wait',generation=self._portraits_attempt,ttl_ms=delay*1000)
+    def portrait_model_key(self,portraits):
+        """Exact decoded inputs and names, independent of bank/PIL identity."""
+        digest=hashlib.sha256()
+        for champion_id,image in sorted(portraits.items()):
+            rgb=image.convert('RGB')
+            digest.update(json.dumps((champion_id,rgb.size),separators=(',',':')).encode())
+            digest.update(rgb.tobytes())
+        names={str(row.get('championId')):name for name,row in self.data['heroes'].items()
+            if isinstance(row,dict) and str(row.get('championId','')).isdigit()}
+        return digest.digest(),tuple(sorted(names.items()))
+    def receive_portrait_roster(self,value):
+        """A complete verified public roster is usable before image readiness."""
+        from live_client_identity import _valid_map
+        try:
+            snapshot,status=value
+            if (not isinstance(snapshot,tuple) or not 100<=len(snapshot)<=400
+                    or any(not isinstance(row,tuple) or len(row)!=2 for row in snapshot)
+                    or not isinstance(status,dict) or status.get('state')!='verified-roster'):return
+            mapping=dict(snapshot);version=status.get('version');digest=status.get('rosterSha256')
+            if (len(mapping)!=len(snapshot) or not _valid_map(mapping) or status.get('count')!=len(mapping)
+                    or not isinstance(version,str) or not __import__('re').fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}',version)
+                    or not isinstance(digest,str) or not __import__('re').fullmatch(r'[0-9a-f]{64}',digest)):return
+        except (TypeError,ValueError):return
+        # Separate from a portrait bank's persistence status: missing/corrupt
+        # images cannot erase a complete, independently validated identity map.
+        # This supplies lookup data only; every API identity is still read and
+        # reconciled afresh under the current game/process/capture guards.
+        self._verified_roster_map=tuple(sorted(mapping.items()))
+        self._verified_roster_source=(version,digest)
+        self.debug_log.record('templates',template_outcome='roster_ready',generation=self._portraits_attempt)
+    def set_portrait_memory_map(self,portraits,status):
+        mapping=status.get('canonicalMap',{})
+        self._portrait_memory_map=tuple(sorted(mapping.items())) if status.get('state')=='memory-only' and isinstance(mapping,dict) and len(mapping)==len(portraits) else ()
+    def publish_portrait_images(self,portraits,key):
+        # The bounded display copies grant no recognition authority. They may
+        # update while their matching recognition model waits for a boundary.
+        if self._portrait_display_key==(key[0],self.portrait_bank.revision):return
+        self.portrait_bank.replace(portraits);self._hero_portrait_key=None
+        self._portrait_display_key=(key[0],self.portrait_bank.revision)
+    def publish_portraits(self,portraits,status,key,matcher):
+        self.set_portrait_memory_map(portraits,status)
+        self.publish_portrait_images(portraits,key)
+        self._portraits_bank=portraits;self.hero_matcher=matcher;self._portrait_model_key=key
+        self._pending_portraits=None
+    def receive_portraits(self,portraits,status):
+        key=self.portrait_model_key(portraits)
+        if self.hero_matcher is not None and key==self._portrait_model_key:
+            # New objects/version labels do not change recognition authority.
+            self.set_portrait_memory_map(portraits,status);self._pending_portraits=None
+            self.publish_portrait_images(portraits,key)
+            return 'unchanged'
+        from hero_recognition import PortraitMatcher
+        matcher=self._pending_portraits[3] if self._pending_portraits is not None and key==self._pending_portraits[2] else PortraitMatcher(portraits,self.data['heroes'])
+        if self.state.running and (self.hero_matcher is not None or self.ocr_busy or self.capture_pending or self.portrait_display_authority()):
+            # Never replace a viable model underneath a live frame or display.
+            # A first HUD model must also preserve an already accepted API
+            # display; its None->matcher scope transition is equally real.
+            # Keep only the latest fully prepared bank for a real scope boundary.
+            self._pending_portraits=(portraits,dict(status),key,matcher)
+            self.publish_portrait_images(portraits,key)
+            return 'deferred'
+        if self.state.running:
+            # Even an idle first-model arrival must not count an earlier API
+            # observation from the None-model scope toward its confirmation.
+            self.invalidate_scene('头像模板已准备，等待当前画面重新识别。')
+        self.publish_portraits(portraits,status,key,matcher)
+        return 'installed'
+    def portrait_display_authority(self):
+        return bool(self.state.confirmed or self._partial_displayed or self._accepted_frame
+            or self._accepted_partial_frame or self.overlay.reference or self.overlay.isVisible())
+    def activate_idle_first_portraits(self):
+        # Do not strand the first HUD model if the API becomes unavailable or
+        # its display expires. Between captures, after all display authority
+        # has gone, revoke remaining private counters before changing scope.
+        if (self.hero_matcher is not None or self._pending_portraits is None
+                or self.ocr_busy or self.capture_pending or self.portrait_display_authority()):return
+        self.invalidate_scene('头像模板已准备，等待当前画面重新识别。')
+        self.apply_pending_portraits()
+    def apply_pending_portraits(self):
+        """Publish after boundary invalidation, or idle first-model revocation."""
+        if self.closed or self._pending_portraits is None:return
+        portraits,status,key,matcher=self._pending_portraits
+        try:
+            current_key=self.portrait_model_key(portraits)
+            if current_key!=key:
+                from hero_recognition import PortraitMatcher
+                matcher=PortraitMatcher(portraits,self.data['heroes'])
+            self.publish_portraits(portraits,status,current_key,matcher)
+            self.debug_log.record('templates',template_outcome='ready',generation=self._portraits_attempt)
+            self.hero_status.setText(status.get('message','头像模板已更新'))
+        except Exception as exc:
+            self.debug_log.record('templates',template_outcome='unavailable',generation=self._portraits_attempt,worker_error_category=classify_worker_error(exc))
+            self.hero_status.setText('新头像模板初始化失败；保留原模板，等待恢复或人工纠正。')
     def register_hotkey(self):
         if self.capture:
             self.hotkey_registered=self.capture.hotkey(int(self.winId()))
@@ -889,6 +998,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.target=target;self.state.target=target.identity;self.last_rect=None;self.was_target_foreground=False
         self.debug_event('window_binding',binding_outcome='adopted',target_role=candidate.role)
         self.invalidate_scene('已自动连接'+('客户端，等待选人画面。' if candidate.role=='client' else '游戏，等待本人 HUD 与候选画面。'))
+        self.apply_pending_portraits()
         self.overlay.hide('selection_changed');self.window_status.setText(value.reason+' '+target.title);self.status.setText(self.state.reason)
     def note_verified_game_scope(self,target,created):
         # Existing policy already verified this binding. Private identity stays
@@ -1030,6 +1140,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.monitor.stop();self.state.stop();self.refresh_card_details()
         if self.hero_auto.isChecked():self.state.clear_hero()
         self.overlay.hide('stop');self.stop_button.setEnabled(False);self.confirm_button.setEnabled(False)
+        self.apply_pending_portraits()
         self.status.setText(self.state.reason);self.refresh_status_badge()
     def advance_session_window(self):
         if self.automatic_policy:
@@ -1052,6 +1163,7 @@ class ControlWindow(QtWidgets.QWidget):
         if not self.selection_session.begin_handoff(candidate[0].identity,now,generation=token,new_game_window=True):return
         self.note_verified_game_scope(candidate[0],candidate[1].created)
         self.target=candidate[0];self.state.target=self.target.identity;self.window_list.blockSignals(True);self.window_list.addItem('本局游戏：'+self.target.title,self.target);self.window_list.setCurrentIndex(self.window_list.count()-1);self.window_list.blockSignals(False);self.last_rect=None;self.was_target_foreground=False;self.invalidate_scene('已接续本局新游戏窗口，选人记录等待局内复核');self.overlay.hide('target_unavailable')
+        self.apply_pending_portraits()
     def expire_client_display(self):
         self.clear_partial_candidates()
         self.debug_event('expiry',reason='ttl_client',ttl_ms=4000)
@@ -1112,6 +1224,10 @@ class ControlWindow(QtWidgets.QWidget):
         except Exception as exc:
             self.invalidate_scene('目标窗口状态异常：'+str(exc));self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
     def expire_game_display(self):
+        # Attribute the withdrawal to expiry before clearing geometry, whose
+        # defensive hide would otherwise obscure the actual cause in the log.
+        self.debug_event('expiry',reason='ttl_game',ttl_ms=4000,age_ms=max(0.,(time.monotonic()-self.last_observation)*1000))
+        self.overlay.hide('ttl_game')
         self.overlay.clear_candidate_geometry()
         self._geometry_frame=None
         # Hide partial display too, but retain private per-slot continuity for
@@ -1119,7 +1235,6 @@ class ControlWindow(QtWidgets.QWidget):
         # its capture-time gap; reused OCR cannot reauthorize expired display.
         self._partial_displayed=False
         self._accepted_partial_frame=None;self._semantic_partial_frame=None
-        self.debug_event('expiry',reason='ttl_game',ttl_ms=4000,age_ms=max(0.,(time.monotonic()-self.last_observation)*1000))
         # Presentation age is not an authority change. A newer capture may
         # still be within its own freshness budget while inference is running.
         # Keep only private observation continuity; never cancel that worker or
@@ -1141,14 +1256,12 @@ class ControlWindow(QtWidgets.QWidget):
             delay=700 if self.state.confirmed or self.client_selection_reference() else 200
             previous=self.selection_session.last_client_frame if self.client_phase() and self.selection_session else self.last_observation
             age=time.monotonic()-previous if previous else None
-            if age is not None and 0<=age<=4:
-                # A slow but still-fresh observation must not become incapable
-                # of a consecutive confirmation solely due to our idle delay.
-                # Leave room for the strict-hide settle when it is needed.
-                delay=min(delay,max(0,int((4-age)*1000)-80))
+            from capture_cadence import next_capture_delay
+            delay=next_capture_delay(delay,age,self.last_timings)
         self.monitor.start(delay)
     def capture_tick(self):
         if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:self.debug_selection_gate();return
+        self.activate_idle_first_portraits()
         if not self.target:self.debug_selection_gate();self.schedule_capture(400);return
         if not self.capture.foreground(self.target):self.debug_selection_gate(False);self.schedule_capture(400);return
         self.debug_selection_gate(True)
@@ -1853,28 +1966,29 @@ class ControlWindow(QtWidgets.QWidget):
                         and (not self.overlay._titles_pending or value.get('ocr_reused') is not True)):
                     self.overlay.set_title_checking(False)
                 self.check_target()
+            elif kind=='portraits-roster':
+                if (generation!=self._portraits_attempt or generation==self._portraits_completed_attempt
+                        or not self._portraits_busy or self._cancel_workers.is_set()):return
+                self.receive_portrait_roster(value)
             elif kind in ('portraits','portraits-cache'):
                 if generation!=self._portraits_attempt or generation==self._portraits_completed_attempt:return
                 portraits,status=value
-                changed=bool(portraits) and portraits is not self._portraits_bank
-                if changed:
-                    from hero_recognition import PortraitMatcher
-                    try:matcher=PortraitMatcher(portraits,self.data['heroes'])
+                publication=None
+                if portraits:
+                    try:publication=self.receive_portraits(portraits,status)
                     except Exception as exc:
                         self.debug_log.record('templates',template_outcome='unavailable',generation=generation,worker_error_category=classify_worker_error(exc))
                         self.debug_log.record('job',kind='portraits',phase='error',generation=generation,error_code='worker_error',worker_error_category=classify_worker_error(exc))
                         if kind=='portraits':self._portraits_completed_attempt=generation;self.finish_portrait_attempt()
                         self.hero_status.setText('自动英雄模板初始化失败；等待恢复或人工纠正。');return
-                    mapping=status.get('canonicalMap',{})
-                    self._portrait_memory_map=tuple(sorted(mapping.items())) if status.get('state')=='memory-only' and isinstance(mapping,dict) and len(mapping)==len(portraits) else ()
-                    self.portrait_bank.replace(portraits);self._hero_portrait_key=None;self._portraits_bank=portraits;self.hero_matcher=matcher
-                self.debug_log.record('templates',template_outcome=('cached_ready' if kind=='portraits-cache' else 'ready') if portraits else 'unavailable',generation=generation,**({'worker_error_category':status['errorCategory']} if 'errorCategory' in status else {}))
+                outcome=publication if publication in ('unchanged','deferred') else ('cached_ready' if kind=='portraits-cache' else 'ready') if portraits else 'unavailable'
+                self.debug_log.record('templates',template_outcome=outcome,generation=generation,**({'worker_error_category':status['errorCategory']} if 'errorCategory' in status else {}))
                 roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
                 if roster_fingerprint!=self._selection_roster_fingerprint:
                     self._selection_roster_fingerprint=roster_fingerprint;self.selection_detector=None
                 self.portrait_diagnostics=status.get('cacheDiagnostics');self.cache_diagnostic_button.setVisible(isinstance(self.portrait_diagnostics,dict))
                 if kind=='portraits':self._portraits_completed_attempt=generation;self.finish_portrait_attempt()
-                self.hero_status.setText(status.get('message','头像模板状态未知')+('；自动监测中将按退避间隔重试。' if kind=='portraits' and self.hero_matcher is None and self.enable_updates else ''))
+                self.hero_status.setText(status.get('message','头像模板状态未知')+('；新模板将在停止监测或接续新窗口后启用。' if publication=='deferred' else '；自动监测中将按退避间隔重试。' if kind=='portraits' and self.hero_matcher is None and self.enable_updates else ''))
                 if self.overlay.reference:self.overlay.set_hero_reference(self.overlay.reference)
             elif kind=='update':
                 self.update_status.setText('软件更新：'+value.get('message',value.get('state','未知')))

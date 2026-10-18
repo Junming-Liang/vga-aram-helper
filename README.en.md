@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.14-0891b2" alt="Source version v0.4.14"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.12 preview"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.15-0891b2" alt="Source version v0.4.15"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.14 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -39,14 +39,14 @@ Champion-select handoff: when a client is detected, click “开启本机选人�
 
 ### Windows
 
-1. Download the [v0.4.12 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.12/vga-aram-helper-0.4.12-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.12/SHA256SUMS.txt).
+1. Download the [v0.4.14 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/vga-aram-helper-0.4.14-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Keep automatic League discovery selected and click Start. The control window stays visible by default and waits for or follows your client/game without selecting a window. The first launch prepares about 5 MB of public portrait templates.
 4. To use the selection API, click “开启本机选人识别” in the dashboard after client detection. Consent lasts for this launch only and is off again after restart.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) includes test evidence and corresponding source.
 
-The v0.4.12 preview is published. Download it manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+The v0.4.14 diagnostic preview is published, but flicker and initial recognition failures have been reported. The local v0.4.15 candidate is not available to download. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -59,15 +59,21 @@ python launcher.py
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
-## v0.4.14: startup recognition recovery candidate, local preparation only
+## v0.4.15: regression recovery candidate, local preparation pending Windows acceptance
 
-This candidate addresses reproducible recovery defects: an empty portrait bank retries transient download failures with 30/60/120/300-second capped backoff; a complete validated cache is usable before online refresh; a verified in-memory canonical map remains available after a disk-write failure; and malformed roster/cache objects are rejected without aborting independent HUD/card OCR. Identity scope, independent confirmations, four-second freshness, Stop/Close guards and the absence of cached player identity are preserved.
+This candidate addresses three reproducible defects: warm-cache refresh replaces the recognition model even when content is equivalent; a fixed idle pause can consume the four-second refresh budget; and cold-start API canonical lookup waits for all portraits. Equivalent content preserves the model object, actual changes wait for a safe boundary, measured capture/inference cost determines the pause with a 50 ms floor and unchanged four-second expiry, and a complete validated official roster can supply API lookup before the image bank is ready. See the [regression investigation and validation limits](REGRESSION_RECOVERY.md).
 
-User feedback reports that flicker is no longer observed, but one initial recognition miss remains unexplained. No incident diagnostic ZIP was supplied. Synthetic recovery checks do not establish the cause of that incident or replace full same-EXE Windows and actual-game acceptance. v0.4.14 has not been built or published; download links continue to identify the earlier published build, and manual validation defaults to `publish_preview=false`. See the [recovery audit](STARTUP_RECOVERY.md) and [candidate acceptance status](reports/VALIDATION.md).
+v0.4.15 is prepared locally only; no Windows EXE has been built or published. Controlled Qt/OCR regressions do not replace complete same-EXE Windows or actual-game acceptance. Manual validation still defaults to `publish_preview=false`. The download entry points to published v0.4.14 with reported issues and does not provide this candidate.
+
+## v0.4.14: startup recovery diagnostic prerelease, published with regression feedback
+
+The [v0.4.14 diagnostic prerelease](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is published. It includes capped empty-bank download retries, validated-cache-first startup, an in-memory canonical-map fallback after disk-write failure, and safe rejection of malformed roster/cache objects. See the historical [recovery audit](STARTUP_RECOVERY.md).
+
+After publication, the user again reported flicker and initial recognition failure. No incident diagnostic ZIP was supplied, so the installed version, game stage and field cause remain unconfirmed. The v0.4.15 changes address controlled reproductions and do not establish that the user's field symptoms are solved.
 
 ## v0.4.13: semantic recheck diagnostic baseline
 
-The source candidate verifies fresh same-frame title semantics rather than revoking grades solely because background pixels in a title band changed. Partial candidates retain independently verified known slots while unknown slots remain ungraded. Historical grades retain only their original four-second deadline; real rerolls may remain until fresh OCR returns, not instantaneous detection. Separate critical-event retention and selection gate diagnostics stay local. Download links still identify published v0.4.12; actual-game behavior is unverified. See [candidate verification](reports/SEMANTIC_RECHECK_DIAGNOSTICS.md).
+The source candidate verifies fresh same-frame title semantics rather than revoking grades solely because background pixels in a title band changed. Partial candidates retain independently verified known slots while unknown slots remain ungraded. Historical grades retain only their original four-second deadline; real rerolls may remain until fresh OCR returns, not instantaneous detection. Separate critical-event retention and selection gate diagnostics stay local. At that stage, download links retained v0.4.12; actual-game behavior was unverified. See [candidate verification](reports/SEMANTIC_RECHECK_DIAGNOSTICS.md).
 
 ## v0.4.12: capture stability diagnostic prerelease, published
 
@@ -136,7 +142,7 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
-[v0.4.12](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.12) is available as a non-latest diagnostic prerelease and requires manual download. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
+[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is available as a non-latest diagnostic prerelease, with reported flicker and initial recognition failures. The local v0.4.15 candidate is not published. Manual download is required. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
 
 ### Historical v0.4.7 and earlier releases
 
@@ -179,6 +185,6 @@ Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helpe
 
 Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.12/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
 
 This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.

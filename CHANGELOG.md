@@ -1,14 +1,26 @@
 # Changelog / 变更日志
 
-## v0.4.14 · 启动识别恢复诊断候选 / Startup recognition recovery candidate
+## v0.4.15 · 回归恢复诊断候选 / Regression recovery diagnostic candidate
 
-本地候选，尚未构建或发布。空头像库在临时下载失败后按 30/60/120/300 秒有上限退避重试；完整已验证缓存不再等待联网版本检查；完整头像库写盘失败时保留已验证的不可变内存规范映射。畸形嵌套 roster/缓存对象安全拒绝，不再阻断独立 HUD/卡片 OCR。已有身份范围、API 双读/本人匹配、HUD 矛盾、逐槽确认与新鲜度门槛不变，未新增玩家身份缓存。
+本地候选，尚未构建或发布 Windows EXE，完整 Windows 同一 EXE 验收与真实对局验证均待完成。针对三个受控可复现缺陷：
+
+- v0.4.14 引入的热缓存刷新可能在识别途中替换模型；规范名称和解码像素相同的模型现在保留原对象，真实内容变更暂存至停止或已接受的窗口/进程切换边界。首个可用模型在空闲且没有现有显示权威时启用，不绕过帧范围检查。
+- v0.4.13 已有的固定空闲间隔可能耗尽四秒刷新预算；调度预留实测捕获与推理耗时及有界余量，至少空闲 50ms。四秒观察/接受期限不变，异常尾延迟和不可能满足的预算仍隐藏过期评级，既有错误退避不变。
+- 冷启动 API 规范映射原先等待所有头像下载；完整已验证官方 roster 现在可先供 API 查询，完整图像库仍须通过全部哈希与解码检查。身份范围、独立确认、HUD 矛盾、尝试租约和取消门槛不变。
+
+v0.4.14 发布后用户再次报告闪烁与初始识别失败；未提供新的诊断 ZIP，实际安装版本、发生阶段和现场原因仍未知。受控 Qt/本地 OCR 回归不能证明用户现场问题已解决。两份公开静态截图评估须由原脚本真实重跑，不能手改版本或哈希。手动 Windows 流程仍默认 `publish_preview=false`；全部既有门禁通过后才可另行明确选择发布。历史 v0.4.14 Run 78 的固定恢复流程不能用于本候选。
+
+English: Local diagnostic candidate with no Windows EXE or complete same-binary Windows/actual-game acceptance yet. Preserves equivalent warm-cache model objects and defers changed banks to safe boundaries; budgets the idle pause around measured capture/inference cost with a 50 ms floor and unchanged four-second expiry; and makes a complete validated roster available to API lookup before full image readiness. These are three controlled reproductions, not an established diagnosis of the user's renewed flicker and initial-recognition report. The installed version, game stage and field cause remain unconfirmed. Publication stays explicit after all existing gates, with `publish_preview=false` by default. See [regression recovery investigation](REGRESSION_RECOVERY.md) and [acceptance status](reports/VALIDATION.md).
+
+## v0.4.14 · 已发布启动恢复诊断版 / Published startup recovery diagnostic prerelease
+
+[v0.4.14 诊断测试版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) 已发布；此前“尚未构建或发布”的本地准备记录已被发布事实取代。该版包含空头像库在临时下载失败后按 30/60/120/300 秒有上限退避重试；完整已验证缓存不再等待联网版本检查；完整头像库写盘失败时保留已验证的不可变内存规范映射。畸形嵌套 roster/缓存对象安全拒绝，不再阻断独立 HUD/卡片 OCR。已有身份范围、API 双读/本人匹配、HUD 矛盾、逐槽确认与新鲜度门槛不变，未新增玩家身份缓存。
 
 固定原因码、关联字段和有界历史补充启动/模板/身份诊断；日志总上限仍为 768 KiB，导出 ZIP 上限 832 KiB，不新增截图、玩家载荷或异常文本，不自动上传。启动恢复及整局日志的合成故障注入测试与 Windows 捕获、打包运行时和实战验收分别记录。
 
-用户反馈闪烁已不再出现，但有一次初始识别未成功；未提供该次诊断 ZIP，未确认其根因。本候选修复可复现缺陷，不宣称解决全部用户原因。版本变更后必须真实重跑两份公开静态截图评估，并在最终源码上完成全部 Windows/同一 EXE 发布门禁；不得重标旧证据版本。手动流程默认 `publish_preview=false`，任何后续发布仍须为非 latest 预发布。
+发布后收到新的闪烁与初始识别失败反馈，不能继续把早期“闪烁已不再出现”的反馈视为当前结论；未取得新诊断 ZIP，现场原因仍未确认。v0.4.15 的受控修复和待验收边界见上节。
 
-English: Local, unbuilt and unpublished diagnostic candidate. Adds bounded empty-bank retries, cache-first delivery, a verified memory-only canonical-map fallback and safe malformed-roster/cache rejection. Existing identity and freshness safeguards remain. The isolated initial miss has no incident ZIP and no confirmed cause; reported flicker improvement is user feedback, not a complete live-game pass. Both genuine-image reports require actual reruns after the version bump, followed by all final-source and exact-EXE Windows gates. See [startup recovery audit](STARTUP_RECOVERY.md) and [acceptance status](reports/VALIDATION.md).
+English: Published diagnostic prerelease; the earlier unbuilt/unpublished local checkpoint is superseded. Includes bounded empty-bank retries, cache-first delivery, a verified memory-only canonical-map fallback and safe malformed-roster/cache rejection. Existing identity and freshness safeguards remain. New post-publication feedback reports flicker and initial recognition failure, superseding the earlier improvement report as a current status claim. No new incident ZIP establishes the field cause. See the historical [startup recovery audit](STARTUP_RECOVERY.md) and current [acceptance status](reports/VALIDATION.md).
 
 ## v0.4.13 · 标题语义核验与整局诊断 / Semantic recheck diagnostic candidate
 

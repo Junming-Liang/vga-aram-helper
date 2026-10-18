@@ -23,7 +23,7 @@ API_OUTCOMES = frozenset({'disabled', 'cancelled', 'map_invalid', 'scope_unavail
     'tls_context_failed', 'tls_verification_failed', 'connection_failed', 'http_error',
     'response_invalid', 'payload_invalid', 'active_player_mismatch', 'champion_unmapped',
     'unstable', 'scope_changed', 'timeout', 'verified', 'unexpected_error'})
-MAP_OUTCOMES = frozenset({'not_requested', 'verified', 'verified_memory', 'manifest_unavailable',
+MAP_OUTCOMES = frozenset({'not_requested', 'verified', 'verified_memory', 'verified_roster', 'manifest_unavailable',
     'manifest_invalid', 'roster_unavailable', 'hash_mismatch', 'roster_invalid'})
 IDENTITY_OUTCOMES = frozenset({'api_verified', 'hud_verified', 'hud_abstained',
     'api_hud_conflict', 'source_unmapped'})

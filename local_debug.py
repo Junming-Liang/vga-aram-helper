@@ -85,7 +85,7 @@ _ENUMS['hero_source'] = frozenset({'hud', 'game-api', 'game-continuity', 'client
 _ENUMS['selection_gate'] = frozenset({'closed', 'stopped', 'inference_busy', 'capture_pending', 'target_missing', 'foreground_rejected', 'client_lcu_ready', 'client_pixels_ready', 'game_pixels_ready', 'manual_pixels_ready', 'route_unknown'})
 _ENUMS['selection_route'] = frozenset({'blocked', 'selection_lcu', 'selection_pixels', 'game_pixels', 'manual_pixels', 'unknown'})
 _ENUMS['target_role'] = frozenset({'none', 'client', 'game', 'manual', 'unknown'})
-_ENUMS['template_outcome'] = frozenset({'loading', 'cached_ready', 'ready', 'unavailable', 'retry_wait'})
+_ENUMS['template_outcome'] = frozenset({'loading', 'cached_ready', 'ready', 'unavailable', 'retry_wait', 'roster_ready', 'unchanged', 'deferred'})
 _ENUMS['binding_outcome'] = frozenset({'adopted', 'adoption_rejected', 'no_candidate', 'unchanged'})
 _IDENTITY_ENUMS = {
     'api_outcome': frozenset({'disabled', 'cancelled', 'map_invalid', 'scope_unavailable',
@@ -97,7 +97,7 @@ _IDENTITY_ENUMS = {
         'death_grayscale', 'color_mismatch', 'champion_unmapped', 'unknown'}),
     'identity_outcome': frozenset({'api_verified', 'hud_verified', 'hud_abstained',
         'api_hud_conflict', 'source_unmapped'}),
-    'map_outcome': frozenset({'not_requested', 'verified', 'verified_memory', 'manifest_unavailable',
+    'map_outcome': frozenset({'not_requested', 'verified', 'verified_memory', 'verified_roster', 'manifest_unavailable',
         'manifest_invalid', 'roster_unavailable', 'hash_mismatch', 'roster_invalid'}),
 }
 _ENUMS.update(_IDENTITY_ENUMS)

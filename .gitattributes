@@ -13,6 +13,7 @@ packaging/opencv-minimal-patch.py text eol=lf
 packaging/opencv-build-requirements.txt text eol=lf
 
 # Raw-byte Windows automatic-capture evidence must match the source ZIP on all hosts.
+capture_cadence.py text eol=lf
 automatic_windows.py text eol=lf
 native_ui.py text eol=lf
 screen_capture.py text eol=lf
