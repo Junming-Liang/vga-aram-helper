@@ -55,7 +55,7 @@ _ENUMS = {
                          'candidate_missing', 'candidate_untrusted', 'candidate_layout',
                          'partial_confirmed', 'title_dictionary_miss', 'title_low_confidence',
                          'awaiting_confirmation', 'source_tier_missing', 'recognized',
-                         'discovery_stopped', 'window_not_found', 'window_identity_unverified',
+                         'discovery_stopped', 'window_not_found', 'window_unavailable', 'window_identity_unverified',
                          'multiple_installations', 'multiple_windows', 'signature_unverified',
                          'client_connected', 'game_connected', 'window_gone', 'window_identity_changed',
                          'window_hidden', 'client_rect_failed', 'client_rect_unsupported', 'focus_rejected',
@@ -86,7 +86,7 @@ _ENUMS['selection_gate'] = frozenset({'closed', 'stopped', 'inference_busy', 'ca
 _ENUMS['selection_route'] = frozenset({'blocked', 'selection_lcu', 'selection_pixels', 'game_pixels', 'manual_pixels', 'unknown'})
 _ENUMS['target_role'] = frozenset({'none', 'client', 'game', 'manual', 'unknown'})
 _ENUMS['template_outcome'] = frozenset({'loading', 'cached_ready', 'ready', 'unavailable', 'retry_wait', 'roster_ready', 'unchanged', 'deferred'})
-_ENUMS['binding_outcome'] = frozenset({'adopted', 'adoption_rejected', 'no_candidate', 'unchanged'})
+_ENUMS['binding_outcome'] = frozenset({'adopted', 'adoption_rejected', 'no_candidate', 'unchanged', 'query_failed'})
 _IDENTITY_ENUMS = {
     'api_outcome': frozenset({'disabled', 'cancelled', 'map_invalid', 'scope_unavailable',
         'tls_context_failed', 'tls_verification_failed', 'connection_failed', 'http_error',

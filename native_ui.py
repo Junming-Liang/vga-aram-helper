@@ -10,7 +10,7 @@ from ctypes import wintypes as W
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path,PureWindowsPath
 import threading
 import traceback
 import time
@@ -935,9 +935,34 @@ class ControlWindow(QtWidgets.QWidget):
         elif not self.state.running:self.target=self.window_list.currentData()
     def target_changed(self,*_):
         self.stop_monitor();self.target=self.window_list.currentData();self.last_rect=None
+    def discovery_snapshot(self):
+        snapshot=getattr(self.capture,'discovery_snapshot',None)
+        if snapshot is not None:
+            value=snapshot()
+            # A partially implemented snapshot cannot quietly omit the focus
+            # or availability guard and fall back to legacy role arbitration.
+            valid=(isinstance(value,dict) and set(value)=={'windows','foreground_hwnd','available_hwnds'}
+                and isinstance(value['windows'],(tuple,list))
+                and type(value['foreground_hwnd']) is int and value['foreground_hwnd']>=0
+                and isinstance(value['available_hwnds'],(set,frozenset))
+                and all(type(hwnd) is int and hwnd>0 for hwnd in value['available_hwnds']))
+            if valid:
+                from screen_capture import WindowInfo
+                valid=(all(isinstance(window,WindowInfo) for window in value['windows'])
+                    and value['available_hwnds'].issubset({window.hwnd for window in value['windows']}))
+            if not valid:raise CapturePaused('窗口发现状态不完整，等待重新核验。')
+            return value
+        # Older/owned capture adapters may not expose foreground snapshots.
+        # A supported snapshot's failure propagates; never bypass it by retrying
+        # with the legacy, less-specific window list.
+        return dict(windows=self.capture.windows(include_untitled=True))
     def target_allowed(self):
         if not self.target:return False
-        if self.automatic_policy:return self.automatic_policy.permits(self.target,windows=self.capture.windows(include_untitled=True))
+        if self.automatic_policy:
+            try:return self.automatic_policy.permits(self.target,**self.discovery_snapshot())
+            except Exception:
+                self.debug_event('window_binding',binding_outcome='query_failed')
+                return False  # A failed fresh query grants no authority.
         if self.window_policy:return self.window_policy.permits(self.target)
         try:
             from session_windows import process_metadata
@@ -961,7 +986,21 @@ class ControlWindow(QtWidgets.QWidget):
             if any(job.name=='vga-windows' and job.is_alive() for job in self._workers):return
         self.last_window_discovery=now;self.discovery_busy=True
         policy=self.automatic_policy;scope=self.discovery_scope
-        self.spawn('windows',lambda:policy.discover(self.capture.windows(include_untitled=True)),scope)
+        def discover():
+            return policy.discover(**self.discovery_snapshot())
+        self.spawn('windows',discover,scope)
+    def pause_window_discovery(self,*,binding_outcome='query_failed'):
+        # Revoke GUI/capture evidence without dropping the policy's installation
+        # and bound-role restriction (especially when following is disabled).
+        reason='窗口状态暂时无法核验，旧资料已隐藏，稍后自动重新连接。'
+        self.debug_event('window_binding',binding_outcome=binding_outcome)
+        self.target=None;self.state.target=None;self.client_target=None;self.last_rect=None
+        self.was_target_foreground=False
+        if self.selection_session:self.selection_session.stop()
+        self.selection_session=None;self.last_selection_source=None
+        self.unverified_candidate=None;self.trust_button.hide()
+        self.invalidate_scene(reason,debug_reason='target_unavailable')
+        self.window_status.setText(reason)
     def apply_discovery(self,value,scope):
         if scope!=self.discovery_scope or not self.automatic_policy or not self.state.running:return
         self.discovery_busy=False;policy=self.automatic_policy;previous_binding=policy.bound
@@ -969,7 +1008,10 @@ class ControlWindow(QtWidgets.QWidget):
         new_confirmation=value.confirmation is not None and value.confirmation!=self.unverified_candidate
         self.unverified_candidate=value.confirmation;self.trust_button.setVisible(value.confirmation is not None)
         if new_confirmation and self.isMinimized():QtWidgets.QApplication.alert(self,0)
-        if not value.candidate or not policy.adopt(value,windows=self.capture.windows(include_untitled=True)):
+        try:adopted=bool(value.candidate) and policy.adopt(value,**self.discovery_snapshot())
+        except Exception:
+            self.pause_window_discovery();return
+        if not adopted:
             self.debug_event('window_binding',binding_outcome='no_candidate' if not value.candidate else 'adoption_rejected')
             if self.target:self.invalidate_scene('等待唯一且已核验的英雄联盟窗口。')
             self.target=None;self.state.target=None;self.overlay.hide('target_unavailable');self.last_rect=None
@@ -977,7 +1019,8 @@ class ControlWindow(QtWidgets.QWidget):
             self.window_status.setText(reason);self.status.setText(reason);return
         candidate=policy.bound;target=candidate.window
         if candidate.role=='game':self.note_verified_game_scope(target,candidate.metadata.created)
-        if self.target and target.identity==self.target.identity and previous_binding and previous_binding.metadata==candidate.metadata and self.target_allowed():
+        if self.target and target.identity==self.target.identity and previous_binding and previous_binding.metadata==candidate.metadata:
+            if not self.target_allowed():self.pause_window_discovery(binding_outcome='adoption_rejected');return
             self.debug_event('window_binding',binding_outcome='unchanged',target_role=candidate.role)
             self.window_status.setText(value.reason+' '+target.title);return
         previous=self.target;session=self.selection_session;carried=False
@@ -1019,7 +1062,10 @@ class ControlWindow(QtWidgets.QWidget):
             QtWidgets.QMessageBox.StandardButton.Yes|QtWidgets.QMessageBox.StandardButton.No,QtWidgets.QMessageBox.StandardButton.No)
         if answer!=QtWidgets.QMessageBox.StandardButton.Yes:return
         if scope!=self.discovery_scope or policy is not self.automatic_policy:return
-        if policy.confirm_installation(candidate,windows=self.capture.windows(include_untitled=True)):
+        try:confirmed=policy.confirm_installation(candidate,**self.discovery_snapshot())
+        except Exception:
+            self.pause_window_discovery();return
+        if confirmed:
             self.trust_button.hide();self.unverified_candidate=None;self.queue_discovery(force=True)
             if self.minimize_on_start.isChecked():self.showMinimized()
         else:self.status.setText('窗口身份已变化，正在重新检测，请确认新的提示。')
@@ -1088,7 +1134,7 @@ class ControlWindow(QtWidgets.QWidget):
     def follow_scope_changed(self,*_):
         self.stop_monitor();self.status.setText("接续窗口范围已改变；本局授权已停止，请重新点击开始。")
     def start_monitor(self):
-        from automatic_windows import CLIENT_CLASSES
+        from automatic_windows import CLIENT_CLASSES,CLIENT_EXECUTABLES
         self.stop_monitor() # Revoke old scope before any validation can fail.
         if not self.capture:return self.status.setText('当前系统不支持窗口采集。')
         if not self.data or not self.data.get('augments'):return self.status.setText('没有可用词典，暂不能监测。')
@@ -1102,7 +1148,12 @@ class ControlWindow(QtWidgets.QWidget):
                 from session_windows import process_metadata
                 self.manual_metadata=process_metadata(self.target.pid);self.manual_identity=self.target.identity
             except (OSError,ValueError) as exc:return self.status.setText('无法核验所选窗口的进程身份，未开始监测：'+str(exc))
-            if self.client_follow.isChecked() and self.target.class_name in CLIENT_CLASSES:
+            # Recognizing this explicitly selected client does not authorize
+            # following it into another window. Class AND verified process
+            # metadata identify the role; arbitrary manual diagnostics remain
+            # manual even when their caption/class resembles a client.
+            if (self.target.class_name in CLIENT_CLASSES
+                    and PureWindowsPath(self.manual_metadata.path).name.casefold() in CLIENT_EXECUTABLES):
                 try:
                     from session_windows import SessionWindowPolicy
                     from selection_session import SelectionSession
@@ -1155,6 +1206,7 @@ class ControlWindow(QtWidgets.QWidget):
         if old!=self.selection_session.generation:self.invalidate_scene('本局选人记录因画面断档失效，等待重新识别')
         elif stage!=self.selection_session.stage and self.selection_session.stage=='client-expired':self.expire_client_display()
         elif stage!=self.selection_session.stage and self.selection_session.stage=='game-expired':self.expire_game_display()
+        if not self.client_follow.isChecked():return
         if self.target.identity!=self.window_policy.client_identity or self.selection_session.stage!='assigned' or now-self.last_window_discovery<.5:return
         self.last_window_discovery=now;windows=self.capture.windows();candidate=self.window_policy.discover_game(windows)
         if not candidate or not self.capture.foreground(candidate[0]):return
@@ -2010,7 +2062,7 @@ class ControlWindow(QtWidgets.QWidget):
             serial=self._capture_serial if kind in ('ocr','selection') else 0,reason='worker_error')
         if kind=='windows':
             if generation==self.discovery_scope:
-                self.discovery_busy=False;self.window_status.setText('窗口检测暂未完成，稍后自动重试。')
+                self.discovery_busy=False;self.pause_window_discovery()
             return
         if kind in ('ocr','selection'):
             self._visible_previous=False

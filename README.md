@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.15-0891b2" alt="源码版本 v0.4.15"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.16-0891b2" alt="源码版本 v0.4.16"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.14 预览版"></a>
 </p>
 <p align="center">
@@ -26,7 +26,7 @@ VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or 
 
 VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海克斯大乱斗（ARAM: Mayhem）的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
 
-v0.4.14 诊断预览版已发布，但收到闪烁与初始识别失败反馈；v0.4.15 本地修复候选尚无可下载 EXE。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
+v0.4.14 诊断预览版已发布，但收到闪烁与初始识别失败反馈；v0.4.16 本地修复候选尚无可下载 EXE。详见 [发布检查表](PUBLICATION_CHECKLIST.md) 和 [验证范围](reports/VALIDATION.md)。
 
 默认从本人 HUD 头像自动识别英雄；英雄与三个候选连续高置信识别后，自动显示当前英雄资料。不确定时保留人工纠正。
 
@@ -52,7 +52,7 @@ v0.4.14 诊断预览版已发布，但收到闪烁与初始识别失败反馈；
 
 单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14)提供测试证据和对应源码。
 
-v0.4.14 诊断预览版已发布，但用户仍报告闪烁与初始识别失败。v0.4.15 仅为本地候选，尚不可下载。预览版需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
+v0.4.14 诊断预览版已发布，但用户仍报告闪烁与初始识别失败。v0.4.16 仅为本地候选，尚不可下载。预览版需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -65,17 +65,21 @@ python launcher.py
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## v0.4.15：回归恢复诊断候选（本地准备，待 Windows 验收）
+## v0.4.16：选人窗口路由与回归恢复候选（待 Windows 验收）
 
-本候选针对三个可复现缺陷：热缓存刷新时即使内容相同也替换识别模型；固定空闲间隔可能耗尽四秒刷新期限；冷启动 API 规范映射等待所有头像下载。等价模型保留原对象，真实变更暂存至安全边界；调度预留实测捕获与推理耗时，至少空闲 50ms，四秒有效期不变；完整已验证官方 roster 可先供 API 查询，完整图像库仍须通过全部检查。详见[回归调查与验证边界](REGRESSION_RECOVERY.md)。
+修正两条可复现的选人路由缺陷：前台客户端不再被后台或最小化游戏窗口抢占；手动指定已核验元数据与窗口类的客户端时，即使关闭自动接续，也走选人识别而非局内强化 OCR。前台与可用性仅选择角色，保留全部同角色/安装目录歧义证据；接纳和采集许可重新核对当前身份与前台。窗口快照查询失败会立即撤销旧显示证据，后续有效查询可安全恢复。详见[窗口路由调查与边界](WINDOW_ROUTING_RECOVERY.md)。未扩大窗口标题匹配、窗口类或 LCU 授权。
 
-v0.4.15 仅在本地准备，尚未构建或发布 Windows EXE。受控 Qt/OCR 回归不能替代完整 Windows 同一 EXE 验收或真实对局验证；手动流程仍默认 `publish_preview=false`。下载入口指向已发布且收到问题反馈的 v0.4.14，不提供本候选下载。
+同时保留未发布 v0.4.15 的三项修复：等价热缓存不替换识别模型；按实测捕获与推理耗时安排空闲间隔，至少 50ms，四秒有效期不变；完整已验证 roster 可先供 API 查询。构建预算查询改用已有工作流令牌，仅访问固定只读库存端点、拒绝重定向，体积预算和失败时阻断规则不变。
+
+v0.4.15 [Windows 运行 #81](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39144535874) 已构建并通过两轮各 1,977 项 Python 测试（各跳过 5 项）、源码和同一 EXE 的既有运行时门禁，但匿名预算 API 返回 HTTP 403，最终校验与发布未执行。该版未发布，变更合并至 v0.4.16，不另发中间版。
+
+v0.4.16 尚未构建或发布 Windows EXE，最终源码与同一 EXE 的完整门禁仍须重跑。受控回归和历史运行不能证明用户现场问题已解决；手动流程仍默认 `publish_preview=false`。下载入口仍指向已发布且收到问题反馈的 v0.4.14。当前状态见[验证记录](reports/VALIDATION.md)，早期三个复现见[回归恢复调查](REGRESSION_RECOVERY.md)。
 
 ## v0.4.14：启动识别恢复诊断测试版（已发布，收到回归反馈）
 
 [v0.4.14 诊断测试版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) 已发布。该版包含空头像库下载失败后的有上限重试、先用已验证缓存、写盘失败时的内存映射回退，以及畸形 roster/缓存对象的安全拒绝。历史实现说明见[恢复审计](STARTUP_RECOVERY.md)。
 
-发布后用户再次报告闪烁与初始识别失败；未取得该次诊断 ZIP，实际安装版本、发生阶段和现场原因仍未确认。v0.4.15 修正的是受控复现缺陷，尚不能据此断言用户现场问题已解决。
+发布后用户再次报告闪烁与初始识别失败；未取得该次诊断 ZIP，实际安装版本、发生阶段和现场原因仍未确认。v0.4.16 修正的是受控复现缺陷，尚不能据此断言用户现场问题已解决。
 
 ## v0.4.13：标题语义核验诊断基线
 
@@ -148,7 +152,7 @@ v0.4.4 在 ONNX Runtime 导入/初始化前设置 `ORT_DISABLE_TELEMETRY=1`，�
 
 ## 预览版与兼容性
 
-[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) 诊断测试版已可下载，但收到闪烁与初始识别失败反馈；v0.4.15 本地候选尚未发布。预览版保持非 latest，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
+[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) 诊断测试版已可下载，但收到闪烁与初始识别失败反馈；v0.4.16 本地候选尚未发布。预览版保持非 latest，需手动更新。当前[验证范围](reports/VALIDATION.md)与下述历史发布记录分开。
 
 ### v0.4.7 与更早版本的历史记录
 

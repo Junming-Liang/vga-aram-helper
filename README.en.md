@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.15-0891b2" alt="Source version v0.4.15"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.16-0891b2" alt="Source version v0.4.16"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.14 preview"></a>
 </p>
 <p align="center">
@@ -46,7 +46,7 @@ Champion-select handoff: when a client is detected, click “开启本机选人�
 
 The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) includes test evidence and corresponding source.
 
-The v0.4.14 diagnostic preview is published, but flicker and initial recognition failures have been reported. The local v0.4.15 candidate is not available to download. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+The v0.4.14 diagnostic preview is published, but flicker and initial recognition failures have been reported. The local v0.4.16 candidate is not available to download. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -59,17 +59,21 @@ python launcher.py
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
-## v0.4.15: regression recovery candidate, local preparation pending Windows acceptance
+## v0.4.16: selection routing and regression recovery candidate, Windows gates pending
 
-This candidate addresses three reproducible defects: warm-cache refresh replaces the recognition model even when content is equivalent; a fixed idle pause can consume the four-second refresh budget; and cold-start API canonical lookup waits for all portraits. Equivalent content preserves the model object, actual changes wait for a safe boundary, measured capture/inference cost determines the pause with a 50 ms floor and unchanged four-second expiry, and a complete validated official roster can supply API lookup before the image bank is ready. See the [regression investigation and validation limits](REGRESSION_RECOVERY.md).
+Two reproduced routing defects are fixed: a foreground client is no longer displaced by a background or minimized game, and a manually selected client with verified process metadata and class uses selection recognition even with automatic handoff disabled. Foreground and availability select a role while retaining all same-role and installation ambiguity evidence. Adoption and capture permission recheck current identity and foreground. A failed window snapshot immediately revokes old display evidence; a later valid query can recover safely. See the [window-routing investigation and limits](WINDOW_ROUTING_RECOVERY.md). Window-title matching, accepted classes and LCU permissions are not expanded.
 
-v0.4.15 is prepared locally only; no Windows EXE has been built or published. Controlled Qt/OCR regressions do not replace complete same-EXE Windows or actual-game acceptance. Manual validation still defaults to `publish_preview=false`. The download entry points to published v0.4.14 with reported issues and does not provide this candidate.
+The three unreleased v0.4.15 fixes remain: preserve equivalent warm-cache models, budget idle time around measured capture/inference cost with a 50 ms floor and unchanged four-second expiry, and expose a complete validated roster before all portraits are ready. Artifact-budget queries now use the existing workflow token only at the fixed read-only inventory endpoint, reject redirects, and retain the existing budgets and fail-closed checks.
+
+v0.4.15 [Windows run #81](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39144535874) built the EXE and passed both 1,977-test Python rounds (5 skips each), plus the existing source and same-EXE runtime gates. An anonymous budget-API HTTP 403 then blocked final verification and publication. That version was not released; its changes are included in v0.4.16 without an interim release.
+
+No v0.4.16 Windows EXE has been built or published. All final-source and same-EXE Windows gates must run again. Controlled regressions and historical runs do not establish that the user's field symptoms are solved. Manual validation still defaults to `publish_preview=false`; download links retain published v0.4.14 with reported issues. See [current validation](reports/VALIDATION.md) and the earlier [regression investigation](REGRESSION_RECOVERY.md).
 
 ## v0.4.14: startup recovery diagnostic prerelease, published with regression feedback
 
 The [v0.4.14 diagnostic prerelease](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is published. It includes capped empty-bank download retries, validated-cache-first startup, an in-memory canonical-map fallback after disk-write failure, and safe rejection of malformed roster/cache objects. See the historical [recovery audit](STARTUP_RECOVERY.md).
 
-After publication, the user again reported flicker and initial recognition failure. No incident diagnostic ZIP was supplied, so the installed version, game stage and field cause remain unconfirmed. The v0.4.15 changes address controlled reproductions and do not establish that the user's field symptoms are solved.
+After publication, the user again reported flicker and initial recognition failure. No incident diagnostic ZIP was supplied, so the installed version, game stage and field cause remain unconfirmed. The v0.4.16 changes address controlled reproductions and do not establish that the user's field symptoms are solved.
 
 ## v0.4.13: semantic recheck diagnostic baseline
 
@@ -142,7 +146,7 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
-[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is available as a non-latest diagnostic prerelease, with reported flicker and initial recognition failures. The local v0.4.15 candidate is not published. Manual download is required. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
+[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is available as a non-latest diagnostic prerelease, with reported flicker and initial recognition failures. The local v0.4.16 candidate is not published. Manual download is required. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
 
 ### Historical v0.4.7 and earlier releases
 

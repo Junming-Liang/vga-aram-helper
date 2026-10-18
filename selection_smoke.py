@@ -22,6 +22,8 @@ _MAX_REPORT_BYTES=64*1024
 _REPORT_REPLACE_ATTEMPTS=11
 _REPORT_REPLACE_SECONDS=.25
 _REPORT_REPLACE_DELAY=.025
+FOLLOW_OFF_PHASES=frozenset({'capturing-client-follow-off','await-follow-off-game',
+    'testing-follow-off-game','closing-follow-off-game'})
 
 
 def atomic_report(path,value,*,deadline=None):
@@ -118,6 +120,68 @@ def inspect_client_hero(control):
         'logical_size':{'width':overlay.width(),'height':overlay.height()},'labels':labels}
 
 
+def advance_follow_off_probe(control,report):
+    """Owned native negative: fresh selection, eligible game, then real expiry.
+
+    The wrapper owns the additional game process and its close. This observer
+    never adopts it, changes timestamps, or replaces production permission code.
+    """
+    phase=report['phase'];session=control.selection_session;policy=control.window_policy
+    assert not control.client_follow.isChecked() and control.state.running
+    assert session and policy and control.client_phase() and control.automatic_policy is None
+    assert control.target.identity==policy.client_identity and policy.permits(control.target)
+    assert policy.game_identity is None
+    if phase=='capturing-client-follow-off':
+        if session.stage!='assigned' or not control.overlay.isVisible() or control.capture_pending or control.ocr_busy:return False
+        detail=inspect_client_hero(control)
+        report['manual_client_follow_off']={'follow_enabled':False,'target_hwnd':control.target.hwnd,
+            'assigned':session.assigned,'observation_count':detail['observation_count'],
+            'started_after':policy.started_after}
+        report['phase']='await-follow-off-game';return True
+    evidence=report['manual_client_follow_off']
+    assert (control.target.hwnd,control.target.pid)==(report['clientHwnd'],report['clientPid'])
+    assert policy.started_after==evidence['started_after']
+    if phase=='closing-follow-off-game':
+        if control.capture.u.IsWindow(evidence['game_hwnd']) or not control.capture.foreground(control.target):return False
+        assert policy.discover_game(control.capture.windows()) is None
+        target=control.target
+        control.client_follow.setChecked(True);control.start_monitor()
+        assert control.state.running and control.client_phase() and control.target.identity==target.identity
+        assert control.window_policy and control.window_policy.started_after>evidence['game_created']
+        evidence['follow_on_started_after']=control.window_policy.started_after
+        report['manual_client_follow_off_passed']=True
+        report['phase']='capturing-client';return True
+    candidate=policy.discover_game(control.capture.windows())
+    if candidate is None:return False
+    game,metadata=candidate
+    assert not policy.permits(game) and metadata.created>policy.started_after
+    if phase=='await-follow-off-game':
+        if session.stage!='assigned' or not control.overlay.isVisible() or control.capture_pending or control.ocr_busy:return False
+        assert control.capture.foreground(control.target)
+        control.monitor.stop()  # Idle: no inference/result can refresh the expiry clock.
+        evidence.update(game_hwnd=game.hwnd,game_pid=game.pid,game_created=metadata.created)
+        report['phase']='testing-follow-off-game';return True
+    assert phase=='testing-follow-off-game'
+    assert (game.hwnd,game.pid,metadata.created)==(evidence['game_hwnd'],evidence['game_pid'],evidence['game_created'])
+    if not control.capture.foreground(game):return False
+    age=time.monotonic()-session.last_client_frame
+    control.advance_session_window()
+    assert control.target.identity==policy.client_identity and policy.game_identity is None and not policy.permits(game)
+    if 'fresh_no_handoff_age_seconds' not in evidence:
+        assert session.stage=='assigned' and session.assigned=='9001' and 0<=age<=4
+        evidence.update(foreground_game_hwnd=game.hwnd,fresh_no_handoff_age_seconds=age,
+            game_bound=False)
+    if age<=4:return False
+    assert session.stage=='client-expired' and not session.assigned
+    control.check_target()
+    assert not control.state.hero and not control.state.confirmed and control.state.offered==()
+    assert not control.overlay.isVisible() and not control.capture.u.IsWindowVisible(int(control.overlay.winId()))
+    assert control.client_strength_reference() is None
+    evidence.update(expired_stage=session.stage,expired_observation_age_seconds=age,expiry_hidden=True)
+    report['phase']='closing-follow-off-game'
+    return True
+
+
 def start_selection_smoke(control,input_path,report_path):
     from PySide6 import QtCore,QtWidgets
     app=QtWidgets.QApplication.instance();checks=[];started=time.monotonic();safety={};last_saved=0.
@@ -174,7 +238,8 @@ def start_selection_smoke(control,input_path,report_path):
         assert control.overlay.reference is None and control.client_strength_reference() is None
         safety['handoff_reference_removed']=True
         assert control.selection_session.stage=='game-provisional'
-        report.update(champion_select_session_carry_passed=True,recognizedHero=control.state.hero,recognized=expected,provenance=control.hero_origin,renderedBadgeProvenance=badge_provenance,gameHwnd=control.target.hwnd,gamePid=control.target.pid)
+        report.update(champion_select_session_carry_passed=True,recognizedHero=control.state.hero,recognized=expected,provenance=control.hero_origin,renderedBadgeProvenance=badge_provenance,gameHwnd=control.target.hwnd,gamePid=control.target.pid,
+            gameCreated=control.window_policy.game_meta.created)
         checks.append('Production Start handler and timers capture own client, then adopt unique new same-install game; unknown HUD uses visibly provisional this-session identity and automatic three exact titles')
         policy=control.window_policy
         assert policy.permits(control.target) and policy.permits(control.client_target)
@@ -203,6 +268,9 @@ def start_selection_smoke(control,input_path,report_path):
     def poll():
         if time.monotonic()-last_saved>=1:save()
         if time.monotonic()-started>170:raise RuntimeError('Selection handoff timeout: '+control.status.text())
+        if report['phase'] in FOLLOW_OFF_PHASES:
+            if advance_follow_off_probe(control,report):save()
+            return
         session=control.selection_session;phase=report['phase']
         if phase=='capturing-client' and session and session.stage=='assigning':
             assert session.candidate_frames==1 and not session.assigned
@@ -294,9 +362,9 @@ def start_selection_smoke(control,input_path,report_path):
         report['phase']='warming-client-ocr';save()
         control.ocr=LocalOCR();control.ocr.recognize((Path(__file__).resolve().parent/'fixtures/champselect-synthetic.png').read_bytes(),[])
         control.window_list.addItem('Original owned client fixture',target);control.window_list.setCurrentIndex(control.window_list.count()-1)
-        control.hero_auto.setChecked(True);control.client_follow.setChecked(True);control.start_monitor()
+        control.hero_auto.setChecked(True);control.client_follow.setChecked(False);control.start_monitor()
         assert control.state.running and control.selection_session and control.window_policy
-        assert control.window_policy.permits(target)
+        assert control.window_policy.permits(target) and control.client_phase() and not control.lcu_toggle.isChecked()
         control.hide();control.capture.u.SetForegroundWindow.argtypes=[W.HWND];control.capture.u.SetForegroundWindow.restype=W.BOOL;control.capture.u.SetForegroundWindow(target.hwnd)
-        report['phase']='capturing-client';save();timer.timeout.connect(lambda:guarded(poll));timer.start()
+        report['phase']='capturing-client-follow-off';save();timer.timeout.connect(lambda:guarded(poll));timer.start()
     save();guarded(prepare)

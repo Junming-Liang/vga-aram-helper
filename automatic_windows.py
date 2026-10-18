@@ -17,6 +17,7 @@ import time
 from session_windows import ProcessMetadata, normalized_path, process_metadata
 
 CLIENT_CLASSES=frozenset({'RCLIENT','Chrome_WidgetWin_1','CEFCLIENT'})
+CLIENT_EXECUTABLES=frozenset({'leagueclientux.exe','leagueclient.exe'})
 PUBLISHERS=frozenset({'riot games, inc.','riot games, inc','riot games inc.',
     'tencent technology (shenzhen) company limited','tencent technology(shenzhen) company limited',
     'tencent technology (shenzhen) company ltd.','tencent technologyshenzhen company limited'})
@@ -176,7 +177,7 @@ class AutomaticWindowPolicy:
         try:
             meta=self.resolver(window.pid);path=PureWindowsPath(normalized_path(meta.path))
             if not isinstance(meta.created,int) or meta.created<=0:return None,'rejected_metadata_count'
-            if path.name in ('leagueclientux.exe','leagueclient.exe') and window.class_name in CLIENT_CLASSES:
+            if path.name in CLIENT_EXECUTABLES and window.class_name in CLIENT_CLASSES:
                 role='client';root=path.parent.parent if path.parent.name=='leagueclient' else path.parent
             elif path.name=='league of legends.exe' and path.parent.name=='game' and window.class_name=='RiotWindowClass':
                 role='game';root=path.parent.parent
@@ -185,11 +186,29 @@ class AutomaticWindowPolicy:
             if verify and not self.verifier(str(path)):return None,'rejected_signature_count'
             return Candidate(window,ProcessMetadata(str(path),meta.created),str(root),role),None
         except (OSError,ValueError,KeyError):return None,'rejected_metadata_count'
-    def preferred(self,candidates):
+    def preferred(self,candidates,*,foreground_hwnd=None,available_hwnds=None,confirmation_candidate=None):
         if not self.follow_roles and self.bound:candidates=[item for item in candidates if item.role==self.bound.role]
-        games=[item for item in candidates if item.role=='game']
-        return games or [item for item in candidates if item.role=='client']
-    def discover(self,windows):
+        available=[item for item in candidates if available_hwnds is None or item.window.hwnd in available_hwnds]
+        # Foreground selects a ROLE only among metadata-eligible windows. It
+        # never authorizes an arbitrary caption/process or breaks same-role
+        # ambiguity. Trust and installation checks still run before adoption.
+        if foreground_hwnd is not None:
+            foreground=[item for item in available if item.window.hwnd==foreground_hwnd]
+            if foreground:
+                return [item for item in candidates if item.role==foreground[0].role]
+            # Opening our controls or another app must not switch an existing
+            # binding from client to a background game. Capture still requires
+            # the exact target to be foreground. None preserves legacy callers
+            # that cannot supply a foreground snapshot; zero means no focus.
+            for previous in (confirmation_candidate,self.bound):
+                if previous in available:
+                    return [item for item in candidates if item.role==previous.role]
+        games=[item for item in available if item.role=='game']
+        ready=games or [item for item in available if item.role=='client']
+        # Availability chooses a role, never removes a second window from that
+        # role's ambiguity evidence. The full set also checks installations.
+        return [item for item in candidates if item.role==ready[0].role] if ready else []
+    def discover(self,windows,*,foreground_hwnd=None,available_hwnds=None):
         counts={name:0 for name in DISCOVERY_COUNT_FIELDS}
         def result(candidate,reason,confirmation=None,*,reason_code):
             return Discovery(candidate,reason,confirmation,reason_code,tuple(counts.items()))
@@ -205,8 +224,9 @@ class AutomaticWindowPolicy:
             reason='检测到游戏窗口，但暂时无法核验其基本进程身份；不会截图，稍后自动重试。' if any(window.class_name=='RiotWindowClass' for window in windows) else '等待英雄联盟窗口；游戏启动、恢复或重开后会自动连接。'
             return result(None,reason,reason_code='window_identity_unverified' if any(window.class_name=='RiotWindowClass' for window in windows) else 'window_not_found')
         if len({item.root for item in recognized})!=1:return result(None,'发现多个英雄联盟安装目录，等待只保留一个客户端或游戏。',reason_code='multiple_installations')
-        preferred=self.preferred(recognized)
+        preferred=self.preferred(recognized,foreground_hwnd=foreground_hwnd,available_hwnds=available_hwnds)
         counts['preferred_count']=len(preferred)
+        if not preferred:return result(None,'已找到英雄联盟窗口，但当前没有可采集窗口；恢复窗口后自动连接。',reason_code='window_unavailable')
         if len(preferred)!=1:return result(None,'发现多个同类英雄联盟窗口，暂不截图；关闭多余窗口后自动恢复。',reason_code='multiple_windows')
         candidate=preferred[0]
         if not self.active:return result(None,'监测已停止。',reason_code='discovery_stopped')
@@ -215,20 +235,23 @@ class AutomaticWindowPolicy:
             name=PureWindowsPath(candidate.metadata.path).name
             return result(None,'已找到 '+name+'（'+candidate.window.class_name+'），但签名/游戏文件身份未通过本机校验；可确认自己的安装目录后继续。',candidate,reason_code='signature_unverified')
         return result(candidate,'已自动连接'+('游戏窗口。' if candidate.role=='game' else '客户端，等待选人或进入游戏。'),reason_code='game_connected' if candidate.role=='game' else 'client_connected')
-    def confirm_installation(self,candidate,*,windows):
+    def confirm_installation(self,candidate,*,windows,foreground_hwnd=None,available_hwnds=None):
         """Only the GUI's explicit, per-session installation confirmation calls this."""
         if not self.active or not candidate:return False
         fresh=[item for window in windows if (item:=self.inspect(window,verify=False)) is not None]
-        if len({item.root for item in fresh})!=1 or self.preferred(fresh)!=[candidate]:return False
-        self.root=candidate.root;self.confirmed_root=candidate.root;return True
-    def adopt(self,discovery,*,windows):
+        if len({item.root for item in fresh})!=1 or self.preferred(fresh,foreground_hwnd=foreground_hwnd,available_hwnds=available_hwnds,confirmation_candidate=candidate)!=[candidate]:return False
+        self.root=candidate.root;self.confirmed_root=candidate.root
+        # The dialog may temporarily own focus. This confirms the installation
+        # only; no target binding or pending role preference is retained.
+        return True
+    def adopt(self,discovery,*,windows,foreground_hwnd=None,available_hwnds=None):
         candidate=discovery.candidate
         if not self.active or candidate is None:return False
         # A late result cannot authorize a window after a new ambiguity appeared.
         # Only metadata is read here; expensive trust checks stay on the worker.
         fresh=[item for window in windows if (item:=self.inspect(window,verify=False)) is not None]
         if len({item.root for item in fresh})!=1:return False
-        preferred=self.preferred(fresh)
+        preferred=self.preferred(fresh,foreground_hwnd=foreground_hwnd,available_hwnds=available_hwnds)
         if len(preferred)!=1 or preferred[0]!=candidate:return False
         try:
             meta=self.resolver(candidate.window.pid)
@@ -236,11 +259,11 @@ class AutomaticWindowPolicy:
         except (OSError,ValueError,KeyError):return False
         if self.root is not None and candidate.root!=self.root:return False
         self.root=candidate.root;self.bound=candidate;return True
-    def permits(self,window,*,windows=None):
+    def permits(self,window,*,windows=None,foreground_hwnd=None,available_hwnds=None):
         if not self.active or not self.bound or tuple(window.identity)!=tuple(self.bound.window.identity):return False
         if windows is not None:
             fresh=[item for item_window in windows if (item:=self.inspect(item_window,verify=False)) is not None]
-            preferred=self.preferred(fresh)
+            preferred=self.preferred(fresh,foreground_hwnd=foreground_hwnd,available_hwnds=available_hwnds)
             if len(preferred)!=1 or preferred[0]!=self.bound:return False
         try:
             meta=self.resolver(window.pid)

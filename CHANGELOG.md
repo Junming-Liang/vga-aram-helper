@@ -1,16 +1,25 @@
 # Changelog / 变更日志
 
-## v0.4.15 · 回归恢复诊断候选 / Regression recovery diagnostic candidate
+## v0.4.16 · 选人路由与回归恢复候选 / Selection routing and regression recovery candidate
 
-本地候选，尚未构建或发布 Windows EXE，完整 Windows 同一 EXE 验收与真实对局验证均待完成。针对三个受控可复现缺陷：
+本地候选，尚未构建或发布 v0.4.16 Windows EXE。完整最终源码/同一 EXE 门禁及真实对局验证待完成。
 
-- v0.4.14 引入的热缓存刷新可能在识别途中替换模型；规范名称和解码像素相同的模型现在保留原对象，真实内容变更暂存至停止或已接受的窗口/进程切换边界。首个可用模型在空闲且没有现有显示权威时启用，不绕过帧范围检查。
-- v0.4.13 已有的固定空闲间隔可能耗尽四秒刷新预算；调度预留实测捕获与推理耗时及有界余量，至少空闲 50ms。四秒观察/接受期限不变，异常尾延迟和不可能满足的预算仍隐藏过期评级，既有错误退避不变。
-- 冷启动 API 规范映射原先等待所有头像下载；完整已验证官方 roster 现在可先供 API 查询，完整图像库仍须通过全部哈希与解码检查。身份范围、独立确认、HUD 矛盾、尝试租约和取消门槛不变。
+- 修正自动模式中后台或最小化游戏抢占前台客户端的路由；前台与可用性仅用于选择角色，不删除同角色或不同安装目录的歧义证据。接纳、安装目录确认与采集许可均重核对新鲜快照和身份。
+- 手动指定客户端的角色按进程元数据和窗口类判断，不再依赖自动接续开关；关闭接续仍走选人识别，不误走局内强化 OCR，也不授权接续。快照查询失败立即撤销旧 GUI/识别证据，有效查询可恢复；新增固定的 `query_failed` / `window_unavailable` 诊断原因码，不记录私有载荷。
+- 保留未发布 v0.4.15 的等价热缓存模型、测得耗时驱动的空闲调度和完整 roster 提前可用修复。至少 50ms 空闲及四秒有效期不变；真实模型替换仍等安全边界，过期结果仍隐藏。
+- 构建预算查询使用已有工作流令牌，仅向固定只读库存端点发送，拒绝重定向；预算、保留量、未知状态阻断与默认 `publish_preview=false` 不变。没有提高额度或改变账单设置。
 
-v0.4.14 发布后用户再次报告闪烁与初始识别失败；未提供新的诊断 ZIP，实际安装版本、发生阶段和现场原因仍未知。受控 Qt/本地 OCR 回归不能证明用户现场问题已解决。两份公开静态截图评估须由原脚本真实重跑，不能手改版本或哈希。手动 Windows 流程仍默认 `publish_preview=false`；全部既有门禁通过后才可另行明确选择发布。历史 v0.4.14 Run 78 的固定恢复流程不能用于本候选。
+未引入虎牙专有代码，也未扩大窗口标题匹配、窗口类或 LCU 同意范围。以上受控复现并非用户现场原因的确认；实际安装版本、发生阶段和现场原因仍缺少该次诊断 ZIP。两份公开静态图评估必须由原脚本真实重跑，不能手改版本或哈希。详见[窗口路由调查](WINDOW_ROUTING_RECOVERY.md)及[当前验收状态](reports/VALIDATION.md)。
 
-English: Local diagnostic candidate with no Windows EXE or complete same-binary Windows/actual-game acceptance yet. Preserves equivalent warm-cache model objects and defers changed banks to safe boundaries; budgets the idle pause around measured capture/inference cost with a 50 ms floor and unchanged four-second expiry; and makes a complete validated roster available to API lookup before full image readiness. These are three controlled reproductions, not an established diagnosis of the user's renewed flicker and initial-recognition report. The installed version, game stage and field cause remain unconfirmed. Publication stays explicit after all existing gates, with `publish_preview=false` by default. See [regression recovery investigation](REGRESSION_RECOVERY.md) and [acceptance status](reports/VALIDATION.md).
+English: Unbuilt, unpublished v0.4.16 candidate. Fixes foreground-client routing in the presence of a background/minimized game and manual-client selection routing with handoff disabled. Full ambiguity evidence, fresh identity/foreground checks and separate LCU consent remain enforced; snapshot failures revoke stale evidence and recover only after valid queries. Includes the unreleased warm-model, cadence and roster fixes. The budget inventory uses the existing workflow token at one fixed read-only endpoint with redirects refused; budgets and fail-closed behavior are unchanged. No proprietary Huya code or broader title/class matching is added. Full same-EXE Windows gates and actual-game acceptance remain pending; these reproductions do not establish the user's field cause.
+
+## v0.4.15 · 历史未发布候选 / Historical unreleased candidate
+
+[Windows 运行 #81](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39144535874)，源码 `e7bae299`，已构建 EXE，通过两轮各 1,977 项 Python 测试（各跳过 5 项）及源码/同一冻结 EXE 的三档捕获、原生 OCR/布局、选人接续、浏览器和 OTA 门禁。随后匿名制品预算 API 返回 HTTP 403；最终验证和发布均未执行，不能称为完整发布门禁通过。v0.4.15 未发布，其变更合并到 v0.4.16；当前下载仍是 v0.4.14。
+
+此候选修正三个受控复现：等价热缓存刷新不再替换在途识别模型；实测捕获/推理耗时参与调度；完整已验证 roster 无需等待所有头像即可供 API 查询。原有复现与安全边界见[回归恢复调查](REGRESSION_RECOVERY.md)。Run 80 的间歇性辅助程序失败原因仍未知；后续源码和冻结诊断的 32 次切换通过不能证明用户现场问题已解决。
+
+English: Run #81 built the v0.4.15 EXE and passed both 1,977-test Python rounds (5 skips each) and existing source/frozen runtime gates, but an anonymous artifact-budget HTTP 403 blocked final verification and publication. No v0.4.15 release was made. Its warm-model, measured-cadence and roster changes are carried into v0.4.16. The Run 80 intermittent helper-failure cause remains unknown; later passing source/frozen transition diagnostics are bounded fixture evidence, not a field-fix claim.
 
 ## v0.4.14 · 已发布启动恢复诊断版 / Published startup recovery diagnostic prerelease
 
@@ -18,7 +27,7 @@ English: Local diagnostic candidate with no Windows EXE or complete same-binary 
 
 固定原因码、关联字段和有界历史补充启动/模板/身份诊断；日志总上限仍为 768 KiB，导出 ZIP 上限 832 KiB，不新增截图、玩家载荷或异常文本，不自动上传。启动恢复及整局日志的合成故障注入测试与 Windows 捕获、打包运行时和实战验收分别记录。
 
-发布后收到新的闪烁与初始识别失败反馈，不能继续把早期“闪烁已不再出现”的反馈视为当前结论；未取得新诊断 ZIP，现场原因仍未确认。v0.4.15 的受控修复和待验收边界见上节。
+发布后收到新的闪烁与初始识别失败反馈，不能继续把早期“闪烁已不再出现”的反馈视为当前结论；未取得新诊断 ZIP，现场原因仍未确认。v0.4.16 的受控修复和待验收边界见上节。
 
 English: Published diagnostic prerelease; the earlier unbuilt/unpublished local checkpoint is superseded. Includes bounded empty-bank retries, cache-first delivery, a verified memory-only canonical-map fallback and safe malformed-roster/cache rejection. Existing identity and freshness safeguards remain. New post-publication feedback reports flicker and initial recognition failure, superseding the earlier improvement report as a current status claim. No new incident ZIP establishes the field cause. See the historical [startup recovery audit](STARTUP_RECOVERY.md) and current [acceptance status](reports/VALIDATION.md).
 

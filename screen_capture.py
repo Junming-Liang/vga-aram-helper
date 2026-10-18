@@ -114,6 +114,19 @@ class Win32Capture:
                 except CaptureUnavailable:pass
             return True
         cb=self.enum_cb(each);self.u.EnumWindows(cb,0);return sorted(result,key=lambda x:x.title.casefold())
+    def discovery_snapshot(self):
+        """Visible identities, acquisition availability and one foreground root.
+
+        A minimized old game must not displace a foreground client. This is
+        only a routing hint: policy identity/trust checks and all later capture
+        guards remain mandatory. No title matching or child-window promotion.
+        """
+        windows=self.windows(include_untitled=True)
+        available=frozenset(window.hwnd for window in windows
+            if self.u.IsWindowVisible(window.hwnd) and not self.u.IsIconic(window.hwnd))
+        foreground=int(self.u.GetAncestor(self.u.GetForegroundWindow(),2) or 0)
+        # Minimized identities still participate in policy ambiguity checks.
+        return dict(windows=windows,foreground_hwnd=foreground,available_hwnds=available)
     def rect(self,target):
         current=self.info(target.hwnd)
         if current.identity!=target.identity:raise CapturePaused('窗口已重建，等待重新连接。',reason_code='window_identity_changed')
