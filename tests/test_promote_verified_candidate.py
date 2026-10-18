@@ -127,7 +127,7 @@ class OfflineTestCase(unittest.TestCase):
 class PromotionIdentityTests(OfflineTestCase):
     def test_historical_recovery_identity_uses_its_fixed_version(self):
         self.assertEqual(promotion.VERSION, '0.4.14')
-        self.assertEqual(promotion.gate.PREVIEW_VERSION, '0.4.15')
+        self.assertEqual(promotion.gate.PREVIEW_VERSION, '0.4.16')
         receipt = dict(source_sha=promotion.SOURCE_SHA, run_id=promotion.RUN_ID,
                        run_attempt=promotion.RUN_ATTEMPT, version=promotion.VERSION,
                        tag='v' + promotion.VERSION, exe_sha256=promotion.EXE_SHA256,

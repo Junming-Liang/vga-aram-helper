@@ -510,7 +510,12 @@ class ReleaseFixture(unittest.TestCase):
                     lambda d:d['client_hero_reference'].update(augment_card_count=3),
                     lambda d:d['client_hero_reference']['reference'].update(sourceTier='T1'),
                     lambda d:d['client_hero_reference']['overlay_rect'].update(height=400),
-                    lambda d:d['client_hero_safety'].update(unknown_handler_hidden=1)]
+                    lambda d:d['client_hero_safety'].update(unknown_handler_hidden=1),
+                    lambda d:d['manual_client_follow_off'].update(follow_enabled=True),
+                    lambda d:d['manual_client_follow_off'].update(game_bound=True),
+                    lambda d:d['manual_client_follow_off'].update(fresh_no_handoff_age_seconds=4.1),
+                    lambda d:d['manual_client_follow_off'].update(expired_stage='assigned'),
+                    lambda d:d['manual_client_follow_off'].update(follow_on_started_after=d['gameCreated'])]
                 for mutate in mutations:
                     mutate(row['detail']);self.write_reports()
                     with self.subTest(frozen=aggregate['frozen'],scale=row['app_scale']),self.assertRaises(gate.VerificationError):self.verify()
@@ -812,7 +817,16 @@ class ReleaseFixture(unittest.TestCase):
                        'unchanged four-second deadline', 'still hide expired grades',
                        'complete validated official roster', 'before image downloads complete',
                        'installed version, game stage and field cause remain unknown',
-                       'REGRESSION_RECOVERY.md'):
+                       'REGRESSION_RECOVERY.md', 'Two reproduced selection-routing defects',
+                       'foreground client is no longer displaced',
+                       'selection recognition with automatic handoff disabled',
+                       'preserving all same-role and installation ambiguity evidence',
+                       'Failed snapshots immediately revoke old display evidence',
+                       'query_failed and window_unavailable',
+                       'No proprietary Huya code', 'WINDOW_ROUTING_RECOVERY.md',
+                       'anonymous artifact-budget HTTP 403', 'fixed read-only endpoint',
+                       'refuse redirects', '500,000,000-byte budget', '10,000,000-byte reserve',
+                       'Run 80 intermittent helper-failure cause remains unknown'):
             self.assertIn(phrase, notes)
         self.assertNotIn('default-off, current-launch local debug', notes)
         self.assertNotIn('flicker is no longer observed', notes)
@@ -1367,7 +1381,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_publish_does_not_accept_a_historical_or_future_version(self):
         result = self.verify()
-        for version in ('0.4.14', '0.4.16'):
+        for version in ('0.4.14', '0.4.15', '0.4.17'):
             wrong = copy.deepcopy(result)
             wrong.update(version=version, tag='v' + version)
             for asset in wrong['assets']:
@@ -1554,7 +1568,7 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
     def test_current_publication_rejects_historical_or_future_receipt_version(self):
         gate.check_preview_identity(self.receipt(VERSION), current_provenance())
-        for version in ('0.4.14', '0.4.16'):
+        for version in ('0.4.14', '0.4.15', '0.4.17'):
             with self.subTest(version=version), self.assertRaises(gate.VerificationError):
                 gate.check_preview_identity(self.receipt(version), current_provenance())
 
@@ -1574,14 +1588,14 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.15')
+        self.assertEqual(VERSION, '0.4.16')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
         self.assertIn(f'group: vga-native-preview-v{VERSION}', text)
         self.assertIn('DIAGNOSTIC prerelease', text)
         self.assertTrue(gate.genuine_report_version_matches(VERSION, VERSION))
-        for old in ('0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14'):
+        for old in ('0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14', '0.4.15'):
             self.assertFalse(gate.genuine_report_version_matches(old, VERSION))
         # Preserve the narrowly scoped historical exception, not for this release.
         self.assertTrue(gate.genuine_report_version_matches('0.4.10', '0.4.11'))

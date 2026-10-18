@@ -241,9 +241,14 @@ class SelectionHarnessTests(unittest.TestCase):
                     provenance='client-provisional', renderedBadgeProvenance=[dict(slot=i,visible=True,text='HUD未复核',paintedText='HUD未复核',
                         accessible=f'选项 {i} · {name} · T{i} · HUD未复核 · 来自本局选人 · HUD未复核',
                         tooltip='来自本局选人 · HUD未复核\n') for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)],
-                    clientHwnd=100,clientPid=101,gameHwnd=200,gamePid=201,clientGeneration=2,
+                    clientHwnd=100,clientPid=101,gameHwnd=200,gamePid=201,gameCreated=133000000000000400,clientGeneration=2,
                     client_hero_reference=reference, client_hero_safety=dict.fromkeys(smoke.SAFETY_FIELDS,True),
                     **dict.fromkeys(smoke.FIELDS, True))
+        result['manual_client_follow_off']=dict(follow_enabled=False,target_hwnd=100,
+            assigned='9001',observation_count=2,started_after=133000000000000100,game_hwnd=500,game_pid=501,game_created=133000000000000200,
+            foreground_game_hwnd=500,fresh_no_handoff_age_seconds=.2,
+            game_bound=False,expired_stage='client-expired',expired_observation_age_seconds=4.2,
+            expiry_hidden=True,follow_on_started_after=133000000000000300)
         result['foreground_transition']={'sink_hwnd':400,'sink_pid':101,'sink_class':smoke.FOCUS_SINK_CLASS,
             'sink_title':smoke.FOCUS_SINK_TITLE,'foreground_sink_hwnd':400,'client_visible_during':True,
             'overlay_hwnd':300,'overlay_visible_before':True,'overlay_native_visible_before':True,
@@ -268,6 +273,8 @@ class SelectionHarnessTests(unittest.TestCase):
                    'completed_fields':list(smoke.FIELDS),
                    'client':{'hwnd':100,'pid':101,'class_name':smoke.CLASSES['client'],'client_size':[964,602]},
                    'game':{'hwnd':200,'pid':201,'class_name':smoke.CLASSES['game'],'client_size':[964,602]}}
+            row['follow_off_fixture']={'hwnd':500,'pid':501,'created':133000000000000200,'class_name':smoke.CLASSES['game'],
+                'client_size':[964,602],'launched_after_selection_request':True,'process_exited':True,'closed_before_follow_on':True}
             row['focus_fixture']={key:copy.deepcopy(val) for key,val in row['detail']['foreground_transition'].items()
                                   if key not in ('sink_hwnd','sink_pid','overlay_hidden_after','overlay_hwnd',
                                                  'overlay_visible_before','overlay_native_visible_before')}
@@ -456,7 +463,7 @@ class SelectionHarnessTests(unittest.TestCase):
             for value in (False, None, 1, 'true'):
                 with self.subTest(field=field, value=value), self.assertRaises(AssertionError):
                     smoke.validate_report(dict(self.good_report(), **{field: value}), '0.4.1')
-        self.assertEqual(len(smoke.FIELDS), 10)
+        self.assertEqual(len(smoke.FIELDS), 11)
         self.assertEqual(smoke.FIELDS[:6], ('champion_select_own_row_passed','champion_select_ambiguity_passed',
             'champion_select_session_carry_passed','champion_select_stale_clear_passed',
             'champion_select_window_scope_passed','metadata_query_passed'))
@@ -470,6 +477,93 @@ class SelectionHarnessTests(unittest.TestCase):
                     smoke.validate_report(value,'0.4.1',frozen=not frozen,scale=scale)
                 with self.assertRaises(AssertionError):
                     smoke.validate_report(value,'0.4.1',frozen=frozen,scale=scale+.5)
+
+    def test_manual_follow_off_requires_fresh_negative_then_expiry_and_separate_start_scopes(self):
+        for key in self.good_report()['manual_client_follow_off']:
+            value=self.good_report();del value['manual_client_follow_off'][key]
+            with self.subTest(missing=key),self.assertRaises(AssertionError):smoke.validate_report(value,'0.4.1')
+        mutations=[('follow_enabled',True),('follow_enabled',0),('game_bound',True),('game_bound',0),
+            ('target_hwnd',500),('target_hwnd',True),('game_hwnd',100),('game_pid',101),
+            ('game_created',True),('game_created',1),('started_after',133000000000000200),
+            ('follow_on_started_after',133000000000000200),('follow_on_started_after',133000000000000400),
+            ('foreground_game_hwnd',100),('observation_count',1),('observation_count',True),('assigned','9002'),
+            ('fresh_no_handoff_age_seconds',4.01),('fresh_no_handoff_age_seconds',True),
+            ('fresh_no_handoff_age_seconds',float('nan')),('expired_observation_age_seconds',4),
+            ('expired_observation_age_seconds',170),('expired_observation_age_seconds',float('inf')),
+            ('expired_stage','assigned')]
+        mutations += [(key,bad) for key in ('expiry_hidden',)
+                      for bad in (False,1)]
+        for key,bad in mutations:
+            value=self.good_report();value['manual_client_follow_off'][key]=bad
+            with self.subTest(key=key,bad=bad),self.assertRaises(AssertionError):smoke.validate_report(value,'0.4.1')
+        for bad in (None,True,133000000000000300):
+            value=self.good_report();value['gameCreated']=bad
+            with self.subTest(final_game_created=bad),self.assertRaises(AssertionError):smoke.validate_report(value,'0.4.1')
+
+    def test_outer_negative_game_lifetime_and_identity_must_match_each_native_scale(self):
+        for frozen in (False,True):
+            for index in range(3):
+                for field,bad in (('hwnd',999),('pid',999),('created',True),('created',1),('class_name','RCLIENT'),
+                    ('client_size',[True,602]),('launched_after_selection_request',False),('process_exited',False),
+                    ('closed_before_follow_on',1)):
+                    value=self.good_aggregate(frozen=frozen);value['runs'][index]['follow_off_fixture'][field]=bad
+                    with self.subTest(frozen=frozen,scale=index,field=field),self.assertRaises(AssertionError):
+                        smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+        self.assertIn('automatic_windows.py',smoke.SOURCE_FILES)
+
+    def test_creation_observer_uses_only_exact_existing_owned_handle_and_fails_closed(self):
+        calls=[];handle=object()
+        def query(observed,created,exited,kernel,user):
+            calls.append(observed);created._obj.dwHighDateTime=3;created._obj.dwLowDateTime=17
+            return True
+        native=SimpleNamespace(k=SimpleNamespace(GetProcessTimes=Mock(side_effect=query)))
+        self.assertEqual(smoke.owned_process_created(native,{'handle':handle,'pid':101}),(3<<32)|17)
+        self.assertEqual(calls,[handle])
+        native.k.GetProcessTimes.side_effect=None;native.k.GetProcessTimes.return_value=False
+        with self.assertRaisesRegex(AssertionError,'creation time unavailable'):
+            smoke.owned_process_created(native,{'handle':handle,'pid':101})
+
+    def test_actual_wrapper_phase_driver_closes_negative_game_before_final_request(self):
+        # Execute the real nested driver with owned native-call fakes. Only its
+        # closure addressing changes; no Windows or process-lifecycle claim.
+        tree=ast.parse(Path(smoke.__file__).read_text())
+        driver=copy.deepcopy(next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef) and node.name=='awaiting_game'))
+        driver.body=[ast.copy_location(ast.Global(node.names),node) if isinstance(node,ast.Nonlocal) else node for node in driver.body]
+        calls=[];current={'phase':'await-follow-off-game'};foreground=[100]
+        app={'pid':1};client={'pid':101};negative={'pid':501,'handle':object()};window={'hwnd':500,'pid':501}
+        def focus(native,process,exe,role,observed,size):
+            calls.append(('foreground',role,observed['hwnd']));foreground[0]=observed['hwnd'];return True
+        native=SimpleNamespace(poll=lambda process:None,spawn=Mock(return_value=negative),
+            close_window=Mock(),wait_exit=Mock(return_value=0),
+            u=SimpleNamespace(SetWindowPos=Mock(return_value=True),GetForegroundWindow=lambda:foreground[0]))
+        namespace=dict(smoke.__dict__,native=native,app=app,client=client,negative_game=None,negative_window=None,
+            handoff_path=Path('/owned/report.json'),work=Path('/owned'),result={},x=20,y=20,env={},
+            fixture={'client_exe':Path('/owned/client.exe'),'game_exe':Path('/owned/game.exe')},
+            sizes={'client':(964,602),'game':(964,602)},client_window={'hwnd':100,'pid':101},
+            budget=SimpleNamespace(until=lambda seconds:seconds),
+            report_when=lambda *args:current if current['phase']=='await-game-window' else None,
+            poll_owned_json=lambda *args:current,foreground_owned=focus,
+            fixture_argv=Mock(return_value=['/owned/game.exe']),wait_fixture=Mock(return_value=window),
+            assert_owned_window=Mock(),owned_process_created=Mock(return_value=133000000000000200))
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[driver],type_ignores=[])),'owned-phase-driver','exec'),namespace)
+        advance=namespace['awaiting_game']
+        self.assertIsNone(advance());self.assertIs(namespace['negative_game'],negative)
+        self.assertTrue(namespace['fixture_argv'].call_args.kwargs['no_activate'])
+        self.assertEqual(native.u.SetWindowPos.call_args.args[0],500)
+        current['phase']='testing-follow-off-game';self.assertIsNone(advance())
+        self.assertEqual(calls[-1],('foreground','game',500));native.close_window.assert_not_called()
+        current['phase']='await-game-window'
+        with self.assertRaisesRegex(AssertionError,'before negative-game cleanup'):advance()
+        current['phase']='closing-follow-off-game';self.assertIsNone(advance());self.assertIsNone(advance())
+        native.close_window.assert_called_once_with(window)
+        native.wait_exit.assert_called_once_with(negative,10)
+        self.assertEqual(calls[-1],('foreground','client',100))
+        current['phase']='await-game-window';self.assertIs(advance(),current)
+        self.assertEqual(native.spawn.call_count,1)
+        native.wait_exit.return_value=1
+        namespace['result']['follow_off_fixture']['process_exited']=False
+        current['phase']='closing-follow-off-game'
+        with self.assertRaisesRegex(AssertionError,'did not exit cleanly'):advance()
 
     def test_literal_hero_reference_and_no_augment_confirmation_are_strict(self):
         mutations=[('assigned','9002'),('stage','assigning'),('state_hero',''),('observation_count',1),
@@ -781,7 +875,7 @@ class SelectionHarnessTests(unittest.TestCase):
         self.assertIn('work = work.resolve()', source)
         self.assertIn('handoff_path = work / native_report_name(frozen, scale)', source)
         self.assertIn('for scale in SCALES:', source)
-        self.assertIn("current.get('phase') in ('testing-client-foreground-loss','requesting-client-focus-return')",source)
+        self.assertIn("phase in ('testing-client-foreground-loss','requesting-client-focus-return')",source)
         self.assertIn('print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)', source)
         self.assertLessEqual(smoke.MAX_SECONDS + smoke.DIRECTORY_CLEANUP_SECONDS, 270)
         self.assertEqual(smoke.JOB_CLEANUP_SECONDS, 15)

@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from windows_automatic_capture import (Events, MAX_SECONDS, assert_pixels,
     make_original_png, make_hidden_capture_observer, force_first_copy_blank,
-    require_capture_idle, start_with_explicit_capture)
+    require_capture_idle, start_with_explicit_capture, assert_minimized_target_rejected)
 from windows_ota_smoke import Deadline
 from windows_session_fixture import validate_png
 
@@ -165,6 +165,67 @@ class ControlledCaptureIdleTests(unittest.TestCase):
         self.assertNotIn('control.start_button.click()', ast.get_source_segment(source, execute))
         seed = next(node for node in ast.walk(execute) if isinstance(node, ast.FunctionDef) and node.name == 'seed_stale_state')
         self.assertEqual(ast.unparse(seed.body[0]), 'require_capture_idle(control)')
+
+
+class MinimizedTargetFixtureContractTests(unittest.TestCase):
+    def test_exact_saved_game_is_checked_after_target_changes_or_clears(self):
+        from screen_capture import CapturePaused, WindowInfo
+        game=WindowInfo(101,201,'Owned game','RiotWindowClass')
+        client=WindowInfo(102,202,'Owned client','RCLIENT')
+        for current in (client,None):
+            with self.subTest(current=current):
+                control=SimpleNamespace(target=game)
+                saved=control.target;control.target=current
+                capture=SimpleNamespace(u=SimpleNamespace(IsIconic=Mock(return_value=True)),
+                    capture=Mock(side_effect=CapturePaused('Owned minimized window')))
+                assert_minimized_target_rejected(capture,saved)
+                capture.u.IsIconic.assert_called_once_with(game.hwnd)
+                capture.capture.assert_called_once_with(game)
+                self.assertIs(control.target,current)
+
+    def test_actual_pixels_for_saved_minimized_game_still_fail(self):
+        target=SimpleNamespace(hwnd=101)
+        capture=SimpleNamespace(u=SimpleNamespace(IsIconic=lambda hwnd:True),
+            capture=Mock(return_value=(b'owned pixels',object())))
+        with self.assertRaisesRegex(AssertionError,'unexpectedly yielded pixels'):
+            assert_minimized_target_rejected(capture,target)
+        capture.capture.assert_called_once_with(target)
+
+    def test_nonminimized_or_unexpected_error_cannot_pass_negative_check(self):
+        target=SimpleNamespace(hwnd=101)
+        capture=SimpleNamespace(u=SimpleNamespace(IsIconic=Mock(return_value=False)),capture=Mock())
+        with self.assertRaisesRegex(AssertionError,'not minimized'):
+            assert_minimized_target_rejected(capture,target)
+        capture.capture.assert_not_called()
+        capture.u.IsIconic.return_value=True
+        capture.capture.side_effect=RuntimeError('Owned unrelated failure')
+        with self.assertRaisesRegex(RuntimeError,'unrelated failure'):
+            assert_minimized_target_rejected(capture,target)
+
+    def test_native_fixture_saves_game_before_minimize_and_checks_roles_separately(self):
+        source=Path(__file__).with_name('windows_automatic_capture.py').read_text(encoding='utf-8')
+        tree=ast.parse(source)
+        execute=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='execute')
+        nodes=list(ast.walk(execute))
+        saved=next(node for node in nodes if isinstance(node,ast.Assign) and
+            any(isinstance(target,ast.Name) and target.id=='minimized_game_target' for target in node.targets))
+        minimize=next(node for node in nodes if isinstance(node,ast.Call) and
+            isinstance(node.func,ast.Attribute) and node.func.attr=='ShowWindow' and ast.literal_eval(node.args[1])==6)
+        checks=[node for node in nodes if isinstance(node,ast.Call) and
+            isinstance(node.func,ast.Name) and node.func.id=='assert_minimized_target_rejected']
+        self.assertEqual(ast.unparse(saved.value),'control.target')
+        self.assertLess(saved.lineno,minimize.lineno);self.assertEqual(len(checks),2)
+        for check in checks:
+            self.assertGreater(check.lineno,minimize.lineno)
+            self.assertEqual(ast.unparse(check.args[1]),'minimized_game_target')
+        # Every expected binding has explicitly established its role's native
+        # foreground first; launch/restore focus is not an implicit assumption.
+        calls=sorted((node for node in nodes if isinstance(node,ast.Call) and
+            isinstance(node.func,ast.Name) and node.func.id in ('foreground','bound')),key=lambda node:node.lineno)
+        foreground=None
+        for call in calls:
+            if call.func.id=='foreground':foreground=ast.unparse(call.args[0])
+            else:self.assertEqual(ast.unparse(call.args[0]),foreground)
 
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')

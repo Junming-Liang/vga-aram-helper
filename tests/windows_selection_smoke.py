@@ -1,8 +1,8 @@
 """Real Windows client-to-new-game handoff using exclusively owned PNG windows.
 
-Primary selection/carry uses actual OS pixels and process path/creation metadata.
-Ambiguity/expiry cases in the application diagnostic are separate synthetic policy
-checks. Neither is real game, Vanguard, or live-match compatibility evidence.
+Selection/carry and manual follow-off expiry use actual OS pixels and metadata.
+Additional ambiguity/stale-handler cases are separate synthetic policy checks.
+Neither is real game, Vanguard, or live-match compatibility evidence.
 """
 from __future__ import annotations
 import argparse
@@ -37,7 +37,8 @@ FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed',
           'champion_select_session_carry_passed', 'champion_select_stale_clear_passed',
           'champion_select_window_scope_passed', 'metadata_query_passed',
           'client_hero_reference_passed', 'client_hero_no_confirmation_passed',
-          'client_hero_geometry_passed', 'client_hero_safety_passed')
+          'client_hero_geometry_passed', 'client_hero_safety_passed',
+          'manual_client_follow_off_passed')
 SCALES = (1, 1.5, 2)
 # These are the legacy scale100 mirrors checked by validate_aggregate. Keep
 # optional evidence in its complete per-scale row instead of copying it again.
@@ -46,7 +47,7 @@ LEGACY_FIELDS = ('process_exited', 'owned_processes_exited', 'game_launched_afte
 SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
     'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
     'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
-SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
+SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
     'persistent_capture_adapter.py', 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
     'hero_strength.py', 'champion_select.py', 'selection_session.py', 'session_windows.py',
     'selection_smoke.py', 'synthetic_vision.py', 'launcher.py', 'tests/windows_selection_smoke.py',
@@ -60,8 +61,9 @@ EXPECTED_TEXT = {'hero': '星火术士（演示）', 'tier': '英雄整体强度
     'heading': '当前分配 · 仍可交换 · HUD未复核', 'footer': '虚构演示 · 非 Riot 评级/批准',
     'metadata': '英雄评级快照 2026-01-02 · 英雄资料 0.1 · 游戏资料 0.2 · 数据包 synthetic-selection-v1'}
 SCOPE = ('Owned original synthetic windows only. Primary client-to-new-game carry uses actual '
-         'Windows pixels and real executable metadata; ambiguity/expiry are separate synthetic '
-         'policy checks. No real game, Vanguard, live-match accuracy or compatibility claim.')
+         'Windows pixels and real executable metadata; manual follow-off also tests real TTL expiry. '
+         'Additional ambiguity/stale-handler cases are separate synthetic policy checks. '
+         'No real game, Vanguard, live-match accuracy or compatibility claim.')
 
 
 def child_environment(environ, work, scale=1, *, frozen=True):
@@ -97,6 +99,7 @@ def declare_desktop(native):
         'GetForegroundWindow': ([], W.HWND),
         'SetForegroundWindow': ([W.HWND], W.BOOL),
         'ShowWindow': ([W.HWND, ctypes.c_int], W.BOOL),
+        'SetWindowPos': ([W.HWND,W.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,W.UINT],W.BOOL),
         'IsWindow': ([W.HWND], W.BOOL),
         'SendMessageTimeoutW': ([W.HWND,W.UINT,W.WPARAM,W.LPARAM,W.UINT,W.UINT,ctypes.POINTER(ctypes.c_size_t)],ctypes.c_ssize_t),
         'ClientToScreen': ([W.HWND,ctypes.POINTER(W.POINT)],W.BOOL),
@@ -137,6 +140,16 @@ def foreground_owned(native, process, executable, role, window, dimensions):
         native.u.ShowWindow(window['hwnd'], 5)
         native.u.SetForegroundWindow(window['hwnd'])
     return int(native.u.GetForegroundWindow() or 0) == window['hwnd']
+
+
+def owned_process_created(native,process):
+    """Independent creation-time observation through the existing Job handle."""
+    query=native.k.GetProcessTimes
+    query.argtypes=[W.HANDLE,*([ctypes.POINTER(W.FILETIME)]*4)];query.restype=W.BOOL
+    created,exited,kernel,user=(W.FILETIME() for _ in range(4))
+    require(query(process['handle'],ctypes.byref(created),ctypes.byref(exited),ctypes.byref(kernel),ctypes.byref(user)),
+            'Owned process creation time unavailable')
+    return (int(created.dwHighDateTime)<<32)|int(created.dwLowDateTime)
 
 
 def client_physical_rect(native,window):
@@ -252,6 +265,28 @@ def validate_focus_transition(value,client_hwnd,client_pid,client_rect,overlay_h
     return value
 
 
+def validate_follow_off(value,client_hwnd,client_pid,game_created):
+    require(type(value)is dict,'Manual follow-off evidence missing')
+    for field in ('target_hwnd','game_hwnd','game_pid','game_created','started_after',
+                  'follow_on_started_after','foreground_game_hwnd','observation_count'):
+        require(type(value.get(field))is int and value[field]>0,'Manual follow-off integer missing: '+field)
+    require(value['target_hwnd']==client_hwnd
+            and value['game_hwnd']!=client_hwnd and value['game_pid']!=client_pid
+            and value['foreground_game_hwnd']==value['game_hwnd'], 'Manual follow-off native identities differ')
+    require(value.get('follow_enabled')is False and value.get('game_bound')is False,
+            'Manual follow-off unexpectedly authorized following')
+    require(value.get('expiry_hidden')is True,'Manual follow-off expiry display was not withdrawn')
+    require(value.get('assigned')=='9001' and value['observation_count']>=2
+            and value.get('expired_stage')=='client-expired','Manual follow-off selection/expiry state differs')
+    fresh,expired=value.get('fresh_no_handoff_age_seconds'),value.get('expired_observation_age_seconds')
+    require(type(fresh)in(int,float) and math.isfinite(fresh) and 0<=fresh<=4
+            and type(expired)in(int,float) and math.isfinite(expired) and 4<expired<170,
+            'Manual follow-off must test fresh no-handoff then real TTL expiry')
+    require(type(game_created)is int and game_created>value['follow_on_started_after']>value['game_created']>value['started_after'],
+            'Negative and final games must be created after their respective Start scopes')
+    return value
+
+
 def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=None):
     require(type(value) is dict and value.get('status') == 'passed' and 'error' not in value,
             'Selection handoff did not pass')
@@ -291,6 +326,7 @@ def validate_report(value, version, *, frozen=True, scale=1, executable_sha256=N
         require(type(value.get(key)) is int and value[key] > 0, 'Selection identity missing: ' + key)
     require(value['clientHwnd'] != value['gameHwnd'] and value['clientPid'] != value['gamePid'],
             'Client and game identities must differ')
+    validate_follow_off(value.get('manual_client_follow_off'),value['clientHwnd'],value['clientPid'],value.get('gameCreated'))
     detail = value.get('client_hero_reference')
     require(type(detail) is dict, 'Hero reference measurements missing')
     require(detail.get('reference') == EXPECTED_REFERENCE
@@ -413,6 +449,14 @@ def validate_aggregate(value, version, *, frozen, source_commit=None, executable
                     and type(observed.get('hwnd')) is int and observed['hwnd'] == row['detail'][role+'Hwnd']
                     and type(observed.get('pid')) is int and observed['pid'] == row['detail'][role+'Pid'],
                     'Selection owned process/window evidence differs: ' + role)
+        negative=row.get('follow_off_fixture');detail=row['detail']['manual_client_follow_off']
+        require(type(negative)is dict and negative.get('class_name')==CLASSES['game']
+                and negative.get('client_size')==[964,602] and all(type(size)is int for size in negative['client_size'])
+                and all(type(negative.get(key))is int and negative[key]==detail[field]
+                    for key,field in (('hwnd','game_hwnd'),('pid','game_pid'),('created','game_created'))),
+                'Outer owned follow-off game differs from native observation')
+        require(negative.get('launched_after_selection_request')is True and negative.get('process_exited')is True
+                and negative.get('closed_before_follow_on')is True,'Follow-off game lifetime/cleanup evidence missing')
         observed=row.get('focus_fixture');transition=row['detail']['foreground_transition']
         require(type(observed)is dict and observed.get('sink')=={'hwnd':transition['sink_hwnd'],'pid':transition['sink_pid']}
                 and all(type(observed['sink'].get(k))is int for k in ('hwnd','pid')),
@@ -535,15 +579,50 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 raise AssertionError('Selection handoff report must be fresh for this exact run')
             app = native.spawn(target, app_args + ['--selection-smoke-input', str(input_path),
                                         '--selection-smoke-report', str(handoff_path)], env, work)
+            negative_game=None;negative_window=None
 
             def awaiting_game():
+                nonlocal negative_game,negative_window
                 if native.poll(app) is not None:
                     raise AssertionError('Application exited before its real game-window request')
                 value = report_when(handoff_path, 'await-game-window')
                 if value:
+                    require(result.get('follow_off_fixture',{}).get('closed_before_follow_on')is True,
+                            'Final game requested before negative-game cleanup')
                     return value
                 current = poll_owned_json(handoff_path, read_json) or {}
-                if current.get('phase') in ('testing-client-foreground-loss','requesting-client-focus-return'):
+                phase=current.get('phase')
+                if phase=='await-follow-off-game' and negative_game is None:
+                    require(foreground_owned(native,client,fixture['client_exe'],'client',client_window,sizes['client']),
+                            'Owned client must be foreground before negative-game launch')
+                    ready=work/'follow-off-game-ready.json'
+                    argv=fixture_argv(fixture['game_exe'],'game',GAME_PNG,ready,x=x,y=y,
+                        width=sizes['game'][0],height=sizes['game'][1],no_activate=True)
+                    negative_game=native.spawn(argv[0],argv[1:],env,work)
+                    negative_window=wait_fixture(native,negative_game,fixture['game_exe'],'game',ready,sizes['game'],budget)
+                    # NOACTIVATE alone does not guarantee an unobscured client.
+                    # Lower only this exact Job-owned game until the requested
+                    # foreground test; do not change any external window.
+                    assert_owned_window(native,negative_game,fixture['game_exe'],'game',negative_window,sizes['game'])
+                    require(native.u.SetWindowPos(negative_window['hwnd'],W.HWND(1),0,0,0,0,0x0001|0x0002|0x0010),
+                            'Could not place owned negative game behind the client')
+                    require(int(native.u.GetForegroundWindow()or 0)==client_window['hwnd'],
+                            'Nonactivating negative-game launch changed client foreground')
+                    result['follow_off_fixture']=dict(negative_window,class_name=CLASSES['game'],
+                        client_size=list(sizes['game']),created=owned_process_created(native,negative_game),
+                        launched_after_selection_request=True,process_exited=False,closed_before_follow_on=False)
+                if phase=='testing-follow-off-game':
+                    require(negative_game is not None,'Follow-off game test lacks its owned process')
+                    foreground_owned(native,negative_game,fixture['game_exe'],'game',negative_window,sizes['game'])
+                elif phase=='closing-follow-off-game':
+                    require(negative_game is not None,'Follow-off cleanup lacks its owned process')
+                    if not result['follow_off_fixture']['process_exited']:
+                        assert_owned_window(native,negative_game,fixture['game_exe'],'game',negative_window,sizes['game'])
+                        native.close_window(negative_window)
+                        require(native.wait_exit(negative_game,budget.until(10))==0,'Follow-off game did not exit cleanly')
+                        result['follow_off_fixture'].update(process_exited=True,closed_before_follow_on=True)
+                    foreground_owned(native,client,fixture['client_exe'],'client',client_window,sizes['client'])
+                elif phase in ('testing-client-foreground-loss','requesting-client-focus-return'):
                     drive_focus_fixture(native,client,fixture['client_exe'],client_window,sizes['client'],current['phase'],result)
                 else:
                     foreground_owned(native, client, fixture['client_exe'], 'client', client_window, sizes['client'])

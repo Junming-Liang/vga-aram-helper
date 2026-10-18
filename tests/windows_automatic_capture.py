@@ -69,6 +69,18 @@ def require_capture_idle(control):
             'Controlled lifecycle fixture requires an idle capture pipeline')
 
 
+def assert_minimized_target_rejected(capture, target):
+    """Test the saved window, never a mutable automatic-routing selection."""
+    from screen_capture import CapturePaused
+    require(target is not None and capture.u.IsIconic(target.hwnd),
+            'Exact saved target is not minimized')
+    try:
+        capture.capture(target)
+    except CapturePaused:
+        return
+    raise AssertionError('Exact minimized target unexpectedly yielded pixels')
+
+
 def start_with_explicit_capture(control):
     """Keep Start/discovery/watchdog; own capture cadence until this control closes."""
     # A long timer interval is insufficient: Start uses start(0), and completion
@@ -395,14 +407,14 @@ def execute(reports, result):
                 result['helper_minimized_after_start'] = True
 
                 client = launch('client')
-                bound(client)
                 foreground(client, 'initial client')
+                bound(client)
                 result['client_capture'] = capture_matches()
                 game = launch('game')
                 require(game['metadata'].created > control.automatic_policy.started_after,
                         'New-game fixture was not actually created after Start')
-                bound(game)
                 foreground(game, 'new game')
+                bound(game)
                 result['new_game_capture'] = capture_matches(fallback=True)
                 result['bounded_roi_capture'] = capture_matches(fallback=True, roi=(.2, .2, .5, .5))
                 result['wait_client_new_game'] = True
@@ -434,20 +446,32 @@ def execute(reports, result):
                 result['self_overlay_hidden_before_capture'] = True
 
                 seed_stale_state()
+                minimized_game_target = control.target
+                require(minimized_game_target is not None and
+                        minimized_game_target.identity == (game['window']['hwnd'], game['process']['pid'], CLASSES['game']),
+                        'Minimize fixture did not retain the exact authorized game identity')
                 native.u.ShowWindow(game['window']['hwnd'], 6)  # SW_MINIMIZE, owned window only.
                 events.wait(lambda: control.capture.u.IsIconic(game['window']['hwnd']) and
                             not control.state.confirmed and not control.overlay.isVisible(),
                             'Minimize did not clear stale cards and hide the real overlay')
                 require(control.state.running, 'Minimize stopped automatic monitoring instead of waiting')
-                try:
-                    control.capture.capture(control.target)
-                except CapturePaused:
-                    pass
-                else:
-                    raise AssertionError('Minimized target unexpectedly yielded pixels')
+                assert_minimized_target_rejected(control.capture, minimized_game_target)
+                result['minimized_game_failed_closed'] = True
+                # A visible foreground client may now legitimately become the
+                # automatic target. Prove that routing separately from denying
+                # pixels for the exact old, still-minimized game window.
+                foreground(client, 'client while game minimized')
+                bound(client)
+                require(control.client_phase(), 'Minimized-game recovery did not select the client role')
+                require(control.capture.u.IsIconic(minimized_game_target.hwnd),
+                        'Client routing unexpectedly restored the minimized game')
+                result['client_capture_while_game_minimized'] = capture_matches(fallback=True)
+                assert_minimized_target_rejected(control.capture, minimized_game_target)
                 native.u.ShowWindow(game['window']['hwnd'], 9)  # SW_RESTORE.
                 foreground(game, 'restore game')
                 bound(game)
+                require(not control.client_phase() and control.target.identity == minimized_game_target.identity,
+                        'Restore did not return to the exact original game role/identity')
                 result['restored_capture'] = capture_matches(fallback=True)
                 result['minimize_restore'] = True
 
@@ -509,6 +533,7 @@ def execute(reports, result):
                 require(not control.capture.u.IsWindow(old_window['hwnd']), 'Recreated fixture left the old HWND alive')
                 require(not old_policy.permits(old_target, windows=control.capture.windows()), 'Dead HWND remained permitted')
                 require(not old_policy.adopt(old_discovery, windows=control.capture.windows()), 'Stale discovery adopted a dead HWND')
+                foreground(game, 'same-process HWND recreation')
                 bound(game)
                 require(control.state.generation != stale_generation and not control.state.confirmed and
                         not control.state.offered and not control.state.hero and not control.overlay.isVisible(),
@@ -516,7 +541,6 @@ def execute(reports, result):
                 control.task_result('ocr', {'candidates': [], '_windowIdentity': old_target.identity,
                     '_capturedAt': time.monotonic()}, stale_generation)
                 require(not control.state.confirmed and not control.state.hero, 'Late old-HWND inference revived stale state')
-                foreground(game, 'same-process HWND recreation')
                 result['recreated_capture'] = capture_matches(fallback=True)
                 result['same_process_recreation_cleared_stale'] = True
                 result['same_process_hwnd_recreated'] = {'pid': game['process']['pid'],
@@ -527,13 +551,14 @@ def execute(reports, result):
                 previous_metadata = game['metadata']
                 previous_pid = game['process']['pid']
                 close_owned(game)
+                foreground(client, 'game process closed')
                 bound(client)
                 require(not control.state.confirmed and not control.state.hero, 'Game exit retained stale game recognition')
                 game = launch('game')
                 require((game['process']['pid'], game['metadata'].created) != (previous_pid, previous_metadata.created),
                         'Restart fixture did not establish a new actual process lifetime')
-                bound(game)
                 foreground(game, 'game process restart')
+                bound(game)
                 result['restarted_capture'] = capture_matches(fallback=True)
                 result['process_restart_auto_reconnected'] = True
 
@@ -550,12 +575,12 @@ def execute(reports, result):
                 control.showNormal()
                 events.settle(.1)
                 start_with_explicit_capture(control)
+                foreground(game, 'preexisting game after Start')
                 bound(game)
                 require(game['metadata'].created < control.automatic_policy.started_after,
                         'Pre-existing-game case is not older than its new Start scope')
                 require(control.isMinimized() and control.capture.u.IsIconic(int(control.winId())),
                         'Restarted Start did not minimize the helper again')
-                foreground(game, 'preexisting game after Start')
                 result['preexisting_game_capture'] = capture_matches(fallback=True)
                 result['preexisting_game_auto_connected'] = True
                 require(control.window_list.currentIndex() == 0 and control.window_list.currentData() is None,
