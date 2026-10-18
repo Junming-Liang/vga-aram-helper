@@ -1,9 +1,11 @@
-# v0.4.14 startup recognition recovery candidate (2026-10-18 UTC)
+# v0.4.15 regression recovery candidate (2026-10-18 UTC)
 
-Local preparation only: no candidate commit, Windows build, EXE identity, workflow
-run or publication is recorded here. The existing v0.4.13 tag resolves to
-`25b753c794c8588315cdfb911e45c3bfd7a93b89`; a read-only public tag query on
-2026-10-18 found no `v0.4.14` tag. This is baseline identity, not a candidate SHA.
+Local preparation only: no v0.4.15 candidate commit, Windows build, EXE identity,
+workflow run or publication is recorded here. The v0.4.14 diagnostic prerelease
+is already published; the earlier checkpoint saying that its tag was absent
+applied only before that publication and is superseded. This local v0.4.15
+candidate is based on remote main `04e30a5`; the read-only public tag query on
+2026-10-18 found no `v0.4.15` tag. That base is not a final candidate SHA.
 The manual workflow remains `publish_preview=false` by default. After every gate
 passes, non-publishing validation stages the complete verified release/evidence
 bundle and retains it for one day as `verified-candidate-<exact source SHA>`.
@@ -13,12 +15,35 @@ evidence copies, the separately exposed screenshot and bounded staging metadata;
 an unknown or exceeded budget blocks the candidate upload. This does not create
 a public release or change billing settings.
 
-The [startup recovery audit](../STARTUP_RECOVERY.md) describes reproducible empty-bank
-retry, cache-first delivery, memory-only mapping and malformed-input isolation
-changes. User feedback reports no continuing flicker, with one initial recognition
-miss and no incident diagnostic ZIP. That incident's cause remains unconfirmed.
-Portable offscreen Qt/synthetic tests are not Windows capture, packaged-runtime
-or actual-game proof. Pre-bump test counts are not a v0.4.14 acceptance result.
+The [regression recovery investigation](../REGRESSION_RECOVERY.md) records three
+reproducible defects: equivalent warm-cache replacement during recognition,
+fixed idle delay consuming the refresh budget, and API lookup waiting for every
+portrait. Changes preserve equivalent model objects, defer real replacements to
+safe boundaries, schedule around measured latency with a 50 ms floor and an
+unchanged four-second expiry, and expose only a complete validated roster before
+full image readiness. The [startup recovery audit](../STARTUP_RECOVERY.md)
+remains historical context for v0.4.14.
+
+After that publication, the user again reported flicker and initial recognition
+failure. No new incident diagnostic ZIP establishes the installed version,
+game stage or field cause. Controlled real Qt/local OCR and owned moving-pixel
+regressions establish the reproduced paths only; they are not Windows capture,
+packaged-runtime or actual-game proof. Pre-bump counts are not a v0.4.15 result.
+
+## Final portable checkpoint (2026-10-18 UTC)
+
+The final candidate completed 1,920 Python tests in 231.865 seconds with 15
+platform-dependent skips. Both JavaScript test files passed, and all three
+JavaScript syntax checks passed. The real Qt/local-OCR dynamic regressions and
+bounded-log/privacy tests are included in that Python run. These are portable
+checks, not a Windows desktop or packaged-EXE pass.
+
+Both original public screenshot runners genuinely regenerated their 0.4.15
+reports; every recorded evaluated-module hash was then checked against this
+candidate. Hero positives: 2 recognized, 1 safely abstained; 3 negatives all
+abstained. Selection: 1 positive recognized and 3 negatives abstained, with
+zero wrong-hero predictions in either small sample. Original images remain
+uncommitted. Windows and actual-game results remain outstanding.
 
 ## Evidence required after the version bump
 
@@ -26,7 +51,7 @@ or actual-game proof. Pre-bump test counts are not a v0.4.14 acceptance result.
   implementation and the original permitted images/rosters/models. The hero
   report must also exercise its full still-frame OCR path through `--data`.
   Do not hand-edit report versions, source hashes or observations. The existing
-  historical 0.4.10-to-0.4.11 exception does not permit reuse for v0.4.14, even
+  historical 0.4.10-to-0.4.11 exception does not permit reuse for v0.4.15, even
   if the selection modules themselves are unchanged.
 - Recheck the report `applicationVersion` and every evaluated module hash against
   the final source. Preserve actual abstentions, source provenance and sample
@@ -66,7 +91,10 @@ node tests/test_choices_ui.js
 
 Use `QT_QPA_PLATFORM=offscreen` only for non-Windows checks. The Windows workflow
 must test its real native desktop and exact EXE with the existing full gates.
-No post-bump genuine-image result or Windows pass is asserted in this checkpoint.
+No complete Windows pass is asserted in this checkpoint. Post-bump genuine-image
+and portable test results must be recorded from the actual final runners.
+The historical promotion workflow remains pinned to the original v0.4.14 Run 78
+artifact and its unchanged original verifier; it is not a v0.4.15 release path.
 
 # v0.4.11 published preview (2026-10-17 UTC)
 

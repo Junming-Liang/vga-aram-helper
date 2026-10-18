@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "applicationVersion": "0.4.14",
+  "applicationVersion": "0.4.15",
   "status": "partial_with_abstentions",
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
     "hero_recognition.py": "4841774eeb9215c7507c16827f6f458184ef053e2454934e8e02427a95543cf3",
-    "hero_portraits.py": "7650c372ae0abaf41b3c1ccef2471524ae63050b586ad60102788cc25ee4b983",
+    "hero_portraits.py": "3969e80609765e3b9f1d59f3d59946997176176b6a08c4ad3f346478e0ec04f7",
     "local_ocr.py": "5b49db856a57878e2ae15b074393d2e037a47db44b494e368f72b9e4b8567f7a",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
     "model_inventory.py": "c847e69c04ffb84fb2af6eb7acf781b1146f06005cd336a19125093f91c67032",
@@ -65,7 +65,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.588,
+      "elapsed_seconds": 0.77,
       "image_redistributed": false
     },
     {
@@ -131,7 +131,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.542,
+      "elapsed_seconds": 0.707,
       "image_redistributed": false
     },
     {
@@ -169,7 +169,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.533,
+      "elapsed_seconds": 0.736,
       "image_redistributed": false
     },
     {
@@ -207,7 +207,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.588,
+      "elapsed_seconds": 0.651,
       "image_redistributed": false
     },
     {
@@ -245,7 +245,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.597,
+      "elapsed_seconds": 0.913,
       "image_redistributed": false
     }
   ],
