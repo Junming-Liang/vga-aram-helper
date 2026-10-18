@@ -7,6 +7,7 @@ never serialized. Enabling is intentionally not persisted between launches.
 from __future__ import annotations
 
 from collections import OrderedDict, deque
+from concurrent.futures import CancelledError
 
 import hashlib
 import hmac
@@ -16,17 +17,21 @@ import os
 from pathlib import Path
 import re
 import secrets
+import ssl
 import tempfile
 import threading
 import time
 import zipfile
+from urllib.error import HTTPError, URLError
 
 MAX_BYTES = 256 * 1024
 FILE_COUNT = 3
 EXPORT_OVERHEAD_BYTES = 64 * 1024
 MAX_EXPORT_BYTES = MAX_BYTES * FILE_COUNT + EXPORT_OVERHEAD_BYTES
+MAX_GAME_SUMMARIES = 4
+GAME_SUMMARY_BYTES = 24 * 1024
 _EVENTS = frozenset({'debug_enabled', 'debug_disabled', 'state', 'job', 'capture',
-                     'recognition', 'overlay', 'expiry', 'invalidate', 'cancel', 'session', 'close', 'inference', 'sample_summary', 'config', 'selection_gate'})
+                     'recognition', 'overlay', 'expiry', 'invalidate', 'cancel', 'session', 'close', 'inference', 'sample_summary', 'config', 'selection_gate', 'identity', 'window_binding', 'card_observation', 'templates'})
 _ENUMS = {
     'kind': frozenset({'load', 'portraits', 'update', 'install', 'windows', 'ocr',
                        'selection', 'capture-proof', 'title-proof', 'unknown'}),
@@ -80,8 +85,31 @@ _ENUMS['hero_source'] = frozenset({'hud', 'game-api', 'game-continuity', 'client
 _ENUMS['selection_gate'] = frozenset({'closed', 'stopped', 'inference_busy', 'capture_pending', 'target_missing', 'foreground_rejected', 'client_lcu_ready', 'client_pixels_ready', 'game_pixels_ready', 'manual_pixels_ready', 'route_unknown'})
 _ENUMS['selection_route'] = frozenset({'blocked', 'selection_lcu', 'selection_pixels', 'game_pixels', 'manual_pixels', 'unknown'})
 _ENUMS['target_role'] = frozenset({'none', 'client', 'game', 'manual', 'unknown'})
+_ENUMS['template_outcome'] = frozenset({'loading', 'cached_ready', 'ready', 'unavailable', 'retry_wait'})
+_ENUMS['binding_outcome'] = frozenset({'adopted', 'adoption_rejected', 'no_candidate', 'unchanged'})
+_IDENTITY_ENUMS = {
+    'api_outcome': frozenset({'disabled', 'cancelled', 'map_invalid', 'scope_unavailable',
+        'tls_context_failed', 'tls_verification_failed', 'connection_failed', 'http_error',
+        'response_invalid', 'payload_invalid', 'active_player_mismatch', 'champion_unmapped',
+        'unstable', 'scope_changed', 'timeout', 'verified', 'unexpected_error'}),
+    'hud_outcome': frozenset({'recognized', 'invalid_image', 'unsupported_layout', 'letterboxed',
+        'templates_unavailable', 'incomplete_templates', 'score_low', 'margin_low',
+        'death_grayscale', 'color_mismatch', 'champion_unmapped', 'unknown'}),
+    'identity_outcome': frozenset({'api_verified', 'hud_verified', 'hud_abstained',
+        'api_hud_conflict', 'source_unmapped'}),
+    'map_outcome': frozenset({'not_requested', 'verified', 'verified_memory', 'manifest_unavailable',
+        'manifest_invalid', 'roster_unavailable', 'hash_mismatch', 'roster_invalid'}),
+}
+_ENUMS.update(_IDENTITY_ENUMS)
+_ENUMS['worker_error_category'] = frozenset({'capture_paused', 'capture_unavailable', 'cancelled',
+    'timeout', 'connection_error', 'permission_error', 'file_missing', 'memory_error',
+    'value_error', 'type_error', 'key_error', 'index_error', 'attribute_error', 'runtime_error',
+    'os_error', 'unknown', 'tls_verification_failed', 'tls_error', 'http_error', 'network_error'})
+_CAUSE_DIMENSIONS = ('reason', 'binding_outcome', 'worker_error_category', 'api_outcome', 'hud_outcome',
+                     'identity_outcome', 'map_outcome', 'template_outcome')
 _ENUMS['sampled_event'] = _EVENTS - {'sample_summary'}
 _BOOLS = frozenset({'running', 'confirmed', 'ocr_busy', 'capture_pending', 'visible',
+                    'card_geometry_proven', 'title_evidence_valid',
                     'rechecking', 'click_through', 'visible_capture', 'cancelled',
                     'ocr_cold_start', 'ocr_reused', 'hero_present', 'manual_editing', 'fresh', 'catalog_match', 'tier_present', 'lcu_selection', 'hero_auto', 'pixel_fallback', 'target_present', 'target_foreground', 'client_follow', 'frozen', 'updates_enabled', 'live_identity'})
 # session_generation is the small SelectionSession counter, never a native token.
@@ -128,6 +156,39 @@ def _fields(values):
     return clean
 
 
+def classify_worker_error(error, *, error_code='worker_error'):
+    """Fixed type-only category; bounded nested causes, never exception text."""
+    if error_code in ('capture_paused', 'capture_unavailable'):
+        return error_code
+    current, seen = error, set()
+    for depth in range(4):
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        for cls, category in ((HTTPError, 'http_error'),
+                (ssl.SSLCertVerificationError, 'tls_verification_failed'),
+                (ssl.SSLError, 'tls_error'), (TimeoutError, 'timeout'),
+                (ConnectionError, 'connection_error')):
+            if isinstance(current, cls):
+                return category
+        nested = current.reason if isinstance(current, URLError) else None
+        if not isinstance(nested, BaseException):
+            nested = getattr(current, '__cause__', None)
+        if depth == 3 or not isinstance(nested, BaseException) or id(nested) in seen:
+            break
+        current = nested
+    if isinstance(current, URLError):
+        return 'network_error'
+    for cls, category in ((CancelledError, 'cancelled'), (PermissionError, 'permission_error'),
+            (FileNotFoundError, 'file_missing'), (MemoryError, 'memory_error'),
+            (KeyError, 'key_error'), (IndexError, 'index_error'), (AttributeError, 'attribute_error'),
+            (TypeError, 'type_error'), (ValueError, 'value_error'), (RuntimeError, 'runtime_error'),
+            (OSError, 'os_error')):
+        if isinstance(current, cls):
+            return category
+    return 'unknown'
+
+
 def safe_config(config):
     clean = {key: value for key, value in config.items()
              if key in _CONFIG_BOOLS and type(value) is bool}
@@ -135,6 +196,25 @@ def safe_config(config):
     if type(roi) in (list, tuple) and len(roi) == 4 and all(type(v) is int and 0 <= v <= 100 for v in roi):
         clean['roi_percent'] = list(roi)
     return clean
+
+
+class _ScopedDebugLog:
+    """Internal worker handle retaining the diagnostic scope captured at queue time."""
+    def __init__(self, log, scope):
+        self._log, self._scope = log, scope
+
+    @property
+    def enabled(self):
+        return self._log.enabled
+
+    def identity(self, *args):
+        return self._log.identity(*args)
+
+    def record(self, event, **values):
+        return self._log._record(event, values, game_scope=self._scope)
+
+    def sample(self, event, **values):
+        return self._log._sample(event, values, game_scope=self._scope)
 
 
 class LocalDebugLog:
@@ -174,9 +254,13 @@ class LocalDebugLog:
         self._export_validation = {}
         self._first_observed_ms = None
         self._last_observed_ms = None
+        self._game_summaries = OrderedDict()
+        self._game_summary_last_evicted = -1
         self._summary = {'events': {}, 'reasons': {}, 'inference_stages': {}, 'timings': {},
                          'capture_statuses': {}, 'session_statuses': {}, 'oneshot_statuses': {}, 'fallback_reasons': {},
-                         'selection_gates': {}, 'selection_routes': {}, 'target_roles': {}}
+                         'selection_gates': {}, 'selection_routes': {}, 'target_roles': {},
+                         'worker_error_categories': {}, 'api_outcomes': {}, 'hud_outcomes': {},
+                         'identity_outcomes': {}, 'map_outcomes': {}, 'binding_outcomes': {}}
         self._visibility = None
         self._hidden_since = None
         self._hidden_total_ms = 0.0
@@ -187,7 +271,8 @@ class LocalDebugLog:
                         'truncated_events': 0, 'rotations': 0, 'aggregated_samples': 0,
                         'critical_observations': 0, 'critical_compactions': 0,
                         'critical_truncated_observations': 0, 'context_triggers': 0,
-                        'context_truncated_events': 0, 'context_truncated_frames': 0, 'truncated_current_launch_records': 0, 'truncated_prior_launch_records': 0}
+                        'context_truncated_events': 0, 'context_truncated_frames': 0, 'truncated_current_launch_records': 0, 'truncated_prior_launch_records': 0,
+                        'game_summaries_evicted': 0, 'game_summary_observations_evicted': 0}
 
     @staticmethod
     def _add_metric(bucket, value):
@@ -195,7 +280,7 @@ class LocalDebugLog:
         bucket['total_ms'] = round(min(2**53, bucket.get('total_ms', 0) + value), 3)
         bucket['max_ms'] = max(bucket.get('max_ms', 0), value)
 
-    def _observe(self, event, values):
+    def _observe(self, event, values, game_scope):
         """Fixed enum-key budgets, counted once per original observation.
 
         Independent of successful disk writes/rotation and synthetic summaries.
@@ -220,9 +305,14 @@ class LocalDebugLog:
             dimensions.append(('inference_stages', values['inference_stage']))
         for field, dimension in (('capture_status', 'capture_statuses'), ('session_status', 'session_statuses'),
                                  ('oneshot_status', 'oneshot_statuses'), ('fallback_reason', 'fallback_reasons'),
-                                 ('selection_gate', 'selection_gates'), ('selection_route', 'selection_routes'), ('target_role', 'target_roles')):
+                                 ('selection_gate', 'selection_gates'), ('selection_route', 'selection_routes'), ('target_role', 'target_roles'),
+                                 ('worker_error_category', 'worker_error_categories'),
+                                 ('api_outcome', 'api_outcomes'), ('hud_outcome', 'hud_outcomes'),
+                                 ('identity_outcome', 'identity_outcomes'), ('map_outcome', 'map_outcomes'),
+                                 ('binding_outcome', 'binding_outcomes')):
             if field in values:
                 dimensions.append((dimension, values[field]))
+        self._observe_game(event, values, now, game_scope)
         for dimension, key in dimensions:
             bucket = self._summary[dimension].setdefault(key, {'observations': 0, 'latency': {}})
             bucket['observations'] = min(2**53, bucket['observations'] + 1)
@@ -243,6 +333,50 @@ class LocalDebugLog:
         if event == 'debug_disabled':
             self._finish_hidden(now)
             self._visibility = None
+
+    def _observe_game(self, event, values, now, scope):
+        summary = self._game_summaries.get(scope)
+        if summary is None:
+            summary = {'game_generation': scope, 'observations': 0, 'worker_errors': 0,
+                       'first_elapsed_ms': now, 'last_elapsed_ms': now,
+                       'complete_observed_scope': scope > self._game_summary_last_evicted,
+                       'events': {}, 'causes': {}, 'first_causes': {}, 'last_causes': {}}
+            self._game_summaries[scope] = summary
+            self._game_summaries = OrderedDict(sorted(self._game_summaries.items()))
+        summary['observations'] = min(2**53, summary['observations'] + 1)
+        summary['last_elapsed_ms'] = now
+        summary['events'][event] = min(2**53, summary['events'].get(event, 0) + 1)
+        if event == 'job' and values.get('phase') == 'error':
+            summary['worker_errors'] = min(2**53, summary['worker_errors'] + 1)
+        if 'reason' in values:
+            summary.setdefault('first_reason', values['reason'])
+            summary['last_reason'] = values['reason']
+        for dimension in _CAUSE_DIMENSIONS:
+            if dimension not in values:
+                continue
+            summary['first_causes'].setdefault(dimension, values[dimension])
+            summary['last_causes'][dimension] = values[dimension]
+            categories = summary['causes'].setdefault(dimension, {})
+            bucket = categories.setdefault(values[dimension], {
+                'observations': 0, 'first_elapsed_ms': now, 'last_elapsed_ms': now})
+            bucket['observations'] = min(2**53, bucket['observations'] + 1)
+            bucket['last_elapsed_ms'] = now
+        # Entire oldest scopes are evicted, with explicit accounting. A late
+        # old worker never displaces newer retained scopes by insertion order.
+        while self._game_summaries and (len(self._game_summaries) > MAX_GAME_SUMMARIES or
+                len(json.dumps(list(self._game_summaries.values()), separators=(',', ':')).encode('utf8')) > GAME_SUMMARY_BYTES):
+            removed_scope, removed = self._game_summaries.popitem(last=False)
+            self._game_summary_last_evicted = max(self._game_summary_last_evicted, removed_scope)
+            self._counts['game_summaries_evicted'] += 1
+            self._counts['game_summary_observations_evicted'] += removed['observations']
+
+    def _game_summary_snapshot(self):
+        return {'scope': 'current_launch; worker scope captured at queue time, other observations use active local scope'
+                        ', local boundaries are monitor starts and verified new game-window bindings, never server match IDs',
+                'max_scopes': MAX_GAME_SUMMARIES, 'max_payload_bytes': GAME_SUMMARY_BYTES,
+                'evicted_scope_summaries': self._counts['game_summaries_evicted'],
+                'evicted_observations': self._counts['game_summary_observations_evicted'],
+                'games': json.loads(json.dumps(list(self._game_summaries.values())))}
 
     def _finish_hidden(self, now):
         if self._hidden_since is not None:
@@ -342,13 +476,13 @@ class LocalDebugLog:
     def _encode(record):
         return (json.dumps(record, ensure_ascii=True, separators=(',', ':'), allow_nan=False) + '\n').encode('utf8')
 
-    def _new_record(self, event, values):
+    def _new_record(self, event, values, game_scope=None):
         self._sequence += 1
         return {**self._fields(values), 'event': event, 'session': self._session,
                 'elapsed_ms': self._elapsed(), 'sequence': self._sequence,
-                'game_generation': self._game_generation}
+                'game_generation': self._game_generation if game_scope is None else game_scope}
 
-    def _accept(self, event, values):
+    def _accept(self, event, values, game_scope=None):
         if not self.enabled:
             return None
         if type(event) is not str or event not in _EVENTS or event == 'sample_summary':
@@ -360,8 +494,9 @@ class LocalDebugLog:
                     'first_sequence', 'last_sequence', 'first_elapsed_ms', 'last_elapsed_ms',
                     'first_serial', 'last_serial', 'sample_count', 'sampled_event'):
             clean.pop(key, None)
-        self._observe(event, clean)
-        record = self._new_record(event, clean)
+        scope = self._game_generation if game_scope is None else game_scope
+        self._observe(event, clean, scope)
+        record = self._new_record(event, clean, scope)
         now = record['elapsed_ms']
         if self._first_observed_ms is None:
             self._first_observed_ms = now
@@ -387,7 +522,7 @@ class LocalDebugLog:
             values.update(first_serial=pending['serials'][0], last_serial=pending['serials'][1])
         for key, (low, high, total, count) in pending['timings'].items():
             values.update({key + '_min': low, key + '_max': high, key + '_mean': total / count, key + '_count': count})
-        return self._write('sample_summary', values)
+        return self._write('sample_summary', values, game_scope=pending['game_scope'])
 
     def flush(self):
         """Flush independent streams and durable bounded history snapshots."""
@@ -399,7 +534,7 @@ class LocalDebugLog:
         # Fixed stream dimensions prevent alternating inference phases or slots
         # from flushing unrelated streams. At most 64 streams can be pending.
         event = record['event']
-        stream = tuple(record.get(key) for key in ('event', 'phase', 'kind', 'inference_stage', 'slot'))
+        stream = tuple(record.get(key) for key in ('event', 'phase', 'kind', 'inference_stage', 'slot', 'game_generation'))
         clean = {key: value for key, value in record.items()
                  if key not in ('event', 'session', 'sequence', 'game_generation', 'elapsed_ms')}
         state = {key: value for key, value in clean.items() if key not in _TIMINGS and key != 'serial'}
@@ -417,7 +552,7 @@ class LocalDebugLog:
         self._samples.move_to_end(stream)
         now = record['elapsed_ms']
         if sample['pending'] is None:
-            sample['pending'] = {'event': event, 'values': state, 'count': 0,
+            sample['pending'] = {'event': event, 'values': state, 'count': 0, 'game_scope': record['game_generation'],
                                  'first': now, 'last': now, 'timings': {}, 'serials': []}
         pending = sample['pending']
         pending['count'] += 1
@@ -433,18 +568,28 @@ class LocalDebugLog:
             self._flush_sample(stream)
         return self._persist_lanes()
 
+    def scoped(self):
+        with self._lock:
+            return _ScopedDebugLog(self, self._game_generation)
+
     def sample(self, event, **values):
+        return self._sample(event, values)
+
+    def _sample(self, event, values, game_scope=None):
         """Coalesce this stream without being interrupted by other records."""
         with self._lock:
-            record = self._accept(event, values)
+            record = self._accept(event, values, game_scope)
             return self._sample_record(record, 1000) if record is not None else False
 
     def record(self, event, **values):
+        return self._record(event, values)
+
+    def _record(self, event, values, game_scope=None):
         with self._lock:
             if event in ('debug_disabled', 'session', 'close'):
                 self.flush()
                 self._samples.clear()
-            record = self._accept(event, values)
+            record = self._accept(event, values, game_scope)
             if record is None:
                 return False
             # Routine lifecycle observations still enter the exact incident
@@ -458,7 +603,7 @@ class LocalDebugLog:
     def _is_critical(record):
         event = record['event']
         return (event in ('debug_enabled', 'debug_disabled', 'config', 'session', 'state',
-                          'selection_gate', 'overlay', 'recognition', 'expiry', 'invalidate', 'cancel', 'close') or
+                          'selection_gate', 'identity', 'window_binding', 'card_observation', 'templates', 'overlay', 'recognition', 'expiry', 'invalidate', 'cancel', 'close') or
                 record.get('phase') in ('error', 'discarded') or
                 event == 'capture' and (record.get('phase') == 'requested' or 'capture_mode' in record) or
                 event == 'job' and record.get('kind') == 'windows')
@@ -580,12 +725,17 @@ class LocalDebugLog:
             self._buffer_bytes -= len(self._buffer.popleft()[1])
         trigger = (record['event'] == 'overlay' and record.get('phase') in ('hidden', 'shown') or
                    record.get('phase') in ('error', 'discarded') or
-                   record['event'] in ('expiry', 'invalidate', 'cancel'))
+                   record['event'] in ('expiry', 'invalidate', 'cancel') or
+                   record['event'] == 'card_observation' and record.get('reason') in (
+                       'candidate_missing', 'candidate_untrusted', 'candidate_layout',
+                       'title_low_confidence', 'title_dictionary_miss') or
+                   record['event'] == 'identity' and record.get('identity_outcome') in ('hud_abstained', 'api_hud_conflict', 'source_unmapped'))
         if trigger:
             self._counts['context_triggers'] += 1
             self._context_until = now + 5000
             frame = self._frame_key(record)
-            cause = tuple(record.get(key) for key in ('event', 'phase', 'reason', 'error_code', 'capture_status'))
+            cause = tuple(record.get(key) for key in ('event', 'phase', 'reason', 'error_code', 'capture_status',
+                'worker_error_category', 'api_outcome', 'hud_outcome', 'identity_outcome', 'map_outcome', 'template_outcome'))
             self._context_causes[cause] = frame
             self._context_causes.move_to_end(cause)
             while len(self._context_causes) > 16:
@@ -633,10 +783,10 @@ class LocalDebugLog:
         except OSError:
             return self._fail()
 
-    def _write(self, event, values, *, record=None):
+    def _write(self, event, values, *, record=None, game_scope=None):
         if not self.enabled:
             return False
-        record = record if record is not None else self._new_record(event, values)
+        record = record if record is not None else self._new_record(event, values, game_scope)
         encoded = self._encode(record)
         if len(encoded) > self._detail_limit:
             self._counts['dropped_events'] += 1
@@ -760,6 +910,7 @@ class LocalDebugLog:
             manifest = {'schema': 3, 'app_version': self.version, 'diagnostic_profile': 'capture-stability-v2',
                         'session': self._session, 'counters': dict(self._counts),
                         'summary': self._summary_snapshot(),
+                        'game_summaries': self._game_summary_snapshot(),
                         'selection': {'recent_seconds': recent_seconds, 'game_generation': game_generation},
                         'config': safe_config(config),
                         'coverage': {'scope': 'current_launch_observations; retained lanes follow export selection',
@@ -776,6 +927,9 @@ class LocalDebugLog:
                         'privacy': 'Local only; canonical catalog names only; no screenshots, raw OCR text, player identity, titles, paths, raw errors or credentials.',
                         'log_limit_bytes': self.max_bytes * FILE_COUNT,
                         'identity_scope': 'Random per-launch aliases; raw HWND/PID excluded.'}
+            manifest_text = json.dumps(manifest, ensure_ascii=True, separators=(',', ':'))
+            if len(manifest_text.encode('utf8')) > EXPORT_OVERHEAD_BYTES:
+                raise ValueError('Diagnostic export exceeded manifest budget')
             self._owned_directory(directory)
             target = directory / 'VGA-debug.zip'
             temporary = None
@@ -783,7 +937,7 @@ class LocalDebugLog:
                 with tempfile.NamedTemporaryFile(prefix='.vga-debug-', suffix='.tmp', dir=directory, delete=False) as file:
                     temporary = Path(file.name)
                 with zipfile.ZipFile(temporary, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-                    archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=True, indent=2))
+                    archive.writestr('manifest.json', manifest_text)
                     for name, data in lanes.items():
                         archive.writestr(name, data)
                 if temporary.stat().st_size > self.max_bytes * FILE_COUNT + EXPORT_OVERHEAD_BYTES:

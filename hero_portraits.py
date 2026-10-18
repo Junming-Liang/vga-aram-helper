@@ -130,17 +130,19 @@ def decode_portrait(payload):
 def parse_roster(payload,version):
     source=strict_json(payload)
     if not isinstance(source,dict) or source.get('version')!=version or not isinstance(source.get('data'),dict):raise ValueError('Invalid official portrait roster')
-    records=[];ids=set()
+    records=[];ids=set();slugs=set()
     for row in source['data'].values():
         if not isinstance(row,dict):raise ValueError('Invalid champion')
-        key=row.get('key');slug=row.get('id');name=row.get('image',{}).get('full')
-        if not isinstance(key,str) or not re.fullmatch(r'[0-9]{1,6}',key) or key in ids or not isinstance(slug,str) or not re.fullmatch(r'[A-Za-z0-9]{1,60}',slug) or name!=slug+'.png':raise ValueError('Invalid champion portrait ID')
-        ids.add(key);records.append({'championId':key,'asset':name,'url':f'{BASE}/cdn/{version}/img/champion/{name}'})
+        key=row.get('key');slug=row.get('id');image=row.get('image')
+        if not isinstance(image,dict):raise ValueError('Invalid champion portrait image')
+        name=image.get('full')
+        if not isinstance(key,str) or not re.fullmatch(r'[0-9]{1,6}',key) or key in ids or not isinstance(slug,str) or not re.fullmatch(r'[A-Za-z0-9]{1,60}',slug) or slug in slugs or name!=slug+'.png':raise ValueError('Invalid champion portrait ID')
+        ids.add(key);slugs.add(slug);records.append({'championId':key,'asset':name,'url':f'{BASE}/cdn/{version}/img/champion/{name}'})
     if not 100<=len(records)<=MAX_PORTRAITS:raise ValueError('Incomplete official roster')
     return records
 
 
-def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=None):
+def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=None, cached_callback=None):
     """Return complete decoded bank + provenance/status; no dependency installs."""
     cache=Path(cache_dir);fetcher=fetcher or fetch_bytes;deadline=time.monotonic()+150
     cancelled=cancelled or threading.Event()
@@ -158,11 +160,14 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
     def cached():
         raw=(cache/'manifest.json').read_bytes()
         if len(raw)>256*1024:raise ValueError('Portrait manifest too large')
-        manifest=strict_json(raw);version=manifest.get('version')
+        manifest=strict_json(raw)
+        if not isinstance(manifest,dict):raise ValueError('Invalid portrait manifest')
+        version=manifest.get('version')
         if not isinstance(version,str) or not re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}',version):raise ValueError('Invalid cached version')
         roster=(cache/f'roster-{version}.json').read_bytes()
         if hashlib.sha256(roster).hexdigest()!=manifest.get('rosterSha256'):raise ValueError('Invalid cached roster hash')
         records=parse_roster(roster,version);hashes=manifest.get('hashes',{})
+        if not isinstance(hashes,dict):raise ValueError('Invalid portrait hashes')
         bank={}
         for record in records:
             payload=(cache/version/record['asset']).read_bytes()
@@ -171,6 +176,10 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
         return bank,{'state':'cached','version':version,'source':VERSION_URL,'count':len(bank),'message':f'本人头像模板 {version}（完整本地缓存，{len(bank)} 英雄）'}
     try:bank,status=cached()
     except (OSError,ValueError,KeyError,TypeError):bank=None;status=None
+    # Publish only the completely decoded/hash-verified cache before network
+    # refresh. It remains usable while the official version request is slow.
+    if bank is not None and cached_callback is not None and not cancelled.is_set():
+        cached_callback(bank,status)
     if not allow_download:
         return (bank,status) if bank is not None else ({},{'state':'unavailable','message':'完整头像模板缓存不可用，自动英雄识别暂停；可人工纠正。'})
     try:
@@ -204,7 +213,8 @@ def load_portraits(cache_dir, *, allow_download=True, fetcher=None, cancelled=No
         message=f'本人头像模板 {version}（Riot Data Dragon，{len(fresh_bank)} 英雄）'
         if cache_failed.is_set():
             message+='；本地缓存写入失败，本次仍可自动识别，下次启动可能需重新下载。请关闭其他助手实例后重试，并检查缓存目录是否可写。'
-        return fresh_bank,diagnostic_status({'state':'memory-only' if cache_failed.is_set() else 'fresh','version':version,'source':VERSION_URL,'count':len(fresh_bank),'message':message})
+        return fresh_bank,diagnostic_status({'state':'memory-only' if cache_failed.is_set() else 'fresh','canonicalMap':{record['asset'][:-4]:record['championId'] for record in records},'version':version,'source':VERSION_URL,'count':len(fresh_bank),'message':message})
     except Exception as exc:
         if bank is not None and not cancelled.is_set():return bank,diagnostic_status({**status,'message':status['message']+'；网络更新失败，头像版本可能较旧'})
-        return {},diagnostic_status({'state':'unavailable','message':'自动英雄模板不可用：'+str(exc)+'；不会猜测英雄，可人工纠正。'})
+        from local_debug import classify_worker_error
+        return {},diagnostic_status({'state':'unavailable','errorCategory':classify_worker_error(exc),'message':'自动英雄模板不可用：'+str(exc)+'；不会猜测英雄，可人工纠正。'})

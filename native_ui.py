@@ -20,7 +20,7 @@ from frame_ocr_cache import FrameOCRCache
 from hero_identity_continuity import HeroIdentityContinuity
 from monitor_preferences import load_preferences,save_preferences
 from partial_candidates import EMPTY_SLOTS,PartialCandidateState
-from local_debug import LocalDebugLog
+from local_debug import LocalDebugLog,classify_worker_error
 from portrait_display import PortraitDisplayBank,cached_roster_fingerprint
 from screen_capture import Win32Capture,CaptureUnavailable,CapturePaused
 
@@ -298,7 +298,8 @@ class ControlWindow(QtWidgets.QWidget):
         self.frame_inference_worker=FrameInferenceWorker()
         self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
-        self.debug_log=LocalDebugLog(self.state_dir/'local-debug',version=current_version);self._debug_snapshot=None;self._debug_hero=None;self._debug_candidates=None;self._debug_hero_revision=0;self._debug_candidate_revision=0
+        self.debug_log=LocalDebugLog(self.state_dir/'local-debug',version=current_version);self._debug_snapshot=None;self._debug_hero=None;self._debug_candidates=None;self._debug_hero_revision=0;self._debug_candidate_revision=0;self._debug_game_window=None
+        self._portraits_busy=False;self._portraits_attempt=0;self._portraits_completed_attempt=None;self._portraits_failures=0;self._portraits_retry_at=None;self._portraits_bank=None;self._portrait_memory_map=()
         self.portrait_bank=PortraitDisplayBank();self._hero_portrait_key=None;self._selection_roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
         self.signals=TaskSignals(self);self.signals.result.connect(self.task_result);self.signals.error.connect(self.task_error)
         self.setWindowTitle(APP_NAME);self.setWindowIcon(QtGui.QIcon(str(ROOT/'assets/branding/vga.ico')));self.setStyleSheet(STYLE);self.resize(900,490)
@@ -394,7 +395,7 @@ class ControlWindow(QtWidgets.QWidget):
         for control in (self.hero_auto,self.client_follow,self.lcu_toggle,self.live_identity_toggle):control.toggled.connect(self.record_debug_config)
         for spin in self.roi:spin.valueChanged.connect(self.record_debug_config)
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
-        self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.start()
+        self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.timeout.connect(self.retry_portraits);self.watchdog.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
         self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.debug_toggle.setChecked(True);self.spawn('load',startup_loader)
     def toggle_debug(self,enabled):
@@ -577,16 +578,30 @@ class ControlWindow(QtWidgets.QWidget):
         if value.get('_liveIdentityUnavailable'):
             return prefix+' 本机英雄接口暂不可用；已有本局可靠身份会按同局范围保留，否则等待可靠画面或人工纠正。'
         return prefix+' 本机英雄只读核验已开启；等待可靠身份。'
-    def canonical_champion_map(self):
+    def canonical_champion_map(self,*,diagnostic_callback=None):
+        from live_client_identity import report_outcome,MAP_OUTCOMES
+        outcome='manifest_unavailable'
         try:
+            if self._portrait_memory_map:
+                outcome='verified_memory';return dict(self._portrait_memory_map)
             cache=self.state_dir/'hero-portraits'
-            manifest=json.loads((cache/'manifest.json').read_text(encoding='utf8'));version=manifest['version']
+            try:raw=(cache/'manifest.json').read_text(encoding='utf8')
+            except UnicodeError:
+                outcome='manifest_invalid';raise
+            outcome='manifest_invalid'
+            manifest=json.loads(raw);version=manifest['version']
             if not isinstance(version,str) or not __import__('re').fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}',version):return {}
+            outcome='roster_unavailable'
             roster=(cache/f'roster-{version}.json').read_bytes()
+            outcome='hash_mismatch'
             if hashlib.sha256(roster).hexdigest()!=manifest.get('rosterSha256'):return {}
+            outcome='roster_invalid'
             from hero_portraits import parse_roster
-            return {row['asset'][:-4]:row['championId'] for row in parse_roster(roster,version)}
+            mapping={row['asset'][:-4]:row['championId'] for row in parse_roster(roster,version)}
+            outcome='verified'
+            return mapping
         except (OSError,ValueError,KeyError,TypeError):return {}
+        finally:report_outcome(diagnostic_callback,outcome,MAP_OUTCOMES)
     def client_selection_reference(self):
         if self.state.running and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and self.client_assignment_visible():
             from lcu_selection import selection_reference
@@ -739,7 +754,7 @@ class ControlWindow(QtWidgets.QWidget):
         else:self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
         self.debug_state(state)
     def spawn(self,kind,fn,generation=0):
-        logger=self.debug_log;queued_at=time.monotonic();serial=self._capture_serial if kind in ('ocr','selection') else 0
+        logger=self.debug_log.scoped();queued_at=time.monotonic();serial=self._capture_serial if kind in ('ocr','selection') else 0
         logger.record('job',kind=kind,phase='queued',generation=generation,serial=serial)
         def worker():
             value=error=None
@@ -750,8 +765,9 @@ class ControlWindow(QtWidgets.QWidget):
                 try:value=fn()
                 except Exception as exc:
                     error=str(exc)
+                    error_code='capture_paused' if isinstance(exc,CapturePaused) else 'capture_unavailable' if isinstance(exc,CaptureUnavailable) else 'worker_error'
                     logger.record('job',kind=kind,phase='error',generation=generation,serial=serial,reason=getattr(exc,'reason_code','unknown'),
-                        error_code='capture_paused' if isinstance(exc,CapturePaused) else 'capture_unavailable' if isinstance(exc,CaptureUnavailable) else 'worker_error')
+                        error_code=error_code,worker_error_category=classify_worker_error(exc,error_code=error_code))
                 # Serialized with closeEvent: never emit into Qt after teardown starts.
                 with self._worker_lock:
                     if not self._cancel_workers.is_set() and not self.closed:
@@ -766,6 +782,32 @@ class ControlWindow(QtWidgets.QWidget):
         with self._worker_lock:
             if self._cancel_workers.is_set():return
             self._workers.add(job);job.start()
+    def request_portraits(self):
+        """One public-asset worker; capture generations never own this lease."""
+        if self.closed or self._portraits_busy or not self.data or self.data.get('metadata',{}).get('isDemo'):return
+        from hero_portraits import load_portraits
+        self._portraits_busy=True;self._portraits_attempt+=1;attempt=self._portraits_attempt
+        self.debug_log.record('templates',template_outcome='loading',generation=attempt)
+        def cached(bank,status):
+            with self._worker_lock:
+                if not self.closed and not self._cancel_workers.is_set():
+                    self.signals.result.emit('portraits-cache',(bank,status),attempt)
+        self.spawn('portraits',lambda:load_portraits(self.state_dir/'hero-portraits',allow_download=self.enable_updates,
+            cancelled=self._cancel_workers,cached_callback=cached),attempt)
+    def retry_portraits(self):
+        if (self.closed or self._portraits_busy or self.hero_matcher is not None or not self.enable_updates
+                or not self.state.running or not self.hero_auto.isChecked() or self._portraits_retry_at is None
+                or time.monotonic()<self._portraits_retry_at):return
+        self.request_portraits()
+    def finish_portrait_attempt(self):
+        self._portraits_busy=False
+        if self.hero_matcher is not None:
+            self._portraits_failures=0;self._portraits_retry_at=None
+        elif self.enable_updates:
+            self._portraits_failures+=1
+            delay=(30,60,120,300)[min(self._portraits_failures-1,3)]
+            self._portraits_retry_at=time.monotonic()+delay
+            self.debug_log.record('templates',template_outcome='retry_wait',generation=self._portraits_attempt,ttl_ms=delay*1000)
     def register_hotkey(self):
         if self.capture:
             self.hotkey_registered=self.capture.hotkey(int(self.winId()))
@@ -819,12 +861,15 @@ class ControlWindow(QtWidgets.QWidget):
         self.unverified_candidate=value.confirmation;self.trust_button.setVisible(value.confirmation is not None)
         if new_confirmation and self.isMinimized():QtWidgets.QApplication.alert(self,0)
         if not value.candidate or not policy.adopt(value,windows=self.capture.windows(include_untitled=True)):
+            self.debug_event('window_binding',binding_outcome='no_candidate' if not value.candidate else 'adoption_rejected')
             if self.target:self.invalidate_scene('等待唯一且已核验的英雄联盟窗口。')
             self.target=None;self.state.target=None;self.overlay.hide('target_unavailable');self.last_rect=None
             reason=value.reason if not value.candidate else '窗口列表已变化，正在重新检测；不会使用过期连接。'
             self.window_status.setText(reason);self.status.setText(reason);return
         candidate=policy.bound;target=candidate.window
+        if candidate.role=='game':self.note_verified_game_scope(target,candidate.metadata.created)
         if self.target and target.identity==self.target.identity and previous_binding and previous_binding.metadata==candidate.metadata and self.target_allowed():
+            self.debug_event('window_binding',binding_outcome='unchanged',target_role=candidate.role)
             self.window_status.setText(value.reason+' '+target.title);return
         previous=self.target;session=self.selection_session;carried=False
         self.manual_editing=False
@@ -842,8 +887,17 @@ class ControlWindow(QtWidgets.QWidget):
                 self.selection_session=SelectionSession();self.selection_session.start(target.identity)
         self.client_target=target if candidate.role=='client' else None
         self.target=target;self.state.target=target.identity;self.last_rect=None;self.was_target_foreground=False
+        self.debug_event('window_binding',binding_outcome='adopted',target_role=candidate.role)
         self.invalidate_scene('已自动连接'+('客户端，等待选人画面。' if candidate.role=='client' else '游戏，等待本人 HUD 与候选画面。'))
         self.overlay.hide('selection_changed');self.window_status.setText(value.reason+' '+target.title);self.status.setText(self.state.reason)
+    def note_verified_game_scope(self,target,created):
+        # Existing policy already verified this binding. Private identity stays
+        # in memory; only the local diagnostic counter can change here.
+        identity=(target.identity,created)
+        if identity==self._debug_game_window:return
+        if self._debug_game_window is not None:self.debug_log.begin_game()
+        self._debug_game_window=identity
+        self.debug_event('session',phase='accepted',reason='game_connected',target_role='game')
     def confirm_game_installation(self):
         candidate=self.unverified_candidate;policy=self.automatic_policy
         if not candidate or not policy or not self.state.running:return
@@ -955,6 +1009,7 @@ class ControlWindow(QtWidgets.QWidget):
         # preference, so migration defaults to keeping controls reachable.
         if self.minimize_on_start.isChecked() and not self.smoke_report and not self.selection_smoke_input:self.showMinimized()
     def stop_monitor(self):
+        self._debug_game_window=None
         self.overlay.clear_candidate_geometry()
         self._geometry_frame=None
         self.hero_continuity.clear()
@@ -995,6 +1050,7 @@ class ControlWindow(QtWidgets.QWidget):
         token=self.selection_session.generation
         if not self.window_policy.adopt_game(candidate,windows=self.capture.windows(),confirmed_handoff=True):return
         if not self.selection_session.begin_handoff(candidate[0].identity,now,generation=token,new_game_window=True):return
+        self.note_verified_game_scope(candidate[0],candidate[1].created)
         self.target=candidate[0];self.state.target=self.target.identity;self.window_list.blockSignals(True);self.window_list.addItem('本局游戏：'+self.target.title,self.target);self.window_list.setCurrentIndex(self.window_list.count()-1);self.window_list.blockSignals(False);self.last_rect=None;self.was_target_foreground=False;self.invalidate_scene('已接续本局新游戏窗口，选人记录等待局内复核');self.overlay.hide('target_unavailable')
     def expire_client_display(self):
         self.clear_partial_candidates()
@@ -1221,7 +1277,15 @@ class ControlWindow(QtWidgets.QWidget):
             lcu_error=self._lcu_error
             verified_game=bool((self.automatic_policy and self.automatic_policy.bound and self.automatic_policy.bound.role=='game') or (self.window_policy and frame_window.identity==self.window_policy.game_identity))
             live_identity_enabled=bool(verified_game and not client_phase and self.live_identity_toggle.isChecked() and self.hero_auto.isChecked())
-            canonical_map=self.canonical_champion_map() if live_identity_enabled else {}
+            map_outcomes=[]
+            try:canonical_map=self.canonical_champion_map(diagnostic_callback=map_outcomes.append) if live_identity_enabled else {}
+            except Exception:
+                # This is still on the GUI thread, before worker creation. Keep
+                # the map cause without claiming later identity stages ran or
+                # changing the existing propagated-error behavior.
+                if map_outcomes:self.debug_log.record('identity',generation=generation,serial=serial,map_outcome=map_outcomes[-1])
+                raise
+            map_outcome=map_outcomes[-1] if map_outcomes else 'not_requested'
             from live_client_identity import source_hero_names
             source_heroes=source_hero_names(self.data)
 
@@ -1229,7 +1293,7 @@ class ControlWindow(QtWidgets.QWidget):
             scoped_ocr=self.ocr_reuse.scoped(self.ocr,(frame_window.identity,roi,'game'),allow_reuse=reuse_allowed)
             source_key=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False))
             matcher_key=(matcher,matcher.proof_identity() if matcher and hasattr(matcher,'proof_identity') else None)
-            logger=self.debug_log;debug_dpi=float(self.overlay.devicePixelRatioF())*96
+            logger=self.debug_log.scoped();debug_dpi=float(self.overlay.devicePixelRatioF())*96
             debug_identity=logger.identity(frame_window.hwnd,frame_window.pid,getattr(expected_metadata,'created',None)) if logger.enabled else {}
             previous_geometry=self._geometry_frame
             accepted_title_proof=(self._accepted_frame or {}).get('title_proof')
@@ -1286,6 +1350,8 @@ class ControlWindow(QtWidgets.QWidget):
                 def before_ocr(hero,crop):
                     phase_times['hud_done']=time.monotonic()
                     if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
+                    if not live_identity_enabled:
+                        emit_identity(hero,'disabled','hud_verified' if isinstance(hero,dict) and hero.get('confident') is True else 'hud_abstained')
                     title_proof_for_crop(crop)
                     proof['_roiDigest']=hashlib.sha256(crop).hexdigest();proof['hero_observation']=hero
                     # Pixel acquisition and its final guards are complete.
@@ -1303,6 +1369,11 @@ class ControlWindow(QtWidgets.QWidget):
                         started=time.monotonic()
                         try:return scoped_ocr.recognize(*args)
                         finally:phase_times['ocr_ms']=(time.monotonic()-started)*1000
+                def emit_identity(hud,api_outcome,identity_outcome):
+                    from hero_recognition import hud_identity_outcome
+                    logger.record('identity',generation=generation,serial=serial,
+                        api_outcome=api_outcome,map_outcome=map_outcome,
+                        hud_outcome=hud_identity_outcome(hud),identity_outcome=identity_outcome)
                 def resolve_hero(hud):
                     if not live_identity_enabled:return hud
                     from live_client_identity import read_current_identity,reconcile_identity
@@ -1312,11 +1383,14 @@ class ControlWindow(QtWidgets.QWidget):
                         try:current=process_metadata(frame_window.pid)
                         except (OSError,ValueError):return None
                         return (frame_window.identity,generation,current) if current==expected_metadata else None
-                    api=read_current_identity(canonical_map,enabled=True,cancelled=cancelled,scope_probe=scope_probe)
+                    api_outcomes=[];identity_outcomes=[]
+                    api=read_current_identity(canonical_map,enabled=True,cancelled=cancelled,scope_probe=scope_probe,diagnostic_callback=api_outcomes.append)
                     if not api:
                         proof['_liveIdentityUnavailable']=True
-                        return hud
-                    return reconcile_identity(hud,api,source_heroes)
+                    resolved=reconcile_identity(hud,api,source_heroes,diagnostic_callback=identity_outcomes.append)
+                    # Retain the cause even if this frame's later OCR fails.
+                    emit_identity(hud,api_outcomes[-1] if api_outcomes else 'unexpected_error',identity_outcomes[-1])
+                    return resolved
                 def trace_inference(stage,phase,elapsed):
                     cold={'ocr_cold_start':getattr(self.ocr,'_engine',None) is None} if stage=='ocr' and phase=='started' else {}
                     duration={'inference_ms':elapsed} if phase=='completed' else {}
@@ -1529,8 +1603,7 @@ class ControlWindow(QtWidgets.QWidget):
                     completer=QtWidgets.QCompleter(vocabulary,edit);completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive);edit.setCompleter(completer)
                 self.start_button.setEnabled(bool(vocabulary and self.capture));self.status.setText('点击开始监测后自动识别本人英雄与三个候选；不确定时才人工纠正。' if self.capture else '当前系统不支持窗口采集；Windows 10/11 可用。')
                 if not meta.get('isDemo'):
-                    from hero_portraits import load_portraits
-                    self.spawn('portraits',lambda:load_portraits(self.state_dir/'hero-portraits',allow_download=self.enable_updates,cancelled=self._cancel_workers))
+                    self.request_portraits()
                 else:self.hero_status.setText('虚构演示没有真实头像；人工模式或合成识别测试可用。')
                 QtCore.QTimer.singleShot(0,self.ready)
                 if self.enable_updates and not self.smoke_report:self.spawn('update',lambda:__import__('updates').check_for_update(self.current_version))
@@ -1734,6 +1807,16 @@ class ControlWindow(QtWidgets.QWidget):
                 safe_candidates=automatic_candidates(auto_candidates,value.get('image_size'))
                 self.observe_partial_candidates(value,captured_at)
                 partial_evidence=value.get('partial_title_evidence')
+                # Keep card evidence independent of hero availability: an unknown
+                # hero must not conceal whether title rows were found at all.
+                card_diagnosis=('title_low_confidence' if getattr(partial_evidence,'valid',False) and any(slot.confidence<.93 for slot in partial_evidence.slots) else
+                    'title_dictionary_miss' if getattr(partial_evidence,'valid',False) and any(not slot.name for slot in partial_evidence.slots) else
+                    'candidate_missing' if len(auto_candidates)!=3 else
+                    'candidate_untrusted' if any(item.get('match_method')!='exact' or item.get('ocr_confidence',0)<.93 for item in auto_candidates) else
+                    'candidate_layout' if not safe_candidates else 'awaiting_confirmation')
+                self.debug_event('card_observation',reason=card_diagnosis,candidate_count=len(auto_candidates),
+                    hero_present=bool(self.state.hero),card_geometry_proven=value.get('_cardGeometry') is not None,
+                    title_evidence_valid=getattr(partial_evidence,'valid',False))
                 diagnosis=('hero_unknown' if not self.state.hero else
                     'title_low_confidence' if getattr(partial_evidence,'valid',False) and any(slot.confidence<.93 for slot in partial_evidence.slots) else
                     'title_dictionary_miss' if getattr(partial_evidence,'valid',False) and any(not slot.name for slot in partial_evidence.slots) else
@@ -1770,17 +1853,28 @@ class ControlWindow(QtWidgets.QWidget):
                         and (not self.overlay._titles_pending or value.get('ocr_reused') is not True)):
                     self.overlay.set_title_checking(False)
                 self.check_target()
-            elif kind=='portraits':
+            elif kind in ('portraits','portraits-cache'):
+                if generation!=self._portraits_attempt or generation==self._portraits_completed_attempt:return
                 portraits,status=value
-                self.portrait_bank.replace(portraits);self._hero_portrait_key=None
+                changed=bool(portraits) and portraits is not self._portraits_bank
+                if changed:
+                    from hero_recognition import PortraitMatcher
+                    try:matcher=PortraitMatcher(portraits,self.data['heroes'])
+                    except Exception as exc:
+                        self.debug_log.record('templates',template_outcome='unavailable',generation=generation,worker_error_category=classify_worker_error(exc))
+                        self.debug_log.record('job',kind='portraits',phase='error',generation=generation,error_code='worker_error',worker_error_category=classify_worker_error(exc))
+                        if kind=='portraits':self._portraits_completed_attempt=generation;self.finish_portrait_attempt()
+                        self.hero_status.setText('自动英雄模板初始化失败；等待恢复或人工纠正。');return
+                    mapping=status.get('canonicalMap',{})
+                    self._portrait_memory_map=tuple(sorted(mapping.items())) if status.get('state')=='memory-only' and isinstance(mapping,dict) and len(mapping)==len(portraits) else ()
+                    self.portrait_bank.replace(portraits);self._hero_portrait_key=None;self._portraits_bank=portraits;self.hero_matcher=matcher
+                self.debug_log.record('templates',template_outcome=('cached_ready' if kind=='portraits-cache' else 'ready') if portraits else 'unavailable',generation=generation,**({'worker_error_category':status['errorCategory']} if 'errorCategory' in status else {}))
                 roster_fingerprint=cached_roster_fingerprint(self.state_dir/'hero-portraits')
                 if roster_fingerprint!=self._selection_roster_fingerprint:
                     self._selection_roster_fingerprint=roster_fingerprint;self.selection_detector=None
                 self.portrait_diagnostics=status.get('cacheDiagnostics');self.cache_diagnostic_button.setVisible(isinstance(self.portrait_diagnostics,dict))
-                if portraits:
-                    from hero_recognition import PortraitMatcher
-                    self.hero_matcher=PortraitMatcher(portraits,self.data['heroes'])
-                self.hero_status.setText(status.get('message','头像模板状态未知'))
+                if kind=='portraits':self._portraits_completed_attempt=generation;self.finish_portrait_attempt()
+                self.hero_status.setText(status.get('message','头像模板状态未知')+('；自动监测中将按退避间隔重试。' if kind=='portraits' and self.hero_matcher is None and self.enable_updates else ''))
                 if self.overlay.reference:self.overlay.set_hero_reference(self.overlay.reference)
             elif kind=='update':
                 self.update_status.setText('软件更新：'+value.get('message',value.get('state','未知')))
@@ -1796,6 +1890,10 @@ class ControlWindow(QtWidgets.QWidget):
     @QtCore.Slot(str,str,int)
     def task_error(self,kind,error,generation):
         if self.closed or self.discard_stale_capture_callback(kind,generation):return
+        # The worker already counted its failure. This is a GUI receipt, never
+        # another failure or a parse of the exception's message.
+        self.debug_log.record('job',kind=kind,phase='accepted',generation=generation,
+            serial=self._capture_serial if kind in ('ocr','selection') else 0,reason='worker_error')
         if kind=='windows':
             if generation==self.discovery_scope:
                 self.discovery_busy=False;self.window_status.setText('窗口检测暂未完成，稍后自动重试。')
@@ -1806,7 +1904,10 @@ class ControlWindow(QtWidgets.QWidget):
             if kind=='selection' and self.selection_session:self.selection_session.clear('Client recognition failure')
             if generation==self.state.generation:self.invalidate_scene('识别失败：'+error,debug_reason='worker_error');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
             self.schedule_capture(1000)
-        elif kind=='portraits':self.hero_status.setText('自动英雄模板加载失败：'+error+'；可人工纠正。')
+        elif kind=='portraits':
+            if generation!=self._portraits_attempt or generation==self._portraits_completed_attempt:return
+            self._portraits_completed_attempt=generation;self.finish_portrait_attempt()
+            self.hero_status.setText('自动英雄模板加载失败：'+error+('；自动监测中将重试，可人工纠正。' if self.enable_updates else '；可人工纠正。'))
         elif kind=='load':self.startup_error=error or '未提供错误详情';self.source.setText('资料加载失败：'+error);self.status.setText('未加载真实资料，不使用演示数据代替。')
         elif kind=='install':self.update_button.setEnabled(True);self.update_status.setText('更新失败，原程序不变：'+error)
         else:self.update_status.setText('更新检查失败：'+error)

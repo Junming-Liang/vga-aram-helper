@@ -80,6 +80,56 @@ rotation. Join exact originals by `(session, sequence)` and correlate frames by
 `elapsed_ms`, for a measured duration. Game scopes are local counters, never
 server match IDs. Native window/process identities are per-launch salted aliases.
 
+Queued asynchronous work uses `log.scoped()` to retain the local scope captured
+at queue time, including delayed failures and sample summaries. Other UI
+observations use the current scope. Monitoring starts a scope; an existing
+verified window policy adopting a different game-window binding starts another.
+The first game binding stays with its preceding selection evidence. This is not
+a server-match detector: an unchanged binding cannot establish whether a match
+changed. Diagnostic boundaries do not change state generations, permissions,
+identity acceptance, or stale-result rejection.
+
+## Bounded scope ledger and independent causes
+
+The manifest's `game_summaries` counts original observations, failed jobs, event
+types, and each fixed reason/outcome axis per local scope. It retains each axis's
+first/last code and each code's count and first/last elapsed time, independent of
+routine or critical rotation. Up to four scopes share **24 KiB total**, inside
+the existing 64 KiB manifest allowance. Whole oldest summaries are evicted when
+either cap fills. `evicted_scope_summaries` and `evicted_observations` disclose
+loss; a late recreated scope is marked `complete_observed_scope=false`. Filtered
+exports retain this explicitly scope-labeled, current-launch ledger.
+
+`identity` records four fixed enum axes: API result, HUD result, mapping result,
+and final identity decision. They distinguish disabled API operation, TLS or
+connection failures, invalid responses, identity mismatch, unmapped champions,
+missing/incomplete templates, low scores/margins, and API/HUD conflicts. Identity
+evidence is emitted before a later title-OCR failure is propagated and discards
+the frame. Codes never contain endpoints, payloads, player names, or raw errors.
+
+`window_binding` records only adopted/rejected/missing/unchanged decisions and
+the target role. `card_observation` records candidate failures independently of
+hero availability, with counts and strict geometry/title-evidence booleans.
+Both events are retained as critical evidence; their existing recognition and
+display decisions are unchanged.
+
+Each failed worker has one `job` record with `phase=error` and a fixed
+`worker_error_category`. Classification inspects types only, including distinct
+TLS verification, TLS, HTTP, network wrapper, timeout, connection, OS, and common
+programming-error categories. Nested exception causes have a depth limit and
+cycle guard. The later GUI `phase=accepted` receipt does not count as a second
+failure. Job kinds, generations, and serials remain available for correlation.
+Identity abstentions/conflicts, rejected card observations, and distinct worker
+categories also preserve bounded latest-cause frame examples in the context
+lane. Initial card rejection retains context even if the overlay was already
+hidden and therefore emitted no new hide event.
+
+The manifest is compact JSON and is explicitly rejected above 64 KiB before
+replacing an existing export. Event payload remains within 768 KiB, and both
+uncompressed member totals and the final ZIP stay within 832 KiB. The ledger is
+not persisted across application restarts. Long two-scope replay, saturated
+counter, late-worker, enum-drift, privacy, and real Qt tests validate these limits.
+
 ## Critical history
 
 Critical history includes configuration, game/phase/state changes, selection
@@ -228,3 +278,28 @@ cycles do not evict a distinct error's exact frame. Other tests cover bounded
 critical overflow with explicit loss, sparse timing denominators, enum drift,
 privacy in all lanes, catalog removal, filtering, malformed/oversized input,
 symlinks, I/O failures, concurrency, and actual offscreen Qt controls.
+
+## Startup template recovery
+
+`templates` records a fixed `template_outcome` (`loading`, `cached_ready`,
+`ready`, `unavailable`, `retry_wait`) and the portrait attempt number in
+`generation`. This is a public-asset attempt, not a capture generation or player
+identity. Errors use only the existing type-based `worker_error_category`.
+These transitions use the critical lane; `retry_wait.ttl_ms` is the backoff.
+No URLs, paths, downloaded images, or exception messages enter the debug ZIP.
+
+A complete hash-verified cached bank becomes usable before the online version
+check returns. The interim result keeps the same worker lease, and an unchanged
+final bank preserves matcher identity. If there is no usable matcher after a
+failure, retry waits 30, 60, 120, then 300 seconds between completed attempts.
+Only active automatic monitoring with updates enabled can dispatch a retry.
+Stop/Start does not reset the backoff, and Close revokes all delivery.
+
+A complete verified bank whose disk-cache write failed can retain its validated
+public token-to-champion mapping in memory (`map_outcome=verified_memory`). This
+is reference data only: every player observation still requires the existing
+fresh API reads, scope checks, source mapping and contradiction checks. Invalid
+roster/manifest object shapes are rejected without preventing independent HUD
+and card OCR. No identity, confidence, confirmation, or frame-age threshold is
+relaxed. Synthetic failure/recovery tests do not establish the cause of a
+particular unrecorded game incident.

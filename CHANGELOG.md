@@ -1,5 +1,15 @@
 # Changelog / 变更日志
 
+## v0.4.14 · 启动识别恢复诊断候选 / Startup recognition recovery candidate
+
+本地候选，尚未构建或发布。空头像库在临时下载失败后按 30/60/120/300 秒有上限退避重试；完整已验证缓存不再等待联网版本检查；完整头像库写盘失败时保留已验证的不可变内存规范映射。畸形嵌套 roster/缓存对象安全拒绝，不再阻断独立 HUD/卡片 OCR。已有身份范围、API 双读/本人匹配、HUD 矛盾、逐槽确认与新鲜度门槛不变，未新增玩家身份缓存。
+
+固定原因码、关联字段和有界历史补充启动/模板/身份诊断；日志总上限仍为 768 KiB，导出 ZIP 上限 832 KiB，不新增截图、玩家载荷或异常文本，不自动上传。启动恢复及整局日志的合成故障注入测试与 Windows 捕获、打包运行时和实战验收分别记录。
+
+用户反馈闪烁已不再出现，但有一次初始识别未成功；未提供该次诊断 ZIP，未确认其根因。本候选修复可复现缺陷，不宣称解决全部用户原因。版本变更后必须真实重跑两份公开静态截图评估，并在最终源码上完成全部 Windows/同一 EXE 发布门禁；不得重标旧证据版本。手动流程默认 `publish_preview=false`，任何后续发布仍须为非 latest 预发布。
+
+English: Local, unbuilt and unpublished diagnostic candidate. Adds bounded empty-bank retries, cache-first delivery, a verified memory-only canonical-map fallback and safe malformed-roster/cache rejection. Existing identity and freshness safeguards remain. The isolated initial miss has no incident ZIP and no confirmed cause; reported flicker improvement is user feedback, not a complete live-game pass. Both genuine-image reports require actual reruns after the version bump, followed by all final-source and exact-EXE Windows gates. See [startup recovery audit](STARTUP_RECOVERY.md) and [acceptance status](reports/VALIDATION.md).
+
 ## v0.4.13 · 标题语义核验与整局诊断 / Semantic recheck diagnostic candidate
 
 候选版本，仍须通过全部 Windows 发布门禁。标题带的像素变化不再被直接当作标题变化；同帧新 OCR 核验有序名称、置信度、几何与英雄范围。仅等待语义时，原评级仍受原四秒期限约束，不因像素变化刷新年龄；真正换牌可能在新 OCR 返回前短暂保留原评级，并非即时检测。明确矛盾、不确定语义或过期时撤销评级；核验中的中性卡片不含旧评级或提示。

@@ -14,6 +14,19 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 
+HUD_OUTCOMES = frozenset({'recognized', 'invalid_image', 'unsupported_layout',
+    'letterboxed', 'templates_unavailable', 'incomplete_templates', 'score_low',
+    'margin_low', 'death_grayscale', 'color_mismatch', 'champion_unmapped', 'unknown'})
+
+
+def hud_identity_outcome(observation):
+    """Only a fixed code; never expose a reason, candidate, or portrait pixels."""
+    if not isinstance(observation, dict):return 'unknown'
+    outcome = observation.get('hudOutcome')
+    if type(outcome) is str and outcome in HUD_OUTCOMES:return outcome
+    return 'recognized' if observation.get('confident') is True else 'unknown'
+
+
 @dataclass(frozen=True)
 class _PortraitInput:
     """Per-call normalized HUD pixels; never retained on the matcher."""
@@ -60,14 +73,14 @@ class PortraitMatcher:
         return self._recognize_prepared(self._prepare_image(image_bytes))
     def _prepare_image(self,image_bytes,*,decoded_rgb=None):
         from PIL import Image
-        if not isinstance(image_bytes,bytes) or len(image_bytes)>16*1024*1024:return self.unknown('无效截图')
+        if not isinstance(image_bytes,bytes) or len(image_bytes)>16*1024*1024:return self.unknown('无效截图',hudOutcome='invalid_image')
         if decoded_rgb is not None:
             h,w=decoded_rgb.shape[:2]
-            if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证')
+            if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证',hudOutcome='unsupported_layout')
             return self._prepare_array(decoded_rgb)
         with Image.open(io.BytesIO(image_bytes)) as image:
             w,h=image.size
-            if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证')
+            if w*h>16_000_000 or h<600 or not 1.55<=w/h<=2.45:return self.unknown('当前分辨率/纵横比未验证',hudOutcome='unsupported_layout')
             image.load();rgb=self.np.asarray(image.convert('RGB'))
         return self._prepare_array(rgb)
     @staticmethod
@@ -76,9 +89,9 @@ class PortraitMatcher:
         return self._recognize_prepared(self._prepare_array(rgb))
     def _prepare_array(self,rgb):
         cv=self.cv;np=self.np;h,w=rgb.shape[:2]
-        if h<600 or not 1.55<=w/h<=2.45 or not self.templates:return self.unknown('模板或画面比例不可用',abstentionKind='unsupported-layout')
+        if h<600 or not 1.55<=w/h<=2.45 or not self.templates:return self.unknown('模板或画面比例不可用',abstentionKind='unsupported-layout',hudOutcome='unsupported_layout' if h<600 or not 1.55<=w/h<=2.45 else 'templates_unavailable')
         # Reject hard letterboxes: do not move the ROI to arbitrary champion art.
-        if any(np.std(edge)<2 and np.mean(edge)<8 for edge in (rgb[:max(2,h//100)],rgb[-max(2,h//100):],rgb[:,:max(2,w//100)],rgb[:,-max(2,w//100):])):return self.unknown('黑边/画面布局未验证',abstentionKind='unsupported-layout')
+        if any(np.std(edge)<2 and np.mean(edge)<8 for edge in (rgb[:max(2,h//100)],rgb[-max(2,h//100):],rgb[:,:max(2,w//100)],rgb[:,-max(2,w//100):])):return self.unknown('黑边/画面布局未验证',abstentionKind='unsupported-layout',hudOutcome='letterboxed')
         scale=720/h;small=cv.resize(rgb,(round(w*scale),720),interpolation=cv.INTER_AREA);sw=small.shape[1]
         # Own HUD portrait sits left of centered ability bar; excludes sidebars,
         # minimap and scoreboard. Never search the rest of the screenshot.
@@ -105,20 +118,20 @@ class PortraitMatcher:
             value,location,size=best
             found.append((value,key,location,size,color))
         found.sort(key=lambda item:item[0],reverse=True)
-        if len(found)<2:return self.unknown('模板词典不完整')
+        if len(found)<2:return self.unknown('模板词典不完整',hudOutcome='incomplete_templates')
         value,key,(x,y),size,color=found[0];second=found[1][0];margin=value-second
         evidence={'score':round(value,4),'margin':round(margin,4),'box':[round((x0+x)/scale),round((y0+y)/scale),round(size/scale),round(size/scale)],'candidateChampionId':key}
-        if value<self.minimum_score or margin<self.minimum_margin:return self.unknown('本人头像匹配不够确定',abstentionKind='portrait-unavailable',**evidence)
+        if value<self.minimum_score or margin<self.minimum_margin:return self.unknown('本人头像匹配不够确定',abstentionKind='portrait-unavailable',hudOutcome='score_low' if value<self.minimum_score else 'margin_low',**evidence)
         patch=roi[y:y+size,x:x+size];sat=cv.cvtColor(patch,cv.COLOR_RGB2HSV)[:,:,1]
-        if float(np.mean(sat))<22:return self.unknown('灰度/死亡头像不自动确定',occlusionKind='death-portrait',abstentionKind='portrait-unavailable',**evidence)
+        if float(np.mean(sat))<22:return self.unknown('灰度/死亡头像不自动确定',occlusionKind='death-portrait',abstentionKind='portrait-unavailable',hudOutcome='death_grayscale',**evidence)
         expected=cv.resize(color,(size,size),interpolation=cv.INTER_AREA)
         # Independent color agreement suppresses similar grayscale structures.
         a=patch.astype(np.float32).reshape(-1);b=expected.astype(np.float32).reshape(-1)
         a-=a.mean();b-=b.mean();color_score=float(np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b)+1e-8));evidence['colorScore']=round(color_score,4)
-        if color_score<.75:return self.unknown('头像颜色不匹配或被遮挡',abstentionKind='portrait-unavailable',**evidence)
+        if color_score<.75:return self.unknown('头像颜色不匹配或被遮挡',abstentionKind='portrait-unavailable',hudOutcome='color_mismatch',**evidence)
         hero=self.names.get(key)
-        if not hero:return self.unknown('头像对应英雄没有当前资料',**evidence)
-        return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验',**evidence}
+        if not hero:return self.unknown('头像对应英雄没有当前资料',hudOutcome='champion_unmapped',**evidence)
+        return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验','hudOutcome':'recognized',**evidence}
 
 
 def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None, diagnostic_callback=None, after_titles=None):
@@ -205,7 +218,7 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
     else:
         if before_match is not None:before_match(None,crop_bytes)
         phase_started=begin('hud_match')
-        hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好')
+        hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好',hudOutcome='templates_unavailable')
         complete('hud_match',phase_started)
         if resolve_hero is not None:
             phase_started=begin('hero_resolve')
