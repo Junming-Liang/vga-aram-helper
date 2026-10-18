@@ -389,6 +389,10 @@ def verify_native_scale(files, checksum, version, scale, prefix, source_archive,
             'Required native window/capture/OCR/click-through/close/source-tier proof missing: ' + prefix)
     require(all(native.get(field) is True for field in NATIVE_AUTOMATION_FIELDS),
             'Automatic hero/candidate native lifecycle proof missing: ' + prefix)
+    switches=native.get('manual_hero_switches')
+    require(type(switches) is dict and set(switches)=={'required','attempted','completed'}
+            and all(type(value) is int and value==8 for value in switches.values()),
+            'Eight independent manual hero-switch captures were not verified: '+prefix)
     require(native.get('source_hint_render_scope') == 'Original synthetic sourceHint renderer only; not live-game or source-combo accuracy' and isinstance(native.get('source_hint_visible_text'),str) and native['source_hint_visible_text'], 'Native owned source-hint renderer proof missing: '+prefix)
     require(native.get('recognized') == ['星火共鸣', '晶盾回路', '风步微光'],
             'Actual native OCR did not recognize the three original mock choices: ' + prefix)
