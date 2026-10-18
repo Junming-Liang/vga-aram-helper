@@ -9,7 +9,7 @@
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
   <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.16-0891b2" alt="Source version v0.4.16"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.14 preview"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.16 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -21,6 +21,8 @@
 <!-- project-header:end -->
 
 VGA ARAM Helper (VGA乱斗助手) is an open-source Windows helper for **League of Legends (LoL) ARAM: Mayhem**, known in Chinese as **英雄联盟海克斯大乱斗**. Its native control panel and game overlay provide champion-specific augment tiers, effects, and condition notes for three-choice augment selections.
+
+The [v0.4.16 diagnostic preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) is published and has passed complete Windows validation. It is a non-latest prerelease; the user’s field symptoms are not yet all confirmed resolved. Release evidence and limits are recorded below.
 
 The own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
 
@@ -39,14 +41,14 @@ Champion-select handoff: when a client is detected, click “开启本机选人�
 
 ### Windows
 
-1. Download the [v0.4.14 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/vga-aram-helper-0.4.14-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/SHA256SUMS.txt).
+1. Download the [v0.4.16 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.16/vga-aram-helper-0.4.16-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.16/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Keep automatic League discovery selected and click Start. The control window stays visible by default and waits for or follows your client/game without selecting a window. The first launch prepares about 5 MB of public portrait templates.
 4. To use the selection API, click “开启本机选人识别” in the dashboard after client detection. Consent lasts for this launch only and is off again after restart.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) includes test evidence and corresponding source.
 
-The v0.4.14 diagnostic preview is published, but flicker and initial recognition failures have been reported. The local v0.4.16 candidate is not available to download. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+v0.4.16 is a diagnostic preview and is not marked latest. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -59,7 +61,7 @@ python launcher.py
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
 
-## v0.4.16: selection routing and regression recovery candidate, Windows gates pending
+## v0.4.16: selection routing and regression recovery diagnostic preview, published
 
 Two reproduced routing defects are fixed: a foreground client is no longer displaced by a background or minimized game, and a manually selected client with verified process metadata and class uses selection recognition even with automatic handoff disabled. Foreground and availability select a role while retaining all same-role and installation ambiguity evidence. Adoption and capture permission recheck current identity and foreground. A failed window snapshot immediately revokes old display evidence; a later valid query can recover safely. See the [window-routing investigation and limits](WINDOW_ROUTING_RECOVERY.md). Window-title matching, accepted classes and LCU permissions are not expanded.
 
@@ -67,7 +69,9 @@ The three unreleased v0.4.15 fixes remain: preserve equivalent warm-cache models
 
 v0.4.15 [Windows run #81](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39144535874) built the EXE and passed both 1,977-test Python rounds (5 skips each), plus the existing source and same-EXE runtime gates. An anonymous budget-API HTTP 403 then blocked final verification and publication. That version was not released; its changes are included in v0.4.16 without an interim release.
 
-No v0.4.16 Windows EXE has been built or published. All final-source and same-EXE Windows gates must run again. Controlled regressions and historical runs do not establish that the user's field symptoms are solved. Manual validation still defaults to `publish_preview=false`; download links retain published v0.4.14 with reported issues. See [current validation](reports/VALIDATION.md) and the earlier [regression investigation](REGRESSION_RECOVERY.md).
+v0.4.16 was published on 2026-10-18 after [complete Windows run #86](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39165077020) passed both 2,104-test Python rounds (5 skips each), source and same-EXE capture/selection handoff/three-scale checks, update and rollback tests, and final release verification. The release source is `0fdded54199a6e0db4a83dfe0b9c0ca1d152679d`. The actual downloaded EXE is **107,121,123 bytes**, with SHA-256 `70c8d5ef0569d30a18e36fdfc82654a6b59e7ef86adbd8ce8350a2bda249a040`, matching the release manifest, checksum file and CI receipt. All 60 files in the public evidence archive were also individually verified.
+
+These results cover controlled regressions and owned Windows test windows; they do not establish that all user field symptoms are resolved. Earlier candidate records remain in [validation history](reports/VALIDATION.md), with the first three reproductions in the [regression investigation](REGRESSION_RECOVERY.md).
 
 ## v0.4.14: startup recovery diagnostic prerelease, published with regression feedback
 
@@ -146,7 +150,7 @@ v0.4.4 sets `ORT_DISABLE_TELEMETRY=1` before ONNX Runtime imports/initialization
 
 ## Preview and compatibility
 
-[v0.4.14](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.14) is available as a non-latest diagnostic prerelease, with reported flicker and initial recognition failures. The local v0.4.16 candidate is not published. Manual download is required. The [current validation scope](reports/VALIDATION.md) is separate from the historical releases below.
+[v0.4.16](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) is available as a non-latest diagnostic prerelease after complete Windows run #86 and public-download verification. Manual download is required; the user’s field symptoms are not yet all confirmed resolved. Earlier [candidate validation records](reports/VALIDATION.md) and the historical releases below remain available for traceability.
 
 ### Historical v0.4.7 and earlier releases
 
@@ -189,6 +193,6 @@ Report problems through [Issues](https://github.com/Junming-Liang/vga-aram-helpe
 
 Original code, icons, and synthetic test data use the [MIT License](LICENSE). Qt/PySide/Shiboken use the applicable LGPLv3 option; OCR dependencies, models, and other third-party components retain their own licenses. The Release includes complete licenses, corresponding Qt source, and application source from the same commit. See [Third-party notices](THIRD_PARTY_NOTICES.md). Third-party game data is outside this project's MIT license.
 
-Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.14/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
+Before use, read and agree to the Microsoft runtime terms in the [Release license package](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.16/third-party-licenses.zip). These terms apply only to the listed Microsoft DLLs, without restricting the MIT application source or Qt LGPL rights. The custom OpenCV and WGC helper `/MT` builds also embed Microsoft release CRT object code under separate applicable Microsoft terms; servicing it requires rebuilding. See the [runtime scope notice](THIRD_PARTY_NOTICES.md#microsoft-windows-runtime-components).
 
 This is an independent implementation with no official affiliation with Riot Games, League of Legends, or Huya.
