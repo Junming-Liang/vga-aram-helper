@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.14 as a startup recovery DIAGNOSTIC prerelease'
+        description: 'Build, test and publish v0.4.15 as a regression recovery DIAGNOSTIC prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.14
+  group: vga-native-preview-v0.4.15
   cancel-in-progress: false
 
 jobs:
