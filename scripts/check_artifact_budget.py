@@ -4,19 +4,41 @@ import argparse
 import json
 import math
 import os
+import re
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.error import HTTPError, URLError
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
 BUDGET_BYTES = 500_000_000
 RESERVE_BYTES = 10_000_000
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RuntimeError('Artifact inventory redirect refused')
+
+
 def fetch_json(url):
-    request = Request(url, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'VGA-build-budget-check'})
-    # Public repository metadata only; no credential is read or transmitted.
-    with urlopen(request, timeout=20) as response:
-        data = response.read(5 * 1024 * 1024 + 1)
+    # The existing job token is exposed only to this read-only budget step.
+    # Exact URL validation happens before reading it; never forward to redirects.
+    endpoint = f'https://api.github.com/repos/{REPOSITORY}/actions/artifacts?per_page=100&page='
+    if not isinstance(url, str) or not re.fullmatch(re.escape(endpoint) + r'(?:[1-9]|10)', url):
+        raise RuntimeError('Unexpected artifact inventory endpoint')
+    headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'VGA-build-budget-check'}
+    token = os.environ.get('VGA_ARTIFACT_READ_TOKEN', '')
+    if token:
+        if len(token) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in token):
+            raise RuntimeError('Invalid artifact inventory authentication')
+        headers['Authorization'] = 'Bearer ' + token
+    request = Request(url, headers=headers, method='GET')
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=20) as response:
+            data = response.read(5 * 1024 * 1024 + 1)
+    except HTTPError as exc:
+        raise RuntimeError('Artifact inventory HTTP failure: ' + str(exc.code)) from None
+    except (URLError, OSError):
+        raise RuntimeError('Artifact inventory transport failure') from None
     if len(data) > 5 * 1024 * 1024:
         raise RuntimeError('Artifact listing exceeded size limit')
     return json.loads(data)
