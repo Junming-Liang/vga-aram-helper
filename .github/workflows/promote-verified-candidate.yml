@@ -79,6 +79,17 @@ jobs:
           # Use current trusted promoter code, never code from the input SHA.
           ref: ${{ github.sha }}
           persist-credentials: false
+      - uses: actions/checkout@v4
+        env:
+          # Preserve committed bytes without changing the runner's Git settings.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          # The untouched original verifier derives provenance from this HEAD.
+          ref: '52b8720e2aa7f2b43afa5f1f73e884157f15deb6'
+          path: build/original-source
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -104,3 +115,4 @@ jobs:
           --artifact-id "$env:CANDIDATE_ARTIFACT_ID"
           --artifact-sha256 "$env:CANDIDATE_ARTIFACT_SHA256"
           --work-dir build/candidate-promotion
+          --source-checkout build/original-source
