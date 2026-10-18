@@ -184,6 +184,38 @@ def advance_follow_off_probe(control,report):
     return True
 
 
+def focus_client_before_hiding_control(control,target,own_metadata,client_metadata,receipt):
+    """Only the exact currently foreground owned ControlWindow may transfer.
+
+    This explicit diagnostic has already pinned the target HWND/PID and normal
+    session policy. No generic foreground takeover or retry is permitted.
+    """
+    from session_windows import process_metadata
+    u=control.capture.u;source=int(control.winId());destination=target.hwnd
+    def validate():
+        assert control.capture.info(destination).identity==target.identity
+        assert process_metadata(target.pid)==client_metadata and control.window_policy.permits(target)
+        assert control.capture.info(source).pid==os.getpid() and process_metadata(os.getpid())==own_metadata
+    validate();before=int(u.GetForegroundWindow()or 0)
+    receipt.update({'route':'already' if before==destination else 'controller','source_hwnd':source,
+        'source_pid':os.getpid(),'source_created':own_metadata.created,'target_hwnd':destination,
+        'sent':False,'api':None,'drained':False,'observed_hwnd':before if before in(source,destination) else 0})
+    if before==destination:return receipt
+    assert before==source,'Initial client focus lacks the exact foreground controller'
+    u.SetForegroundWindow.argtypes=[W.HWND];u.SetForegroundWindow.restype=W.BOOL
+    receipt['sent']=True;receipt['api']=bool(u.SetForegroundWindow(destination))
+    if receipt['api'] and int(u.GetForegroundWindow()or 0)!=destination:
+        validate();response=ctypes.c_size_t()
+        u.SendMessageTimeoutW.argtypes=[W.HWND,W.UINT,W.WPARAM,W.LPARAM,W.UINT,W.UINT,ctypes.POINTER(ctypes.c_size_t)]
+        u.SendMessageTimeoutW.restype=ctypes.c_ssize_t
+        receipt['drained']=bool(u.SendMessageTimeoutW(destination,0,0,0,2,1000,ctypes.byref(response)))
+        assert receipt['drained'],'Initial client focus activation did not settle'
+    observed=int(u.GetForegroundWindow()or 0);receipt['observed_hwnd']=observed if observed in(source,destination) else 0
+    validate()
+    assert receipt['api'] and observed==destination,'Initial client focus request failed'
+    return receipt
+
+
 def start_selection_smoke(control,input_path,report_path):
     from PySide6 import QtCore,QtWidgets
     app=QtWidgets.QApplication.instance();checks=[];started=time.monotonic();safety={};last_saved=0.
@@ -352,7 +384,7 @@ def start_selection_smoke(control,input_path,report_path):
         from session_windows import process_metadata
         own=process_metadata(os.getpid());client=process_metadata(target.pid)
         assert own.created>0 and own.path and client.created>0
-        report.update(metadata_query_passed=True,clientHwnd=target.hwnd,clientPid=target.pid,metadata_scope='Actual PROCESS_QUERY_LIMITED_INFORMATION path/creation + FILE_READ_ATTRIBUTES canonicalization, no process memory read')
+        report.update(metadata_query_passed=True,clientHwnd=target.hwnd,clientPid=target.pid,clientCreated=client.created,metadata_scope='Actual PROCESS_QUERY_LIMITED_INFORMATION path/creation + FILE_READ_ATTRIBUTES canonicalization, no process memory read')
         from synthetic_vision import configure_data
         configure_data(control.data);hero=control.data['heroes'][DEMO_HERO];hero['alias'].append('星火术士')
         assert control.data['metadata'].get('isDemo') is True
@@ -367,6 +399,7 @@ def start_selection_smoke(control,input_path,report_path):
         control.hero_auto.setChecked(True);control.client_follow.setChecked(False);control.start_monitor()
         assert control.state.running and control.selection_session and control.window_policy
         assert control.window_policy.permits(target) and control.client_phase() and not control.lcu_toggle.isChecked()
-        control.hide();control.capture.u.SetForegroundWindow.argtypes=[W.HWND];control.capture.u.SetForegroundWindow.restype=W.BOOL;control.capture.u.SetForegroundWindow(target.hwnd)
+        focus_client_before_hiding_control(control,target,own,client,report.setdefault('initial_focus',{}))
+        control.hide()
         report['phase']='capturing-client-follow-off';save();timer.timeout.connect(lambda:guarded(poll));timer.start()
     save();guarded(prepare)
