@@ -3,7 +3,8 @@
 The integration fixture uses the existing ReleaseFixture's explicitly synthetic
 Windows reports and its documented native/archive stand-ins. The real release
 verifier, receipt comparisons, staging, ZIP extraction and draft-asset checks run.
-Every subprocess is intercepted, so no build, network call or release can occur.
+Every subprocess is intercepted; only allowlisted Git commands for an owned
+throwaway repository may execute. No build, network call or release can occur.
 Separate tests exercise the unmodified OpenCV provenance validator and the
 original-checkout/credential-free subprocess boundary; the aggregate synthetic
 fixture substitutes that boundary to retain its documented native stand-ins.
@@ -432,12 +433,45 @@ class OriginalCheckoutTests(OfflineTestCase):
         self.assertEqual(arguments[:3], ['git', '-C', str(self.checkout.resolve())])
         self.assertEqual(kwargs['timeout'], 60)
         command = arguments[3:]
+        configuration = []
+        while command and command[0] == '-c':
+            configuration.append(command[1])
+            command = command[2:]
         if command == ['rev-parse', 'HEAD']:
             data = promotion.SOURCE_SHA.encode() + b'\n'
         elif command == ['rev-parse', '--show-toplevel']:
             data = str(self.checkout.resolve()).encode() + b'\n'
         elif command == ['ls-tree', '-r', '-z', '--full-tree', promotion.SOURCE_SHA]:
             data = self.tree
+        elif command == ['ls-files', '--stage', '-z']:
+            index = []
+            for row in filter(None, self.tree.split(b'\0')):
+                header, name = row.split(b'\t', 1)
+                mode, kind, blob = header.split()
+                index.append(mode + b' ' + blob + b' 0\t' + name + b'\0')
+            data = b''.join(index)
+        elif command == ['diff', '--cached', '--quiet', promotion.SOURCE_SHA]:
+            data = b''
+        elif command == ['rev-parse', '--git-path', 'info/attributes']:
+            data = b'.git/info/attributes\n'
+        elif command == ['archive', '--format=zip', promotion.SOURCE_SHA]:
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w') as archive:
+                archive.comment = promotion.SOURCE_SHA.encode()
+                for name, raw in self.files.items():
+                    if 'core.autocrlf=true' in configuration:
+                        raw = raw.replace(b'\n', b'\r\n')
+                    archive.writestr(name, raw)
+            data = output.getvalue()
+        elif len(command) == 3 and command[0] == 'checkout-index' and command[1].startswith('--prefix=') and command[2] == '--all':
+            destination = Path(command[1].removeprefix('--prefix='))
+            for name, raw in self.files.items():
+                if 'core.autocrlf=true' in configuration:
+                    raw = raw.replace(b'\n', b'\r\n')
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+            data = b''
         else:
             raise AssertionError('Unexpected original-source command: ' + repr(arguments))
         return subprocess.CompletedProcess(arguments, 0, stdout=data, stderr=b'')
@@ -449,7 +483,7 @@ class OriginalCheckoutTests(OfflineTestCase):
     def test_exact_original_git_tree_checkout_and_source_archive_agree(self):
         with patch.dict(os.environ, {'GITHUB_SHA': PROMOTION_SHA}, clear=True):
             self.assertEqual(self.check(), self.checkout.resolve())
-        self.assertEqual(len(self.git_commands), 3)
+        self.assertEqual(len(self.git_commands), 10)
         self.assertNotEqual(PROMOTION_SHA, promotion.SOURCE_SHA)
         self.assertEqual((self.checkout / '.git' / 'config').read_text(), 'Owned synthetic Git metadata')
 
@@ -457,14 +491,14 @@ class OriginalCheckoutTests(OfflineTestCase):
         for command, data, message in [(['rev-parse', 'HEAD'], PROMOTION_SHA.encode(), 'tested source commit'),
                                        (['rev-parse', '--show-toplevel'], str(self.root).encode(), 'independent Git root')]:
             def wrong(arguments, **kwargs):
-                if arguments[3:] == command:
+                if arguments[-len(command):] == command:
                     return subprocess.CompletedProcess(arguments, 0, stdout=data, stderr=b'')
                 return self.git(arguments, **kwargs)
             with self.subTest(command=command), self.assertRaisesRegex(RuntimeError, message):
                 self.check(wrong)
 
     def test_git_failure_stops_before_using_archive(self):
-        with self.assertRaisesRegex(RuntimeError, 'Git identity check failed'):
+        with self.assertRaisesRegex(RuntimeError, 'Git identity/export check failed'):
             self.check(lambda args, **kwargs: subprocess.CompletedProcess(args, 1, stdout=b'', stderr=b'failed'))
 
     def test_extra_missing_and_modified_checkout_files_fail(self):
@@ -478,7 +512,7 @@ class OriginalCheckoutTests(OfflineTestCase):
         with self.assertRaisesRegex(RuntimeError, 'extra or missing'):
             self.check()
         target.write_bytes(b'Modified original source')
-        with self.assertRaisesRegex(RuntimeError, 'checkout bytes differ'):
+        with self.assertRaisesRegex(RuntimeError, 'Initial original checkout differs'):
             self.check()
 
     def test_extra_bytecode_also_rejected_before_original_verifier_imports(self):
@@ -516,6 +550,21 @@ class OriginalCheckoutTests(OfflineTestCase):
                 self.check()
         self.tree = original
 
+    def test_case_ambiguous_or_unsafe_pinned_tree_names_fail(self):
+        original = self.tree
+        for name in ('readme.MD', '../escape', '/absolute', r'folder\file', 'file:stream', './relative'):
+            self.tree = original + self.tree_row(name, b'untrusted')
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                self.check()
+        self.tree = original
+
+    def test_local_git_attribute_override_is_rejected(self):
+        attributes = self.checkout / '.git' / 'info' / 'attributes'
+        attributes.parent.mkdir()
+        attributes.write_bytes(b'* text eol=crlf\n')
+        with self.assertRaisesRegex(RuntimeError, 'attribute overrides'):
+            self.check()
+
     def test_source_archive_commit_inventory_duplicate_and_traversal_fail(self):
         variants = [(list(self.files.items()), PROMOTION_SHA.encode()),
                     (list(self.files.items())[:-1], None),
@@ -531,7 +580,7 @@ class OriginalCheckoutTests(OfflineTestCase):
         changed = dict(self.files, **{'README.md': b'Changed in both places'})
         self.archive(list(changed.items()))
         (self.checkout / 'README.md').write_bytes(changed['README.md'])
-        with self.assertRaisesRegex(RuntimeError, 'blob differs from tested Git tree'):
+        with self.assertRaisesRegex(RuntimeError, 'Initial original checkout differs|blob differs from tested Git tree'):
             self.check()
 
     def test_source_archive_symlink_encryption_and_expansion_budget_fail(self):
@@ -555,6 +604,171 @@ class OriginalCheckoutTests(OfflineTestCase):
         self.source_archive.write_bytes(data)
         with self.assertRaisesRegex(RuntimeError, 'exceeds budget'):
             self.check()
+
+
+class RealGitSourceProfileTests(OfflineTestCase):
+    """Only allowlisted local Git commands run, inside an owned temporary repo."""
+    def setUp(self):
+        self.real_run = subprocess.run
+        super().setUp()
+        if shutil.which('git') is None:
+            self.skipTest('Local Git is required for checkout profile integration')
+        self.checkout = self.root / 'synthetic-repository'
+        self.checkout.mkdir()
+        self.allowed_commands = {'init', 'config', 'add', 'commit', 'rev-parse', 'ls-tree',
+                                 'archive', 'ls-files', 'checkout-index', 'diff', 'status', 'write-tree'}
+        self.commands = []
+        allowed_env = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP',
+                       'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA'}
+        self.git_environment = {key: value for key, value in os.environ.items()
+                                if key.upper() in allowed_env}
+        self.git_environment.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+                                    GIT_ATTR_NOSYSTEM='1', GIT_TERMINAL_PROMPT='0')
+        self.files = {'.gitattributes': b'.gitattributes text eol=lf\npinned.py text eol=lf\nbinary.bin -text\n',
+                      'pinned.py': b'# Original pinned LF fixture\nvalue = 1\n',
+                      'README.md': b'First ordinary line\nSecond ordinary line\n',
+                      'notes/second.txt': b'Another ordinary file\nWith two lines\n',
+                      'binary.bin': b'\x00binary\r\nbytes\n'}
+        for name, data in self.files.items():
+            path = self.checkout / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        self.run_git('init')
+        self.run_git('config', 'core.autocrlf', 'false')
+        self.run_git('config', 'core.hooksPath', str(self.root / 'no-hooks'))
+        self.run_git('config', 'commit.gpgsign', 'false')
+        self.run_git('add', '--', '.')
+        self.run_git('-c', 'user.name=Synthetic Test Fixture', '-c', 'user.email=fixture@example.invalid',
+                     'commit', '--no-verify', '-m', 'Owned offline source profile fixture')
+        self.sha = self.run_git('rev-parse', 'HEAD').decode().strip()
+        self.start_patch(promotion, 'SOURCE_SHA', self.sha)
+        self.archive_path = self.root / 'original-source.zip'
+        self.profiles = {name: self.run_git('-c', 'core.autocrlf=' + name, '-c', 'core.eol=lf', 'archive', '--format=zip', self.sha)
+                         for name in ('false', 'true')}
+        self.profile_files = {name: self.zip_files(data) for name, data in self.profiles.items()}
+        # These assertions specifically exercise Git conversion rather than a
+        # hand-written replace/newline-normalization model.
+        self.assertNotEqual(self.profile_files['false']['README.md'],
+                            self.profile_files['true']['README.md'])
+        self.assertEqual(self.profile_files['true']['pinned.py'], self.files['pinned.py'])
+        self.assertEqual(self.profile_files['true']['binary.bin'], self.files['binary.bin'])
+
+    @staticmethod
+    def zip_files(raw):
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            return {row.filename: archive.read(row) for row in archive.infolist() if not row.is_dir()}
+
+    def local_git(self, arguments, **kwargs):
+        self.assertIsInstance(arguments, list)
+        self.assertEqual(arguments[:3], ['git', '-C', str(self.checkout.resolve())])
+        tail = arguments[3:]
+        while tail and tail[0] == '-c':
+            self.assertGreaterEqual(len(tail), 3)
+            tail = tail[2:]
+        self.assertTrue(tail)
+        self.assertIn(tail[0], self.allowed_commands, 'No network or non-Git command is allowed')
+        self.assertNotIn('--exec', arguments)
+        self.commands.append(list(arguments))
+        kwargs['env'] = dict(self.git_environment)
+        return self.real_run(arguments, **kwargs)
+
+    def run_git(self, *arguments):
+        result = self.local_git(['git', '-C', str(self.checkout.resolve()), *arguments],
+                                capture_output=True, check=False, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        return result.stdout
+
+    def archive_entries(self, files):
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(self.archive_path, 'w') as archive:
+                archive.comment = self.sha.encode()
+                for name, data in files:
+                    archive.writestr(name, data)
+
+    def check(self):
+        original_bytes = self.archive_path.read_bytes()
+        try:
+            with patch.object(subprocess, 'run', side_effect=self.local_git):
+                return promotion.check_original_source(self.checkout, self.archive_path)
+        finally:
+            self.assertEqual(self.archive_path.read_bytes(), original_bytes,
+                             'The retained original source archive must never be rewritten')
+
+    def assert_exact_checkout(self, profile):
+        for name, raw in self.profile_files[profile].items():
+            self.assertEqual((self.checkout / name).read_bytes(), raw, name)
+
+    def test_real_git_raw_profile_passes_without_changing_original_archive(self):
+        self.archive_path.write_bytes(self.profiles['false'])
+        self.assertEqual(self.check(), self.checkout.resolve())
+        self.assert_exact_checkout('false')
+
+    def test_real_git_crlf_profile_is_materialized_exactly_without_touching_original_archive(self):
+        self.archive_path.write_bytes(self.profiles['true'])
+        self.assertEqual(self.check(), self.checkout.resolve())
+        self.assert_exact_checkout('true')
+        self.assertEqual((self.checkout / 'pinned.py').read_bytes(), self.files['pinned.py'])
+        self.assertNotEqual((self.checkout / 'README.md').read_bytes(), self.files['README.md'])
+        self.assertTrue(any('checkout-index' in command for command in self.commands))
+
+    def test_mixed_git_profiles_are_rejected_instead_of_normalized(self):
+        mixed = dict(self.profile_files['false'])
+        mixed['README.md'] = self.profile_files['true']['README.md']
+        self.archive_entries(list(mixed.items()))
+        with self.assertRaises(RuntimeError):
+            self.check()
+        self.assert_exact_checkout('false')
+
+    def test_nonnewline_tampering_fails_even_when_all_other_files_match_crlf_profile(self):
+        tampered = dict(self.profile_files['true'])
+        tampered['README.md'] += b'Unapproved content\r\n'
+        self.archive_entries(list(tampered.items()))
+        with self.assertRaises(RuntimeError):
+            self.check()
+        self.assert_exact_checkout('false')
+
+    def test_pinned_file_newline_change_is_rejected(self):
+        tampered = dict(self.profile_files['true'])
+        tampered['pinned.py'] = tampered['pinned.py'].replace(b'\n', b'\r\n')
+        self.archive_entries(list(tampered.items()))
+        with self.assertRaises(RuntimeError):
+            self.check()
+        self.assert_exact_checkout('false')
+
+    def test_missing_extra_duplicate_case_and_traversal_archive_entries_fail(self):
+        original = list(self.profile_files['true'].items())
+        variants = [original[:-1], original + [('unknown.py', b'unknown')],
+                    original + [('README.md', self.profile_files['true']['README.md'])],
+                    original + [('readme.MD', self.profile_files['true']['README.md'])],
+                    original + [('../escape', b'unsafe')],
+                    original + [('notes\\escape.txt', b'unsafe')],
+                    original + [('README.md:stream', b'unsafe')]]
+        for index, entries in enumerate(variants):
+            self.archive_entries(entries)
+            with self.subTest(case=index), self.assertRaises(RuntimeError):
+                self.check()
+            self.assert_exact_checkout('false')
+
+    def test_modified_initial_raw_checkout_is_never_overwritten_by_conversion(self):
+        self.archive_path.write_bytes(self.profiles['true'])
+        changed = b'Owned changed source; preserve me\n'
+        (self.checkout / 'README.md').write_bytes(changed)
+        with self.assertRaises(RuntimeError):
+            self.check()
+        self.assertEqual((self.checkout / 'README.md').read_bytes(), changed)
+        self.assertFalse(any('checkout-index' in command for command in self.commands))
+
+    def test_modified_index_cannot_drive_checkout_even_when_worktree_matches_head(self):
+        self.archive_path.write_bytes(self.profiles['true'])
+        target = self.checkout / 'README.md'
+        target.write_bytes(b'Different staged contents\n')
+        self.run_git('add', '--', 'README.md')
+        target.write_bytes(self.files['README.md'])
+        with self.assertRaises(RuntimeError):
+            self.check()
+        self.assert_exact_checkout('false')
+        self.assertFalse(any('checkout-index' in command for command in self.commands))
 
 
 class OriginalVerifierProcessTests(OfflineTestCase):
