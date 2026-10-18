@@ -6,13 +6,15 @@ release, or deletes partial results. gh alone uses the workflow's ephemeral toke
 from __future__ import annotations
 import argparse
 import hashlib
+import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -148,24 +150,45 @@ def extract_flat(archive_path, destination, names, *, max_bytes=MAX_EXPANDED):
 def check_original_source(source_checkout, source_archive):
     source_checkout = Path(source_checkout).resolve()
     def git(*arguments):
-        result = subprocess.run(['git', '-C', str(source_checkout), *arguments],
-                                capture_output=True, check=False, timeout=60)
-        require(result.returncode == 0, 'Original source Git identity check failed')
+        git_env = verifier_environment()
+        git_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_ATTR_NOSYSTEM='1')
+        result = subprocess.run(['git', '-C', str(source_checkout), '-c', 'core.attributesFile=', *arguments],
+                                env=git_env, capture_output=True, check=False, timeout=60)
+        require(result.returncode == 0, 'Original source Git identity/export check failed')
         return result.stdout
     require(git('rev-parse', 'HEAD').decode().strip() == SOURCE_SHA,
             'Original verifier checkout is not the tested source commit')
     require(Path(git('rev-parse', '--show-toplevel').decode().strip()).resolve() == source_checkout,
             'Original verifier checkout is not an independent Git root')
+    git('diff', '--cached', '--quiet', SOURCE_SHA)
+    info_attributes = Path(git('rev-parse', '--git-path', 'info/attributes').decode().strip())
+    if not info_attributes.is_absolute():
+        info_attributes = source_checkout / info_attributes
+    require(not info_attributes.exists(), 'Local Git attribute overrides are not allowed')
     rows = git('ls-tree', '-r', '-z', '--full-tree', SOURCE_SHA).split(b'\0')
     tree = {}
+    tree_modes = {}
     for row in filter(None, rows):
         header, raw_name = row.split(b'\t', 1)
         mode, kind, blob = header.decode('ascii').split()
         name = raw_name.decode('utf8')
-        require(mode in ('100644', '100755') and kind == 'blob' and name not in tree,
+        require(mode in ('100644', '100755') and kind == 'blob' and name not in tree
+                and not PurePosixPath(name).is_absolute() and not {'..', '.'} & set(name.split('/'))
+                and '\\' not in name and ':' not in name and re.fullmatch('[0-9a-f]{40}', blob),
                 'Unsupported original source tree entry')
         tree[name] = blob
-    require(0 < len(tree) <= 10000, 'Invalid original source inventory')
+        tree_modes[name] = mode
+    require(0 < len(tree) <= 10000 and len({name.casefold() for name in tree}) == len(tree),
+            'Invalid or case-ambiguous original source inventory')
+    index = {}
+    for row in filter(None, git('ls-files', '--stage', '-z').split(b'\0')):
+        header, raw_name = row.split(b'\t', 1)
+        mode, blob, stage = header.decode('ascii').split()
+        name = raw_name.decode('utf8')
+        require(stage == '0' and name not in index, 'Unmerged or duplicate original source index')
+        index[name] = (mode, blob)
+    require(index == {name: (tree_modes[name], blob) for name, blob in tree.items()},
+            'Original source index differs from tested Git tree')
     actual = set()
     for path in source_checkout.rglob('*'):
         relative = path.relative_to(source_checkout)
@@ -175,22 +198,77 @@ def check_original_source(source_checkout, source_archive):
         if path.is_file():
             actual.add(relative.as_posix())
     require(actual == set(tree), 'Original verifier checkout has extra or missing source files')
-    with zipfile.ZipFile(source_archive) as archive:
-        require(archive.comment == SOURCE_SHA.encode('ascii'), 'Original source archive commit changed')
-        entries = archive.infolist()
-        require(len({r.filename for r in entries}) == len(entries)
-                and sum(r.file_size for r in entries) <= 256 * 1024 * 1024,
-                'Original source archive duplicates or exceeds budget')
-        files = [r for r in entries if not r.is_dir()]
-        require({r.filename for r in files} == set(tree), 'Original source archive differs from Git inventory')
-        for row in files:
-            require(not stat.S_ISLNK(row.external_attr >> 16) and not row.flag_bits & 1,
-                    'Unsafe original source archive entry')
-            raw = archive.read(row)
-            blob = hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
-            require(blob == tree[row.filename], 'Original source archive blob differs from tested Git tree')
-            require((source_checkout / row.filename).read_bytes() == raw,
-                    'Original verifier checkout bytes differ from original source archive')
+    raw_checkout = {}
+    for name, expected_blob in tree.items():
+        raw = (source_checkout / name).read_bytes()
+        blob = hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
+        require(blob == expected_blob, 'Initial original checkout differs from raw Git blob: ' + name)
+        raw_checkout[name] = raw
+    directories = {parent.as_posix() + '/' for name in tree
+                   for parent in PurePosixPath(name).parents if parent != PurePosixPath('.')}
+    def archive_files(path):
+        with zipfile.ZipFile(path) as archive:
+            require(archive.comment == SOURCE_SHA.encode('ascii'), 'Original source archive commit changed')
+            entries = archive.infolist()
+            names = [row.filename for row in entries]
+            require(len(names) <= 20000 and len(set(names)) == len(names)
+                    and len({name.casefold() for name in names}) == len(names)
+                    and sum(row.file_size for row in entries) <= 256 * 1024 * 1024,
+                    'Original source archive duplicates, case aliases or exceeds budget')
+            require(all(row.filename in (directories if row.is_dir() else tree) for row in entries)
+                    and {row.filename for row in entries if not row.is_dir()} == set(tree),
+                    'Original source archive differs from Git inventory')
+            require(all(not stat.S_ISLNK(row.external_attr >> 16) and not row.flag_bits & 1
+                        for row in entries), 'Unsafe original source archive entry')
+            return {row.filename: archive.read(row) for row in entries if not row.is_dir()}
+    original = archive_files(source_archive)
+    # Git archive applies checkout conversion rules. Windows' core.autocrlf=true
+    # can change non-eol-pinned text even though the immutable Git blobs are LF.
+    # Accept only ONE complete export of the exact commit under either explicit
+    # profile. Never normalize individual files or mix profiles to make a match.
+    profiles = {}
+    for name, autocrlf in (('git-lf', 'false'), ('git-windows-crlf', 'true')):
+        exported = git('-c', 'core.autocrlf=' + autocrlf, '-c', 'core.eol=lf',
+                       'archive', '--format=zip', SOURCE_SHA)
+        profiles[name] = (autocrlf, archive_files(io.BytesIO(exported)))
+    matches = [name for name, (_, exported) in profiles.items() if exported == original]
+    if not matches:
+        details = []
+        for profile, (_, exported) in profiles.items():
+            name = next(name for name in sorted(tree) if exported[name] != original[name])
+            expected, actual_bytes = exported[name], original[name]
+            details.append(f'{profile}:{name}:expected_size={len(expected)},actual_size={len(actual_bytes)},'
+                           f'expected_sha256={hashlib.sha256(expected).hexdigest()},'
+                           f'actual_sha256={hashlib.sha256(actual_bytes).hexdigest()}')
+        raise gate.VerificationError('Original source matches no complete Git export profile; ' + '; '.join(details))
+    selected = matches[0]
+    autocrlf, expected = profiles[selected]
+    # This is an isolated, newly created checkout, already proven clean above.
+    # Materialize only its tracked index from the selected Git conversion rule;
+    # never write the retained original ZIP or build reports.
+    # Export into a fresh prefix: checkout-index can otherwise skip an existing
+    # stat-clean file even with --force when only the conversion rule changes.
+    with tempfile.TemporaryDirectory(prefix='vga-source-profile-', dir=source_checkout.parent) as temporary:
+        materialized = Path(temporary)
+        git('-c', 'core.autocrlf=' + autocrlf, '-c', 'core.eol=lf', 'checkout-index',
+            '--prefix=' + materialized.as_posix() + '/', '--all')
+        for name in tree:
+            path = materialized / name
+            require(path.is_file() and not path.is_symlink() and path.read_bytes() == original[name],
+                    'Git materialization differs from retained source bytes: ' + name)
+        # Only independently generated, fully matched tracked source bytes are
+        # copied into this owned verifier checkout. Original ZIP stays read-only.
+        for name in tree:
+            (source_checkout / name).write_bytes((materialized / name).read_bytes())
+    require(git('rev-parse', 'HEAD').decode().strip() == SOURCE_SHA,
+            'Original verifier HEAD changed during materialization')
+    for name in tree:
+        require((source_checkout / name).read_bytes() == original[name],
+                'Original verifier materialization differs from retained source bytes: ' + name)
+    print(json.dumps({'original_source_profile': selected, 'source_sha': SOURCE_SHA,
+                      'source_files': len(tree),
+                      'files_differing_from_raw_git': sum(original[name] != raw_checkout[name] for name in tree),
+                      'retained_source_zip_sha256': gate.digest(source_archive)}, sort_keys=True))
     return source_checkout
 
 
