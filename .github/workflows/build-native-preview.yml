@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.15 as a regression recovery DIAGNOSTIC prerelease'
+        description: 'Build, test and publish v0.4.16 as a selection routing DIAGNOSTIC prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.15
+  group: vga-native-preview-v0.4.16
   cancel-in-progress: false
 
 jobs:
@@ -150,6 +150,8 @@ jobs:
       - name: Always check the small-evidence artifact budget
         id: evidence_budget
         if: ${{ always() }}
+        env:
+          VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}
         run: python scripts/check_artifact_budget.py --evidence-only
       - name: Verify fresh native preview, source licenses and exact tested bytes
         if: ${{ success() }}
@@ -177,6 +179,8 @@ jobs:
       - name: Check the full candidate artifact budget without changing verified evidence
         id: candidate_budget
         if: ${{ success() && !inputs.publish_preview }}
+        env:
+          VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}
         run: python scripts/check_artifact_budget.py --output build/verified-artifact-budget.json
       - name: Preserve this exact verified candidate for one day
         if: ${{ success() && !inputs.publish_preview && steps.candidate_budget.outcome == 'success' }}
@@ -211,7 +215,8 @@ jobs:
           }
       - name: Create verified draft and publish its ID only as a non-latest prerelease
         if: ${{ success() && inputs.publish_preview }}
-        # Only the final publishing step maps the ephemeral token into an environment.
+        # Only the final publishing step exposes the ephemeral token to the release CLI.
+        # Budget steps separately use it only for the fixed read-only inventory endpoint.
         env:
           GH_TOKEN: ${{ github.token }}
           GH_HOST: github.com
