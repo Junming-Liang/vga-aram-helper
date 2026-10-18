@@ -62,8 +62,39 @@ _SHUTDOWN_TOKENS = tuple(f'S{index}\n'.encode('ascii')
                          for index in range(1, len(SESSION_SHUTDOWN_STAGES) + 1))
 
 
-def _invalid_reply():
-    return WgcError('invalid-reply', '实验截图协议校验失败，已关闭本次会话。')
+PROTOCOL_FAILURE_REASONS = frozenset({'unknown', 'stdout_eof', 'header_length',
+    'header_mismatch', 'stdout_trailing', 'stdout_peek_failed', 'stdin_write_zero',
+    'stderr_oversize', 'response_length', 'frame_repeated', 'idle_mismatch',
+    'idle_before_frame', 'cutoff_before_request', 'idle_after_now', 'missing_data'})
+PROTOCOL_FAILURE_STAGES = frozenset({'unknown', 'request', 'response_header',
+    'pixel_payload', 'idle_trailer', 'after_response', 'stderr', 'decode'})
+_PROTOCOL_SCALARS = frozenset({'mismatch_mask', 'expected_bytes', 'received_bytes',
+    'expected_width', 'expected_height', 'expected_payload_bytes',
+    'observed_width', 'observed_height', 'observed_payload_bytes'})
+
+
+def sanitize_protocol_diagnostic(value):
+    """Fixed codes/counts only; never raw pipe bytes or request/lifetime IDs."""
+    if type(value) is not dict:return None
+    value = value.copy()
+    required = {'schema_version', 'reason', 'stage'}
+    if (type(value) is not dict or not required <= value.keys()
+            or not value.keys() <= required | _PROTOCOL_SCALARS
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or type(value['reason']) is not str or value['reason'] not in PROTOCOL_FAILURE_REASONS
+            or type(value['stage']) is not str or value['stage'] not in PROTOCOL_FAILURE_STAGES
+            or any(type(value[key]) is not int or not 0 <= value[key] <= 2**32-1
+                   for key in value.keys() & _PROTOCOL_SCALARS)
+            or value.get('mismatch_mask', 0) >= 2**10):
+        return None
+    return dict(value)
+
+
+def _invalid_reply(reason='unknown', stage='unknown', **counts):
+    error = WgcError('invalid-reply', '实验截图协议校验失败，已关闭本次会话。')
+    error.protocol_diagnostic = sanitize_protocol_diagnostic(
+        dict(schema_version=1, reason=reason, stage=stage, **counts))
+    return error
 
 
 def encode_request(request_id, generation, pixel_roi, wait_ms=FRAME_WAIT_MS, *, stop=False):
@@ -89,14 +120,20 @@ def encode_request(request_id, generation, pixel_roi, wait_ms=FRAME_WAIT_MS, *, 
 
 def _validate_header(data, pixel_roi, request_id, generation):
     if len(data) != RESPONSE.size:
-        raise _invalid_reply()
+        raise _invalid_reply('header_length', 'response_header',
+                             expected_bytes=RESPONSE.size, received_bytes=len(data))
     values = RESPONSE.unpack(data)
     magic, status, phase, actual_id, actual_generation, width, height, size, reserved, cutoff, frame = values
-    if ((magic, status, phase, actual_id, actual_generation, width, height, size, reserved)
-            != (RESPONSE_MAGIC, 0, 1, request_id, generation, pixel_roi[2], pixel_roi[3],
+    actual = (magic, status, phase, actual_id, actual_generation, width, height, size, reserved)
+    expected = (RESPONSE_MAGIC, 0, 1, request_id, generation, pixel_roi[2], pixel_roi[3],
                 pixel_roi[2] * pixel_roi[3] * 4, 0)
-            or not 0 < cutoff < frame):
-        raise _invalid_reply()
+    mismatch = sum(1 << index for index, (left, right) in enumerate(zip(actual, expected)) if left != right)
+    if not 0 < cutoff < frame:mismatch |= 1 << 9
+    if mismatch:
+        raise _invalid_reply('header_mismatch', 'response_header', mismatch_mask=mismatch,
+            expected_width=pixel_roi[2], expected_height=pixel_roi[3],
+            expected_payload_bytes=pixel_roi[2]*pixel_roi[3]*4,
+            observed_width=width, observed_height=height, observed_payload_bytes=size)
     return size, cutoff, frame
 
 
@@ -104,16 +141,22 @@ def decode_response(data, pixel_roi, request_id, generation, *, previous_frame=0
                     earliest_cutoff=None, latest_timestamp=None):
     """Never construct an image until exact pixels AND guarded-idle trailer match."""
     if len(data) < RESPONSE.size:
-        raise _invalid_reply()
+        raise _invalid_reply('header_length', 'decode', expected_bytes=RESPONSE.size, received_bytes=len(data))
     size, cutoff, frame = _validate_header(data[:RESPONSE.size], pixel_roi, request_id, generation)
-    if len(data) != RESPONSE.size + size + IDLE.size or frame <= previous_frame:
-        raise _invalid_reply()
+    if len(data) != RESPONSE.size + size + IDLE.size:
+        raise _invalid_reply('response_length', 'decode', expected_bytes=RESPONSE.size+size+IDLE.size, received_bytes=len(data))
+    if frame <= previous_frame:
+        raise _invalid_reply('frame_repeated', 'decode')
     magic, actual_id, actual_generation, entered = IDLE.unpack_from(data, RESPONSE.size + size)
-    if (magic, actual_id, actual_generation) != (IDLE_MAGIC, request_id, generation) or entered < frame:
-        raise _invalid_reply()
-    if ((earliest_cutoff is not None and cutoff < earliest_cutoff)
-            or (latest_timestamp is not None and entered > latest_timestamp)):
-        raise _invalid_reply()
+    if (magic, actual_id, actual_generation) != (IDLE_MAGIC, request_id, generation):
+        mismatch = sum(1 << index for index, (left, right) in enumerate(zip(
+            (magic, actual_id, actual_generation), (IDLE_MAGIC, request_id, generation))) if left != right)
+        raise _invalid_reply('idle_mismatch', 'decode', mismatch_mask=mismatch)
+    if entered < frame:raise _invalid_reply('idle_before_frame', 'decode')
+    if earliest_cutoff is not None and cutoff < earliest_cutoff:
+        raise _invalid_reply('cutoff_before_request', 'decode')
+    if latest_timestamp is not None and entered > latest_timestamp:
+        raise _invalid_reply('idle_after_now', 'decode')
     from PIL import Image
     image = Image.frombytes('RGB', tuple(pixel_roi[2:]), bytes(data[RESPONSE.size:RESPONSE.size + size]), 'raw', 'BGRX')
     return image, {'request_cutoff_100ns': cutoff, 'frame_100ns': frame, 'idle_enter_100ns': entered,
@@ -233,6 +276,51 @@ def completed_native_shutdown(data, returncode):
             and type(data) in (bytes, bytearray) and data == b''.join(_SHUTDOWN_TOKENS))
 
 
+def sanitize_failure_evidence(value):
+    """Detached bounded failure evidence; never grants capture or fallback."""
+    if type(value) is not dict:return None
+    # Cleanup publishes a whole fixed-key snapshot in place. Read once so a
+    # concurrent publication cannot mix fields from two observations.
+    value = value.copy()
+    keys = {'schema_version', 'protocol_diagnostic', 'process_exit_code', 'stderr_bytes',
+            'cleanup_complete', 'termination_requested_while_alive',
+            'native_diagnostic', 'shutdown_diagnostic'}
+    if (type(value) is not dict or set(value) != keys
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or type(value['stderr_bytes']) is not int or not 0 <= value['stderr_bytes'] <= MAX_DIAGNOSTIC_BYTES+1
+            or type(value['cleanup_complete']) is not bool
+            or (value['termination_requested_while_alive'] is not None
+                and type(value['termination_requested_while_alive']) is not bool)):
+        return None
+    code = value['process_exit_code']
+    if code is not None and (type(code) is not int or not -(2**31) <= code <= 2**32-1):return None
+    protocol = sanitize_protocol_diagnostic(value['protocol_diagnostic'])
+    if value['protocol_diagnostic'] is not None and protocol is None:return None
+    native = value['native_diagnostic']
+    if native is not None:
+        # Validate shape/numeric bounds before encoding, so arbitrary strings or
+        # containers cannot turn this secondary validation into an unbounded copy.
+        if type(native) is not dict:return None
+        core = {key:item for key,item in native.items() if key != 'clock'}
+        if (type(core.get('phase')) is not str or core['phase'] not in SESSION_PHASES
+                or type(core.get('check')) is not str or core['check'] not in SESSION_CHECKS
+                or sanitize_native_diagnostic(dict(core, phase='startup', check='invariant')) is None):return None
+        if 'clock' in native:
+            clock = native['clock']
+            if (type(clock) is not dict or set(clock) != SESSION_CLOCK_KEYS
+                    or any(type(number) is not int or not -(2**63) <= number <= 2**63-1
+                           for number in clock.values())):return None
+        native = decode_session_diagnostic(json.dumps(native, separators=(',', ':')).encode('ascii'), code)
+        if native is None:return None
+    shutdown = sanitize_session_shutdown_diagnostic(value['shutdown_diagnostic'], code)
+    if value['shutdown_diagnostic'] is not None and shutdown is None:return None
+    return dict(value, protocol_diagnostic=protocol, native_diagnostic=native, shutdown_diagnostic=shutdown)
+
+
+# One sanitizer shared by transport, production capture and smoke summaries.
+sanitize_session_failure_evidence = sanitize_failure_evidence
+
+
 def _property_name(generation):
     return 'VGA.WGC.SessionV2.Overlay.' + str(generation)
 
@@ -290,13 +378,13 @@ def _wipe(data):
         data.clear()
 
 
-def _read_exact(stream, length):
+def _read_exact(stream, length, *, stage='unknown'):
     data = bytearray()
     try:
         while len(data) < length:
             part = stream.read(min(65536, length - len(data)))
             if not part:
-                raise _invalid_reply()
+                raise _invalid_reply('stdout_eof', stage, expected_bytes=length, received_bytes=len(data))
             data.extend(part)
         return data
     except BaseException:
@@ -326,7 +414,7 @@ def _pipe_available(stream):
     kernel.PeekNamedPipe.restype = W.BOOL
     count = W.DWORD()
     if not kernel.PeekNamedPipe(msvcrt.get_osfhandle(stream.fileno()), None, 0, None, ctypes.byref(count), None):
-        raise _invalid_reply()
+        raise _invalid_reply('stdout_peek_failed', 'after_response')
     return count.value
 
 
@@ -360,6 +448,13 @@ class _Transport:
         self.idle_deadline = time.monotonic() + IDLE_LEASE
         self.failure = None
         self.diagnostic = bytearray()
+        self._evidence_lock = threading.Lock()
+        # Allocate once before any worker can fail. Callers may retain this
+        # bounded dictionary; no exception/traceback or pixel buffer is retained.
+        self._failure_evidence = dict(schema_version=1, protocol_diagnostic=None,
+            process_exit_code=None, stderr_bytes=0, cleanup_complete=False,
+            termination_requested_while_alive=False, native_diagnostic=None,
+            shutdown_diagnostic=None)
         # Sticky evidence only; never changes revoke, kill, reap or replacement.
         # None means the pre-termination poll failed, so graceful proof must
         # require exactly False. An observed-alive attempt always sets True.
@@ -408,6 +503,48 @@ class _Transport:
         if error is not None and self.failure is None:
             self.failure = error
         self.revoked.set()
+        self._publish_failure_evidence(error)
+
+    def failure_evidence(self, *, cleanup_complete=None):
+        """Nonwaiting observation of this exact failed helper, including late exit."""
+        if self.failure is None:return None
+        process = self.process
+        try:code = process.poll() if process is not None else None
+        except OSError:code = None
+        raw = bytes(self.diagnostic)
+        complete_stderr = self.stderr_done.is_set()
+        return sanitize_failure_evidence(dict(schema_version=1,
+            protocol_diagnostic=sanitize_protocol_diagnostic(getattr(self.failure, 'protocol_diagnostic', None)),
+            process_exit_code=code, stderr_bytes=len(raw),
+            cleanup_complete=self.ready_for_replacement.is_set() if cleanup_complete is None else cleanup_complete,
+            termination_requested_while_alive=self.termination_requested_while_alive,
+            native_diagnostic=decode_session_diagnostic(raw, code) if complete_stderr else None,
+            shutdown_diagnostic=decode_session_shutdown_diagnostic(raw, code) if complete_stderr else None))
+
+    def _publish_failure_evidence(self, error=None, *, cleanup_complete=None):
+        # Diagnostics cannot interfere with revoke, cleanup, or error decisions.
+        try:
+            if self.failure is None:return
+            current = self._failure_evidence
+            self.failure.failure_evidence = current
+            if error is not None:error.failure_evidence = current
+            evidence = self.failure_evidence(cleanup_complete=cleanup_complete)
+            if evidence is None:return
+            # Revoke can run on the GUI thread: it must never wait for another
+            # publisher. Only the existing cleanup worker may wait, and this
+            # lock covers fixed dictionary operations, never I/O or state locks.
+            if not self._evidence_lock.acquire(blocking=cleanup_complete is True):return
+            try:
+                if current.get('cleanup_complete') is True and cleanup_complete is not True:return
+                current.update(evidence)
+                # Internally published dictionaries have exactly these keys;
+                # discard any externally inserted field without an empty state.
+                for key in tuple(current):
+                    if key not in evidence:del current[key]
+            finally:
+                self._evidence_lock.release()
+        except Exception:
+            pass
 
     def _read_stderr(self):
         try:
@@ -419,7 +556,8 @@ class _Transport:
                 if remaining > 0:
                     self.diagnostic.extend(part[:remaining])
                 if len(self.diagnostic) > MAX_DIAGNOSTIC_BYTES:
-                    self.revoke(_invalid_reply())
+                    self.revoke(_invalid_reply('stderr_oversize', 'stderr',
+                        expected_bytes=MAX_DIAGNOSTIC_BYTES, received_bytes=len(self.diagnostic)))
                     break
         except (OSError, ValueError):
             pass
@@ -433,6 +571,7 @@ class _Transport:
             status = {10: 'unsupported', 11: 'timeout', 12: 'stale', 13: 'protected', 14: 'backend-error'}[code]
             error = (WgcUnavailable if code == 10 else WgcError)(status, '实验图形会话已停止，未返回本帧。')
             error.diagnostic = decode_session_diagnostic(self.diagnostic, code)
+            error.protocol_diagnostic = sanitize_protocol_diagnostic(getattr(fallback, 'protocol_diagnostic', None))
             return error
         return fallback if isinstance(fallback, WgcError) else WgcError('backend-error', '实验图形会话未正常完成。')
 
@@ -468,16 +607,17 @@ class _Transport:
                 while view:
                     count = self.process.stdin.write(view)
                     if not count:
-                        raise _invalid_reply()
+                        raise _invalid_reply('stdin_write_zero', 'request', expected_bytes=len(view), received_bytes=0)
                     view = view[count:]
-                data = _read_exact(self.process.stdout, RESPONSE.size)
+                data = _read_exact(self.process.stdout, RESPONSE.size, stage='response_header')
                 try:
                     size, _, _ = _validate_header(data, exchange.roi, exchange.request_id, self.generation)
-                    for length in (size, IDLE.size):
-                        part = _read_exact(self.process.stdout, length)
+                    for length, stage in ((size, 'pixel_payload'), (IDLE.size, 'idle_trailer')):
+                        part = _read_exact(self.process.stdout, length, stage=stage)
                         data.extend(part); _wipe(part)
-                    if _pipe_available(self.process.stdout):
-                        raise _invalid_reply()
+                    remaining = _pipe_available(self.process.stdout)
+                    if remaining:
+                        raise _invalid_reply('stdout_trailing', 'after_response', expected_bytes=0, received_bytes=remaining)
                     with self.lock:
                         if self.revoked.is_set():
                             raise self.failure or WgcError('cancelled', '实验截图已取消。')
@@ -494,7 +634,10 @@ class _Transport:
                 except subprocess.TimeoutExpired:
                     pass
                 self.stderr_done.wait(.05)
+            original = error
             error = self.failure or self._native_error(error)
+            if sanitize_protocol_diagnostic(getattr(error, 'protocol_diagnostic', None)) is None:
+                error.protocol_diagnostic = sanitize_protocol_diagnostic(getattr(original, 'protocol_diagnostic', None))
             self.revoke(error)
             if exchange is not None:
                 exchange.error = error; exchange.done.set()
@@ -556,6 +699,7 @@ class _Transport:
                         _wipe(self._active.data); self._active.data = None
                         self._active.error = self.failure or WgcError('cancelled', '实验截图已取消。')
                         self._active.done.set()
+                self._publish_failure_evidence(cleanup_complete=True)
                 self.ready_for_replacement.set()
                 return
             # Driver/OS termination can be delayed. Retain this sole ownership
@@ -720,7 +864,7 @@ class WgcSessionCapture:
             with transport.lock:
                 data, exchange.data = exchange.data, None
             if data is None:
-                raise _invalid_reply()
+                raise _invalid_reply('missing_data', 'decode')
             image, timing = decode_response(data, pixel_roi, request_id, transport.generation,
                                             previous_frame=self._last_frame,
                                             earliest_cutoff=request_started, latest_timestamp=_qpc_100ns())
@@ -745,6 +889,10 @@ class WgcSessionCapture:
         finally:
             _wipe(data)
             self._capture_lock.release()
+
+    def failure_evidence(self):
+        transport = self._transport
+        return transport.failure_evidence() if transport is not None else None
 
     def close(self):
         with self._state:

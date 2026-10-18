@@ -21,6 +21,12 @@ def _new_session(*, allow_visible_overlay=False):
     return WgcSessionCapture(experimental=True, allow_visible_overlay=allow_visible_overlay)
 
 
+def sanitize_capture_failure_evidence(value):
+    """Expose only the bounded diagnostic schema across the production boundary."""
+    from wgc_session_capture import sanitize_session_failure_evidence
+    return sanitize_session_failure_evidence(value)
+
+
 @dataclass(frozen=True)
 class OverlayRegistration:
     hwnd: int

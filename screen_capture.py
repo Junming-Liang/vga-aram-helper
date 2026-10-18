@@ -216,6 +216,16 @@ class Win32Capture:
                 current[key]=value if type(value) is str and value in CAPTURE_DIAGNOSTIC_ENUMS[key] else 'unknown'
         self._capture_diagnostic=current
 
+    @property
+    def last_capture_failure_diagnostic(self):
+        """Detached, bounded protocol evidence; never retain an exception/frame.
+
+        The owned transport updates its small evidence dictionary when existing
+        cleanup completes. Reading this property never waits or changes routing.
+        """
+        from persistent_capture_adapter import sanitize_capture_failure_evidence
+        return sanitize_capture_failure_evidence(getattr(self,'_capture_failure_evidence',None))
+
     def retire_session(self):
         """GUI-safe: revoke now; the adapter owns asynchronous close/cleanup."""
         self._last_session_receipt=None
@@ -332,6 +342,7 @@ class Win32Capture:
         lock=getattr(self,'_capture_lock',None)
         if lock is not None and not lock.acquire(blocking=False):raise CapturePaused('已有窗口截图请求尚未结束。')
         try:
+            self._capture_failure_evidence=None
             self._capture_diagnostic={}
             self._capture_diagnose(capture_status='pending',session_status='not-attempted',oneshot_status='not-attempted',fallback_reason='none')
             self._last_session_receipt=None
@@ -347,6 +358,13 @@ class Win32Capture:
             self._capture_diagnose(capture_status='ok')
             return result
         except BaseException as exc:
+            evidence=getattr(exc,'failure_evidence',None)
+            # Keep only the fixed evidence dictionary, not the exception whose
+            # traceback could retain frame buffers. The getter re-sanitizes it.
+            if isinstance(exc,WgcError) and type(evidence) is dict:
+                from persistent_capture_adapter import sanitize_capture_failure_evidence
+                if sanitize_capture_failure_evidence(evidence) is not None:
+                    self._capture_failure_evidence=evidence
             self._capture_diagnose(capture_status=getattr(exc,'status',getattr(exc,'reason_code','unknown')))
             self.retire_session()
             if isinstance(exc,WgcError):raise CapturePaused(str(exc)) from exc

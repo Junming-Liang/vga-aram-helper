@@ -830,6 +830,57 @@ def native_report_payload(report):
     return json.dumps(report,ensure_ascii=False,separators=(',',':'))+'\n'
 
 
+def _capture_failure_snapshot(control):
+    """Bounded read-only evidence, never a capture or a cleanup operation."""
+    from screen_capture import CAPTURE_DIAGNOSTIC_ENUMS
+    from wgc_session_capture import sanitize_session_failure_evidence
+    capture=getattr(control,'capture',None)
+    diagnostic=getattr(capture,'last_capture_diagnostic',{})
+    if not hasattr(diagnostic,'get'):diagnostic={}
+    return dict(capture_diagnostic={key:diagnostic[key] for key,allowed in CAPTURE_DIAGNOSTIC_ENUMS.items()
+                    if type(diagnostic.get(key)) is str and diagnostic[key] in allowed},
+        session_failure=sanitize_session_failure_evidence(getattr(capture,'last_capture_failure_diagnostic',None)),
+        cleanup_pending=bool(getattr(capture,'cleanup_pending',False)))
+
+
+def _collect_failed_capture_cleanup(control,report,save,done,*,initial=None,clock=time.monotonic,later=QtCore.QTimer.singleShot):
+    """Observe existing teardown for at most two seconds; the test stays failed."""
+    started=clock()
+    evidence=report['capture_failure_evidence']=dict(initial=initial or _capture_failure_snapshot(control))
+    close=getattr(getattr(control,'capture',None),'close',None)
+    evidence['revocation_requested']=False
+    if close:
+        try:close();evidence['revocation_requested']=True
+        except Exception:pass  # Preserve the original failure, not cleanup text.
+    save()
+    def poll():
+        snapshot=_capture_failure_snapshot(control);elapsed=max(0.,clock()-started)
+        evidence.update(final=snapshot,cleanup_wait_ms=round(elapsed*1000,3),
+            cleanup_deadline_reached=bool(snapshot['cleanup_pending'] and elapsed>=2.))
+        if snapshot['cleanup_pending'] and elapsed<2.:
+            later(20,poll);return
+        save()
+        done()
+    poll()
+
+
+def _exercise_manual_hero_switches(control,observe_current,names,report):
+    """Repeat the actual manual-edit retirement path, with no capture retry."""
+    evidence=report['manual_hero_switches']=dict(required=8,attempted=0,completed=0)
+    for hero,tiers in [('磐石守卫（演示）',['T3','T1','T2']),('星火术士（演示）',['T1','T2','T3'])]*4:
+        evidence['attempted']+=1
+        control.hero_box.setCurrentText(hero)
+        assert not control.state.confirmed and not control.overlay.isVisible()
+        control.confirm();value=observe_current()
+        assert control._completed_capture_serial==value['_captureSerial'],'Manual switch did not accept its new capture'
+        assert value['_frameScope'][6]==(None,None),'Manual switch borrowed automatic matcher scope'
+        assert control.state.hero==hero and control.state.confirmed and not control.hero_auto.isChecked()
+        assert control.overlay.isVisible();inspect_smoke_layout(control.overlay)
+        assert [card['name'] for card in control.overlay.cards]==names
+        assert [card['sourceTier'] for card in control.overlay.cards]==tiers
+        evidence['completed']+=1
+
+
 def start_smoke(control,report_path,screenshot_path):
     app=QtWidgets.QApplication.instance();checks=[];root=Path(__file__).resolve().parent
     observed_frame={}
@@ -842,6 +893,12 @@ def start_smoke(control,report_path,screenshot_path):
     def save():
         report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(native_report_payload(report),encoding='utf8')
     def fail(exc):
+        if report.get('status')=='failed':return
+        # Duty cleanup can restore a different capture adapter. Both snapshots
+        # and the drain below must retain the exact failing adapter instead.
+        failed_capture=SimpleNamespace(capture=getattr(control,'capture',None))
+        initial=_capture_failure_snapshot(failed_capture)
+        report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
         cleanup=getattr(control,'_smoke_duty_cleanup',None)
         if cleanup:
             control._smoke_duty_cleanup=None
@@ -851,11 +908,18 @@ def start_smoke(control,report_path,screenshot_path):
         if outer_cleanup:
             try:outer_cleanup()
             except Exception:pass
-        restore_schedule()
-        report.update(status='failed',error=str(exc)[:2000],error_type=type(exc).__name__,error_traceback=traceback.format_exc(limit=4)[-4000:]);save()
-        for widget in control._smoke_objects:widget.close()
-        control.close();app.exit(1)
+        # Keep all queued/late production callbacks quiescent while observing
+        # teardown. Restore cadence only immediately before terminal closure.
+        stop=getattr(control,'stop_monitor',None)
+        if stop:stop()
+        control.monitor.stop();control.schedule_capture=lambda delay=None:None
+        def finish():
+            restore_schedule()
+            for widget in control._smoke_objects:widget.close()
+            control.close();app.exit(1)
+        _collect_failed_capture_cleanup(failed_capture,report,save,finish,initial=initial)
     def run(fn):
+        if report.get('status')=='failed':return
         try:fn()
         except Exception as exc:fail(exc)
     if os.name!='nt' or app.platformName()!='windows':return fail(RuntimeError('Native Windows smoke requires the real Windows Qt platform, not offscreen/minimal.'))
@@ -998,9 +1062,10 @@ def start_smoke(control,report_path,screenshot_path):
         assert [card['sourceTier'] for card in control.overlay.cards]==['T1','T2','T3']
         assert [widget.tier for widget in control.overlay.tier_labels]==['T1','T2','T3']
         assert [widget.accessibleName() for widget in control.overlay.tier_labels]==[f'选项 {i} · {name} · T{i} · 演示评级' for i,name in enumerate(names,1)]
-        control.hero_box.setCurrentText('磐石守卫（演示）');assert not control.state.confirmed and not control.overlay.isVisible()
-        control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay);assert [card['name'] for card in control.overlay.cards]==names and [card['sourceTier'] for card in control.overlay.cards]==['T3','T1','T2']
+        _exercise_manual_hero_switches(control,observe_current,names,report)
+        checks.append('Eight alternating manual hero switches retire the old capture scope and each accept one fresh hidden capture with the exact hero-specific grades')
         report['source_tier_hero_specific']=True;report['auto_manual_fallback_passed']=not control.hero_auto.isChecked()
+        control.hero_box.setCurrentText('磐石守卫（演示）');control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay)
         tier_row=control.data['heroAugmentStats']['磐石守卫（演示）'][0];saved_tier=tier_row['tier']
         for missing in [None,'UNKNOWN']:
             tier_row['tier']=missing;control.confirm();observe_current();assert control.overlay.isVisible();inspect_smoke_layout(control.overlay);assert control.overlay._badge_widgets[1].tier=='暂无评级' and '暂无评级' in control.overlay._badge_widgets[1].accessibleName()
