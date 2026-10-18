@@ -85,14 +85,12 @@ jobs:
         if: ${{ inputs.source_focus_only }}
         timeout-minutes: 10
         run: python tests/windows_wgc_visible_overlay.py --reports reports
-      - name: Require source-only selection handoff at three app scales
+      - name: Require source selection handoff at three app scales
         id: focus_selection
-        if: ${{ inputs.source_focus_only }}
         timeout-minutes: 8
         run: python tests/windows_selection_smoke.py --report-dir reports
-      - name: Require source-only automatic owned window lifecycle
+      - name: Require source automatic owned window lifecycle
         id: focus_automatic
-        if: ${{ inputs.source_focus_only }}
         timeout-minutes: 6
         run: python tests/windows_automatic_capture.py --reports reports
       - name: Require source-only exact-source geometry at five app scales
@@ -122,6 +120,7 @@ jobs:
           import hashlib
           import importlib
           import json
+          import math
           import os
           from pathlib import Path
           import re
@@ -171,7 +170,12 @@ jobs:
                   return value
               def invalid(value):
                   raise RuntimeError('Non-finite source report value')
-              value = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=unique, parse_constant=invalid)
+              def finite_float(text):
+                  value = float(text)
+                  require(math.isfinite(value), 'Non-finite source report value')
+                  return value
+              value = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=unique,
+                                 parse_constant=invalid, parse_float=finite_float)
               require(type(value) is dict, 'Source report must be an object')
               return value
 
@@ -329,6 +333,7 @@ jobs:
           """Read-only bindings for this fixed source/frozen diagnostic, never release approval."""
           import hashlib
           import json
+          import math
           import os
           from pathlib import Path
           import re
@@ -341,6 +346,7 @@ jobs:
           PROFILE = 'minimal-opencv-v1'
           IDENTITY = 'reports/windows-native-diagnostic-identity.json'
           RESULT = 'reports/windows-native-diagnostic-result.json'
+          SELECTION_RECEIPT = 'reports/windows-frozen-selection-diagnostic.json'
           CASES = (
               ('frozen150-first', 'reports', 'windows-native-scale150', 1.5),
               ('frozen150-second', 'build/native-frozen150-second/reports', 'windows-native-scale150', 1.5),
@@ -350,13 +356,18 @@ jobs:
           SOURCE_CASES = (('reports', 'windows-native-source-scale150', 1.5),
                           ('reports', 'windows-native-source', 1.0),
                           ('reports', 'windows-native-source-scale200', 2.0))
+          REQUIRED_STEPS = ('focus_selection', 'focus_automatic', 'focus_native150', 'focus_native100', 'focus_native200',
+                            'frozen_selection', 'frozen_native150_first', 'frozen_native150_second', 'frozen_native100', 'frozen_native200')
           CONFIG_INPUTS = ('.github/workflows/diagnose-native-source.yml',
                            'tests/test_native_source_diagnostic_workflow.py',
                            'app_version.py', 'capture_cadence.py', 'requirements-build.txt',
                            'requirements-ocr.txt', 'packaging/windows-build-constraints.txt',
-                           'packaging/VGA-Aram-Helper.spec', 'scripts/build_windows.py')
+                           'packaging/VGA-Aram-Helper.spec', 'scripts/build_windows.py',
+                           'tests/windows_ota_smoke.py', 'tests/windows_exe_smoke.py')
           SCOPE = ('Owned synthetic source/frozen capture diagnostics for one fresh EXE. '
-                   'Not complete release acceptance or proof of the original Run 80 cause.')
+                   'Not complete release acceptance or proof of the original Run 80 cause. '
+                   'Selection/controller ownership is tested from source and this EXE at three scales; '
+                   'automatic window lifecycle is tested from source only.')
 
 
           def require(value, message):
@@ -376,7 +387,20 @@ jobs:
               path = ROOT / relative
               require(not path.is_symlink() and path.is_file() and path.stat().st_size <= 4 * 1024 * 1024,
                       'Missing, symbolic or oversized JSON: ' + relative)
-              value = json.loads(path.read_text(encoding='utf-8-sig'))
+              def unique(pairs):
+                  value = {}
+                  for key, item in pairs:
+                      require(key not in value, 'Duplicate diagnostic JSON key')
+                      value[key] = item
+                  return value
+              def invalid(value):
+                  raise RuntimeError('Non-finite diagnostic JSON value')
+              def finite_float(text):
+                  value = float(text)
+                  require(math.isfinite(value), 'Non-finite diagnostic JSON value')
+                  return value
+              value = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=unique,
+                                 parse_constant=invalid, parse_float=finite_float)
               require(type(value) is dict, 'JSON must be an object: ' + relative)
               return value
 
@@ -402,7 +426,10 @@ jobs:
           def source_hashes():
               from overlay_duty_contract import SOURCE_FILES
               from scripts.probe_opencv_postbuild import SOURCE_FILES as BUILD_INPUTS
-              return {name: file_record(name)['sha256'] for name in sorted(set(SOURCE_FILES) | set(BUILD_INPUTS) | set(CONFIG_INPUTS))}
+              from windows_selection_smoke import SOURCE_FILES as SELECTION_INPUTS
+              from windows_automatic_capture import SOURCE_FILES as AUTOMATIC_INPUTS
+              names = set(SOURCE_FILES) | set(BUILD_INPUTS) | set(CONFIG_INPUTS) | set(SELECTION_INPUTS) | set(AUTOMATIC_INPUTS)
+              return {name: file_record(name)['sha256'] for name in sorted(names)}
 
 
           def duty_inputs():
@@ -443,6 +470,58 @@ jobs:
               return dict(report=path, **file_record(path), frozen=frozen, app_scale=scale, manual_switches=8)
 
 
+          def selection_names(frozen):
+              require(type(frozen) is bool, 'Selection execution mode must be explicit')
+              prefix = 'windows-selection-handoff' if frozen else 'windows-selection-source-handoff'
+              return (('windows-selection-smoke.json' if frozen else 'windows-selection-source.json'),
+                      prefix + '.json', prefix + '-scale150.json', prefix + '-scale200.json')
+
+
+          def verify_selection(identity, *, frozen):
+              from windows_selection_smoke import SOURCE_FILES, validate_aggregate
+              names = selection_names(frozen)
+              aggregate_path = 'reports/' + names[0]
+              report = read_json(aggregate_path)
+              expected = {name: identity['source_files'][name] for name in SOURCE_FILES}
+              require(report.get('status') == 'passed' and 'error' not in report and report.get('frozen') is frozen
+                      and report.get('source_commit') == identity['source_sha'] and report.get('applicationVersion') == identity['version']
+                      and report.get('source_files') == expected, 'Selection source/mode/status/bytes differ')
+              if frozen:
+                  require(report.get('executable_sha256') == identity['exe']['sha256']
+                          and type(report.get('executable_size')) is int and report['executable_size'] == identity['exe']['size'],
+                          'Selection tested a different EXE')
+              else:
+                  require('executable_sha256' not in report and 'executable_size' not in report,
+                          'Source selection cannot claim frozen EXE bytes')
+              validate_aggregate(report, identity['version'], frozen=frozen, source_commit=identity['source_sha'],
+                  executable_sha256=identity['exe']['sha256'] if frozen else None,
+                  executable_size=identity['exe']['size'] if frozen else None)
+              scales, runs = report.get('scales'), report.get('runs')
+              require(type(scales) is list and all(type(scale) in (int, float) for scale in scales) and scales == [1, 1.5, 2]
+                      and type(runs) is list and len(runs) == 3, 'Selection requires all three ordered scale runs')
+              files = {aggregate_path: file_record(aggregate_path)}
+              for scale, name, row in zip(scales, names[1:], runs):
+                  path = 'reports/' + name
+                  require(type(row) is dict and type(row.get('app_scale')) in (int, float) and row['app_scale'] == scale
+                          and row.get('native_report') == name, 'Selection fixed scale/report identity differs')
+                  detail = read_json(path)
+                  files[path] = file_record(path)
+                  require(row.get('detail') == detail and row.get('native_report_sha256') == files[path]['sha256'],
+                          'Selection raw handoff evidence differs')
+              return dict(frozen=frozen, source_sha=identity['source_sha'], scales=scales, files=files)
+
+
+          def verify_source_controller(identity):
+              from windows_automatic_capture import SOURCE_FILES, validate_source_report
+              path = 'reports/windows-automatic-capture.json'
+              automatic = read_json(path)
+              validate_source_report(automatic, identity['version'], identity['source_sha'])
+              require(automatic.get('source_sha256') == {name: identity['source_files'][name] for name in SOURCE_FILES},
+                      'Automatic source bytes differ')
+              return dict(selection=verify_selection(identity, frozen=False),
+                          automatic=dict(report=path, **file_record(path), frozen=False))
+
+
           def record_identity():
               sha = expected_source()
               from app_version import __version__ as version
@@ -481,6 +560,7 @@ jobs:
                              'dist/release/source-access.json', 'dist/release/SHA256SUMS.txt', named, archive)
               identity['bound_files'] = {name: file_record(name) for name in fixed_files}
               identity['source_results'] = source_results
+              identity['source_controller'] = verify_source_controller(identity)
               write_new(IDENTITY, identity)
               print(json.dumps(identity, indent=2), flush=True)
               return identity
@@ -513,14 +593,43 @@ jobs:
               current_source = [verify_case(directory, prefix, scale, identity, frozen=False)
                                 for directory, prefix, scale in SOURCE_CASES]
               require(identity.get('source_results') == current_source, 'Source diagnostic evidence changed')
+              require(identity.get('source_controller') == verify_source_controller(identity), 'Source controller evidence changed')
               for name, record in identity['bound_files'].items():
                   require(file_record(name) == record, 'Bound build/environment/proof bytes changed: ' + name)
               return identity
 
 
+          def before_selection():
+              identity = check_identity()
+              for name in (*selection_names(True), Path(SELECTION_RECEIPT).name):
+                  path = ROOT / 'reports' / name
+                  for output in (path, path.with_suffix('.tmp')):
+                      require(not output.exists() and not output.is_symlink(), 'Selection output reuse rejected: ' + output.name)
+              print(json.dumps(dict(case='frozen-selection', source_sha=identity['source_sha'], exe=identity['exe']), indent=2), flush=True)
+
+
+          def selection_receipt(identity):
+              return dict(mode='frozen-selection', source_sha=identity['source_sha'], exe=identity['exe'],
+                          run_id=identity['run_id'], run_attempt=identity['run_attempt'],
+                          identity_file=file_record(IDENTITY), selection=verify_selection(identity, frozen=True))
+
+
+          def record_selection():
+              receipt = selection_receipt(check_identity())
+              write_new(SELECTION_RECEIPT, receipt)
+              return receipt
+
+
+          def check_selection(identity):
+              receipt = read_json(SELECTION_RECEIPT)
+              require(receipt == selection_receipt(identity), 'Frozen selection evidence or receipt changed')
+              return receipt['selection']
+
+
           def before_case(label):
               require(label in [case[0] for case in CASES], 'Unknown fixed diagnostic case')
               identity = check_identity()
+              check_selection(identity)
               for name, directory, prefix, scale in CASES:
                   if name == label:
                       for suffix in ('smoke.json', 'overlay.json', 'overlay.png', 'process.log', 'last-launch-error.txt'):
@@ -533,11 +642,19 @@ jobs:
 
           def verify_all():
               identity = check_identity()
+              outcomes = json.loads(os.environ.get('VGA_FULL_STEP_RESULTS', '{}'))
+              require(type(outcomes) is dict and all(type(outcomes.get(key)) is dict and
+                      outcomes[key].get('outcome') == 'success' for key in REQUIRED_STEPS),
+                      'Every required source/frozen diagnostic step must have succeeded in this run')
+              selection = check_selection(identity)
               rows = [dict(case=name, **verify_case(directory, prefix, scale, identity, frozen=True))
                       for name, directory, prefix, scale in CASES]
               result = dict(status='passed', scope=SCOPE, mode='source-and-frozen', source_sha=identity['source_sha'],
                             exe=identity['exe'], runs=rows, frozen_manual_switches=32,
-                            source_manual_switches=24, identity_file=file_record(IDENTITY))
+                            source_manual_switches=24, frozen_selection=selection,
+                            frozen_selection_receipt=file_record(SELECTION_RECEIPT),
+                            source_controller=identity['source_controller'], automatic_frozen_tested=False,
+                            required_steps={key: 'success' for key in REQUIRED_STEPS}, identity_file=file_record(IDENTITY))
               write_new(RESULT, result)
               print(json.dumps(result, indent=2), flush=True)
               return result
@@ -546,16 +663,31 @@ jobs:
           if __name__ == '__main__':
               if sys.argv[1:] == ['record']:
                   record_identity()
+              elif sys.argv[1:] == ['before-selection']:
+                  before_selection()
+              elif sys.argv[1:] == ['record-selection']:
+                  record_selection()
               elif len(sys.argv) == 3 and sys.argv[1] == 'before':
                   before_case(sys.argv[2])
               elif sys.argv[1:] == ['verify']:
                   verify_all()
               else:
-                  raise SystemExit('Expected only record, before FIXED_CASE, or verify')
+                  raise SystemExit('Expected only record, before-selection, record-selection, before FIXED_CASE, or verify')
           '@ | Set-Content -Encoding utf8 build/native-diagnostic-bindings.py
           python build/native-diagnostic-bindings.py record
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Require the same fresh EXE selection and controller ownership at three app scales
+        id: frozen_selection
+        if: ${{ !inputs.source_focus_only }}
+        timeout-minutes: 8
+        run: |
+          python build/native-diagnostic-bindings.py before-selection
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe --report-dir reports
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python build/native-diagnostic-bindings.py record-selection
       - name: Require the same fresh EXE at 150 percent first
+        id: frozen_native150_first
         if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
@@ -563,6 +695,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5
       - name: Require the same fresh EXE at 150 percent in a second fresh process after the first passes
+        id: frozen_native150_second
         if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
@@ -570,6 +703,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5 --report-dir build/native-frozen150-second/reports
       - name: Require the same fresh EXE at 100 percent after both 150 percent processes pass
+        id: frozen_native100
         if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
@@ -577,14 +711,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
       - name: Require the same fresh EXE at 200 percent after every earlier process passes
+        id: frozen_native200
         if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
           python build/native-diagnostic-bindings.py before frozen200
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
-      - name: Verify all four exact-EXE results against unchanged source and proof
+      - name: Verify exact-EXE selection and all four native results against unchanged source and proof
         if: ${{ !inputs.source_focus_only }}
+        env:
+          VGA_FULL_STEP_RESULTS: ${{ toJSON(steps) }}
         run: python build/native-diagnostic-bindings.py verify
       - name: Always print the full bounded post-build comparison and restoration summary
         if: ${{ always() && !inputs.source_focus_only }}
@@ -616,6 +753,9 @@ jobs:
                               for suffix in ('', '-scale100', '-scale150', '-scale200')) + (
               'windows-selection-source.json', 'windows-selection-source-handoff.json',
               'windows-selection-source-handoff-scale150.json', 'windows-selection-source-handoff-scale200.json',
+              'windows-selection-smoke.json', 'windows-selection-handoff.json',
+              'windows-selection-handoff-scale150.json', 'windows-selection-handoff-scale200.json',
+              'windows-frozen-selection-diagnostic.json',
               'windows-automatic-capture.json', 'windows-dpi-candidate-matrix.json',
               'windows-source-focus-diagnostic-result.json') + tuple(
                   'windows-dpi-candidate-scale-' + scale + '.json' for scale in ('1', '1.25', '1.5', '2', '2.5'))
