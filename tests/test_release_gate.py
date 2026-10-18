@@ -173,6 +173,8 @@ class ReleaseFixture(unittest.TestCase):
                        'overlay_compact': False, 'physical_mock_geometry_passed': True, 'overlay_layout_passed': True}
         NativePackagingTests.badge_receipt_fixture(self.native)
         self.native.update(dict.fromkeys(gate.NATIVE_AUTOMATION_FIELDS, True))
+        # Synthetic gate input only, never an observed Windows acceptance report.
+        self.native['manual_hero_switches']=dict(required=8,attempted=8,completed=8)
         self.native.update(overlay_duty_fixture(), executable_sha256=self.hash)
         self.extra_scale_smokes, self.extra_natives = {}, {}
         for scale, prefix in gate.NATIVE_SCALES[1:]:
@@ -590,6 +592,21 @@ class ReleaseFixture(unittest.TestCase):
                 with self.subTest(scale=scale, missing=field), self.assertRaises(gate.VerificationError):
                     self.verify()
                 native[field] = True
+
+    def test_each_frozen_scale_requires_exact_typed_manual_switch_success_count(self):
+        good=dict(required=8,attempted=8,completed=8)
+        for scale,_,_,native in self.native_reports():
+            for bad in (None,{},dict(good,completed=7),dict(good,attempted=9),
+                    dict(good,required=True),dict(good,attempted=True),dict(good,completed=True),
+                    dict(good,completed=8.),dict(good,completed='8'),dict(good,extra=8),
+                    dict(required=8,completed=8)):
+                native['manual_hero_switches']=bad;self.write_reports()
+                with self.subTest(scale=scale,bad=bad),self.assertRaisesRegex(gate.VerificationError,'Eight independent manual'):
+                    self.verify()
+            native.pop('manual_hero_switches');self.write_reports()
+            with self.subTest(scale=scale,missing=True),self.assertRaisesRegex(gate.VerificationError,'Eight independent manual'):
+                self.verify()
+            native['manual_hero_switches']=dict(good)
 
     def test_each_frozen_scale_requires_exact_same_exe_and_own_evidence_names(self):
         for scale, _, smoke, native in self.native_reports():

@@ -213,6 +213,7 @@ class NativePackagingTests(unittest.TestCase):
                  'source_tier_accessible':[f'选项 {i} · {name} · T{i} · 演示评级' for i,name in enumerate(['星火共鸣','晶盾回路','风步微光'],1)],
                  'badge_source_markers':['演示评级']*3, 'source_details_reachable':True}
         valid.update(dict.fromkeys(native_smoke.NATIVE_AUTOMATION_FIELDS, True))
+        valid['manual_hero_switches']=dict(required=8,attempted=8,completed=8)
         valid.update(self.geometry_fixture());self.badge_receipt_fixture(valid)
         valid.update(overlay_duty_fixture())
         native_smoke.validate_report(valid, '0.4.2')

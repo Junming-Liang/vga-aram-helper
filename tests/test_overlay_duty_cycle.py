@@ -205,6 +205,20 @@ class DutyTraceTests(unittest.TestCase):
                 screenshot='C:/owned-synthetic-report/windows-native-scale200-overlay.png',
                 screenshot_method='Qt QWidget.grab of our synthetic mock and overlay only, composited locally; OS capture/OCR separately asserted',
                 hero_transition_observations=[dict(hero='星火术士（演示）',confident=True)]*2)
+            # New failure-only snapshots must fit beside the original full
+            # two-mode report without dropping any acceptance evidence.
+            from wgc_session_capture import _PROTOCOL_SCALARS
+            protocol=dict(schema_version=1,reason='header_mismatch',stage='response_header',
+                **{key:(1023 if key=='mismatch_mask' else 2**32-1) for key in _PROTOCOL_SCALARS})
+            failure=dict(schema_version=1,protocol_diagnostic=protocol,process_exit_code=3221225477,
+                stderr_bytes=1025,cleanup_complete=True,termination_requested_while_alive=True,
+                native_diagnostic=None,shutdown_diagnostic=dict(schema_version=1,exit_code=3221225477,
+                    checkpoints=list(range(1,8)),last_started_stage='process-return'))
+            snapshot=dict(capture_diagnostic=dict(capture_status='invalid-reply',session_status='not-attempted',
+                oneshot_status='not-attempted',fallback_reason='none'),session_failure=failure,cleanup_pending=False)
+            value.update(manual_hero_switches=dict(required=8,attempted=8,completed=8),
+                capture_failure_evidence=dict(initial=snapshot,final=copy.deepcopy(snapshot),
+                    revocation_requested=True,cleanup_wait_ms=2000.,cleanup_deadline_reached=False))
             duty=value['overlay_duty_cycle']
             # Real Windows handles/creation/QPC values are wider than tiny fixture IDs.
             for section in (duty,duty['baseline']):

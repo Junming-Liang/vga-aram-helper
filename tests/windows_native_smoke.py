@@ -96,6 +96,7 @@ def validate_report(result, version, app_scale=1, *, executable_sha256=None, exp
     for field in NATIVE_AUTOMATION_FIELDS:
         if result.get(field) is not True:
             raise RuntimeError('Automatic hero/candidate native proof missing: ' + field)
+    validate_manual_hero_switches(result.get('manual_hero_switches'))
     if result.get('card_names_accessible') != ['星火共鸣','晶盾回路','风步微光']:
         raise RuntimeError('Native accessible card identities are incomplete or reordered')
     if result.get('source_tier_rendered') != ['T1','T2','T3']:
@@ -111,6 +112,34 @@ def validate_report(result, version, app_scale=1, *, executable_sha256=None, exp
     if executable_sha256 is not None and result.get('executable_sha256') != executable_sha256:
         raise RuntimeError('Native report tested different executable bytes')
     validate_overlay_duty(result,expected_fixture_sha256=expected_fixture_sha256 or hashlib.sha256((ROOT/'fixtures/auto-scene.png').read_bytes()).hexdigest())
+
+
+def validate_manual_hero_switches(value):
+    if (type(value) is not dict or set(value)!={'required','attempted','completed'}
+            or any(type(value[key]) is not int or value[key]!=8 for key in value)):
+        raise RuntimeError('Eight independent manual hero-switch captures were not verified')
+
+
+def sanitize_capture_failure_evidence(value):
+    """Only fixed transport/capture fields survive the synthetic failure report."""
+    from screen_capture import CAPTURE_DIAGNOSTIC_ENUMS
+    from wgc_session_capture import sanitize_session_failure_evidence
+    if type(value) is not dict:return None
+    result={}
+    for phase in ('initial','final'):
+        row=value.get(phase)
+        if type(row) is not dict:continue
+        diagnostic=row.get('capture_diagnostic')
+        result[phase]=dict(capture_diagnostic={key:diagnostic[key] for key,allowed in CAPTURE_DIAGNOSTIC_ENUMS.items()
+                if type(diagnostic) is dict and type(diagnostic.get(key)) is str and diagnostic[key] in allowed},
+            session_failure=sanitize_session_failure_evidence(row.get('session_failure')))
+        if type(row.get('cleanup_pending')) is bool:result[phase]['cleanup_pending']=row['cleanup_pending']
+    for key in ('revocation_requested','cleanup_deadline_reached'):
+        if type(value.get(key)) is bool:result[key]=value[key]
+    wait=value.get('cleanup_wait_ms')
+    # The deadline stays two seconds; report an honestly late Qt dispatch too.
+    if type(wait) in (int,float) and math.isfinite(wait) and 0<=wait<=3_600_000:result['cleanup_wait_ms']=wait
+    return result
 
 
 def native_failure_summary(path):
@@ -138,6 +167,12 @@ def native_failure_summary(path):
                      'overlay_layout_passed', 'click_through_passed', 'window_closed'):
             if type(value.get(name)) is bool:
                 result[name] = value[name]
+        failure=sanitize_capture_failure_evidence(value.get('capture_failure_evidence'))
+        if failure is not None:result['capture_failure_evidence']=failure
+        switches=value.get('manual_hero_switches')
+        if type(switches) is dict:
+            result['manual_hero_switches']={key:switches[key] for key in ('required','attempted','completed')
+                if type(switches.get(key)) is int and 0<=switches[key]<=8}
         def detail(row):
             if type(row) is not dict:return {'invalid_row':True}
             output={}
@@ -290,6 +325,7 @@ def main():
                     raise RuntimeError('Native overlay PNG evidence is missing')
                 result.update(applicationVersion=version, native_report=report_path.name,
                               native_screenshot=screenshot.name, process_exited=True,
+                              manual_hero_switches=dict(native['manual_hero_switches']),
                               native_report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest(),
                               native_screenshot_sha256=hashlib.sha256(screenshot.read_bytes()).hexdigest(),
                               overlay_duty_cycle=validate_overlay_duty(native,expected_fixture_sha256=result['source_files']['fixtures/auto-scene.png']), overlay_duty_scope=DUTY_SCOPE,

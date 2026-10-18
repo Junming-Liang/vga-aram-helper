@@ -88,6 +88,35 @@ class CaptureDiagnosticTests(CaptureBackendTests):
         self.assertEqual(dict(self.c.last_capture_diagnostic),{'capture_status':'unknown','session_status':'unknown'})
         with self.assertRaises(TypeError):self.c.last_capture_diagnostic['capture_status']='ok'
 
+    def test_protocol_failure_evidence_updates_after_cleanup_without_retaining_exception(self):
+        from wgc_capture import WgcError
+        evidence=dict(schema_version=1,protocol_diagnostic=None,process_exit_code=None,
+            stderr_bytes=0,cleanup_complete=False,termination_requested_while_alive=None,
+            native_diagnostic=None,shutdown_diagnostic=None)
+        error=WgcError('invalid-reply','private raw stderr');error.failure_evidence=evidence
+        self.c._capture=Mock(side_effect=error)
+        with self.assertRaises(CapturePaused):self.c.capture(self.target)
+        self.assertIs(self.c._capture_failure_evidence,evidence)
+        self.assertFalse(any(value is error for value in vars(self.c).values()))
+        first=self.c.last_capture_failure_diagnostic
+        evidence.update(process_exit_code=-1073741819,cleanup_complete=True)
+        self.assertFalse(first['cleanup_complete'])
+        self.assertTrue(self.c.last_capture_failure_diagnostic['cleanup_complete'])
+        self.assertEqual(self.c.last_capture_failure_diagnostic['process_exit_code'],-1073741819)
+        self.assertNotIn('private',repr(self.c.last_capture_failure_diagnostic))
+        self.c._capture=Mock(return_value=(b'owned',self.rect))
+        self.assertEqual(self.c.capture(self.target),(b'owned',self.rect))
+        self.assertIsNone(self.c.last_capture_failure_diagnostic)
+
+    def test_protocol_failure_snapshot_rejects_arbitrary_payload_and_never_retries(self):
+        from wgc_capture import WgcError
+        error=WgcError('invalid-reply','private');error.failure_evidence={'pixels':b'private'}
+        self.c._capture=Mock(side_effect=error)
+        with self.assertRaises(CapturePaused):self.c.capture(self.target)
+        self.c._capture.assert_called_once()
+        self.assertIsNone(self.c.last_capture_failure_diagnostic)
+        self.assertIsNone(self.c._capture_failure_evidence)
+
 class FullOcclusionTests(unittest.TestCase):
     def make_capture(self,blocker=None,geometry_ok=True,found=True):
         c=object.__new__(Win32Capture);target=WindowInfo(100,10,'fixture','RiotWindowClass');rect=ClientRect(0,0,800,600);c.validate=Mock(return_value=rect);c.enum_cb=lambda fn:fn
