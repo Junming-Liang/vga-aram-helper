@@ -304,7 +304,9 @@ def verify_bundle(bundle, work, provenance, source_checkout):
     receipt = gate.read_json(bundle / 'verified-release.json')
     require(receipt.get('version') == VERSION and receipt.get('tag') == 'v' + VERSION,
             'Unexpected staged version')
-    gate.check_preview_identity(receipt, provenance)
+    # This recovery remains bound to its original artifact, even after the
+    # normal build advances. VERSION is fixed above, never taken from input.
+    gate.check_preview_identity(receipt, provenance, expected_version=VERSION)
     require(receipt.get('exe_sha256') == EXE_SHA256 and receipt.get('exe_size') == EXE_SIZE,
             'Staged EXE differs from original tested bytes')
     assets = receipt.get('assets', [])

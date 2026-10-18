@@ -25,14 +25,14 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.14'
+PREVIEW_VERSION = '0.4.15'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
                          'source_hint_renderer_passed', 'three_badge_regions_verified', 'badge_gap_hit_test_passed', 'badge_above_cards_verified', 'badge_revocation_hidden_verified', 'source_tier_display_passed', 'source_tier_hero_specific', 'source_tier_missing_passed',
                          'source_tier_screen_order_preserved', 'source_tier_no_winrate_display', 'overlay_layout_passed')
 NATIVE_SCALES = ((1.0, 'windows-native'), (1.5, 'windows-native-scale150'), (2.0, 'windows-native-scale200'))
-AUTO_SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py','native_ui.py','portrait_display.py', 'local_debug.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
+AUTO_SOURCE_FILES = ('capture_cadence.py', 'badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py','native_ui.py','portrait_display.py', 'local_debug.py','screen_capture.py','session_windows.py','tests/windows_automatic_capture.py','tests/SessionWindowFixture.cs','wgc_capture.py','native/wgc_capture.cpp','persistent_capture_adapter.py','wgc_session_capture.py','native/wgc_session_capture.cpp','owned_diagnostic_json.py', 'tests/windows_session_fixture.py')
 AUTO_CAPTURE_FIELDS = ('wait_without_window','helper_visible_after_default_start','helper_minimized_after_start','wait_client_new_game','hwnd_blank_fallback','bounded_roi_passed','minimize_restore','foreign_occlusion_failed_closed','same_process_recreation_cleared_stale','process_restart_auto_reconnected','preexisting_game_auto_connected','no_manual_window_selection','self_overlay_hidden_before_capture','stop_close_cleanup','owned_process_job_empty','temporary_directory_removed','authenticode_abi_passed')
 DPI_SOURCE_FILES = ('native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'card_badges.py', 'augment_card_geometry.py', 'badge_contract.py', 'native_smoke.py')
 # Load only the trusted local pure validator, never Python from a source archive.
@@ -311,7 +311,7 @@ def verify_source_access(release_dir, build, source_sha, version):
         require(sum(row.file_size for row in archive.infolist()) <= 256 * 1024 * 1024 and
                 len(archive.namelist()) <= 10000, 'Application source archive exceeds limits')
         require(archive.testzip() is None, 'Corrupt application source archive')
-        require({'native/wgc_capture.cpp', 'wgc_capture.py', 'wgc_smoke.py', 'frame_ocr_cache.py', 'scripts/build_wgc_capture.py', 'tests/windows_wgc_capture.py', 'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_display.py', 'local_debug.py', 'wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'tests/windows_wgc_visible_overlay.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
+        require({'capture_cadence.py', 'native/wgc_capture.cpp', 'wgc_capture.py', 'wgc_smoke.py', 'frame_ocr_cache.py', 'scripts/build_wgc_capture.py', 'tests/windows_wgc_capture.py', 'launcher.py', 'ocr_privacy.py', 'native_ui.py', 'screen_capture.py', 'native_state.py', 'overlay_geometry.py', 'native_smoke.py', 'hero_portraits.py', 'portrait_display.py', 'local_debug.py', 'wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'tests/windows_wgc_visible_overlay.py', 'portrait_cache_diagnostics.py', 'hero_recognition.py', 'champion_select.py', 'selection_session.py', 'session_windows.py', 'automatic_windows.py', 'selection_smoke.py', 'tests/windows_automatic_capture.py', 'tests/SessionWindowFixture.cs', 'requirements-build.txt',
                  'scripts/build_windows.py', 'scripts/windows_package.py', 'scripts/check_package_candidate.py',
                  'tests/windows_dpi_matrix.py', 'tests/windows_ota_smoke.py', 'packaging/windows-build-constraints.txt',
                  'packaging/VGA-Aram-Helper.spec'} <= set(archive.namelist()),
@@ -690,20 +690,23 @@ def check_runner_context(repository, source_sha, run_id, run_attempt):
             'Publication must run in this exact approved GitHub workflow context')
 
 
-def check_preview_identity(verified, provenance):
+def check_preview_identity(verified, provenance, *, expected_version=PREVIEW_VERSION):
+    # Normal publication always uses this release's default. The historical
+    # recovery caller supplies only its own compile-time pinned version; never
+    # derive the accepted version from a receipt or a workflow/user input.
     require(isinstance(provenance, dict) and provenance.get('repository') == REPOSITORY and
             provenance.get('workflow') == PREVIEW_WORKFLOW and provenance.get('event') == 'workflow_dispatch' and
             provenance.get('branch') == 'main' and type(provenance.get('run_id')) is int and provenance['run_id'] > 0 and
             type(provenance.get('run_attempt')) is int and provenance['run_attempt'] > 0,
             'Missing authenticated current-run provenance')
     require(verified.get('source_sha') == provenance.get('source_sha') and
-            verified.get('run_id') == provenance['run_id'] and verified.get('run_attempt') == provenance['run_attempt'] and verified.get('version') == PREVIEW_VERSION and
-            verified.get('tag') == 'v' + PREVIEW_VERSION and
+            verified.get('run_id') == provenance['run_id'] and verified.get('run_attempt') == provenance['run_attempt'] and verified.get('version') == expected_version and
+            verified.get('tag') == 'v' + expected_version and
             isinstance(verified.get('exe_sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', verified['exe_sha256']) and
             type(verified.get('exe_size')) is int and verified['exe_size'] > 0,
             'Preview source/run/version/EXE identity differs from the fresh tested build')
     matches = [asset for asset in verified.get('assets', [])
-               if asset.get('name') == f'vga-aram-helper-{PREVIEW_VERSION}-windows-x64.exe']
+               if asset.get('name') == f'vga-aram-helper-{expected_version}-windows-x64.exe']
     require(len(matches) == 1 and matches[0].get('sha256') == verified['exe_sha256'] and
             matches[0].get('size') == verified['exe_size'], 'Preview EXE identity differs from verified release asset')
 
@@ -1182,10 +1185,10 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
               'evidence_sha256': {name: digest(path) for name, path in files.items()}, 'assets': [{'name': path.name, 'path': str(path.resolve()),
                 'size': path.stat().st_size, 'sha256': digest(path)} for path in assets]}
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
-    notes = (f'VGA startup recovery DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
-             '诊断测试版默认开启可关闭的本地日志：有界日志文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。用户反馈闪烁已不再出现，但有一次初始识别未成功；未取得该次诊断 ZIP，原因尚不能确认，完整实战验收仍未完成。\n\n'
+    notes = (f'VGA regression recovery DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
+             '诊断测试版默认开启可关闭的本地日志：有界日志文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。v0.4.14 已发布后，用户再次报告闪烁和初始识别失败；未取得该次诊断 ZIP，实际安装版本、发生阶段与具体原因尚不能确认，完整实战验收仍未完成。\n\n'
              '本版不再仅因标题原始像素变化而隐藏或重绘评级；以同帧新鲜语义检查撤销已变化或不确定的标题，保留显示的旧已接受证明仍遵守原有四秒截止时间，绝不因复核而续期。部分候选独立核验已确认槽位，未知卡片不显示旧评级；新 OCR 返回前可能短暂保留旧评级，不保证即时发现换牌。单独的关键事件记录与常规采样保留小体积因果日志。新增选人路径门槛诊断，不宣称已修好真实客户端。接受阈值、歧义规则、新鲜度和失败时隐藏的安全边界不放宽；选人接口仍默认关闭，仅本次启动授权。Windows 受控验收不等同于用户国服实战已验收。\n\n'
-             '本候选修复可复现的启动恢复缺陷：空头像库遇临时失败时按 30/60/120/300 秒有上限退避重试；完整已验证缓存先交付，再尝试联网刷新；完整头像库写盘失败时使用不可变的已验证内存规范映射；畸形 roster 和缓存对象安全拒绝，不阻断独立 HUD/卡片 OCR。保留单工作租约、停止/关闭/模式门槛与身份、新鲜度、两次独立确认等约束。可复现缺陷不等于已确认用户那次初始漏识别的原因。\n\n'
+             '本候选针对三个可复现缺陷：v0.4.14 引入的热缓存刷新替换识别模型，即使规范名称与解码像素相同也会撤销在途帧；v0.4.13 已有的固定空闲间隔可能耗尽四秒刷新期限；冷启动 API 规范映射等待所有头像下载完成。等价模型现在保留原对象；实际变更暂存至停止或已接受的窗口/进程切换边界，首个可用模型仅在空闲且无现有显示权威时启用。调度预留测得的捕获与推理耗时，至少空闲 50ms，不延长四秒有效期；过慢和异常尾延迟仍须隐藏过期评级。完整已验证官方 roster 可先供 API 查询，图像库仍须通过全部哈希与解码检查后发布。保留身份范围、两次独立确认、矛盾检查和取消/租约门槛。可复现缺陷尚未确认为用户现场问题的原因；详见源码内 REGRESSION_RECOVERY.md。\n\n'
              f'The public still-image reports were rerun for v{version}; every evaluated module must match the release source byte-for-byte. These limited Linux still-image observations are not actual-game verification.\n\n'
              'Native overlay PREVIEW with screenshot-based identification of the player’s own bottom-HUD portrait and separate local API controls: current-game read-only identity is enabled by default with a saved Off switch; selection/bench access remains default-off for the current launch. '
              'When the hero and candidate names are stable and confident, their literal source tiers from the public dataset appear automatically. Two independent fresh title observations can display verified slots while unknown slots remain blank; changed slots never borrow the old grade. '
@@ -1211,7 +1214,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
              'A separate critical-event ledger and routine sampling preserve compact causal diagnostics; bounded lifetime summaries survive rotation, and exports disclose dropped or truncated detail. '
              'Raw title pixel variation alone no longer hides or repaints grades. Fresh same-frame semantic checks revoke changed or uncertain titles; any retained accepted proof keeps its original four-second deadline, never renewed by rechecking. Partial candidates preserve independently verified known slots without grading unknown slots. A real reroll may retain its old grade until fresh OCR returns; detection is not instantaneous. Controlled non-game fixtures do not establish live-game stability. Selection-route gate diagnostics explain eligibility and routing; they are not proof of a fixed real-client selection path. Earlier same-card provenance/tier stability and threshold-equivalent fuzzy pruning remain included. '
              'Startup recovery now retries an empty portrait bank after transient download failure with 30/60/120/300-second capped backoff and a single worker lease. A complete validated cache is delivered before network refresh; a failed or empty refresh cannot remove it. A completely verified bank has an immutable in-memory fallback for the canonical public token-to-ID map when disk persistence fails. Explicit shape checks reject malformed nested roster data and invalid cache objects without aborting independent HUD/card OCR. Stop/Start does not reset backoff; stopped monitoring, manual mode, disabled updates, Close, stale attempts and duplicate callbacks cannot overlap retries or replace current assets. No cached player identity is added; API double-read/self-match, process scope, HUD contradiction, per-slot confirmation and freshness thresholds are unchanged. '
-             'User feedback reports that flicker is no longer observed, but an isolated initial recognition miss remains unexplained; no incident diagnostic ZIP was supplied. The reproduced recovery defects are not a confirmed cause of that incident. Other startup failures and broader acceptance in actual gameplay remain unverified; this is a diagnostic build, not a claim that every live-game cause is fixed. '
+             'This candidate addresses three reproducible defects: a 0.4.14 warm-cache refresh can replace a matcher during recognition; the fixed idle delay already present in 0.4.13 can consume the four-second refresh budget; and cold-start API canonical lookup waits for every portrait. Equivalent decoded pixels and canonical name mappings now preserve the existing model object. Changed usable banks wait for Stop or an accepted window/process transition; a first usable bank activates only while idle without existing display authority. Measured capture plus inference latency now determines the idle pause, with a 50 ms floor and the unchanged four-second deadline. Impossible budgets and unexpected long-tail work still hide expired grades. A complete validated official roster can supply API lookup before image downloads complete; full portrait publication still requires every image hash and decode check. Identity scope, independent confirmations, HUD contradictions, attempt leases and cancellation remain enforced. See REGRESSION_RECOVERY.md in the source archive. After published v0.4.14, the user again reported flicker and initial recognition failure; no incident diagnostic ZIP was supplied. The installed version, game stage and field cause remain unknown. The reproduced recovery defects are not a confirmed cause of that incident. Other startup failures and broader acceptance in actual gameplay remain unverified; this is a diagnostic build, not a claim that every live-game cause is fixed. '
              'A carried selection identity is labelled provisional until independently verified by the own-HUD portrait; contradictory or expired evidence clears it. '
              'Window scoping uses limited OS executable-path/creation-time metadata, without process-memory reads. '
              'Official Data Dragon base-portrait templates are cached locally at runtime, not bundled in the EXE. '
