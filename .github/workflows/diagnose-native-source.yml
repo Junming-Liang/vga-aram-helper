@@ -1,0 +1,160 @@
+name: Diagnose native Windows source transitions
+
+# Manual source/helper diagnostics only. This never replaces frozen-EXE release
+# acceptance, rebuilds custom OpenCV, or publishes/reuses a release artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vga-native-source-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  source-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+      ORT_DISABLE_TELEMETRY: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Check diagnostic workflow safety contract
+        run: python -m unittest discover -s tests -p 'test_native_source_diagnostic_workflow.py' -v
+      - name: Require the exact dispatch checkout and fresh diagnostic outputs
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($head -cne $env:GITHUB_SHA) { throw 'Checkout differs from the exact dispatch SHA.' }
+          if (Get-ChildItem reports/windows-* -File -ErrorAction SilentlyContinue) { throw 'Existing Windows evidence cannot be reused by this diagnostic.' }
+          if (Test-Path build/native-source-diagnostic-evidence) { throw 'Diagnostic staging must be fresh.' }
+          New-Item -ItemType Directory -Force reports | Out-Null
+      - name: Install pinned build requirements from official PyPI
+        timeout-minutes: 8
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip freeze | Out-File -Encoding utf8 reports/windows-native-source-diagnostic-environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install and use approved free Community C++ runtime tooling
+        timeout-minutes: 22
+        run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
+      - name: Build bounded HWND-only WGC helper with approved compiler
+        timeout-minutes: 4
+        run: python scripts/build_wgc_capture.py
+      - name: Build persistent HWND-only WGC helper with the same approved compiler
+        timeout-minutes: 4
+        run: python scripts/build_wgc_session_capture.py
+      - name: Diagnose source native transitions at 150 percent first
+        timeout-minutes: 6
+        run: python tests/windows_native_smoke.py --source --app-scale 1.5
+      - name: Require source native transitions at 100 percent after 150 passes
+        timeout-minutes: 6
+        run: python tests/windows_native_smoke.py --source
+      - name: Require source native transitions at 200 percent after earlier scales pass
+        timeout-minutes: 6
+        run: python tests/windows_native_smoke.py --source --app-scale 2
+      - name: Always print and stage bounded current-run source diagnostics
+        id: diagnostic_evidence
+        if: ${{ always() }}
+        run: |
+          @'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          REPORTS = Path('reports')
+          STAGE = Path('build/native-source-diagnostic-evidence')
+          MAX_FILE_BYTES = 256 * 1024
+          MAX_TOTAL_BYTES = 2 * 1024 * 1024
+          MAX_PRINT_CHARS = 16000
+          PREFIXES = ('windows-native-source-scale150', 'windows-native-source', 'windows-native-source-scale200')
+          NAMES = tuple(prefix + '-' + suffix for prefix in PREFIXES
+                        for suffix in ('smoke.json', 'overlay.json', 'process.log', 'last-launch-error.txt')) + (
+              'windows-wgc-build.json', 'windows-wgc-session-build.json',
+              'windows-native-source-diagnostic-environment.txt')
+          SCOPE = ('Source-only diagnostic on owned synthetic Windows fixtures. '
+                   'Not frozen-EXE or release acceptance; no actual-game claim.')
+          print(SCOPE, flush=True)
+          rows, problems, total = [], [], 0
+          for name in NAMES:
+              path = REPORTS / name
+              if path.is_symlink():
+                  problems.append(name + ': symlink rejected')
+                  continue
+              if not path.is_file():
+                  print(name + ': not produced', flush=True)
+                  continue
+              size = path.stat().st_size
+              total += size
+              # Print only bounded owned text, even when evidence cannot upload.
+              with path.open('rb') as stream:
+                  head = stream.read(MAX_PRINT_CHARS)
+                  if size > MAX_PRINT_CHARS:
+                      stream.seek(max(0, size - MAX_PRINT_CHARS))
+                      tail = stream.read(MAX_PRINT_CHARS)
+                  else:
+                      tail = b''
+              print('\n' + name + ' (' + str(size) + ' bytes)', flush=True)
+              print(head.decode('utf-8', errors='replace'), flush=True)
+              if tail:
+                  print('\n[bounded log excerpt; middle omitted]\n' + tail.decode('utf-8', errors='replace'), flush=True)
+              if size > MAX_FILE_BYTES:
+                  problems.append(name + ': exceeds per-file evidence cap')
+                  continue
+              with path.open('rb') as stream:
+                  data = stream.read(MAX_FILE_BYTES + 1)
+              if len(data) != size or len(data) > MAX_FILE_BYTES:
+                  problems.append(name + ': evidence changed while reading')
+                  continue
+              rows.append((name, data))
+          if total > MAX_TOTAL_BYTES:
+              problems.append('Combined evidence exceeds 2 MiB')
+          if problems:
+              raise SystemExit('; '.join(problems))
+          STAGE.mkdir(parents=True, exist_ok=False)
+          inventory = []
+          for name, data in rows:
+              (STAGE / name).write_bytes(data)
+              inventory.append(dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest()))
+          summary = dict(scope=SCOPE, source_sha=os.environ['GITHUB_SHA'],
+                         run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+                         files=inventory, evidence_bytes=total,
+                         max_file_bytes=MAX_FILE_BYTES, max_total_bytes=MAX_TOTAL_BYTES)
+          encoded = (json.dumps(summary, indent=2) + '\n').encode('utf-8')
+          if len(encoded) > 16384 or total + len(encoded) > MAX_TOTAL_BYTES:
+              raise SystemExit('Diagnostic inventory or complete staged evidence exceeds its cap')
+          (STAGE / 'windows-native-source-diagnostic-inventory.json').write_bytes(encoded)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write('## Native Windows source diagnostic\n\n' + SCOPE + '\n\n')
+              output.write('Source SHA: ' + summary['source_sha'] + '\n')
+              output.write('Evidence staging does not turn a failed or skipped source check into a pass.\n')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the existing anonymous small-evidence artifact budget
+        id: evidence_budget
+        if: ${{ always() && steps.diagnostic_evidence.outcome == 'success' }}
+        run: python scripts/check_artifact_budget.py --evidence-only --output build/native-source-diagnostic-budget.json
+      - name: Retain bounded source diagnostics for one day only when both budgets pass
+        if: ${{ always() && steps.diagnostic_evidence.outcome == 'success' && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-source-diagnostic-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-source-diagnostic-evidence
+          if-no-files-found: error
+          retention-days: 1
