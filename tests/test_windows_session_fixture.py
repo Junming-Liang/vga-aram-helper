@@ -637,11 +637,35 @@ class SessionFixtureTests(unittest.TestCase):
                          'SetProcessDpiAwarenessContext(new IntPtr(-4))', 'AreDpiAwarenessContextsEqual',
                          'case WM_CLOSE:', 'DestroyWindow(hwnd)', 'GetCurrentProcessId()', 'GraphicsUnit.Pixel'):
             self.assertIn(expected, source)
-        for forbidden in ('OpenProcess(', 'ReadProcessMemory', 'WriteProcessMemory', 'SendInput', 'SetWindowsHookEx',
+        self.assertEqual(source.count('OpenProcess('), 2)  # declaration plus one literal limited-metadata call
+        self.assertIn('OpenProcess(0x1000, false, pid)', source)
+        for forbidden in ('ReadProcessMemory', 'WriteProcessMemory', 'SendInput', 'SetWindowsHookEx',
                           'AttachThreadInput', 'System.Net', 'HttpClient', 'Process.Start', 'Process.GetProcesses',
-                          'SystemParametersInfo', 'ChangeDisplaySettings', 'WM_RELOAD'):
+                          'Process.MainModule', 'PROCESS_VM_', 'SystemParametersInfo', 'ChangeDisplaySettings', 'WM_RELOAD'):
             self.assertNotIn(forbidden, source)
         self.assertEqual(source.count('CreateWindowExW(exStyle,'), 1)
+
+    def test_owned_game_focus_command_pins_current_job_canonical_image_and_creation(self):
+        source=fixture.SOURCE.read_text()
+        self.assertEqual(fixture.WM_FOCUS_OWNED_GAME,0x804C)
+        command=source.split('private static IntPtr FocusOwnedGame(',1)[1].split('private static int Number(',1)[0]
+        for required in ('IntPtr.Size != 8','hwnd != window || role != "client" || noActivate',
+                'expectedCreated.ToInt64() <= 0','targetValue.ToUInt64() > Int64.MaxValue',
+                'GetForegroundWindow() != window','GetAncestor(target, 2) != target',
+                '!IsWindowVisible(target) || IsIconic(target)','cls.ToString() != "RiotWindowClass"',
+                '!SameOwnedJob(pid)','created != expectedCreated.ToInt64()', 'created <= ownCreated',
+                'repeatedPid != pid','String.Equals(actual, sibling, StringComparison.OrdinalIgnoreCase)',
+                '"Game", "League of Legends.exe"', 'bool accepted = SetForegroundWindow(target)',
+                '!accepted ? 2 : GetForegroundWindow() == target ? 1 : 3'):
+            self.assertIn(required,command)
+        self.assertEqual(command.count('SetForegroundWindow(target)'),1)
+        self.assertLess(command.rindex('GetForegroundWindow() != window'),command.index('SetForegroundWindow(target)'))
+        for required in ('QueryInformationJobObject(IntPtr.Zero, 3, information, bytes, out returned)',
+                'count > 128 || assigned != count','return self && target;', 'Marshal.FreeHGlobal(information)',
+                'CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)',
+                'GetFinalPathNameByHandleW(handle, value, 32768, 0)', 'finally { CloseHandle(handle); }'):
+            self.assertIn(required,source)
+        self.assertNotIn('IsProcessInJob',source)
 
 
 class ClientWindowClassContractTests(unittest.TestCase):

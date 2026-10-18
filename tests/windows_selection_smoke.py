@@ -21,10 +21,10 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests'))
 from windows_exe_smoke import isolated_windows_environment, smoke_workspace
-from windows_ota_smoke import Deadline, NativeJob, read_json, sha256, write_json
+from windows_ota_smoke import Deadline, NativeJob, read_json, sha256
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from windows_session_fixture import CLASSES, TITLES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
-from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT
+from windows_session_fixture import FOCUS_SINK_CLASS, FOCUS_SINK_TITLE, WM_FOCUS_OWNED_SINK, WM_RETURN_OWNED_CLIENT, WM_FOCUS_OWNED_GAME
 
 CLIENT_PNG = ROOT / 'fixtures' / 'champselect-synthetic.png'
 GAME_PNG = ROOT / 'fixtures' / 'auto-scene.png'
@@ -33,6 +33,16 @@ JOB_CLEANUP_SECONDS = 15  # NativeJob.cleanup's existing bound, reserved inside 
 DIRECTORY_CLEANUP_SECONDS = 30  # smoke_workspace's existing post-job directory removal bound.
 MAX_LOG_BYTES = 64 * 1024
 MAX_TOTAL_LOG_BYTES = 256 * 1024
+
+
+def write_json(path,value):
+    """Retain full evidence compactly; enforce the cap on the actual UTF-8 bytes."""
+    payload=(json.dumps(value,ensure_ascii=False,separators=(',',':'),allow_nan=False)+'\n').encode('utf-8')
+    if len(payload)>MAX_LOG_BYTES:raise AssertionError('JSON evidence exceeds its size limit')
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_suffix('.tmp');temporary.write_bytes(payload);temporary.replace(path)
+
+
 FIELDS = ('champion_select_own_row_passed', 'champion_select_ambiguity_passed',
           'champion_select_session_carry_passed', 'champion_select_stale_clear_passed',
           'champion_select_window_scope_passed', 'metadata_query_passed',
@@ -150,6 +160,52 @@ def owned_process_created(native,process):
     require(query(process['handle'],ctypes.byref(created),ctypes.byref(exited),ctypes.byref(kernel),ctypes.byref(user)),
             'Owned process creation time unavailable')
     return (int(created.dwHighDateTime)<<32)|int(created.dwLowDateTime)
+
+
+def focus_owned_game(native,client,client_exe,client_window,client_size,
+                     game,game_exe,game_window,game_size,client_created,evidence):
+    """One bounded request from the exact foreground client to its owned game.
+
+    The source fixture independently checks its current Job, canonical sibling
+    executable and creation FILETIME. Result codes preserve the real focus API
+    outcome; an unsuccessful request is never a product no-handoff observation.
+    """
+    require('focus' not in evidence,'Owned focus handshake must not be retried')
+    require(ctypes.sizeof(W.WPARAM)==ctypes.sizeof(W.LPARAM)==ctypes.sizeof(ctypes.c_void_p)==8,
+            'Owned focus handshake requires x64 transport')
+    created=evidence.get('created');hwnd=game_window.get('hwnd')
+    require(type(created)is int and 0<created<2**63 and type(hwnd)is int and 0<hwnd<2**63
+            and type(client_created)is int and 0<client_created<created,
+            'Owned focus handshake identity is outside x64 range')
+    def identities():
+        assert_owned_window(native,client,client_exe,'client',client_window,client_size)
+        assert_owned_window(native,game,game_exe,'game',game_window,game_size)
+        require(owned_process_created(native,client)==client_created
+                and owned_process_created(native,game)==created,'Owned focus handshake process creation changed')
+    identities()
+    def foreground():
+        actual=int(native.u.GetForegroundWindow()or 0)
+        return actual if actual in (client_window['hwnd'],hwnd) else 0  # Unknown window: no identity collection.
+    before=foreground()
+    observed=evidence['focus']={'sent':False,'result':0,'api':None,'drained':False,'before':before,'after':before}
+    require(before==client_window['hwnd'],'Owned focus handshake source is not foreground')
+    response=ctypes.c_size_t()
+    observed['sent']=bool(native.u.SendMessageTimeoutW(client_window['hwnd'],WM_FOCUS_OWNED_GAME,
+        hwnd,created,0x2,1000,ctypes.byref(response)))
+    observed['result']=response.value if response.value in (0,1,2,3) else 4
+    observed['api']=True if response.value in (1,3) else False if response.value==2 else None
+    if observed['sent'] and response.value==3:
+        # SetForegroundWindow may return TRUE before another input queue has
+        # activated. Drain only this exact revalidated owned destination once;
+        # never repeat focus, and never drain after API false/request timeout.
+        identities();drained=ctypes.c_size_t()
+        observed['drained']=bool(native.u.SendMessageTimeoutW(hwnd,0,0,0,0x2,1000,ctypes.byref(drained)))
+    observed['after']=foreground()
+    identities()
+    require(observed['sent'] and response.value in (1,3) and observed['after']==hwnd
+            and (response.value==1 or observed['drained']),
+            'Owned focus handshake failed: result='+str(observed['result']))
+    return observed
 
 
 def client_physical_rect(native,window):
@@ -457,6 +513,13 @@ def validate_aggregate(value, version, *, frozen, source_commit=None, executable
                 'Outer owned follow-off game differs from native observation')
         require(negative.get('launched_after_selection_request')is True and negative.get('process_exited')is True
                 and negative.get('closed_before_follow_on')is True,'Follow-off game lifetime/cleanup evidence missing')
+        focus=negative.get('focus')
+        require(type(focus)is dict and focus.get('sent')is True and focus.get('api')is True
+                and type(focus.get('result'))is int and focus['result'] in (1,3)
+                and focus.get('drained') is (focus['result']==3)
+                and type(focus.get('before'))is int and focus['before']==row['detail']['clientHwnd']
+                and type(focus.get('after'))is int and focus['after']==negative['hwnd'],
+                'Owned negative-game focus handshake evidence differs')
         observed=row.get('focus_fixture');transition=row['detail']['foreground_transition']
         require(type(observed)is dict and observed.get('sink')=={'hwnd':transition['sink_hwnd'],'pid':transition['sink_pid']}
                 and all(type(observed['sink'].get(k))is int for k in ('hwnd','pid')),
@@ -572,6 +635,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                                 x=x, y=y, width=sizes['client'][0], height=sizes['client'][1])
             client = native.spawn(argv[0], argv[1:], env, work)
             client_window = wait_fixture(native, client, fixture['client_exe'], 'client', client_ready, sizes['client'], budget)
+            client_created=owned_process_created(native,client)
             input_path = work / 'selection-input.json'
             write_json(input_path, {'schemaVersion': 1, 'scope': 'owned-synthetic-only', 'client': client_window})
             handoff_path = work / native_report_name(frozen, scale)
@@ -613,7 +677,13 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                         launched_after_selection_request=True,process_exited=False,closed_before_follow_on=False)
                 if phase=='testing-follow-off-game':
                     require(negative_game is not None,'Follow-off game test lacks its owned process')
-                    foreground_owned(native,negative_game,fixture['game_exe'],'game',negative_window,sizes['game'])
+                    evidence=result['follow_off_fixture']
+                    if 'focus' not in evidence:
+                        focus_owned_game(native,client,fixture['client_exe'],client_window,sizes['client'],
+                            negative_game,fixture['game_exe'],negative_window,sizes['game'],client_created,evidence)
+                    else:
+                        require(int(native.u.GetForegroundWindow()or 0)==negative_window['hwnd'],
+                                'Owned negative game lost foreground during follow-off observation')
                 elif phase=='closing-follow-off-game':
                     require(negative_game is not None,'Follow-off cleanup lacks its owned process')
                     if not result['follow_off_fixture']['process_exited']:

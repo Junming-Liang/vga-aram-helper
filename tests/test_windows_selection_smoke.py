@@ -274,7 +274,8 @@ class SelectionHarnessTests(unittest.TestCase):
                    'client':{'hwnd':100,'pid':101,'class_name':smoke.CLASSES['client'],'client_size':[964,602]},
                    'game':{'hwnd':200,'pid':201,'class_name':smoke.CLASSES['game'],'client_size':[964,602]}}
             row['follow_off_fixture']={'hwnd':500,'pid':501,'created':133000000000000200,'class_name':smoke.CLASSES['game'],
-                'client_size':[964,602],'launched_after_selection_request':True,'process_exited':True,'closed_before_follow_on':True}
+                'client_size':[964,602],'launched_after_selection_request':True,'process_exited':True,'closed_before_follow_on':True,
+                'focus':{'sent':True,'result':1,'api':True,'drained':False,'before':100,'after':500}}
             row['focus_fixture']={key:copy.deepcopy(val) for key,val in row['detail']['foreground_transition'].items()
                                   if key not in ('sink_hwnd','sink_pid','overlay_hidden_after','overlay_hwnd',
                                                  'overlay_visible_before','overlay_native_visible_before')}
@@ -339,7 +340,7 @@ class SelectionHarnessTests(unittest.TestCase):
             executable_sha256='c'*64 if frozen else None,executable_size=123456 if frozen else None)
         return value,reports,payloads
 
-    def test_full_producer_three_scale_reports_fit_pretty_json_without_duplicate_snapshots(self):
+    def test_full_producer_three_scale_reports_fit_compact_json_without_duplicate_snapshots(self):
         for frozen in (False,True):
             with self.subTest(frozen=frozen),tempfile.TemporaryDirectory() as directory:
                 value,reports,payloads=self.execute_producer_aggregate(Path(directory),frozen=frozen)
@@ -352,7 +353,9 @@ class SelectionHarnessTests(unittest.TestCase):
                 self.assertLess(len(encoded(value)),smoke.MAX_LOG_BYTES)
                 name='windows-selection-smoke.json' if frozen else 'windows-selection-source.json'
                 path=reports/name;smoke.write_json(path,value)
-                self.assertEqual(path.read_bytes(),encoded(value))  # Retain readable full evidence.
+                compact=(json.dumps(value,ensure_ascii=False,separators=(',',':'),allow_nan=False)+'\n').encode('utf8')
+                self.assertEqual(path.read_bytes(),compact)  # Same full evidence; logs remain pretty-printed.
+                self.assertLess(len(compact),len(encoded(value)))
                 restored=smoke.read_json(path)
                 smoke.validate_aggregate(restored,'0.4.1',frozen=frozen,source_commit='a'*40,
                     executable_sha256='c'*64 if frozen else None,executable_size=123456 if frozen else None)
@@ -523,6 +526,83 @@ class SelectionHarnessTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError,'creation time unavailable'):
             smoke.owned_process_created(native,{'handle':handle,'pid':101})
 
+    def test_owned_game_focus_transfer_records_success_or_immediate_failure_once(self):
+        for sent,result,after,drain,passes in ((True,1,500,False,True),(False,0,100,False,False),
+                (False,1,500,False,False),(True,2,100,False,False),(True,1,100,False,False),
+                (True,3,500,True,True),(True,3,500,False,False),(True,3,999,True,False),
+                (True,999999,999,False,False)):
+            with self.subTest(sent=sent,result=result,after=after):
+                foreground=[100];evidence={'created':200};calls=[]
+                def send(*args):
+                    calls.append(args)
+                    if args[1]==0:foreground[0]=after;return drain
+                    args[-1]._obj.value=result
+                    if result!=3:foreground[0]=after
+                    return sent
+                native=SimpleNamespace(u=SimpleNamespace(GetForegroundWindow=lambda:foreground[0],SendMessageTimeoutW=send))
+                args=(native,{'pid':101},'client.exe',{'hwnd':100,'pid':101},(964,602),
+                      {'pid':501},'game.exe',{'hwnd':500,'pid':501},(964,602),100,evidence)
+                with patch.object(smoke,'assert_owned_window') as identity, \
+                     patch.object(smoke,'owned_process_created',side_effect=lambda n,p:100 if p['pid']==101 else 200):
+                    if passes:smoke.focus_owned_game(*args)
+                    else:
+                        with self.assertRaisesRegex(AssertionError,'Owned focus handshake failed'):smoke.focus_owned_game(*args)
+                    count=2 if sent and result==3 else 1
+                    self.assertEqual(identity.call_count,6 if count==2 else 4)
+                    self.assertEqual(len(calls),count)
+                    self.assertEqual(calls[0][:6],(100,smoke.WM_FOCUS_OWNED_GAME,500,200,2,1000))
+                    if count==2:self.assertEqual(calls[1][:6],(500,0,0,0,2,1000))
+                    observed=evidence['focus']
+                    self.assertEqual(observed,dict(sent=sent,result=result if result in (0,1,2,3) else 4,
+                        api=True if result in (1,3) else False if result==2 else None,drained=drain,before=100,
+                        after=after if after in (100,500) else 0))
+                    # Delayed focus cannot turn an already-failed request into a
+                    # pass or overwrite its fixed evidence, even if called again.
+                    before=copy.deepcopy(observed);foreground[0]=500
+                    with self.assertRaisesRegex(AssertionError,'must not be retried'):smoke.focus_owned_game(*args)
+                    self.assertEqual(len(calls),count);self.assertEqual(evidence['focus'],before)
+
+    def test_owned_game_focus_transfer_revalidates_identity_and_transport(self):
+        native=SimpleNamespace(u=SimpleNamespace(GetForegroundWindow=Mock(return_value=100),SendMessageTimeoutW=Mock()))
+        def args(evidence):
+            return (native,{'pid':101},'client.exe',{'hwnd':100,'pid':101},(964,602),
+                {'pid':501},'game.exe',{'hwnd':500,'pid':501},(964,602),100,evidence)
+        for created in (True,200.,0,-1,2**63):
+            with self.subTest(created=created),self.assertRaisesRegex(AssertionError,'x64 range'):
+                smoke.focus_owned_game(*args({'created':created}))
+        with patch.object(smoke.ctypes,'sizeof',return_value=4),self.assertRaisesRegex(AssertionError,'x64 transport'):
+            smoke.focus_owned_game(*args({'created':200}))
+        for failure in ('identity','creation','foreground'):
+            with self.subTest(failure=failure),patch.object(smoke,'assert_owned_window') as identity, \
+                 patch.object(smoke,'owned_process_created',side_effect=[100,201] if failure=='creation' else [100,200]):
+                if failure=='identity':identity.side_effect=AssertionError('Owned identity changed')
+                native.u.GetForegroundWindow.return_value=999 if failure=='foreground' else 100
+                evidence={'created':200}
+                with self.assertRaises(AssertionError):smoke.focus_owned_game(*args(evidence))
+                if failure=='foreground':self.assertEqual(evidence['focus'],dict(sent=False,result=0,api=None,drained=False,before=0,after=0))
+        native.u.SendMessageTimeoutW.assert_not_called()
+        foreground=[100]
+        def send(*values):values[-1]._obj.value=1;foreground[0]=500;return True
+        native.u.GetForegroundWindow=lambda:foreground[0];native.u.SendMessageTimeoutW=Mock(side_effect=send)
+        with patch.object(smoke,'assert_owned_window'),patch.object(smoke,'owned_process_created',side_effect=[100,200,100,201]), \
+             self.assertRaisesRegex(AssertionError,'process creation changed'):
+            smoke.focus_owned_game(*args({'created':200}))
+        native.u.SendMessageTimeoutW.assert_called_once()
+
+    def test_owned_game_focus_receipt_is_strict_at_all_scales_and_entrypoints(self):
+        for frozen in (False,True):
+            for index in range(3):
+                for key,bad in (('sent',False),('sent',1),('result',True),('result',2),('result',3),('api',False),('api',1),('drained',1),('drained',True),
+                                ('before',0),('before',100.),('after',100),('after',500.)):
+                    with self.subTest(frozen=frozen,scale=index,key=key,bad=bad):
+                        value=self.good_aggregate(frozen=frozen);value['runs'][index]['follow_off_fixture']['focus'][key]=bad
+                        with self.assertRaisesRegex(AssertionError,'focus handshake'):smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+                value=self.good_aggregate(frozen=frozen);del value['runs'][index]['follow_off_fixture']['focus']
+                with self.assertRaisesRegex(AssertionError,'focus handshake'):smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+                value=self.good_aggregate(frozen=frozen)
+                value['runs'][index]['follow_off_fixture']['focus'].update(result=3,drained=True)
+                smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
+
     def test_actual_wrapper_phase_driver_closes_negative_game_before_final_request(self):
         # Execute the real nested driver with owned native-call fakes. Only its
         # closure addressing changes; no Windows or process-lifecycle claim.
@@ -533,6 +613,9 @@ class SelectionHarnessTests(unittest.TestCase):
         app={'pid':1};client={'pid':101};negative={'pid':501,'handle':object()};window={'hwnd':500,'pid':501}
         def focus(native,process,exe,role,observed,size):
             calls.append(('foreground',role,observed['hwnd']));foreground[0]=observed['hwnd'];return True
+        def transfer(*args):
+            calls.append(('owned-transfer',args[3]['hwnd'],args[7]['hwnd']));foreground[0]=args[7]['hwnd']
+            args[-1]['focus']={'sent':True,'result':1,'api':True,'drained':False,'before':100,'after':500}
         native=SimpleNamespace(poll=lambda process:None,spawn=Mock(return_value=negative),
             close_window=Mock(),wait_exit=Mock(return_value=0),
             u=SimpleNamespace(SetWindowPos=Mock(return_value=True),GetForegroundWindow=lambda:foreground[0]))
@@ -542,7 +625,7 @@ class SelectionHarnessTests(unittest.TestCase):
             sizes={'client':(964,602),'game':(964,602)},client_window={'hwnd':100,'pid':101},
             budget=SimpleNamespace(until=lambda seconds:seconds),
             report_when=lambda *args:current if current['phase']=='await-game-window' else None,
-            poll_owned_json=lambda *args:current,foreground_owned=focus,
+            poll_owned_json=lambda *args:current,foreground_owned=focus,focus_owned_game=Mock(side_effect=transfer),client_created=100,
             fixture_argv=Mock(return_value=['/owned/game.exe']),wait_fixture=Mock(return_value=window),
             assert_owned_window=Mock(),owned_process_created=Mock(return_value=133000000000000200))
         exec(compile(ast.fix_missing_locations(ast.Module(body=[driver],type_ignores=[])),'owned-phase-driver','exec'),namespace)
@@ -551,7 +634,11 @@ class SelectionHarnessTests(unittest.TestCase):
         self.assertTrue(namespace['fixture_argv'].call_args.kwargs['no_activate'])
         self.assertEqual(native.u.SetWindowPos.call_args.args[0],500)
         current['phase']='testing-follow-off-game';self.assertIsNone(advance())
-        self.assertEqual(calls[-1],('foreground','game',500));native.close_window.assert_not_called()
+        self.assertEqual(calls[-1],('owned-transfer',100,500));native.close_window.assert_not_called()
+        self.assertIsNone(advance());namespace['focus_owned_game'].assert_called_once()
+        foreground[0]=999
+        with self.assertRaisesRegex(AssertionError,'lost foreground'):advance()
+        foreground[0]=500
         current['phase']='await-game-window'
         with self.assertRaisesRegex(AssertionError,'before negative-game cleanup'):advance()
         current['phase']='closing-follow-off-game';self.assertIsNone(advance());self.assertIsNone(advance())

@@ -25,6 +25,10 @@ CLASSES = {'client': 'RCLIENT', 'game': 'RiotWindowClass'}
 # Repeating +74 reuses the live sink; +75 closes it without hiding/moving client.
 WM_FOCUS_OWNED_SINK = 0x8000 + 74
 WM_RETURN_OWNED_CLIENT = 0x8000 + 75
+# x64: exact destination HWND + expected creation FILETIME, no path argument.
+# Only the currently foreground client may focus its metadata-verified sibling.
+# Result: 0 rejected; 1 API true and observed; 2 API false; 3 true but not observed.
+WM_FOCUS_OWNED_GAME = 0x8000 + 76
 FOCUS_SINK_CLASS = 'VGAOwnedFocusSink'
 FOCUS_SINK_TITLE = 'VGA owned focus sink'
 FOCUS_SINK_BOUNDS = (0, 0, 160, 96)

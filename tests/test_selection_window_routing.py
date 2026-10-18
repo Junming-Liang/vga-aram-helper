@@ -493,6 +493,44 @@ class NativeSelectionWindowRoutingTests(unittest.TestCase):
         with self.assertRaises(AssertionError):advance_follow_off_probe(w,report)
         self.assertNotIn('manual_client_follow_off_passed',report)
 
+    def test_native_follow_off_focus_delay_uses_watchdog_and_never_accepts_expired_evidence(self):
+        from native_ui import ControlWindow
+        from selection_smoke import advance_follow_off_probe
+        for delay in (3.9,4.1):
+            with self.subTest(delay=delay):
+                self.table.foreground_hwnd=CLIENT.hwnd;self.start_manual(follow=False);w=self.window
+                w.check_target=lambda:ControlWindow.check_target(w)
+                w.captured_frame_current=lambda value:ControlWindow.captured_frame_current(w,value)
+                session=w.selection_session;policy=w.window_policy
+                self.meta[GAME.pid]=replace(self.meta[GAME.pid],created=policy.started_after+1)
+                for when in (100.,100.3):
+                    with patch('native_ui.time.monotonic',return_value=when):
+                        w.task_result('selection',dict(scene='assigned-selection',assigned=True,championId='9001',
+                            _capturedAt=when,_captureRect=self.table.rect(CLIENT),_windowIdentity=CLIENT.identity,
+                            _sessionGeneration=session.generation),w.state.generation)
+                w.overlay.show();report=dict(phase='capturing-client-follow-off',clientHwnd=CLIENT.hwnd,clientPid=CLIENT.pid)
+                with patch('selection_smoke.inspect_client_hero',return_value={'observation_count':2}), \
+                     patch('selection_smoke.time.monotonic',return_value=100.4):
+                    advance_follow_off_probe(w,report);advance_follow_off_probe(w,report)
+                    self.assertFalse(advance_follow_off_probe(w,report))  # Focus not yet transferred.
+                self.assertFalse(w.monitor.isActive())
+                with patch('selection_smoke.time.monotonic',return_value=100.3+delay):
+                    w.check_target()  # Real watchdog runs while the wrapper is delayed.
+                    self.assertEqual(w.target,CLIENT);self.assertIsNone(policy.game_identity)
+                    if delay>4:
+                        self.assertEqual(session.stage,'client-expired');self.assertFalse(w.state.hero)
+                        with self.assertRaisesRegex(AssertionError,'within fresh selection lifetime'):
+                            advance_follow_off_probe(w,report)
+                        self.table.foreground_hwnd=GAME.hwnd
+                        with self.assertRaisesRegex(AssertionError,'within fresh selection lifetime'):
+                            advance_follow_off_probe(w,report)
+                        self.assertNotIn('fresh_no_handoff_age_seconds',report['manual_client_follow_off'])
+                    else:
+                        self.table.foreground_hwnd=GAME.hwnd;w.check_target()
+                        self.assertFalse(advance_follow_off_probe(w,report))
+                        self.assertAlmostEqual(report['manual_client_follow_off']['fresh_no_handoff_age_seconds'],delay)
+                    self.assertFalse(policy.permits(GAME));self.assertNotIn('manual_client_follow_off_passed',report)
+
     def test_manual_client_follow_on_keeps_selection_route(self):
         self.start_manual(follow=True)
         self.assertTrue(self.window.client_phase())

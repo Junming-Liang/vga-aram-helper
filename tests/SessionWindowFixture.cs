@@ -1,7 +1,8 @@
 // Original diagnostic fixture, not a League/Riot implementation or compatibility test.
 // It paints only its supplied local PNG and can own one tiny diagnostic focus
-// sink. It never opens another process, sends input, installs hooks, accesses the
-// network, or changes OS settings.
+// sink. The bounded owned-game focus command reads process/file metadata only.
+// It never reads process memory, sends input, installs hooks, accesses the network,
+// or changes OS settings.
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -24,6 +25,9 @@ internal static class SessionWindowFixture
     // The harness independently verifies ownership, geometry, and foreground.
     private const uint WM_FOCUS_OWNED_SINK = 0x8000 + 74;
     private const uint WM_RETURN_OWNED_CLIENT = 0x8000 + 75;
+    // x64 only: wParam is the exact game HWND; lParam is its creation FILETIME.
+    // 0=rejected, 1=API true+observed, 2=API false, 3=API true+not observed.
+    private const uint WM_FOCUS_OWNED_GAME = 0x8000 + 76;
     private const string FocusSinkClass = "VGAOwnedFocusSink";
     private const string FocusSinkTitle = "VGA owned focus sink";
     private static readonly WndProc WindowProcedure = Dispatch;
@@ -37,6 +41,7 @@ internal static class SessionWindowFixture
 
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int left, top, right, bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct FileTime { public uint low, high; }
     [StructLayout(LayoutKind.Sequential)] private struct Message
     {
         public IntPtr hwnd;
@@ -111,6 +116,105 @@ internal static class SessionWindowFixture
     [DllImport("user32.dll", ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll", ExactSpelling = true)] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", ExactSpelling = true)] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll", ExactSpelling = true)] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)] private static extern int GetClassNameW(IntPtr hwnd, StringBuilder text, int count);
+    [DllImport("kernel32.dll", ExactSpelling = true)] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool QueryFullProcessImageNameW(IntPtr handle, uint flags, StringBuilder path, ref uint size);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetProcessTimes(IntPtr handle, out FileTime created, out FileTime exited, out FileTime kernel, out FileTime user);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern IntPtr CreateFileW(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern uint GetFinalPathNameByHandleW(IntPtr handle, StringBuilder path, uint size, uint flags);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr information, uint size, out uint returned);
+
+    private static bool SameOwnedJob(uint targetPid)
+    {
+        // NULL selects THIS process's immediate Job, not any Job of the target.
+        // A larger/unavailable membership list fails closed; no process handles
+        // are opened and no Job membership or limits are changed.
+        const int bytes = 8 + 128 * 8;
+        IntPtr information = Marshal.AllocHGlobal(bytes);
+        try
+        {
+            uint returned;
+            if (!QueryInformationJobObject(IntPtr.Zero, 3, information, bytes, out returned)) return false;
+            int assigned = Marshal.ReadInt32(information), count = Marshal.ReadInt32(information, 4);
+            if (count < 2 || count > 128 || assigned != count || returned < 8 + count * 8) return false;
+            bool self = false, target = false;
+            for (int index = 0; index < count; index++)
+            {
+                long pid = Marshal.ReadInt64(information, 8 + index * 8);
+                self |= pid == GetCurrentProcessId(); target |= pid == targetPid;
+            }
+            return self && target;
+        }
+        finally { Marshal.FreeHGlobal(information); }
+    }
+
+    private static string CanonicalImage(string path)
+    {
+        IntPtr handle = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero); // FILE_READ_ATTRIBUTES
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1)) return null;
+        try
+        {
+            StringBuilder value = new StringBuilder(32768);
+            uint count = GetFinalPathNameByHandleW(handle, value, 32768, 0);
+            return count > 0 && count < 32768 ? value.ToString() : null;
+        }
+        finally { CloseHandle(handle); }
+    }
+
+    private static bool ImageMetadata(uint pid, out string path, out long created)
+    {
+        path = null; created = 0;
+        IntPtr handle = OpenProcess(0x1000, false, pid); // PROCESS_QUERY_LIMITED_INFORMATION only
+        if (handle == IntPtr.Zero) return false;
+        try
+        {
+            StringBuilder image = new StringBuilder(32768); uint count = 32768;
+            FileTime start, exited, kernel, user;
+            if (!QueryFullProcessImageNameW(handle, 0, image, ref count) || count == 0 || count >= 32768 ||
+                !GetProcessTimes(handle, out start, out exited, out kernel, out user)) return false;
+            ulong stamp = ((ulong)start.high << 32) | start.low;
+            if (stamp == 0 || stamp > Int64.MaxValue) return false;
+            created = (long)stamp; path = CanonicalImage(image.ToString());
+            return path != null;
+        }
+        finally { CloseHandle(handle); }
+    }
+
+    private static IntPtr FocusOwnedGame(IntPtr hwnd, UIntPtr targetValue, IntPtr expectedCreated)
+    {
+        if (IntPtr.Size != 8 || hwnd != window || role != "client" || noActivate ||
+            GetForegroundWindow() != window || expectedCreated.ToInt64() <= 0 ||
+            targetValue.ToUInt64() == 0 || targetValue.ToUInt64() > Int64.MaxValue) return IntPtr.Zero;
+        IntPtr target = new IntPtr((long)targetValue.ToUInt64());
+        if (target == window || GetAncestor(target, 2) != target || !IsWindowVisible(target) || IsIconic(target)) return IntPtr.Zero;
+        StringBuilder cls = new StringBuilder(256); uint pid, repeatedPid;
+        if (GetClassNameW(target, cls, 256) == 0 || cls.ToString() != "RiotWindowClass" ||
+            GetWindowThreadProcessId(target, out pid) == 0 || pid == GetCurrentProcessId() || !SameOwnedJob(pid)) return IntPtr.Zero;
+        string actual, own; long created, ownCreated;
+        string sibling = CanonicalImage(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), "Game", "League of Legends.exe"));
+        if (sibling == null || !ImageMetadata(pid, out actual, out created) ||
+            !ImageMetadata(GetCurrentProcessId(), out own, out ownCreated) ||
+            !String.Equals(actual, sibling, StringComparison.OrdinalIgnoreCase) ||
+            !String.Equals(own, CanonicalImage(System.Reflection.Assembly.GetExecutingAssembly().Location), StringComparison.OrdinalIgnoreCase) ||
+            created != expectedCreated.ToInt64() || created <= ownCreated ||
+            GetWindowThreadProcessId(target, out repeatedPid) == 0 || repeatedPid != pid ||
+            GetForegroundWindow() != window) return IntPtr.Zero;
+        bool accepted = SetForegroundWindow(target);
+        return new IntPtr(!accepted ? 2 : GetForegroundWindow() == target ? 1 : 3);
+    }
 
     private static int Number(string value, int min, int max)
     {
@@ -217,6 +321,8 @@ internal static class SessionWindowFixture
                     SetForegroundWindow(window);
                     CloseOwnedFocusSink();
                     return window == hwnd && focusSink == IntPtr.Zero && GetForegroundWindow() == hwnd ? new IntPtr(1) : IntPtr.Zero;
+                case WM_FOCUS_OWNED_GAME:
+                    return FocusOwnedGame(hwnd, wParam, lParam);
                 case WM_TIMER:
                     if (Clock.ElapsedMilliseconds >= lifetime * 1000L) DestroyWindow(hwnd);
                     return IntPtr.Zero;
