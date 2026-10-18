@@ -823,12 +823,35 @@ class OriginalVerifierProcessTests(OfflineTestCase):
             environment = promotion.verifier_environment()
             self.assertEqual(os.environ['GITHUB_SHA'], PROMOTION_SHA)
             self.assertEqual(os.environ['GH_TOKEN'], 'synthetic-must-not-leak')
+        # os.environ normalizes keys to uppercase on Windows, including keys
+        # inserted by patch.dict. The allowlist preserves host key spelling.
+        system_root_key = 'SYSTEMROOT' if os.name == 'nt' else 'SystemRoot'
         self.assertEqual(environment, {'PATH': '/owned/bin', 'PATHEXT': '.EXE;.CMD',
-                                      'SystemRoot': 'C:\\Windows', 'TEMP': '/owned/tmp',
+                                      system_root_key: 'C:\\Windows', 'TEMP': '/owned/tmp',
                                       'HOME': '/owned/home', 'PYTHONUTF8': '1',
                                       'PYTHONDONTWRITEBYTECODE': '1', 'ORT_DISABLE_TELEMETRY': '1'})
         self.assertNotIn('synthetic-must-not-leak', environment.values())
         self.assertNotIn('GITHUB_SHA', environment)
+
+    def test_allowlist_accepts_host_key_spelling_but_never_credential_variants(self):
+        for system_root_key in ('SystemRoot', 'SYSTEMROOT'):
+            with self.subTest(system_root_key=system_root_key):
+                # An owned mapping exercises both spellings on either host;
+                # the test above separately uses the real os.environ object.
+                source = {system_root_key: 'C:\\Windows', 'Path': '/owned/bin',
+                          'gh_token': 'synthetic-must-not-leak',
+                          'GitHub_Token': 'synthetic-must-not-leak',
+                          'github_sha': 'untrusted-source-override',
+                          'PythonPath': '/untrusted/imports',
+                          'SystemRoot_TOKEN': 'synthetic-must-not-leak'}
+                before = dict(source)
+                with patch.object(promotion.os, 'environ', source):
+                    environment = promotion.verifier_environment()
+                self.assertEqual(source, before)
+                self.assertEqual(environment, {system_root_key: 'C:\\Windows',
+                    'Path': '/owned/bin', 'PYTHONUTF8': '1',
+                    'PYTHONDONTWRITEBYTECODE': '1', 'ORT_DISABLE_TELEMETRY': '1'})
+                self.assertNotIn('synthetic-must-not-leak', environment.values())
 
     def test_child_runs_untouched_original_verifier_from_original_checkout_only(self):
         # Process stdout is not trusted as the receipt. The file is read only
