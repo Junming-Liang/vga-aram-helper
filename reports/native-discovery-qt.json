@@ -2,7 +2,7 @@
   "status": "passed",
   "scope": "Actual Qt offscreen controls/timers, synthetic OS metadata and trust verifier. No Windows/LoL capture claim.",
   "checks": [
-    "Start without a selected HWND minimizes the helper and normally waits for a later client",
+    "Start with explicit minimize preference and no selected HWND waits for a later client",
     "Chinese-layout client appears after Start and is connected without touching window selection",
     "Already-running same-install game takes priority without a selection assignment; no stale hero carried",
     "Reused HWND/PID with a new process creation time clears hero, cards, and manual edit state",

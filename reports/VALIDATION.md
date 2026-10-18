@@ -1,3 +1,73 @@
+# v0.4.14 startup recognition recovery candidate (2026-10-18 UTC)
+
+Local preparation only: no candidate commit, Windows build, EXE identity, workflow
+run or publication is recorded here. The existing v0.4.13 tag resolves to
+`25b753c794c8588315cdfb911e45c3bfd7a93b89`; a read-only public tag query on
+2026-10-18 found no `v0.4.14` tag. This is baseline identity, not a candidate SHA.
+The manual workflow remains `publish_preview=false` by default. After every gate
+passes, non-publishing validation stages the complete verified release/evidence
+bundle and retains it for one day as `verified-candidate-<exact source SHA>`.
+The separate full-bundle budget check follows the small-evidence upload and
+writes outside the already-hashed evidence. It conservatively counts both
+evidence copies, the separately exposed screenshot and bounded staging metadata;
+an unknown or exceeded budget blocks the candidate upload. This does not create
+a public release or change billing settings.
+
+The [startup recovery audit](../STARTUP_RECOVERY.md) describes reproducible empty-bank
+retry, cache-first delivery, memory-only mapping and malformed-input isolation
+changes. User feedback reports no continuing flicker, with one initial recognition
+miss and no incident diagnostic ZIP. That incident's cause remains unconfirmed.
+Portable offscreen Qt/synthetic tests are not Windows capture, packaged-runtime
+or actual-game proof. Pre-bump test counts are not a v0.4.14 acceptance result.
+
+## Evidence required after the version bump
+
+- Genuinely rerun both public still-image generators below against the final
+  implementation and the original permitted images/rosters/models. The hero
+  report must also exercise its full still-frame OCR path through `--data`.
+  Do not hand-edit report versions, source hashes or observations. The existing
+  historical 0.4.10-to-0.4.11 exception does not permit reuse for v0.4.14, even
+  if the selection modules themselves are unchanged.
+- Recheck the report `applicationVersion` and every evaluated module hash against
+  the final source. Preserve actual abstentions, source provenance and sample
+  limitations. These Linux stills do not demonstrate startup recovery or live
+  capture. If the original inputs are unavailable, keep the gate blocked.
+- Rerun Python and JavaScript checks after final edits; regenerate any supporting
+  offscreen reports being cited as candidate evidence. Preserve historical
+  reports as historical rather than changing their metadata.
+- Complete every source and exact-frozen-EXE Windows workflow gate on the final
+  committed source: three-scale WGC/session/visible-overlay, automatic lifecycle,
+  five-scale layout, native OCR/partial-slot recovery, selection handoff, browser,
+  same-binary OTA success/rollback, fixed post-build OpenCV comparison, package
+  size/budget and exact source/license checks. Bind the final verification to
+  that run and the one EXE's digest and size. Earlier runs or `/releases/latest`
+  cannot substitute for this candidate artifact.
+- Publication remains a separate authorized step after these gates; any eventual
+  candidate release must keep `prerelease=true` and `make_latest=false`. Nothing
+  in this local metadata preparation publishes a tag or release.
+
+Reproduction commands use caller-supplied permitted cached inputs. The fixture
+images and complete third-party data are not committed or redistributed:
+
+```sh
+ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" scripts/validate_hero_screenshots.py \
+  --templates "$TEMPLATES" --fixtures "$HERO_FIXTURES/sources.json" \
+  --data "$REFERENCE_DATA/current.json" --output reports/hero-recognition-genuine.json
+ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" scripts/validate_champion_select_screenshots.py \
+  --rosters "$TEMPLATES" --fixtures "$SELECTION_FIXTURES/sources.json" \
+  --output reports/champion-select-genuine.json
+QT_QPA_PLATFORM=offscreen ORT_DISABLE_TELEMETRY=1 "$OCR_PYTHON" -m unittest discover -s tests -v
+node --check static/app.js
+node --check static/ocr-ui.js
+node --check static/choices.js
+node tests/test_ui_logic.js
+node tests/test_choices_ui.js
+```
+
+Use `QT_QPA_PLATFORM=offscreen` only for non-Windows checks. The Windows workflow
+must test its real native desktop and exact EXE with the existing full gates.
+No post-bump genuine-image result or Windows pass is asserted in this checkpoint.
+
 # v0.4.11 published preview (2026-10-17 UTC)
 
 [Complete Windows release run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768) passed all required gates and published [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11). Source/tag: `a33045e981b84d33eabdc4c8bdf9dca55ace0da8`; tree `968d50746c1e7d3133fc729befb96569cd77d713`. The minimal-OpenCV final EXE is **107,044,393 bytes**; SHA-256: `60d147ba8ba975885060eec8ad8fe597967cef91e2b53855ba9f9ddf3eff3d3f`.
