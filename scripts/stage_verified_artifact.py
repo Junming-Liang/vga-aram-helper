@@ -31,22 +31,49 @@ def expected_names(version):
               ('pyside-setup', 'qtbase', 'qtsvg', 'qtimageformats'))}
 
 
-def owned_file(path, root):
+def owned_path(path, root, *, output=False):
     path = Path(path).absolute()
-    try: relative = path.relative_to(root)
-    except ValueError: raise RuntimeError('Candidate source lies outside checkout') from None
-    cursor = root
+    # Receipts are produced with canonical paths, while CLI/temp paths may use
+    # an 8.3 ancestor spelling. Accept only these two trusted root prefixes;
+    # inspect raw descendant components BEFORE resolving anything beneath root.
+    label = 'output' if output else 'source'
+    for prefix in (root, root.resolve()):
+        try:
+            relative = path.relative_to(prefix)
+            break
+        except ValueError:
+            continue
+    else:
+        raise RuntimeError(f'Candidate {label} lies outside checkout')
+    cursor = prefix
     for component in relative.parts:
-        if component in ('.', '..'): raise RuntimeError('Invalid candidate path')
+        if component in ('.', '..'):
+            raise RuntimeError('Invalid candidate output' if output else 'Invalid candidate path')
         cursor /= component
-        if cursor.is_symlink(): raise RuntimeError('Candidate symlink rejected')
+        if cursor.is_symlink():
+            raise RuntimeError('Candidate output symlink rejected' if output else 'Candidate symlink rejected')
+    # Junction/reparse escapes must not evade lexical containment on Windows.
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        raise RuntimeError(f'Candidate {label} resolves outside checkout') from None
+    return root / relative
+
+
+def owned_file(path, root):
+    path = owned_path(path, root)
     if not path.is_file(): raise RuntimeError('Candidate file missing')
     return path
 
 
 def stage(verified_dir, output_dir, source_sha, run_id, run_attempt, *, root=ROOT):
-    root = Path(root).resolve(); verified_dir = Path(verified_dir).absolute()
-    output_dir = Path(output_dir).absolute()
+    # Keep one lexical spelling for the trusted checkout and its children.
+    # Windows resolve() expands 8.3 ancestor names, while absolute() does not;
+    # resolving only root falsely rejects files in that same directory. Do not
+    # resolve descendants before owned_file has inspected their link components.
+    root = Path(root).absolute()
+    verified_dir = owned_path(verified_dir, root)
+    output_dir = owned_path(output_dir, root, output=True)
     if not re.fullmatch(r'[0-9a-f]{40}', source_sha) or type(run_id) is not int or run_id <= 0 or type(run_attempt) is not int or run_attempt <= 0:
         raise RuntimeError('Invalid expected run identity')
     receipt = owned_file(verified_dir / 'verified-release.json', root)
@@ -73,13 +100,6 @@ def stage(verified_dir, output_dir, source_sha, run_id, run_attempt, *, root=ROO
             raise RuntimeError('Executable is not the exact tested asset')
         validated.append((row, path))
     # Never clobber a prior staged candidate or follow an output-directory link.
-    try: relative = output_dir.relative_to(root)
-    except ValueError: raise RuntimeError('Candidate output lies outside checkout') from None
-    cursor = root
-    for component in relative.parts:
-        if component in ('.', '..'): raise RuntimeError('Invalid candidate output')
-        cursor /= component
-        if cursor.is_symlink(): raise RuntimeError('Candidate output symlink rejected')
     if output_dir.exists(): raise RuntimeError('Candidate output already exists')
     # Bound the bytes actually retained, including JSON escaping/formatting.
     value['assets'] = [{**row, 'path': row['name']} for row, _ in validated]
