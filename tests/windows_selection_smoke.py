@@ -60,6 +60,7 @@ SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
 SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
     'persistent_capture_adapter.py', 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
     'hero_strength.py', 'champion_select.py', 'selection_session.py', 'session_windows.py',
+    'tests/windows_wgc_visible_overlay.py', 'tests/overlay_duty_contract.py', 'tests/windows_ota_smoke.py',
     'selection_smoke.py', 'synthetic_vision.py', 'launcher.py', 'tests/windows_selection_smoke.py',
     'owned_diagnostic_json.py', 'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs',
     'fixtures/demo.json', 'fixtures/champselect-synthetic.png', 'fixtures/auto-scene.png')
@@ -158,6 +159,106 @@ def owned_process_created(native,process):
     require(query(process['handle'],ctypes.byref(created),ctypes.byref(exited),ctypes.byref(kernel),ctypes.byref(user)),
             'Owned process creation time unavailable')
     return (int(created.dwHighDateTime)<<32)|int(created.dwLowDateTime)
+
+
+def bind_application_owner(native,app,executable,initial,launcher,*,frozen,executable_sha256,evidence):
+    """Bind one exact UI owner without confusing a one-file launcher with its child.
+
+    Reuse the existing canonical image/direct Toolhelp-parent proof. Retain the
+    exact launcher and UI handles through both proofs, and independently check
+    this private Job, HWND PID, creation times and liveness before/after them.
+    """
+    from types import SimpleNamespace
+    from windows_wgc_visible_overlay import verify_launched_owner
+    require(type(evidence)is dict and not evidence,'Application owner binding must not be retried')
+    fields=('launcher_live','owner_live','job_verified','hwnd_verified','creation_verified',
+            'image_verified','lineage_verified','revalidated')
+    evidence.update(status='failed',stage='input',mode='onefile-child' if frozen else 'source-direct',
+        observed_owner_pid=0,observed_owner_scope='unavailable',**dict.fromkeys(fields,False))
+    require(type(frozen)is bool and type(initial)is dict and type(launcher)is dict,
+            'Application owner binding input is invalid')
+    owner={key:initial.get('source_'+key) for key in ('pid','created','hwnd')}
+    require(all(type(owner[k])is int and 0<owner[k]<(2**32 if k=='pid' else 2**63) for k in owner)
+            and all(type(launcher.get(k))is int and 0<launcher[k]<(2**32 if k=='pid' else 2**63)
+                    for k in ('pid','created')) and launcher['pid']==app['pid'],
+            'Application owner binding identity is invalid')
+    evidence.update(launcher=dict(launcher),reported_owner=owner)
+    held=None
+    def current(stage):
+        evidence['stage']=stage
+        members=native.pids();observed=W.DWORD()
+        queried=bool(native.u.GetWindowThreadProcessId(owner['hwnd'],ctypes.byref(observed)))
+        evidence['observed_owner_pid']=observed.value if observed.value in members else 0
+        evidence['observed_owner_scope']='owned' if queried and observed.value in members else 'outside-job' if queried else 'unavailable'
+        evidence['job_verified']=app['pid'] in members and owner['pid'] in members
+        evidence['hwnd_verified']=queried and observed.value==owner['pid']
+        evidence['launcher_live']=native.poll(app)is None
+        require(evidence['job_verified'] and evidence['hwnd_verified'] and evidence['launcher_live'],
+                'Application owner Job/HWND/launcher check failed')
+        require(owned_process_created(native,app)==launcher['created'],'Application launcher creation changed')
+        if held is not None:
+            evidence['owner_live']=native.poll(held)is None
+            evidence['creation_verified']=owned_process_created(native,held)==owner['created']
+            require(evidence['owner_live'] and evidence['creation_verified'],'Application UI owner exited or creation changed')
+    def image_bytes():
+        if frozen:
+            require(type(executable_sha256)is str and re.fullmatch('[0-9a-f]{64}',executable_sha256) is not None
+                    and sha256(executable)==executable_sha256,'Application staged EXE bytes changed')
+    try:
+        current('membership-before')
+        # The pid is already proved to belong to this private Job. No VM rights.
+        handle=native.k.OpenProcess(0x1000|0x00100000,False,owner['pid'])
+        require(bool(handle),'Application UI owner handle unavailable')
+        held={'pid':owner['pid'],'handle':handle}
+        current('handles-before');image_bytes()
+        launch_adapter=SimpleNamespace(pid=app['pid'],poll=lambda:native.poll(app))
+        evidence['stage']='lineage-before'
+        proof=verify_launched_owner(owner,launch_adapter,frozen=frozen,executable=executable)
+        require(proof['launcher_created']==launcher['created'] and proof['owner_created']==owner['created'],
+                'Application ancestry creation differs from retained handles')
+        evidence.update(image_verified=True,lineage_verified=True,proof=proof)
+        current('handles-after')
+        evidence['stage']='lineage-after'
+        repeated=verify_launched_owner(owner,launch_adapter,frozen=frozen,executable=executable)
+        require(repeated==proof,'Application owner ancestry changed during binding')
+        image_bytes();current('final')
+        evidence.update(status='passed',stage='complete',revalidated=True)
+        return owner
+    finally:
+        if held is not None:
+            if not native.k.CloseHandle(held['handle']):
+                evidence.update(status='failed',stage='owner-handle-close',revalidated=False)
+                raise AssertionError('Application UI owner handle cleanup failed')
+
+
+def validate_application_binding(row,initial,*,frozen):
+    owner=row.get('application_process');launcher=row.get('application_launcher');binding=row.get('application_binding')
+    require(type(owner)is dict and all(type(owner.get(k))is int and 0<owner[k]<(2**32 if k=='pid' else 2**63) and owner[k]==initial['source_'+k]
+            for k in ('pid','created','hwnd')),'Initial focus controller differs from Job-owned application')
+    require(type(launcher)is dict and all(type(launcher.get(k))is int and 0<launcher[k]<(2**32 if k=='pid' else 2**63)
+            for k in ('pid','created')),'Application launcher identity missing')
+    require(type(binding)is dict and binding.get('status')=='passed' and binding.get('stage')=='complete'
+            and binding.get('mode')==('onefile-child' if frozen else 'source-direct')
+            and binding.get('launcher')==launcher and binding.get('reported_owner')==owner
+            and all(type(binding['launcher'].get(k))is int for k in ('pid','created'))
+            and all(type(binding['reported_owner'].get(k))is int for k in ('pid','created','hwnd'))
+            and type(binding.get('observed_owner_pid'))is int and binding['observed_owner_pid']==owner['pid']
+            and binding.get('observed_owner_scope')=='owned'
+            and all(binding.get(k)is True for k in ('launcher_live','owner_live','job_verified','hwnd_verified',
+                'creation_verified','image_verified','lineage_verified','revalidated')),
+            'Application owner lifetime/Job/HWND proof is incomplete')
+    proof=binding.get('proof')
+    expected=dict(launcher_pid=launcher['pid'],launcher_created=launcher['created'],owner_pid=owner['pid'],
+                  owner_created=owner['created'],owner_ancestry_verified=True)
+    require(type(proof)is dict and proof==expected and proof.get('owner_ancestry_verified')is True
+            and all(type(proof.get(k))is int for k in ('launcher_pid','launcher_created','owner_pid','owner_created')),
+            'Application owner ancestry proof differs')
+    if frozen:
+        require(owner['pid']!=launcher['pid'] and owner['created']>=launcher['created'],
+                'Frozen application is not the exact live one-file child')
+    else:
+        require(owner['pid']==launcher['pid'] and owner['created']==launcher['created'],
+                'Source application is not the exact launch')
 
 
 def focus_owned_game(native,client,client_exe,client_window,client_size,
@@ -641,10 +742,7 @@ def validate_aggregate(value, version, *, frozen, source_commit=None, executable
                 role='game',created=negative['created']), 'Negative game return lacks exact foreground source')
         require(row['final_game_focus']['target']['created']==row['detail']['gameCreated'],
                 'Final focus game creation differs')
-        application=row.get('application_process');initial=row['detail']['initial_focus']
-        require(type(application)is dict and all(type(application.get(k))is int
-                and application[k]==initial['source_'+k] for k in ('pid','created','hwnd')),
-                'Initial focus controller differs from Job-owned application')
+        validate_application_binding(row,row['detail']['initial_focus'],frozen=frozen)
         observed=row.get('focus_fixture');transition=row['detail']['foreground_transition']
         require(type(observed)is dict and observed.get('sink')=={'hwnd':transition['sink_hwnd'],'pid':transition['sink_pid']}
                 and all(type(observed['sink'].get(k))is int for k in ('hwnd','pid')),
@@ -769,7 +867,7 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                 raise AssertionError('Selection handoff report must be fresh for this exact run')
             app = native.spawn(target, app_args + ['--selection-smoke-input', str(input_path),
                                         '--selection-smoke-report', str(handoff_path)], env, work)
-            result['application_process']={'pid':app['pid'],'created':owned_process_created(native,app)}
+            result['application_launcher']={'pid':app['pid'],'created':owned_process_created(native,app)}
             negative_game=None;negative_window=None
 
             def awaiting_game():
@@ -781,12 +879,9 @@ def execute_run(original, reports, result, *, frozen=True, scale=1):
                     require(result.get('follow_off_fixture',{}).get('closed_before_follow_on')is True,
                             'Final game requested before negative-game cleanup')
                     initial=value.get('initial_focus');validate_initial_focus(initial,client_window['hwnd'])
-                    pid=W.DWORD()
-                    require(native.u.GetWindowThreadProcessId(initial['source_hwnd'],ctypes.byref(pid))
-                            and pid.value==app['pid'] and native.poll(app)is None
-                            and owned_process_created(native,app)==result['application_process']['created'],
-                            'Initial controller HWND is not the exact Job-owned application')
-                    result['application_process']['hwnd']=initial['source_hwnd']
+                    result['application_process']=bind_application_owner(native,app,target,initial,
+                        result['application_launcher'],frozen=frozen,executable_sha256=result.get('executable_sha256'),
+                        evidence=result.setdefault('application_binding',{}))
                     return value
                 current = poll_owned_json(handoff_path, read_json) or {}
                 phase=current.get('phase')

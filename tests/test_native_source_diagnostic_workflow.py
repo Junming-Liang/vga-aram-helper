@@ -37,6 +37,50 @@ def workflow_steps(text):
             if block.strip()]
 
 
+class StrictDiagnosticJsonNumberTests(unittest.TestCase):
+    """Exercise both inline readers independently of permissive validator stubs."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.readers = []
+        for index, name in ((0, 'read'), (1, 'read_json')):
+            namespace = {'__name__': 'offline_strict_json_fixture'}
+            oldpath = list(sys.path)
+            try:
+                exec(compile(inline_code(index), str(WORKFLOW), 'exec'), namespace)
+            finally:
+                sys.path[:] = oldpath
+            namespace['ROOT'] = self.root
+            self.readers.append((index, namespace[name]))
+
+    def test_both_readers_reject_nonfinite_tokens_and_exponent_overflow_at_any_depth(self):
+        path = self.root / 'numbers.json'
+        for index, read in self.readers:
+            for token in ('NaN', 'Infinity', '-Infinity', '1e999', '-1e999'):
+                for raw in ('{"number":' + token + '}', '{"nested":[{"number":' + token + '}]}'):
+                    path.write_text(raw)
+                    with self.subTest(reader=index, raw=raw), self.assertRaisesRegex(RuntimeError, 'Non-finite'):
+                        read(path.name)
+
+    def test_both_readers_preserve_finite_numbers_and_integer_types(self):
+        path = self.root / 'numbers.json'
+        for token in ('0', '-1', '1234567890123456789012345678901234567890',
+                      '0.0', '-0.0', '1.5', '-2.75', '1e308', '-1e308',
+                      '1.7976931348623157e308', '5e-324', '-5e-324', '1e-999', '-1e-999'):
+            raw = '{"number":' + token + '}'
+            path.write_text(raw)
+            expected = json.loads(raw)['number']
+            for index, read in self.readers:
+                with self.subTest(reader=index, token=token):
+                    actual = read(path.name)['number']
+                    self.assertEqual(actual, expected)
+                    self.assertIs(type(actual), type(expected))
+                    if type(actual) is float:
+                        self.assertTrue(math.isfinite(actual))
+                        self.assertEqual(math.copysign(1, actual), math.copysign(1, expected))
+
+
 class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding='utf-8')
@@ -132,7 +176,10 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
         for step, command in zip(self.steps[8:14], commands):
             self.assertEqual(step.split('        run: ', 1)[1].strip(), command)
             self.assertIn(command, normal)
-            self.assertIn('        if: ${{ inputs.source_focus_only }}', step)
+            if 'id: focus_selection' in step or 'id: focus_automatic' in step:
+                self.assertNotIn('        if:', step)
+            else:
+                self.assertIn('        if: ${{ inputs.source_focus_only }}', step)
         self.assertIn('        if: ${{ inputs.source_focus_only }}', self.steps[17])
         self.assertIn('          VGA_FOCUS_STEP_RESULTS: ${{ toJSON(steps) }}', self.steps[17])
         self.assertIn("$env:VGA_SOURCE_FOCUS_ONLY -cnotin @('true', 'false')", self.steps[3])
@@ -143,7 +190,7 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
         # Unknown conditions fail this test rather than silently becoming a skip.
         def executed(source_only, success=True):
             selected = []
-            for index, step in enumerate(self.steps[:28]):
+            for index, step in enumerate(self.steps[:29]):
                 conditions = re.findall(r'^        if: (.*)$', step, re.M)
                 self.assertLessEqual(len(conditions), 1)
                 expression = conditions[0] if conditions else None
@@ -153,7 +200,7 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
                 if success and gates[expression]:
                     selected.append(index)
             return selected
-        self.assertEqual(executed(False), list(range(8)) + list(range(14, 17)) + list(range(18, 28)))
+        self.assertEqual(executed(False), list(range(8)) + [11, 12] + list(range(14, 17)) + list(range(18, 29)))
         self.assertEqual(executed(True), list(range(18)))
         for source_only in (False, True):
             self.assertEqual(executed(source_only, success=False), [])
@@ -163,32 +210,49 @@ class NativeSourceDiagnosticWorkflowTests(unittest.TestCase):
             ('frozen150-first', ' --app-scale 1.5'),
             ('frozen150-second', ' --app-scale 1.5 --report-dir build/native-frozen150-second/reports'),
             ('frozen100', ''), ('frozen200', ' --app-scale 2'))
-        for step, (label, options) in zip(self.steps[23:27], cases):
+        for step, (label, options) in zip(self.steps[24:28], cases):
             self.assertEqual(step.split('        run: |\n', 1)[1].strip(), '\n'.join((
                 'python build/native-diagnostic-bindings.py before ' + label,
                 '          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
                 '          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe' + options)))
             self.assertIn('        timeout-minutes: 6', step)
-        self.assertEqual(self.steps[27].split('        run: ', 1)[1].strip(), 'python build/native-diagnostic-bindings.py verify')
+        self.assertEqual(self.steps[28].split('        run: ', 1)[1].strip(), 'python build/native-diagnostic-bindings.py verify')
         self.assertEqual(self.configuration.count('python tests/windows_native_smoke.py'), 7)
-        for step in self.steps[:8] + self.steps[14:17]:
+        for step in self.steps[:8] + self.steps[11:13] + self.steps[14:17]:
             self.assertNotIn('        if:', step)
-        for step in self.steps[18:28]:
+        for step in self.steps[18:29]:
             self.assertIn('        if: ${{ !inputs.source_focus_only }}', step)
         for forbidden in ('continue-on-error', '|| true', 'exit 0', 'QT_QPA_PLATFORM', '--skip', '--retry'):
             self.assertNotIn(forbidden, self.configuration)
 
+    def test_frozen_selection_uses_same_fresh_exe_before_native_cases(self):
+        step = self.steps[23]
+        self.assertIn('        id: frozen_selection', step)
+        self.assertIn('        if: ${{ !inputs.source_focus_only }}', step)
+        self.assertIn('        timeout-minutes: 8', step)
+        self.assertEqual(step.split('        run: |\n', 1)[1].strip(), '\n'.join((
+            'python build/native-diagnostic-bindings.py before-selection',
+            '          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+            '          python tests/windows_selection_smoke.py --exe dist/VGA-Aram-Helper.exe --report-dir reports',
+            '          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+            '          python build/native-diagnostic-bindings.py record-selection')))
+        self.assertIn('          VGA_FULL_STEP_RESULTS: ${{ toJSON(steps) }}', self.steps[28])
+        self.assertEqual(self.configuration.count('python tests/windows_selection_smoke.py'), 2)
+        self.assertEqual(self.configuration.count('python tests/windows_automatic_capture.py'), 1)
+        self.assertNotIn('python tests/windows_automatic_capture.py --exe', self.configuration)
+        self.assertIn('automatic window lifecycle is tested from source only.', self.configuration)
+
     def test_no_release_publication_or_unrelated_acceptance_claim(self):
         for forbidden in ('verify_release.py', '--publish', 'publish_preview', 'gh release',
                           'gh api', 'git push', 'softprops/action-gh-release', 'actions/setup-node',
-                          'windows_ota_smoke', 'windows_gui_walkthrough', 'fetch_ota_fixture'):
+                          'python tests/windows_ota_smoke', 'windows_gui_walkthrough', 'fetch_ota_fixture'):
             self.assertNotIn(forbidden, self.configuration)
         self.assertIn('Not complete release acceptance or proof of the original Run 80 cause.', self.configuration)
         self.assertIn('Evidence staging does not turn any failed or skipped check into a pass.', self.configuration)
 
     def test_always_bounded_text_evidence_and_exact_staging_budget(self):
-        postbuild, summary, budget, upload = self.steps[28:32]
-        self.assertEqual(len(self.steps), 32)
+        postbuild, summary, budget, upload = self.steps[29:33]
+        self.assertEqual(len(self.steps), 33)
         self.assertIn('        if: ${{ always() && !inputs.source_focus_only }}', postbuild)
         self.assertIn('python scripts/probe_opencv_postbuild.py summarize', postbuild)
         self.assertIn('        id: diagnostic_evidence', summary)
@@ -245,6 +309,7 @@ class FreshExeBindingTests(unittest.TestCase):
         exec(compile(inline_code(1), str(WORKFLOW), 'exec'), self.ns)
         sys.path[:] = oldpath
         self.ns['ROOT'] = self.root
+        os.environ['VGA_FULL_STEP_RESULTS'] = json.dumps({key: {'outcome': 'success'} for key in self.ns['REQUIRED_STEPS']})
         self.checkout_sha = self.sha
         self.export_status = 'completed'
         self.receipt_status = 'passed'
@@ -257,11 +322,32 @@ class FreshExeBindingTests(unittest.TestCase):
         postbuild.validate_export = lambda: ({'status': self.export_status}, {'status': self.receipt_status})
         duty = types.ModuleType('overlay_duty_contract')
         duty.SOURCE_FILES = ('native_ui.py',)
+        selection = types.ModuleType('windows_selection_smoke')
+        selection.SOURCE_FILES = ('selection_smoke.py', 'tests/windows_selection_smoke.py',
+                                  'tests/windows_session_fixture.py', 'tests/SessionWindowFixture.cs')
+        self.selection_calls = []
+        self.reject_selection = False
+        def validate_selection(value, version, **expected):
+            self.selection_calls.append((value, version, expected))
+            if self.reject_selection:
+                raise RuntimeError('Strict launcher/controller ownership validator rejected evidence')
+            return value
+        selection.validate_aggregate = validate_selection
+        automatic = types.ModuleType('windows_automatic_capture')
+        automatic.SOURCE_FILES = ('automatic_windows.py', 'tests/windows_automatic_capture.py')
+        self.reject_automatic = False
+        def validate_automatic(value, version, sha):
+            if (self.reject_automatic or value.get('status') != 'passed' or 'error' in value or
+                    value.get('frozen') is not False or value.get('application_version') != version or value.get('source_commit') != sha):
+                raise RuntimeError('Strict automatic source validator rejected evidence')
+        automatic.validate_source_report = validate_automatic
+        self.selection_module, self.automatic_module = selection, automatic
         self.modules = patch.dict(sys.modules, {'scripts.build_windows': builder,
-                                  'scripts.probe_opencv_postbuild': postbuild, 'overlay_duty_contract': duty})
+                                  'scripts.probe_opencv_postbuild': postbuild, 'overlay_duty_contract': duty,
+                                  'windows_selection_smoke': selection, 'windows_automatic_capture': automatic})
         self.modules.start()
         self.addCleanup(self.modules.stop)
-        for name in (*self.ns['CONFIG_INPUTS'], 'native_ui.py', 'scripts/config.py'):
+        for name in (*self.ns['CONFIG_INPUTS'], 'native_ui.py', 'scripts/config.py', *selection.SOURCE_FILES, *automatic.SOURCE_FILES):
             self.put(name, b'owned synthetic source bytes\n')
         self.put('dist/VGA-Aram-Helper.exe', b'synthetic-exe-bytes-never-executed')
         self.named = 'dist/release/vga-aram-helper-' + __version__ + '-windows-x64.exe'
@@ -287,6 +373,10 @@ class FreshExeBindingTests(unittest.TestCase):
                              exe=self.ns['file_record']('dist/VGA-Aram-Helper.exe'))
         for directory, prefix, scale in self.ns['SOURCE_CASES']:
             self.make_case(directory, prefix, scale, frozen=False)
+        self.make_selection(frozen=False)
+        self.write_json('reports/windows-automatic-capture.json', dict(status='passed', frozen=False,
+            source_commit=self.sha, application_version=__version__,
+            source_sha256={name: self.identity['source_files'][name] for name in automatic.SOURCE_FILES}))
 
     def put(self, path, data):
         target = self.root / path
@@ -315,8 +405,27 @@ class FreshExeBindingTests(unittest.TestCase):
         self.write_json(path, result)
         return path
 
-    def record(self):
+    def make_selection(self, *, frozen, **changes):
+        names = self.ns['selection_names'](frozen)
+        value = dict(status='passed', frozen=frozen, source_commit=self.sha, applicationVersion=__version__,
+                     source_files={name: self.identity['source_files'][name] for name in self.selection_module.SOURCE_FILES},
+                     scales=[1, 1.5, 2], runs=[])
+        if frozen:
+            value.update(executable_sha256=self.identity['exe']['sha256'], executable_size=self.identity['exe']['size'])
+        for scale, name in zip(value['scales'], names[1:]):
+            detail = dict(status='passed', synthetic_only=True, frozen=frozen, app_scale=scale)
+            self.write_json('reports/' + name, detail)
+            value['runs'].append(dict(app_scale=scale, native_report=name, detail=detail,
+                                     native_report_sha256=self.ns['file_record']('reports/' + name)['sha256']))
+        value.update(changes)
+        self.write_json('reports/' + names[0], value)
+
+    def record(self, *, selection=True):
         self.identity = self.ns['record_identity']()
+        if selection:
+            self.ns['before_selection']()
+            self.make_selection(frozen=True)
+            self.ns['record_selection']()
         return self.identity
 
     def frozen_case(self, index, **changes):
@@ -336,6 +445,11 @@ class FreshExeBindingTests(unittest.TestCase):
         self.assertEqual(result['frozen_manual_switches'], 32)
         self.assertEqual(result['source_manual_switches'], 24)
         self.assertEqual(result['exe'], identity['exe'])
+        self.assertEqual(result['frozen_selection']['scales'], [1, 1.5, 2])
+        self.assertIs(result['frozen_selection']['frozen'], True)
+        self.assertIs(result['automatic_frozen_tested'], False)
+        self.assertEqual(result['required_steps'], {key: 'success' for key in self.ns['REQUIRED_STEPS']})
+        self.assertEqual(len(result['frozen_selection']['files']), 4)
         self.assertEqual(len({row['report'] for row in result['runs']}), 4)
         self.assertIn('Not complete release acceptance', result['scope'])
         self.assertEqual(result['identity_file'], self.ns['file_record'](self.ns['IDENTITY']))
@@ -418,6 +532,8 @@ class FreshExeBindingTests(unittest.TestCase):
     def test_source_config_build_environment_and_proof_changes_are_rejected(self):
         self.record()
         for name in ('capture_cadence.py', '.github/workflows/diagnose-native-source.yml',
+                     'selection_smoke.py', 'tests/windows_selection_smoke.py', 'tests/SessionWindowFixture.cs',
+                     'tests/windows_ota_smoke.py', 'tests/windows_exe_smoke.py',
                      'reports/windows-build.json', 'reports/windows-build-environment.txt',
                      'reports/windows-opencv-proof.json'):
             with self.subTest(name=name):
@@ -507,6 +623,175 @@ class FreshExeBindingTests(unittest.TestCase):
         self.ns['verify_all']()
         with self.assertRaises(FileExistsError):
             self.ns['verify_all']()
+
+    def test_frozen_selection_validator_receives_exact_bound_product(self):
+        self.record(selection=False)
+        self.ns['before_selection']()
+        self.make_selection(frozen=True)
+        receipt = self.ns['record_selection']()
+        value, version, expected = self.selection_calls[-1]
+        self.assertIs(value['frozen'], True)
+        self.assertEqual(version, __version__)
+        self.assertEqual(expected, dict(frozen=True, source_commit=self.sha,
+            executable_sha256=self.identity['exe']['sha256'], executable_size=self.identity['exe']['size']))
+        self.assertEqual(receipt['exe'], self.identity['exe'])
+        self.assertEqual(receipt['run_id'], '12345')
+        self.assertEqual(receipt['run_attempt'], '1')
+        self.assertEqual(receipt['identity_file'], self.ns['file_record'](self.ns['IDENTITY']))
+        self.assertEqual(set(receipt['selection']['files']), {'reports/' + name for name in self.ns['selection_names'](True)})
+        self.ns['before_case']('frozen150-first')
+
+    def test_frozen_selection_outputs_and_temporary_files_must_all_be_fresh(self):
+        self.record(selection=False)
+        for name in (*self.ns['selection_names'](True), Path(self.ns['SELECTION_RECEIPT']).name):
+            path = self.root / 'reports' / name
+            for output in (path, path.with_suffix('.tmp')):
+                output.write_bytes(b'preserve previous failed output')
+                with self.subTest(name=output.name), self.assertRaisesRegex(RuntimeError, 'Selection output reuse rejected'):
+                    self.ns['before_selection']()
+                self.assertEqual(output.read_bytes(), b'preserve previous failed output')
+                output.unlink()
+
+    def test_missing_or_failed_frozen_selection_never_allows_native_cases(self):
+        self.record(selection=False)
+        with self.assertRaisesRegex(RuntimeError, 'Missing'):
+            self.ns['before_case']('frozen150-first')
+        self.make_selection(frozen=True, status='failed')
+        with self.assertRaisesRegex(RuntimeError, 'Selection source/mode/status'):
+            self.ns['record_selection']()
+        self.assertFalse((self.root / self.ns['SELECTION_RECEIPT']).exists())
+        with self.assertRaisesRegex(RuntimeError, 'Missing'):
+            self.ns['before_case']('frozen150-first')
+        with self.assertRaisesRegex(RuntimeError, 'output reuse rejected'):
+            self.ns['before_selection']()
+
+    def test_frozen_selection_wrong_product_source_mode_and_scale_cannot_record(self):
+        self.record(selection=False)
+        self.make_selection(frozen=True)
+        path = 'reports/windows-selection-smoke.json'
+        original = self.read_json(path)
+        mutations = (('frozen', False), ('status', 'failed'), ('source_commit', 'b' * 40),
+                     ('applicationVersion', 'wrong'), ('source_files', {}), ('executable_sha256', 'c' * 64),
+                     ('executable_size', 1), ('executable_size', True), ('scales', [True, 1.5, 2]),
+                     ('scales', [1, 2, 1.5]), ('runs', []), ('error', 'retained failure'))
+        for key, value in mutations:
+            self.write_json(path, {**original, key: value})
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                self.ns['record_selection']()
+        self.assertFalse((self.root / self.ns['SELECTION_RECEIPT']).exists())
+
+    def test_all_frozen_selection_raw_reports_required_and_exactly_bound(self):
+        self.record(selection=False)
+        for name in self.ns['selection_names'](True)[1:]:
+            self.make_selection(frozen=True)
+            path = self.root / 'reports' / name
+            original = path.read_bytes()
+            path.unlink()
+            with self.subTest(name=name, changed='missing'), self.assertRaisesRegex(RuntimeError, 'Missing'):
+                self.ns['record_selection']()
+            path.write_bytes(original + b'\n')
+            with self.subTest(name=name, changed='bytes'), self.assertRaisesRegex(RuntimeError, 'raw handoff evidence differs'):
+                self.ns['record_selection']()
+            detail = json.loads(original)
+            detail['changed'] = True
+            path.write_text(json.dumps(detail))
+            with self.subTest(name=name, changed='detail'), self.assertRaisesRegex(RuntimeError, 'raw handoff evidence differs'):
+                self.ns['record_selection']()
+        self.assertFalse((self.root / self.ns['SELECTION_RECEIPT']).exists())
+
+    def test_aggregate_cannot_choose_arbitrary_scale_report_or_duplicate_scale(self):
+        self.record(selection=False)
+        self.make_selection(frozen=True)
+        path = 'reports/windows-selection-smoke.json'
+        original = self.read_json(path)
+        for key, value in (('native_report', '../../outside.json'), ('app_scale', 2), ('app_scale', True)):
+            changed = copy.deepcopy(original)
+            changed['runs'][0][key] = value
+            self.write_json(path, changed)
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, 'fixed scale/report identity'):
+                self.ns['record_selection']()
+
+    def test_strict_controller_ownership_and_automatic_validators_cannot_be_bypassed(self):
+        self.reject_automatic = True
+        with self.assertRaisesRegex(RuntimeError, 'Strict automatic source validator'):
+            self.record(selection=False)
+        self.reject_automatic = False
+        self.record(selection=False)
+        self.make_selection(frozen=True)
+        self.reject_selection = True
+        with self.assertRaisesRegex(RuntimeError, 'Strict launcher/controller ownership validator'):
+            self.ns['record_selection']()
+        self.assertFalse((self.root / self.ns['SELECTION_RECEIPT']).exists())
+
+    def test_source_controller_reports_cannot_substitute_frozen_mode_or_change_after_record(self):
+        selection = 'reports/windows-selection-source.json'
+        original = self.read_json(selection)
+        self.write_json(selection, {**original, 'frozen': True})
+        with self.assertRaisesRegex(RuntimeError, 'Selection source/mode/status'):
+            self.record(selection=False)
+        self.write_json(selection, original)
+        self.record()
+        for name in (selection, 'reports/windows-selection-source-handoff.json', 'reports/windows-automatic-capture.json'):
+            path = self.root / name
+            original_bytes = path.read_bytes()
+            path.write_bytes(original_bytes + b'\n')
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'Source controller evidence changed|raw handoff evidence differs'):
+                self.ns['before_case']('frozen150-first')
+            path.write_bytes(original_bytes)
+
+    def test_changed_valid_selection_or_receipt_cannot_survive_later_native_cases(self):
+        self.record()
+        aggregate = 'reports/windows-selection-smoke.json'
+        original = self.read_json(aggregate)
+        self.write_json(aggregate, {**original, 'otherwise_valid_change': True})
+        with self.assertRaisesRegex(RuntimeError, 'Frozen selection evidence or receipt changed'):
+            self.ns['before_case']('frozen150-first')
+        self.write_json(aggregate, original)
+        receipt = self.read_json(self.ns['SELECTION_RECEIPT'])
+        for key, value in (('source_sha', 'b' * 40), ('run_id', 'old'), ('run_attempt', '2'), ('mode', 'source-only'),
+                           ('identity_file', {}), ('selection', {})):
+            self.write_json(self.ns['SELECTION_RECEIPT'], {**receipt, key: value})
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, 'Frozen selection evidence or receipt changed'):
+                self.ns['before_case']('frozen150-first')
+
+    def test_frozen_selection_receipt_is_write_once(self):
+        self.record()
+        with self.assertRaises(FileExistsError):
+            self.ns['record_selection']()
+
+    def test_full_identity_selection_and_receipt_json_reject_duplicate_and_nonfinite_values(self):
+        self.record()
+        for name in (self.ns['IDENTITY'], self.ns['SELECTION_RECEIPT'],
+                     'reports/windows-selection-smoke.json', 'reports/windows-selection-handoff.json'):
+            path = self.root / name
+            original = path.read_bytes()
+            for prefix in (b'{"duplicate":1,"duplicate":2,', b'{"untrusted_number":NaN,',
+                           b'{"untrusted_number":Infinity,', b'{"untrusted_number":-Infinity,',
+                           b'{"untrusted_number":1e999,', b'{"untrusted_number":-1e999,'):
+                path.write_bytes(prefix + original[1:])
+                with self.subTest(name=name, prefix=prefix), self.assertRaisesRegex(RuntimeError, 'Duplicate diagnostic JSON|Non-finite diagnostic JSON'):
+                    self.ns['before_case']('frozen150-first')
+                path.write_bytes(original)
+        aggregate = self.root / 'reports/windows-selection-smoke.json'
+        aggregate.write_bytes(b'{"status":"failed",' + aggregate.read_bytes()[1:])
+        with self.assertRaisesRegex(RuntimeError, 'Duplicate diagnostic JSON'):
+            self.ns['before_case']('frozen150-first')
+
+    def test_final_receipt_requires_every_successful_source_and_frozen_step(self):
+        self.record()
+        for index in range(4):
+            self.frozen_case(index)
+        for key in self.ns['REQUIRED_STEPS']:
+            for outcome in (None, 'skipped', 'failure', 'cancelled'):
+                values = {name: {'outcome': 'success'} for name in self.ns['REQUIRED_STEPS']}
+                if outcome is None:
+                    del values[key]
+                else:
+                    values[key] = {'outcome': outcome, 'conclusion': 'success'}
+                with self.subTest(step=key, outcome=outcome), patch.dict(os.environ, {'VGA_FULL_STEP_RESULTS': json.dumps(values)}):
+                    with self.assertRaisesRegex(RuntimeError, 'Every required source/frozen diagnostic step'):
+                        self.ns['verify_all']()
+        self.assertFalse((self.root / self.ns['RESULT']).exists())
 
 
 class SourceFocusCompletionTests(unittest.TestCase):
@@ -779,8 +1064,14 @@ class SourceFocusCompletionTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.complete()
         (self.root / self.ns['RESULT']).unlink()
-        for raw in (b'{"status":"failed","status":"passed"}', b'{"status":"passed","number":NaN}', b'x' * (256 * 1024 + 1)):
-            self.put('reports/windows-wgc-source.json', raw)
+        name = 'reports/windows-wgc-source.json'
+        original = (self.root / name).read_bytes()
+        for token in (b'NaN', b'Infinity', b'-Infinity', b'1e999', b'-1e999'):
+            self.put(name, b'{"untrusted_number":' + token + b',' + original[1:])
+            with self.subTest(token=token), self.assertRaisesRegex(RuntimeError, 'Non-finite source report'):
+                self.complete()
+        for raw in (b'{"status":"failed","status":"passed"}', b'x' * (256 * 1024 + 1)):
+            self.put(name, raw)
             with self.assertRaises(RuntimeError):
                 self.complete()
 
@@ -866,6 +1157,30 @@ class BoundedSourceDiagnosticEvidenceTests(unittest.TestCase):
         self.assertIn('Source-only focus/routing', inventory['scope'])
         self.assertNotIn('never expose', self.output.getvalue())
         self.assertLess(sum(path.stat().st_size for path in self.stage.iterdir()), 2 * 1024 * 1024)
+
+    def test_failed_frozen_selection_preserves_full_fixed_snapshots_without_extra_logs(self):
+        names = ('windows-selection-smoke.json', 'windows-selection-handoff.json',
+                 'windows-selection-handoff-scale150.json', 'windows-selection-handoff-scale200.json',
+                 'windows-frozen-selection-diagnostic.json')
+        for name in names:
+            value = dict(status='failed', frozen=True, application_binding={
+                'status': 'failed', 'stage': 'validate-owner', 'observed_owner_pid': 6024,
+                'error': 'exact launcher/controller relationship rejected'})
+            (self.reports / name).write_text(json.dumps(value))
+        for name in ('windows-selection-scale100-private.log', 'windows-selection-handoff.png', 'VGA-Aram-Helper.exe'):
+            (self.reports / name).write_bytes(b'private or binary evidence must never be staged')
+        self.run_evidence()
+        self.assertEqual({path.name for path in self.stage.iterdir()},
+                         set(names) | {'windows-native-source-diagnostic-inventory.json'})
+        for name in names:
+            self.assertEqual((self.stage / name).read_bytes(), (self.reports / name).read_bytes())
+        self.assertIn('exact launcher/controller relationship rejected', self.output.getvalue())
+        self.assertNotIn('private or binary evidence', self.output.getvalue())
+        inventory = json.loads((self.stage / 'windows-native-source-diagnostic-inventory.json').read_text())
+        self.assertEqual(inventory['mode'], 'source-and-frozen')
+        self.assertNotIn('status', inventory)
+        self.assertEqual(inventory['max_file_bytes'], 256 * 1024)
+        self.assertEqual(inventory['max_total_bytes'], 2 * 1024 * 1024)
 
     def test_unknown_mode_cannot_stage_mislabeled_evidence(self):
         for mode in ('', 'TRUE', 'source-only', 'null'):

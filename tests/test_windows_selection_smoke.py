@@ -293,6 +293,15 @@ class SelectionHarnessTests(unittest.TestCase):
                 'client_size':[964,602],'launched_after_selection_request':True,'process_exited':True,'closed_before_follow_on':True,
                 'focus':{'sent':True,'result':1,'api':True,'drained':False,'before':100,'after':500}}
             row['application_process']={'pid':601,'created':133000000000000050,'hwnd':600}
+            owner=row['application_process']
+            launcher=row['application_launcher']={'pid':599 if frozen else owner['pid'],
+                'created':133000000000000040 if frozen else owner['created']}
+            row['application_binding']=dict(status='passed',stage='complete',mode='onefile-child' if frozen else 'source-direct',
+                launcher=dict(launcher),reported_owner=dict(owner),observed_owner_pid=owner['pid'],observed_owner_scope='owned',
+                proof=dict(launcher_pid=launcher['pid'],launcher_created=launcher['created'],owner_pid=owner['pid'],
+                    owner_created=owner['created'],owner_ancestry_verified=True),
+                **dict.fromkeys(('launcher_live','owner_live','job_verified','hwnd_verified','creation_verified',
+                    'image_verified','lineage_verified','revalidated'),True))
             row['negative_game_return_focus']=good_owned_focus()
             row['final_game_focus']=good_owned_focus('game',route='already')
             row['final_game_focus']['target'].update(hwnd=200,pid=201,created=row['detail']['gameCreated'])
@@ -674,13 +683,16 @@ class SelectionHarnessTests(unittest.TestCase):
         foreground[0]=100
         current['phase']='await-game-window'
         current['initial_focus']=self.good_report()['initial_focus']
-        namespace['app']['pid']=601;namespace['result']['application_process']={'pid':601,'created':133000000000000200}
+        namespace['app']['pid']=599;namespace['result']['application_launcher']={'pid':599,'created':133000000000000200}
+        namespace.update(target=Path('/owned/app.exe'),frozen=True,bind_application_owner=Mock(return_value={'pid':601,'created':133000000000000050,'hwnd':600}))
         def app_pid(hwnd,pointer):
             self.assertEqual(hwnd,600)
             ctypes.cast(pointer,ctypes.POINTER(smoke.W.DWORD)).contents.value=601;return 1
         native.u.GetWindowThreadProcessId=app_pid
         self.assertIs(advance(),current)
         self.assertEqual(namespace['result']['application_process']['hwnd'],600)
+        namespace['bind_application_owner'].assert_called_once_with(native,app,Path('/owned/app.exe'),current['initial_focus'],
+            namespace['result']['application_launcher'],frozen=True,executable_sha256=None,evidence={})
         self.assertEqual(native.spawn.call_count,1)
         native.wait_exit.return_value=1;native.close_window.reset_mock();foreground[0]=500
         namespace['result']['follow_off_fixture']['process_exited']=False
