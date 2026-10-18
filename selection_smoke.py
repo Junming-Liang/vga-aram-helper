@@ -163,8 +163,10 @@ def advance_follow_off_probe(control,report):
         report['phase']='testing-follow-off-game';return True
     assert phase=='testing-follow-off-game'
     assert (game.hwnd,game.pid,metadata.created)==(evidence['game_hwnd'],evidence['game_pid'],evidence['game_created'])
-    if not control.capture.foreground(game):return False
     age=time.monotonic()-session.last_client_frame
+    if 'fresh_no_handoff_age_seconds' not in evidence:
+        assert 0<=age<=4,'Owned game focus was not observed within fresh selection lifetime'
+    if not control.capture.foreground(game):return False
     control.advance_session_window()
     assert control.target.identity==policy.client_identity and policy.game_identity is None and not policy.permits(game)
     if 'fresh_no_handoff_age_seconds' not in evidence:
