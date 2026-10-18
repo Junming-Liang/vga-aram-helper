@@ -1,0 +1,106 @@
+name: Stage verified candidate as a private draft
+
+# Recovery of one existing, verified artifact only. The promoter keeps the
+# release nonpublic; it never builds or executes the candidate or publishes it.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Original verified Actions run (fixed recovery target)'
+        required: true
+        type: string
+        default: '39098790761'
+      source_sha:
+        description: 'Original verified source commit (fixed recovery target)'
+        required: true
+        type: string
+        default: '52b8720e2aa7f2b43afa5f1f73e884157f15deb6'
+      run_attempt:
+        description: 'Original verified run attempt (fixed recovery target)'
+        required: true
+        type: string
+        default: '1'
+      artifact_id:
+        description: 'Existing verified candidate artifact (fixed recovery target)'
+        required: true
+        type: string
+        default: '12125904800'
+      artifact_sha256:
+        description: 'Expected SHA-256 of the existing artifact archive'
+        required: true
+        type: string
+        default: 'ed3eb0d5aca6c909c8794d9513f103ba8ca6127a3cf48497a8548d9f84652b27'
+
+permissions: {}
+
+# Share the preview release lock, including with its separate publication flow.
+concurrency:
+  group: vga-native-preview-v0.4.14
+  cancel-in-progress: false
+
+jobs:
+  stage-verified-draft:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      ORT_DISABLE_TELEMETRY: '1'
+      CANDIDATE_RUN_ID: ${{ inputs.run_id }}
+      CANDIDATE_SOURCE_SHA: ${{ inputs.source_sha }}
+      CANDIDATE_RUN_ATTEMPT: ${{ inputs.run_attempt }}
+      CANDIDATE_ARTIFACT_ID: ${{ inputs.artifact_id }}
+      CANDIDATE_ARTIFACT_SHA256: ${{ inputs.artifact_sha256 }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Reject every input except the fixed verified candidate
+        timeout-minutes: 1
+        run: |
+          $expected = @{
+            CANDIDATE_RUN_ID = '39098790761'
+            CANDIDATE_SOURCE_SHA = '52b8720e2aa7f2b43afa5f1f73e884157f15deb6'
+            CANDIDATE_RUN_ATTEMPT = '1'
+            CANDIDATE_ARTIFACT_ID = '12125904800'
+            CANDIDATE_ARTIFACT_SHA256 = 'ed3eb0d5aca6c909c8794d9513f103ba8ca6127a3cf48497a8548d9f84652b27'
+          }
+          foreach ($key in $expected.Keys) {
+            if ([Environment]::GetEnvironmentVariable($key) -cne $expected[$key]) {
+              throw "This recovery workflow accepts only the fixed verified candidate ($key)."
+            }
+          }
+      - uses: actions/checkout@v4
+        with:
+          # Use current trusted promoter code, never code from the input SHA.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install pinned verifier dependencies from official PyPI
+        timeout-minutes: 6
+        run: |
+          python -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify existing artifact and stage only a nonpublic draft
+        timeout-minutes: 12
+        # The existing ephemeral token is exposed only to this required step.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+          GH_NO_UPDATE_NOTIFIER: '1'
+        run: >-
+          python scripts/promote_verified_candidate.py
+          --run-id "$env:CANDIDATE_RUN_ID"
+          --source-sha "$env:CANDIDATE_SOURCE_SHA"
+          --run-attempt "$env:CANDIDATE_RUN_ATTEMPT"
+          --artifact-id "$env:CANDIDATE_ARTIFACT_ID"
+          --artifact-sha256 "$env:CANDIDATE_ARTIFACT_SHA256"
+          --work-dir build/candidate-promotion
