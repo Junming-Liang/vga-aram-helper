@@ -1,12 +1,18 @@
 name: Diagnose native Windows source and frozen transitions
 
-# Manual source and one fresh EXE diagnostic only, never complete release
-# acceptance. No publication or reused/downloaded application artifact.
+# Manual source and one fresh EXE diagnostic by default. Explicit source-only
+# focus/routing diagnostics never claim frozen acceptance. No publication.
 on:
   workflow_dispatch:
+    inputs:
+      source_focus_only:
+        description: 'Run all owned source focus/routing fixtures without an OpenCV rebuild or frozen EXE'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: vga-native-source-diagnostic
@@ -22,6 +28,7 @@ jobs:
       ORT_DISABLE_TELEMETRY: '1'
       VGA_RELEASE_PACKAGE_PROFILE: 'minimal-opencv-v1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      VGA_SOURCE_FOCUS_ONLY: ${{ toJSON(inputs.source_focus_only) }}
     defaults:
       run:
         shell: pwsh
@@ -38,6 +45,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_native_source_diagnostic_workflow.py' -v
       - name: Require the exact dispatch checkout and fresh diagnostic outputs
         run: |
+          if ($env:VGA_SOURCE_FOCUS_ONLY -cnotin @('true', 'false')) { throw 'Unknown diagnostic mode.' }
           $head = (git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($head -cne $env:GITHUB_SHA) { throw 'Checkout differs from the exact dispatch SHA.' }
@@ -62,24 +70,249 @@ jobs:
       - name: Build persistent HWND-only WGC helper with the same approved compiler
         timeout-minutes: 4
         run: python scripts/build_wgc_session_capture.py
+      - name: Require source-only real WGC acceptance at three app scales
+        id: focus_wgc
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 6
+        run: python tests/windows_wgc_capture.py --reports reports
+      - name: Require source-only application session acceptance at three app scales
+        id: focus_session
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 8
+        run: python tests/windows_wgc_session_capture.py --application --reports reports
+      - name: Require source-only visible-overlay capture at three app scales
+        id: focus_visible
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 10
+        run: python tests/windows_wgc_visible_overlay.py --reports reports
+      - name: Require source-only selection handoff at three app scales
+        id: focus_selection
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 8
+        run: python tests/windows_selection_smoke.py --report-dir reports
+      - name: Require source-only automatic owned window lifecycle
+        id: focus_automatic
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 6
+        run: python tests/windows_automatic_capture.py --reports reports
+      - name: Require source-only exact-source geometry at five app scales
+        id: focus_geometry
+        if: ${{ inputs.source_focus_only }}
+        timeout-minutes: 6
+        run: python tests/windows_dpi_matrix.py --implementation-file native_ui.py --support-root . --report-dir reports --expect candidate
       - name: Diagnose source native transitions at 150 percent first
+        id: focus_native150
         timeout-minutes: 6
         run: python tests/windows_native_smoke.py --source --app-scale 1.5
       - name: Require source native transitions at 100 percent after 150 passes
+        id: focus_native100
         timeout-minutes: 6
         run: python tests/windows_native_smoke.py --source
       - name: Require source native transitions at 200 percent after earlier scales pass
+        id: focus_native200
         timeout-minutes: 6
         run: python tests/windows_native_smoke.py --source --app-scale 2
+      - name: Bind every required source-only result without claiming frozen acceptance
+        if: ${{ inputs.source_focus_only }}
+        env:
+          VGA_FOCUS_STEP_RESULTS: ${{ toJSON(steps) }}
+        run: |
+          @'
+          """Bind completed owned source fixtures only; never frozen/release acceptance."""
+          import hashlib
+          import importlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+
+          ROOT = Path.cwd().resolve()
+          sys.path.insert(0, str(ROOT))
+          sys.path.insert(0, str(ROOT / 'tests'))
+          RESULT = 'reports/windows-source-focus-diagnostic-result.json'
+          STEP_IDS = ('focus_wgc', 'focus_session', 'focus_visible', 'focus_selection',
+                      'focus_automatic', 'focus_geometry', 'focus_native150', 'focus_native100', 'focus_native200')
+          CASES = (('windows_wgc_capture', 'windows-wgc-source', 'source_files'),
+                   ('windows_wgc_session_capture', 'windows-wgc-session-application-source', 'source_files'),
+                   ('windows_wgc_visible_overlay', 'windows-wgc-visible-overlay-source', 'source_files'),
+                   ('windows_selection_smoke', 'windows-selection-source', 'source_files'),
+                   ('windows_automatic_capture', 'windows-automatic-capture', 'source_sha256'))
+          CONFIG_INPUTS = ('.github/workflows/diagnose-native-source.yml',
+                           'tests/test_native_source_diagnostic_workflow.py', 'app_version.py',
+                           'requirements-build.txt', 'requirements-ocr.txt', 'packaging/windows-build-constraints.txt',
+                           'tests/windows_dpi_matrix.py', 'tests/windows_native_smoke.py')
+          SCOPE = ('Owned synthetic Windows source focus/routing diagnostics only. '
+                   'No frozen EXE was built or tested; not complete release acceptance or real-game evidence. '
+                   'Geometry is source layout coverage. OpenCV profiling and the historical GUI walkthrough are outside this mode.')
+
+
+          def require(value, message):
+              if not value:
+                  raise RuntimeError(message)
+
+
+          def record(relative):
+              path = ROOT / relative
+              require(not path.is_symlink() and path.is_file(), 'Missing or symbolic diagnostic file: ' + relative)
+              data = path.read_bytes()
+              return dict(size=len(data), sha256=hashlib.sha256(data).hexdigest())
+
+
+          def read(relative):
+              path = ROOT / relative
+              require(not path.is_symlink() and path.is_file() and path.stat().st_size <= 256 * 1024,
+                      'Missing, symbolic or oversized source report: ' + relative)
+              def unique(pairs):
+                  value = {}
+                  for key, item in pairs:
+                      require(key not in value, 'Duplicate source report key')
+                      value[key] = item
+                  return value
+              def invalid(value):
+                  raise RuntimeError('Non-finite source report value')
+              value = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=unique, parse_constant=invalid)
+              require(type(value) is dict, 'Source report must be an object')
+              return value
+
+
+          def complete_source_focus():
+              require(os.environ.get('VGA_SOURCE_FOCUS_ONLY') == 'true', 'Source-only completion requires explicit source-only mode')
+              sha = os.environ.get('GITHUB_SHA', '')
+              require(bool(re.fullmatch('[0-9a-f]{40}', sha)), 'Invalid dispatch SHA')
+              require(os.environ.get('GITHUB_REPOSITORY') == 'Junming-Liang/vga-aram-helper', 'Wrong repository')
+              require(os.environ.get('VGA_RELEASE_PACKAGE_PROFILE') == 'minimal-opencv-v1', 'Wrong active build profile')
+              for field in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'):
+                  require(bool(re.fullmatch('[1-9][0-9]*', os.environ.get(field, ''))), 'Invalid diagnostic run identity')
+              outcomes = json.loads(os.environ.get('VGA_FOCUS_STEP_RESULTS', '{}'))
+              require(type(outcomes) is dict and all(type(outcomes.get(key)) is dict and
+                      outcomes[key].get('outcome') == 'success' for key in STEP_IDS),
+                      'Every required source step must have succeeded in this run')
+              for name in ('dist/VGA-Aram-Helper.exe', 'reports/windows-build.json',
+                           'reports/windows-native-diagnostic-identity.json', 'reports/windows-native-diagnostic-result.json'):
+                  require(not (ROOT / name).exists() and not (ROOT / name).is_symlink(),
+                          'Source-only mode cannot contain frozen build/proof: ' + name)
+              from app_version import __version__ as version
+              from scripts.build_windows import verify_source_checkout
+              require(verify_source_checkout(ROOT, sha) == sha, 'Checkout differs from dispatch SHA')
+              files, sources = {}, {name: record(name)['sha256'] for name in CONFIG_INPUTS}
+              def report(name, status='passed'):
+                  relative = 'reports/' + name + '.json'
+                  value = read(relative)
+                  require(value.get('status') == status and 'error' not in value, 'Required source report did not pass: ' + name)
+                  files[relative] = record(relative)
+                  return value
+              def source_identity(value, names, field='source_files', version_field='applicationVersion'):
+                  expected = {name: record(name)['sha256'] for name in names}
+                  require(value.get(field) == expected and value.get('source_commit') == sha and
+                          value.get(version_field) == version and value.get('frozen') is False and
+                          value.get('executable_sha256') is None and 'executable_size' not in value,
+                          'Source report identity/bytes/mode differ')
+                  sources.update(expected)
+              helpers = {kind: report('windows-wgc' + suffix + '-build')
+                         for kind, suffix in (('wgc', ''), ('session', '-session'))}
+              require(all(value.get('source_commit') == sha for value in helpers.values()), 'Helper dispatch SHA differs')
+              for module_name, prefix, source_field in CASES:
+                  module = importlib.import_module(module_name)
+                  value = report(prefix)
+                  source_identity(value, module.SOURCE_FILES, source_field,
+                                  'application_version' if source_field == 'source_sha256' else 'applicationVersion')
+                  if module_name == 'windows_automatic_capture':
+                      module.validate_source_report(value, version, sha)
+                      require(value.get('platform') == 'win32' and value.get('checks_use_real_windows') is True,
+                              'Automatic lifecycle was not actual Windows source execution')
+                      continue
+                  scales, runs = value.get('scales'), value.get('runs')
+                  require(type(scales) is list and all(type(scale) in (int, float) for scale in scales) and
+                          scales == [1, 1.5, 2] and type(runs) is list and len(runs) == 3,
+                          'All three ordered source scales are required')
+                  if module_name == 'windows_wgc_session_capture':
+                      module.validate_acceptance(value, frozen=False, application=True, helper_build=helpers['session'],
+                                                 source_commit=sha, version=version)
+                  elif module_name == 'windows_wgc_visible_overlay':
+                      require(value.get('helper_build') == helpers['session'], 'Visible-overlay helper proof differs')
+                  elif module_name == 'windows_selection_smoke':
+                      module.validate_aggregate(value, version, frozen=False, source_commit=sha)
+                  for scale, row in zip(scales, runs):
+                      scale_key = 'scale' if module_name == 'windows_wgc_visible_overlay' else 'app_scale'
+                      require(type(row) is dict and type(row.get(scale_key)) in (int, float) and row[scale_key] == scale,
+                              'Source scale row differs')
+                      name = (module.native_report_name(False, scale)[:-5] if module_name == 'windows_selection_smoke'
+                              else prefix + '-scale' + str(round(scale * 100)))
+                      detail = report(name)
+                      require(detail.get('frozen') is False and detail.get('applicationVersion') == version,
+                              'Child source mode/version differs')
+                      if module_name == 'windows_wgc_visible_overlay':
+                          require(row.get('coordination') == 'passed' and type(row.get('exit_code')) is int and
+                                  row['exit_code'] == 0 and row.get('outer_cleanup_complete') is True and
+                                  not any(key in row for key in ('coordination_error', 'outer_cleanup_errors', 'detail_error', 'report_binding_error')),
+                                  'Visible-overlay owned process coordination/cleanup did not pass')
+                          require(module.read_bound_detail(row, ROOT / 'reports', frozen=False) == detail,
+                                  'Visible-overlay bound source report differs')
+                          module.validate_report(detail, scale=scale, frozen=False, helper=helpers['session'],
+                              foreign_proof=row.get('foreign'), foreign_fixture_sha256=value['foreign_fixture']['executable_sha256'])
+                      else:
+                          require(row.get('detail') == detail, 'Child source report differs from aggregate')
+                          if module_name == 'windows_wgc_capture':
+                              require(value.get('helper_build') == helpers['wgc'], 'WGC helper proof differs')
+                              module.validate_report(detail, frozen=False, scale=scale, helper_build=helpers['wgc'])
+                          if module_name == 'windows_selection_smoke':
+                              require(row.get('native_report_sha256') == files['reports/' + name + '.json']['sha256'],
+                                      'Selection handoff bytes differ')
+              dpi = importlib.import_module('windows_dpi_matrix')
+              geometry = report('windows-dpi-candidate-matrix', 'candidate_passed')
+              require(geometry.get('expect') == 'candidate' and geometry.get('gate_errors') == [] and
+                      dpi.validate_matrix(geometry, 'candidate') == [] and
+                      geometry.get('source_metadata') == dpi.source_metadata(ROOT / 'native_ui.py', ROOT),
+                      'Exact-source five-scale geometry proof differs')
+              for scale, child in zip(dpi.SCALES, geometry['children']):
+                  detail = report('windows-dpi-candidate-scale-' + scale, 'completed')
+                  expected = {key: value for key, value in child.items() if key not in ('process_exit_code', 'timed_out')}
+                  require(detail == expected and detail.get('frozen') is False and detail.get('qt_scale_factor') == scale,
+                          'Geometry child source report differs from aggregate')
+              from overlay_duty_contract import SOURCE_FILES
+              native = importlib.import_module('windows_native_smoke')
+              for prefix, scale in (('windows-native-source-scale150', 1.5), ('windows-native-source', 1),
+                                    ('windows-native-source-scale200', 2)):
+                  value = report(prefix + '-smoke')
+                  source_identity(value, SOURCE_FILES)
+                  require(type(value.get('requested_app_scale')) in (int, float) and value['requested_app_scale'] == scale and
+                          value.get('process_exited') is True and value.get('native_report') == prefix + '-overlay.json',
+                          'Native source scale/process/report differs')
+                  detail = report(prefix + '-overlay')
+                  require(value.get('native_report_sha256') == files['reports/' + prefix + '-overlay.json']['sha256'],
+                          'Native source overlay bytes differ')
+                  native.validate_manual_hero_switches(value.get('manual_hero_switches'))
+                  native.validate_report(detail, version, scale, expected_frozen=False)
+              files['reports/windows-native-source-diagnostic-environment.txt'] = record('reports/windows-native-source-diagnostic-environment.txt')
+              result = dict(status='passed', mode='source-focus-only', scope=SCOPE, source_sha=sha,
+                            version=version, run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+                            required_steps={key: 'success' for key in STEP_IDS}, source_files=sources,
+                            reports=files, frozen_executable_tested=False, release_acceptance=False)
+              raw = (json.dumps(result, indent=2) + '\n').encode('utf-8')
+              require(len(raw) <= 256 * 1024, 'Source-only completion exceeds its cap')
+              with (ROOT / RESULT).open('xb') as output:
+                  output.write(raw)
+              print(raw.decode('utf-8'), flush=True)
+              return result
+
+
+          if __name__ == '__main__':
+              complete_source_focus()
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve the exact official wheel and initial identity before rebuilding
+        if: ${{ !inputs.source_focus_only }}
         run: |
           New-Item -ItemType Directory -Force build/opencv-postbuild/official | Out-Null
           python -m pip --isolated download --index-url https://pypi.org/simple --only-binary=:all: --no-deps --dest build/opencv-postbuild/official opencv-python-headless==5.0.0.93
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/probe_opencv_postbuild.py prepare
       - name: Rebuild adopted hash-pinned OpenCV with the approved Community compiler
+        if: ${{ !inputs.source_focus_only }}
         run: python scripts/build_minimal_opencv.py
       - name: Compare one fixed official-to-custom pair after the build and restore exact custom bytes
+        if: ${{ !inputs.source_focus_only }}
         run: |
           python scripts/probe_opencv_postbuild.py run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -87,8 +320,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
       - name: Build one fresh single-file EXE with the normal package gates
+        if: ${{ !inputs.source_focus_only }}
         run: python scripts/build_windows.py
       - name: Bind the fresh EXE to source environment profile and build proof
+        if: ${{ !inputs.source_focus_only }}
         run: |
           @'
           """Read-only bindings for this fixed source/frozen diagnostic, never release approval."""
@@ -154,6 +389,7 @@ jobs:
 
 
           def expected_source():
+              require(os.environ.get('VGA_SOURCE_FOCUS_ONLY') == 'false', 'Full EXE proof requires explicit full diagnostic mode')
               sha = os.environ.get('GITHUB_SHA', '')
               require(bool(re.fullmatch('[0-9a-f]{40}', sha)), 'Invalid dispatch SHA')
               require(os.environ.get('GITHUB_REPOSITORY') == 'Junming-Liang/vga-aram-helper', 'Wrong repository')
@@ -233,7 +469,7 @@ jobs:
                       'Source archive differs from the build receipt')
               with zipfile.ZipFile(ROOT / archive) as source:
                   require(source.comment == sha.encode('ascii'), 'Source archive commit differs')
-              identity = dict(scope=SCOPE, source_sha=sha, version=version, profile=PROFILE,
+              identity = dict(scope=SCOPE, mode='source-and-frozen', source_sha=sha, version=version, profile=PROFILE,
                               exe=exe, source_archive=archive_record, source_files=source_hashes(),
                               run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'])
               source_results = [verify_case(directory, prefix, scale, identity, frozen=False)
@@ -266,6 +502,7 @@ jobs:
               identity = read_json(IDENTITY)
               from app_version import __version__ as version
               require(identity.get('version') == version, 'Diagnostic version changed')
+              require(identity.get('mode') == 'source-and-frozen', 'Full EXE diagnostic mode changed')
               require(identity.get('source_sha') == expected_source() and identity.get('profile') == PROFILE
                       and identity.get('run_id') == os.environ['GITHUB_RUN_ID']
                       and identity.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'], 'Diagnostic source/run/profile changed')
@@ -298,7 +535,7 @@ jobs:
               identity = check_identity()
               rows = [dict(case=name, **verify_case(directory, prefix, scale, identity, frozen=True))
                       for name, directory, prefix, scale in CASES]
-              result = dict(status='passed', scope=SCOPE, source_sha=identity['source_sha'],
+              result = dict(status='passed', scope=SCOPE, mode='source-and-frozen', source_sha=identity['source_sha'],
                             exe=identity['exe'], runs=rows, frozen_manual_switches=32,
                             source_manual_switches=24, identity_file=file_record(IDENTITY))
               write_new(RESULT, result)
@@ -319,33 +556,38 @@ jobs:
           python build/native-diagnostic-bindings.py record
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Require the same fresh EXE at 150 percent first
+        if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
           python build/native-diagnostic-bindings.py before frozen150-first
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5
       - name: Require the same fresh EXE at 150 percent in a second fresh process after the first passes
+        if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
           python build/native-diagnostic-bindings.py before frozen150-second
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5 --report-dir build/native-frozen150-second/reports
       - name: Require the same fresh EXE at 100 percent after both 150 percent processes pass
+        if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
           python build/native-diagnostic-bindings.py before frozen100
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
       - name: Require the same fresh EXE at 200 percent after every earlier process passes
+        if: ${{ !inputs.source_focus_only }}
         timeout-minutes: 6
         run: |
           python build/native-diagnostic-bindings.py before frozen200
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
       - name: Verify all four exact-EXE results against unchanged source and proof
+        if: ${{ !inputs.source_focus_only }}
         run: python build/native-diagnostic-bindings.py verify
       - name: Always print the full bounded post-build comparison and restoration summary
-        if: ${{ always() }}
+        if: ${{ always() && !inputs.source_focus_only }}
         run: |
           python scripts/probe_opencv_postbuild.py summarize | Tee-Object -FilePath reports/windows-opencv-postbuild-summary.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -368,6 +610,15 @@ jobs:
           PREFIXES = ('windows-native-source-scale150', 'windows-native-source', 'windows-native-source-scale200',
                       'windows-native-scale150', 'windows-native', 'windows-native-scale200')
           SUFFIXES = ('smoke.json', 'overlay.json', 'process.log', 'last-launch-error.txt')
+          FOCUS_PREFIXES = ('windows-wgc-source', 'windows-wgc-session-application-source',
+                            'windows-wgc-visible-overlay-source')
+          FOCUS_NAMES = tuple(prefix + suffix + '.json' for prefix in FOCUS_PREFIXES
+                              for suffix in ('', '-scale100', '-scale150', '-scale200')) + (
+              'windows-selection-source.json', 'windows-selection-source-handoff.json',
+              'windows-selection-source-handoff-scale150.json', 'windows-selection-source-handoff-scale200.json',
+              'windows-automatic-capture.json', 'windows-dpi-candidate-matrix.json',
+              'windows-source-focus-diagnostic-result.json') + tuple(
+                  'windows-dpi-candidate-scale-' + scale + '.json' for scale in ('1', '1.25', '1.5', '2', '2.5'))
           NAMES = tuple(prefix + '-' + suffix for prefix in PREFIXES for suffix in SUFFIXES) + (
               'windows-wgc-build.json', 'windows-wgc-session-build.json',
               'windows-native-source-diagnostic-environment.txt', 'windows-build-environment.txt',
@@ -375,11 +626,15 @@ jobs:
               'windows-opencv-intermediate-audit.json', 'windows-opencv-postbuild-summary.json',
               'windows-opencv-postbuild-result.json', 'windows-opencv-postbuild-export.json',
               'windows-opencv-parity.json', 'windows-native-diagnostic-identity.json',
-              'windows-native-diagnostic-result.json')
+              'windows-native-diagnostic-result.json') + FOCUS_NAMES
           FILES = tuple((REPORTS / name, name) for name in NAMES) + tuple(
               (Path('build/native-frozen150-second/reports') / ('windows-native-scale150-' + suffix),
                'windows-native-frozen150-second-' + suffix) for suffix in SUFFIXES)
-          SCOPE = ('Source and one fresh frozen EXE diagnostic on owned synthetic Windows fixtures. '
+          MODE = os.environ.get('VGA_SOURCE_FOCUS_ONLY')
+          if MODE not in ('true', 'false'):
+              raise SystemExit('Unknown diagnostic mode; no evidence claim can be made')
+          SCOPE = (('Source-only focus/routing diagnostic' if MODE == 'true' else 'Source and one fresh frozen EXE diagnostic') +
+                   ' on owned synthetic Windows fixtures. '
                    'Selected bounded text evidence only; not complete release acceptance or proof of Run 80 causality.')
           print(SCOPE, flush=True)
           rows, problems, total = [], [], 0
@@ -421,6 +676,7 @@ jobs:
               raise SystemExit('; '.join(problems))
           inventory = [dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest()) for name, data in rows]
           summary = dict(scope=SCOPE, source_sha=os.environ['GITHUB_SHA'],
+                         mode='source-focus-only' if MODE == 'true' else 'source-and-frozen',
                          run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
                          files=inventory, evidence_bytes=total,
                          max_file_bytes=MAX_FILE_BYTES, max_total_bytes=MAX_TOTAL_BYTES)
@@ -437,9 +693,11 @@ jobs:
               output.write('Evidence staging does not turn any failed or skipped check into a pass.\n')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Check the existing anonymous budget against the exact staged text set
+      - name: Check the existing read-only budget against the exact staged text set
         id: evidence_budget
         if: ${{ always() && steps.diagnostic_evidence.outcome == 'success' }}
+        env:
+          VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}
         run: >-
           python -c "import json; from pathlib import Path; from scripts.check_artifact_budget import check_budget; print(json.dumps(check_budget(Path('build/native-source-diagnostic-evidence'), evidence_only=True, output_path='../native-source-diagnostic-budget.json'), indent=2))"
       - name: Retain bounded capture diagnostics for one day only when both budgets pass
