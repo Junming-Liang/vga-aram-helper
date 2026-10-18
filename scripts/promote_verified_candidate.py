@@ -5,6 +5,7 @@ release, or deletes partial results. gh alone uses the workflow's ephemeral toke
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -144,7 +145,84 @@ def extract_flat(archive_path, destination, names, *, max_bytes=MAX_EXPANDED):
                 require(not source.read(1), 'Archive entry exceeded declared size')
 
 
-def verify_bundle(bundle, work, provenance):
+def check_original_source(source_checkout, source_archive):
+    source_checkout = Path(source_checkout).resolve()
+    def git(*arguments):
+        result = subprocess.run(['git', '-C', str(source_checkout), *arguments],
+                                capture_output=True, check=False, timeout=60)
+        require(result.returncode == 0, 'Original source Git identity check failed')
+        return result.stdout
+    require(git('rev-parse', 'HEAD').decode().strip() == SOURCE_SHA,
+            'Original verifier checkout is not the tested source commit')
+    require(Path(git('rev-parse', '--show-toplevel').decode().strip()).resolve() == source_checkout,
+            'Original verifier checkout is not an independent Git root')
+    rows = git('ls-tree', '-r', '-z', '--full-tree', SOURCE_SHA).split(b'\0')
+    tree = {}
+    for row in filter(None, rows):
+        header, raw_name = row.split(b'\t', 1)
+        mode, kind, blob = header.decode('ascii').split()
+        name = raw_name.decode('utf8')
+        require(mode in ('100644', '100755') and kind == 'blob' and name not in tree,
+                'Unsupported original source tree entry')
+        tree[name] = blob
+    require(0 < len(tree) <= 10000, 'Invalid original source inventory')
+    actual = set()
+    for path in source_checkout.rglob('*'):
+        relative = path.relative_to(source_checkout)
+        if relative.parts[0] == '.git':
+            continue
+        require(not path.is_symlink(), 'Original verifier checkout contains a link')
+        if path.is_file():
+            actual.add(relative.as_posix())
+    require(actual == set(tree), 'Original verifier checkout has extra or missing source files')
+    with zipfile.ZipFile(source_archive) as archive:
+        require(archive.comment == SOURCE_SHA.encode('ascii'), 'Original source archive commit changed')
+        entries = archive.infolist()
+        require(len({r.filename for r in entries}) == len(entries)
+                and sum(r.file_size for r in entries) <= 256 * 1024 * 1024,
+                'Original source archive duplicates or exceeds budget')
+        files = [r for r in entries if not r.is_dir()]
+        require({r.filename for r in files} == set(tree), 'Original source archive differs from Git inventory')
+        for row in files:
+            require(not stat.S_ISLNK(row.external_attr >> 16) and not row.flag_bits & 1,
+                    'Unsafe original source archive entry')
+            raw = archive.read(row)
+            blob = hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
+            require(blob == tree[row.filename], 'Original source archive blob differs from tested Git tree')
+            require((source_checkout / row.filename).read_bytes() == raw,
+                    'Original verifier checkout bytes differ from original source archive')
+    return source_checkout
+
+
+def verifier_environment():
+    # Child validates a separate original checkout, not the promoter commit.
+    # With GITHUB_SHA absent the unchanged original validator reads its real
+    # Git HEAD. Do not replace that value or pass any workflow credentials.
+    allowed = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP',
+               'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMFILES',
+               'PROGRAMFILES(X86)', 'PROGRAMDATA'}
+    env = {k: v for k, v in os.environ.items() if k.upper() in allowed}
+    env.update(PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1', ORT_DISABLE_TELEMETRY='1')
+    return env
+
+
+def reverify_original(bundle, evidence, work, source_checkout):
+    source = check_original_source(source_checkout, bundle / f'vga-aram-helper-{VERSION}-source.zip')
+    output = (work / 'reverified').resolve()
+    command = [sys.executable, str(source / 'scripts' / 'verify_release.py'),
+               '--release-dir', str(bundle.resolve()), '--evidence-dir', str(evidence.resolve()),
+               '--output-dir', str(output), '--repository', REPOSITORY,
+               '--source-sha', SOURCE_SHA, '--run-id', str(RUN_ID), '--run-attempt', str(RUN_ATTEMPT)]
+    result = subprocess.run(command, cwd=source, env=verifier_environment(),
+                            capture_output=True, text=True, check=False, timeout=600)
+    (work / 'original-verifier.log').write_text(result.stdout + result.stderr, encoding='utf8')
+    if result.returncode:
+        print((result.stdout + result.stderr)[-6000:], file=sys.stderr)
+        raise gate.VerificationError('Unchanged original-source verifier rejected the retained candidate')
+    return gate.read_json(output / 'verified-release.json')
+
+
+def verify_bundle(bundle, work, provenance, source_checkout):
     receipt = gate.read_json(bundle / 'verified-release.json')
     require(receipt.get('version') == VERSION and receipt.get('tag') == 'v' + VERSION,
             'Unexpected staged version')
@@ -170,7 +248,7 @@ def verify_bundle(bundle, work, provenance):
         require(gate.digest(evidence / name) == digest, 'Evidence bytes changed')
     # Re-run ALL existing package/license/source/EXE/archive/60-evidence gates.
     # The temporary regenerated evidence ZIP is validation output, NEVER uploaded.
-    fresh = gate.verify(bundle, evidence, REPOSITORY, SOURCE_SHA, work / 'reverified', RUN_ID, RUN_ATTEMPT)
+    fresh = reverify_original(bundle, evidence, work, source_checkout)
     require({k: v for k, v in fresh.items() if k != 'assets'} ==
             {k: v for k, v in receipt.items() if k != 'assets'}, 'Reverified proof differs from original receipt')
     original = {row['name']: row for row in assets}
@@ -220,6 +298,7 @@ def main():
     parser.add_argument('--artifact-id', type=int, required=True)
     parser.add_argument('--artifact-sha256', required=True)
     parser.add_argument('--work-dir', type=Path, required=True)
+    parser.add_argument('--source-checkout', type=Path, required=True)
     args = parser.parse_args()
     check_inputs(args.run_id, args.source_sha, args.run_attempt, args.artifact_id, args.artifact_sha256)
     context = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': REPOSITORY, 'GITHUB_REF': 'refs/heads/main',
@@ -234,7 +313,7 @@ def main():
     download_artifact(archive)
     bundle = args.work_dir / 'original'
     extract_flat(archive, bundle, expected_names(VERSION) | {'verified-release.json', 'release-notes.txt'})
-    receipt = verify_bundle(bundle, args.work_dir, proof)
+    receipt = verify_bundle(bundle, args.work_dir, proof, args.source_checkout)
     require(remote_proof() == proof, 'Original provenance changed before draft creation')
     require(current_promotion_proof() == promotion, 'Promotion provenance changed')
     result = create_draft(receipt, bundle / 'release-notes.txt')
