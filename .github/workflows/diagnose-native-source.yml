@@ -1,7 +1,7 @@
-name: Diagnose native Windows source transitions
+name: Diagnose native Windows source and frozen transitions
 
-# Manual source/helper diagnostics only. This never replaces frozen-EXE release
-# acceptance, rebuilds custom OpenCV, or publishes/reuses a release artifact.
+# Manual source and one fresh EXE diagnostic only, never complete release
+# acceptance. No publication or reused/downloaded application artifact.
 on:
   workflow_dispatch:
 
@@ -16,10 +16,11 @@ jobs:
   source-diagnostic:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' }}
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHONUTF8: '1'
       ORT_DISABLE_TELEMETRY: '1'
+      VGA_RELEASE_PACKAGE_PROFILE: 'minimal-opencv-v1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
     defaults:
       run:
@@ -41,6 +42,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($head -cne $env:GITHUB_SHA) { throw 'Checkout differs from the exact dispatch SHA.' }
           if (Get-ChildItem reports/windows-* -File -ErrorAction SilentlyContinue) { throw 'Existing Windows evidence cannot be reused by this diagnostic.' }
+          if (Test-Path dist/VGA-Aram-Helper.exe) { throw 'A fresh EXE must be built in this run.' }
+          if (Test-Path build/native-frozen150-second) { throw 'Second frozen process output must be fresh.' }
           if (Test-Path build/native-source-diagnostic-evidence) { throw 'Diagnostic staging must be fresh.' }
           New-Item -ItemType Directory -Force reports | Out-Null
       - name: Install pinned build requirements from official PyPI
@@ -68,32 +71,319 @@ jobs:
       - name: Require source native transitions at 200 percent after earlier scales pass
         timeout-minutes: 6
         run: python tests/windows_native_smoke.py --source --app-scale 2
-      - name: Always print and stage bounded current-run source diagnostics
+      - name: Preserve the exact official wheel and initial identity before rebuilding
+        run: |
+          New-Item -ItemType Directory -Force build/opencv-postbuild/official | Out-Null
+          python -m pip --isolated download --index-url https://pypi.org/simple --only-binary=:all: --no-deps --dest build/opencv-postbuild/official opencv-python-headless==5.0.0.93
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/probe_opencv_postbuild.py prepare
+      - name: Rebuild adopted hash-pinned OpenCV with the approved Community compiler
+        run: python scripts/build_minimal_opencv.py
+      - name: Compare one fixed official-to-custom pair after the build and restore exact custom bytes
+        run: |
+          python scripts/probe_opencv_postbuild.py run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/probe_opencv_postbuild.py export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip freeze | Out-File -Encoding utf8 reports/windows-build-environment.txt
+      - name: Build one fresh single-file EXE with the normal package gates
+        run: python scripts/build_windows.py
+      - name: Bind the fresh EXE to source environment profile and build proof
+        run: |
+          @'
+          """Read-only bindings for this fixed source/frozen diagnostic, never release approval."""
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import sys
+          import zipfile
+
+          ROOT = Path.cwd().resolve()
+          sys.path.insert(0, str(ROOT))
+          sys.path.insert(0, str(ROOT / 'tests'))
+          PROFILE = 'minimal-opencv-v1'
+          IDENTITY = 'reports/windows-native-diagnostic-identity.json'
+          RESULT = 'reports/windows-native-diagnostic-result.json'
+          CASES = (
+              ('frozen150-first', 'reports', 'windows-native-scale150', 1.5),
+              ('frozen150-second', 'build/native-frozen150-second/reports', 'windows-native-scale150', 1.5),
+              ('frozen100', 'reports', 'windows-native', 1.0),
+              ('frozen200', 'reports', 'windows-native-scale200', 2.0),
+          )
+          SOURCE_CASES = (('reports', 'windows-native-source-scale150', 1.5),
+                          ('reports', 'windows-native-source', 1.0),
+                          ('reports', 'windows-native-source-scale200', 2.0))
+          CONFIG_INPUTS = ('.github/workflows/diagnose-native-source.yml',
+                           'tests/test_native_source_diagnostic_workflow.py',
+                           'app_version.py', 'capture_cadence.py', 'requirements-build.txt',
+                           'requirements-ocr.txt', 'packaging/windows-build-constraints.txt',
+                           'packaging/VGA-Aram-Helper.spec', 'scripts/build_windows.py')
+          SCOPE = ('Owned synthetic source/frozen capture diagnostics for one fresh EXE. '
+                   'Not complete release acceptance or proof of the original Run 80 cause.')
+
+
+          def require(value, message):
+              if not value:
+                  raise RuntimeError(message)
+
+
+          def file_record(relative):
+              path = ROOT / relative
+              require(not path.is_symlink() and path.is_file(), 'Missing or symbolic bound file: ' + relative)
+              with path.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              return dict(size=path.stat().st_size, sha256=digest)
+
+
+          def read_json(relative):
+              path = ROOT / relative
+              require(not path.is_symlink() and path.is_file() and path.stat().st_size <= 4 * 1024 * 1024,
+                      'Missing, symbolic or oversized JSON: ' + relative)
+              value = json.loads(path.read_text(encoding='utf-8-sig'))
+              require(type(value) is dict, 'JSON must be an object: ' + relative)
+              return value
+
+
+          def write_new(relative, value):
+              raw = (json.dumps(value, indent=2) + '\n').encode('utf-8')
+              require(len(raw) <= 256 * 1024, 'Diagnostic binding exceeds its 256 KiB cap')
+              with (ROOT / relative).open('xb') as stream:
+                  stream.write(raw)
+
+
+          def expected_source():
+              sha = os.environ.get('GITHUB_SHA', '')
+              require(bool(re.fullmatch('[0-9a-f]{40}', sha)), 'Invalid dispatch SHA')
+              require(os.environ.get('GITHUB_REPOSITORY') == 'Junming-Liang/vga-aram-helper', 'Wrong repository')
+              require(os.environ.get('VGA_RELEASE_PACKAGE_PROFILE') == PROFILE, 'Wrong active build profile')
+              from scripts.build_windows import verify_source_checkout
+              require(verify_source_checkout(ROOT, sha) == sha, 'Checkout differs from dispatch SHA')
+              return sha
+
+
+          def source_hashes():
+              from overlay_duty_contract import SOURCE_FILES
+              from scripts.probe_opencv_postbuild import SOURCE_FILES as BUILD_INPUTS
+              return {name: file_record(name)['sha256'] for name in sorted(set(SOURCE_FILES) | set(BUILD_INPUTS) | set(CONFIG_INPUTS))}
+
+
+          def duty_inputs():
+              from overlay_duty_contract import SOURCE_FILES
+              return SOURCE_FILES
+
+
+          def postbuild_proof():
+              from scripts.probe_opencv_postbuild import validate_export, EVIDENCE_NAMES, EXPORT_NAMES
+              bundle, receipt = validate_export()
+              require(bundle['status'] == 'completed' and receipt['status'] == 'passed', 'Post-build comparison/restoration gate failed')
+              return tuple('reports/' + name for name in (*EVIDENCE_NAMES, *EXPORT_NAMES.values()))
+
+
+          def verify_case(directory, prefix, scale, identity, *, frozen):
+              path = directory + '/' + prefix + '-smoke.json'
+              report = read_json(path)
+              require(report.get('status') == 'passed' and 'error' not in report and report.get('frozen') is frozen,
+                      'Failed or wrong execution mode: ' + path)
+              require(report.get('source_commit') == identity['source_sha'] and
+                      report.get('applicationVersion') == identity['version'] and
+                      type(report.get('requested_app_scale')) in (int, float) and
+                      report.get('requested_app_scale') == scale and report.get('process_exited') is True,
+                      'Wrong source/version/scale/process completion: ' + path)
+              expected = {name: identity['source_files'][name] for name in duty_inputs()}
+              require(report.get('source_files') == expected, 'Report source bytes differ: ' + path)
+              require(report.get('manual_hero_switches') == dict(required=8, attempted=8, completed=8) and
+                      all(type(v) is int for v in report['manual_hero_switches'].values()),
+                      'Eight independent manual switches did not pass: ' + path)
+              require(report.get('executable_sha256') == (identity['exe']['sha256'] if frozen else None),
+                      'Report tested a different EXE: ' + path)
+              if frozen:
+                  require(report.get('executable_size') == identity['exe']['size'], 'Report EXE size differs: ' + path)
+              native_name = prefix + '-overlay.json'
+              require(report.get('native_report') == native_name and
+                      report.get('native_report_sha256') == file_record(directory + '/' + native_name)['sha256'],
+                      'Native result bytes differ: ' + path)
+              return dict(report=path, **file_record(path), frozen=frozen, app_scale=scale, manual_switches=8)
+
+
+          def record_identity():
+              sha = expected_source()
+              from app_version import __version__ as version
+              proof_files = postbuild_proof()
+              build = read_json('reports/windows-build.json')
+              require(build.get('status') == 'built-not-yet-smoke-tested' and build.get('source_commit') == sha
+                      and build.get('version') == version and build.get('package_profile') == PROFILE
+                      and build.get('experimental') is False, 'Build source/version/profile identity differs')
+              custom = build.get('opencv_custom_build', {})
+              require(custom.get('status') == 'passed' and custom.get('source_commit') == sha
+                      and custom.get('package_profile') == PROFILE, 'Custom OpenCV build proof differs')
+              manifest = read_json('dist/release/update-manifest.json')
+              exe = file_record('dist/VGA-Aram-Helper.exe')
+              require(build.get('manifest') == manifest and manifest.get('version') == version
+                      and all(manifest.get(key) == exe[key] for key in ('size', 'sha256')),
+                      'Fresh EXE differs from build receipt/manifest')
+              named = 'dist/release/vga-aram-helper-' + version + '-windows-x64.exe'
+              require(file_record(named) == exe, 'Named EXE copy differs from the one tested')
+              access = read_json('dist/release/source-access.json')
+              archive = 'dist/release/vga-aram-helper-' + version + '-source.zip'
+              archive_record = file_record(archive)
+              require(access == build.get('source_access') and access.get('source_commit') == sha
+                      and access.get('application_source') == dict(filename=Path(archive).name, **archive_record),
+                      'Source archive differs from the build receipt')
+              with zipfile.ZipFile(ROOT / archive) as source:
+                  require(source.comment == sha.encode('ascii'), 'Source archive commit differs')
+              identity = dict(scope=SCOPE, source_sha=sha, version=version, profile=PROFILE,
+                              exe=exe, source_archive=archive_record, source_files=source_hashes(),
+                              run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'])
+              source_results = [verify_case(directory, prefix, scale, identity, frozen=False)
+                                for directory, prefix, scale in SOURCE_CASES]
+              fixed_files = (*proof_files, 'reports/windows-build.json',
+                             'reports/windows-wgc-build.json', 'reports/windows-wgc-session-build.json',
+                             'reports/windows-native-source-diagnostic-environment.txt',
+                             'reports/windows-build-environment.txt', 'dist/release/update-manifest.json',
+                             'dist/release/source-access.json', 'dist/release/SHA256SUMS.txt', named, archive)
+              identity['bound_files'] = {name: file_record(name) for name in fixed_files}
+              identity['source_results'] = source_results
+              write_new(IDENTITY, identity)
+              print(json.dumps(identity, indent=2), flush=True)
+              return identity
+
+
+          def fixed_bound_names(version):
+              from scripts.probe_opencv_postbuild import EVIDENCE_NAMES, EXPORT_NAMES
+              return set(tuple('reports/' + name for name in (*EVIDENCE_NAMES, *EXPORT_NAMES.values())) + (
+                  'reports/windows-build.json', 'reports/windows-wgc-build.json',
+                  'reports/windows-wgc-session-build.json',
+                  'reports/windows-native-source-diagnostic-environment.txt',
+                  'reports/windows-build-environment.txt', 'dist/release/update-manifest.json',
+                  'dist/release/source-access.json', 'dist/release/SHA256SUMS.txt',
+                  'dist/release/vga-aram-helper-' + version + '-windows-x64.exe',
+                  'dist/release/vga-aram-helper-' + version + '-source.zip'))
+
+
+          def check_identity():
+              identity = read_json(IDENTITY)
+              from app_version import __version__ as version
+              require(identity.get('version') == version, 'Diagnostic version changed')
+              require(identity.get('source_sha') == expected_source() and identity.get('profile') == PROFILE
+                      and identity.get('run_id') == os.environ['GITHUB_RUN_ID']
+                      and identity.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'], 'Diagnostic source/run/profile changed')
+              require(identity.get('source_files') == source_hashes(), 'Source/configuration bytes changed')
+              require(identity.get('exe') == file_record('dist/VGA-Aram-Helper.exe'), 'Fresh EXE bytes changed')
+              require(type(identity.get('bound_files')) is dict and set(identity['bound_files']) == fixed_bound_names(version),
+                      'Bound proof inventory changed')
+              current_source = [verify_case(directory, prefix, scale, identity, frozen=False)
+                                for directory, prefix, scale in SOURCE_CASES]
+              require(identity.get('source_results') == current_source, 'Source diagnostic evidence changed')
+              for name, record in identity['bound_files'].items():
+                  require(file_record(name) == record, 'Bound build/environment/proof bytes changed: ' + name)
+              return identity
+
+
+          def before_case(label):
+              require(label in [case[0] for case in CASES], 'Unknown fixed diagnostic case')
+              identity = check_identity()
+              for name, directory, prefix, scale in CASES:
+                  if name == label:
+                      for suffix in ('smoke.json', 'overlay.json', 'overlay.png', 'process.log', 'last-launch-error.txt'):
+                          path = ROOT / directory / (prefix + '-' + suffix)
+                          require(not path.exists() and not path.is_symlink(), 'Diagnostic output reuse rejected: ' + label)
+                      print(json.dumps(dict(case=label, source_sha=identity['source_sha'], exe=identity['exe']), indent=2), flush=True)
+                      return
+                  verify_case(directory, prefix, scale, identity, frozen=True)
+
+
+          def verify_all():
+              identity = check_identity()
+              rows = [dict(case=name, **verify_case(directory, prefix, scale, identity, frozen=True))
+                      for name, directory, prefix, scale in CASES]
+              result = dict(status='passed', scope=SCOPE, source_sha=identity['source_sha'],
+                            exe=identity['exe'], runs=rows, frozen_manual_switches=32,
+                            source_manual_switches=24, identity_file=file_record(IDENTITY))
+              write_new(RESULT, result)
+              print(json.dumps(result, indent=2), flush=True)
+              return result
+
+
+          if __name__ == '__main__':
+              if sys.argv[1:] == ['record']:
+                  record_identity()
+              elif len(sys.argv) == 3 and sys.argv[1] == 'before':
+                  before_case(sys.argv[2])
+              elif sys.argv[1:] == ['verify']:
+                  verify_all()
+              else:
+                  raise SystemExit('Expected only record, before FIXED_CASE, or verify')
+          '@ | Set-Content -Encoding utf8 build/native-diagnostic-bindings.py
+          python build/native-diagnostic-bindings.py record
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Require the same fresh EXE at 150 percent first
+        timeout-minutes: 6
+        run: |
+          python build/native-diagnostic-bindings.py before frozen150-first
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5
+      - name: Require the same fresh EXE at 150 percent in a second fresh process after the first passes
+        timeout-minutes: 6
+        run: |
+          python build/native-diagnostic-bindings.py before frozen150-second
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 1.5 --report-dir build/native-frozen150-second/reports
+      - name: Require the same fresh EXE at 100 percent after both 150 percent processes pass
+        timeout-minutes: 6
+        run: |
+          python build/native-diagnostic-bindings.py before frozen100
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe
+      - name: Require the same fresh EXE at 200 percent after every earlier process passes
+        timeout-minutes: 6
+        run: |
+          python build/native-diagnostic-bindings.py before frozen200
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe --app-scale 2
+      - name: Verify all four exact-EXE results against unchanged source and proof
+        run: python build/native-diagnostic-bindings.py verify
+      - name: Always print the full bounded post-build comparison and restoration summary
+        if: ${{ always() }}
+        run: |
+          python scripts/probe_opencv_postbuild.py summarize | Tee-Object -FilePath reports/windows-opencv-postbuild-summary.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Always print and stage bounded current-run capture diagnostics
         id: diagnostic_evidence
         if: ${{ always() }}
         run: |
           @'
+          # BEGIN BOUNDED_DIAGNOSTIC_EVIDENCE
           import hashlib
           import json
           import os
           from pathlib import Path
 
           REPORTS = Path('reports')
-          STAGE = Path('build/native-source-diagnostic-evidence')
+          STAGE = Path('build/native-source-diagnostic-evidence/reports')
           MAX_FILE_BYTES = 256 * 1024
           MAX_TOTAL_BYTES = 2 * 1024 * 1024
           MAX_PRINT_CHARS = 16000
-          PREFIXES = ('windows-native-source-scale150', 'windows-native-source', 'windows-native-source-scale200')
-          NAMES = tuple(prefix + '-' + suffix for prefix in PREFIXES
-                        for suffix in ('smoke.json', 'overlay.json', 'process.log', 'last-launch-error.txt')) + (
+          PREFIXES = ('windows-native-source-scale150', 'windows-native-source', 'windows-native-source-scale200',
+                      'windows-native-scale150', 'windows-native', 'windows-native-scale200')
+          SUFFIXES = ('smoke.json', 'overlay.json', 'process.log', 'last-launch-error.txt')
+          NAMES = tuple(prefix + '-' + suffix for prefix in PREFIXES for suffix in SUFFIXES) + (
               'windows-wgc-build.json', 'windows-wgc-session-build.json',
-              'windows-native-source-diagnostic-environment.txt')
-          SCOPE = ('Source-only diagnostic on owned synthetic Windows fixtures. '
-                   'Not frozen-EXE or release acceptance; no actual-game claim.')
+              'windows-native-source-diagnostic-environment.txt', 'windows-build-environment.txt',
+              'windows-build.json', 'windows-package-size.json', 'windows-opencv-build.json',
+              'windows-opencv-intermediate-audit.json', 'windows-opencv-postbuild-summary.json',
+              'windows-opencv-postbuild-result.json', 'windows-opencv-postbuild-export.json',
+              'windows-opencv-parity.json', 'windows-native-diagnostic-identity.json',
+              'windows-native-diagnostic-result.json')
+          FILES = tuple((REPORTS / name, name) for name in NAMES) + tuple(
+              (Path('build/native-frozen150-second/reports') / ('windows-native-scale150-' + suffix),
+               'windows-native-frozen150-second-' + suffix) for suffix in SUFFIXES)
+          SCOPE = ('Source and one fresh frozen EXE diagnostic on owned synthetic Windows fixtures. '
+                   'Selected bounded text evidence only; not complete release acceptance or proof of Run 80 causality.')
           print(SCOPE, flush=True)
           rows, problems, total = [], [], 0
-          for name in NAMES:
-              path = REPORTS / name
+          for path, name in FILES:
               if path.is_symlink():
                   problems.append(name + ': symlink rejected')
                   continue
@@ -102,19 +392,15 @@ jobs:
                   continue
               size = path.stat().st_size
               total += size
-              # Print only bounded owned text, even when evidence cannot upload.
-              with path.open('rb') as stream:
-                  head = stream.read(MAX_PRINT_CHARS)
-                  if size > MAX_PRINT_CHARS:
+              print('\n' + name + ' (' + str(size) + ' bytes)', flush=True)
+              if size > MAX_FILE_BYTES:
+                  # Oversize evidence is never uploaded. Keep bounded failure edges.
+                  with path.open('rb') as stream:
+                      head = stream.read(MAX_PRINT_CHARS)
                       stream.seek(max(0, size - MAX_PRINT_CHARS))
                       tail = stream.read(MAX_PRINT_CHARS)
-                  else:
-                      tail = b''
-              print('\n' + name + ' (' + str(size) + ' bytes)', flush=True)
-              print(head.decode('utf-8', errors='replace'), flush=True)
-              if tail:
+                  print(head.decode('utf-8', errors='replace'), flush=True)
                   print('\n[bounded log excerpt; middle omitted]\n' + tail.decode('utf-8', errors='replace'), flush=True)
-              if size > MAX_FILE_BYTES:
                   problems.append(name + ': exceeds per-file evidence cap')
                   continue
               with path.open('rb') as stream:
@@ -122,16 +408,18 @@ jobs:
               if len(data) != size or len(data) > MAX_FILE_BYTES:
                   problems.append(name + ': evidence changed while reading')
                   continue
+              if path.suffix == '.json' or len(data) <= 2 * MAX_PRINT_CHARS:
+                  # Full bounded JSON preserves causal fields even in the middle.
+                  print(data.decode('utf-8', errors='replace'), flush=True)
+              else:
+                  print(data[:MAX_PRINT_CHARS].decode('utf-8', errors='replace'), flush=True)
+                  print('\n[bounded log excerpt; middle omitted]\n' + data[-MAX_PRINT_CHARS:].decode('utf-8', errors='replace'), flush=True)
               rows.append((name, data))
           if total > MAX_TOTAL_BYTES:
               problems.append('Combined evidence exceeds 2 MiB')
           if problems:
               raise SystemExit('; '.join(problems))
-          STAGE.mkdir(parents=True, exist_ok=False)
-          inventory = []
-          for name, data in rows:
-              (STAGE / name).write_bytes(data)
-              inventory.append(dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest()))
+          inventory = [dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest()) for name, data in rows]
           summary = dict(scope=SCOPE, source_sha=os.environ['GITHUB_SHA'],
                          run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
                          files=inventory, evidence_bytes=total,
@@ -139,22 +427,26 @@ jobs:
           encoded = (json.dumps(summary, indent=2) + '\n').encode('utf-8')
           if len(encoded) > 16384 or total + len(encoded) > MAX_TOTAL_BYTES:
               raise SystemExit('Diagnostic inventory or complete staged evidence exceeds its cap')
+          STAGE.mkdir(parents=True, exist_ok=False)
+          for name, data in rows:
+              (STAGE / name).write_bytes(data)
           (STAGE / 'windows-native-source-diagnostic-inventory.json').write_bytes(encoded)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
-              output.write('## Native Windows source diagnostic\n\n' + SCOPE + '\n\n')
+              output.write('## Native Windows source and frozen diagnostic\n\n' + SCOPE + '\n\n')
               output.write('Source SHA: ' + summary['source_sha'] + '\n')
-              output.write('Evidence staging does not turn a failed or skipped source check into a pass.\n')
+              output.write('Evidence staging does not turn any failed or skipped check into a pass.\n')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Check the existing anonymous small-evidence artifact budget
+      - name: Check the existing anonymous budget against the exact staged text set
         id: evidence_budget
         if: ${{ always() && steps.diagnostic_evidence.outcome == 'success' }}
-        run: python scripts/check_artifact_budget.py --evidence-only --output build/native-source-diagnostic-budget.json
-      - name: Retain bounded source diagnostics for one day only when both budgets pass
+        run: >-
+          python -c "import json; from pathlib import Path; from scripts.check_artifact_budget import check_budget; print(json.dumps(check_budget(Path('build/native-source-diagnostic-evidence'), evidence_only=True, output_path='../native-source-diagnostic-budget.json'), indent=2))"
+      - name: Retain bounded capture diagnostics for one day only when both budgets pass
         if: ${{ always() && steps.diagnostic_evidence.outcome == 'success' && steps.evidence_budget.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: native-source-diagnostic-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/native-source-diagnostic-evidence
+          name: native-capture-diagnostic-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-source-diagnostic-evidence/reports
           if-no-files-found: error
           retention-days: 1
