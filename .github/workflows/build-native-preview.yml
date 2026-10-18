@@ -1,19 +1,20 @@
 name: Build and publish native preview
 
 # Manual validation by default. Publication is a separate explicit final-step choice.
-# EXE/source files go directly to Releases; only small evidence is stored in Actions.
+# Non-publishing validation preserves the verified bundle in Actions for one day.
+# Publication is still explicit; each Actions upload has its own bounded budget gate.
 on:
   workflow_dispatch:
     inputs:
       publish_preview:
-        description: 'Build, test and publish v0.4.13 as a capture stability DIAGNOSTIC prerelease'
+        description: 'Build, test and publish v0.4.14 as a startup recovery DIAGNOSTIC prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.13
+  group: vga-native-preview-v0.4.14
   cancel-in-progress: false
 
 jobs:
@@ -156,6 +157,12 @@ jobs:
           python scripts/verify_release.py
           --release-dir dist/release --evidence-dir reports --output-dir build/verified-preview
           --repository "$env:GITHUB_REPOSITORY" --source-sha "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT"
+      - name: Stage the exact verified candidate without publishing
+        if: ${{ success() && !inputs.publish_preview }}
+        run: >-
+          python scripts/stage_verified_artifact.py
+          --verified-dir build/verified-preview --output-dir build/verified-artifact
+          --source-sha "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID" --run-attempt "$env:GITHUB_RUN_ATTEMPT"
       - name: Upload only small test evidence when its budget passed
         if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
         uses: actions/upload-artifact@v4
@@ -165,6 +172,18 @@ jobs:
             reports/windows-*
             reports/hero-recognition-genuine.json
             reports/champion-select-genuine.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Check the full candidate artifact budget without changing verified evidence
+        id: candidate_budget
+        if: ${{ success() && !inputs.publish_preview }}
+        run: python scripts/check_artifact_budget.py --output build/verified-artifact-budget.json
+      - name: Preserve this exact verified candidate for one day
+        if: ${{ success() && !inputs.publish_preview && steps.candidate_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-candidate-${{ github.sha }}
+          path: build/verified-artifact
           if-no-files-found: error
           retention-days: 1
       - name: Write run summary
