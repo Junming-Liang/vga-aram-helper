@@ -27,10 +27,12 @@ def wait(predicate,why):
 with tempfile.TemporaryDirectory() as directory,patch('native_ui.Win32Capture',side_effect=CaptureUnavailable('Offscreen only')):
     w=ControlWindow(lambda:{'data':load_data(ROOT/'fixtures/demo.json'),'status':{}},state_dir=Path(directory),current_executable=Path('/unused.exe'),current_version='test',frozen=False,enable_updates=False)
     wait(lambda:w.data is not None,'Data did not load');w.capture=Capture();w.refresh_windows();w.overlay.show_at=lambda *_:None
+    assert not w.minimize_on_start.isChecked() # Current default keeps controls reachable.
+    w.minimize_on_start.setChecked(True) # Exercise the explicitly opted-in minimize flow.
     create=lambda **kw:AutomaticWindowPolicy(resolver=lambda pid:meta[pid],verifier=lambda path:True,**kw)
     with patch('automatic_windows.AutomaticWindowPolicy',side_effect=create):w.start_monitor()
     wait(lambda:not w.discovery_busy,'Initial wait unfinished');assert w.window_list.currentIndex()==0 and w.window_list.currentData() is None and w.state.running and w.target is None and w.isMinimized()
-    checks.append('Start without a selected HWND minimizes the helper and normally waits for a later client')
+    checks.append('Start with explicit minimize preference and no selected HWND waits for a later client')
     def scan():w.last_window_discovery=0;w.check_target();wait(lambda:not w.discovery_busy,'Discovery unfinished')
     w.capture.visible=[client];scan();assert w.target==client and w.selection_session and w.client_phase()
     checks.append('Chinese-layout client appears after Start and is connected without touching window selection')
@@ -66,7 +68,8 @@ with tempfile.TemporaryDirectory() as directory,patch('native_ui.Win32Capture',s
     release.set();wait(lambda:not any(job.name=='vga-windows' for job in w._workers),'Old discovery worker did not exit');scan();assert w.target==replacement
     checks.append('Repeated Start during slow trust verification keeps one worker and discards old scopes')
     diagnostics={'schemaVersion':1,'failures':[{'asset':'Briar.png','error':{'winerror':5}}]}
-    w.task_result('portraits',({}, {'message':'Synthetic local cache failure','cacheDiagnostics':diagnostics}),0)
+    w._portraits_attempt+=1;w._portraits_busy=True # Owned synthetic public-asset worker lease.
+    w.task_result('portraits',({}, {'message':'Synthetic local cache failure','cacheDiagnostics':diagnostics}),w._portraits_attempt)
     assert w.portrait_diagnostics==diagnostics and not w.cache_diagnostic_button.isHidden()
     checks.append('Cache failure exposes sanitized local-only diagnostic details even when no file can be saved')
     w.stop_monitor();w.close();app.processEvents()

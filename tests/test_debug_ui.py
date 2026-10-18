@@ -266,5 +266,59 @@ class DebugUITests(unittest.TestCase):
         self.assertTrue(any('dispatch_ms' in e for e in same_frame))
 
 
+    def test_failed_worker_has_one_safe_category_and_separate_ui_receipt(self):
+        w = self.window
+        def fail(): raise KeyError('PRIVATE_WORKER_PAYLOAD')
+        w.spawn('update', fail)
+        self.pump(lambda: not w._workers)
+        self.pump(lambda: w.debug_log._summary['reasons'].get('worker_error', {}).get('observations', 0) > 0)
+        manifest, events, text = self.exported()
+        errors = [row for row in events if row['event'] == 'job' and row.get('kind') == 'update' and row.get('phase') == 'error']
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]['worker_error_category'], 'key_error')
+        self.assertTrue(any(row.get('kind') == 'update' and row.get('phase') == 'accepted' and row.get('reason') == 'worker_error' for row in events))
+        self.assertEqual(sum(row['worker_errors'] for row in manifest['game_summaries']['games']), 1)
+        self.assertNotIn('PRIVATE_WORKER_PAYLOAD', text)
+
+    def test_verified_window_boundary_changes_only_diagnostic_scope(self):
+        from types import SimpleNamespace
+        w = self.window
+        original_generation, original_running = w.state.generation, w.state.running
+        first = w.debug_log.begin_game()
+        a = SimpleNamespace(identity=('PRIVATE_WINDOW_A', 123))
+        b = SimpleNamespace(identity=('PRIVATE_WINDOW_B', 456))
+        w.note_verified_game_scope(a, 1)
+        self.assertEqual(w.debug_log._game_generation, first)
+        w.note_verified_game_scope(a, 1)
+        self.assertEqual(w.debug_log._game_generation, first)
+        w.note_verified_game_scope(b, 2)
+        self.assertEqual(w.debug_log._game_generation, first + 1)
+        self.assertEqual((w.state.generation, w.state.running), (original_generation, original_running))
+        _, _, text = self.exported()
+        self.assertNotIn('PRIVATE_WINDOW', text)
+
+    def test_late_worker_failure_stays_with_scope_at_queue_time(self):
+        w = self.window
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        first = w.debug_log.begin_game()
+        def fail_later():
+            started.set()
+            if not release.wait(3): raise AssertionError('Owned fixture timed out')
+            raise TimeoutError('PRIVATE_LATE_ERROR')
+        w.spawn('update', fail_later)
+        self.pump(started.is_set)
+        second = w.debug_log.begin_game()
+        release.set()
+        self.pump(lambda: not w._workers)
+        manifest, events, text = self.exported()
+        games = {row['game_generation']: row for row in manifest['game_summaries']['games']}
+        self.assertEqual(games[first]['worker_errors'], 1)
+        self.assertEqual(games[second]['worker_errors'], 0)
+        failure = next(row for row in events if row.get('worker_error_category') == 'timeout')
+        self.assertEqual(failure['game_generation'], first)
+        self.assertNotIn('PRIVATE_LATE_ERROR', text)
+
+
 if __name__ == '__main__':
     unittest.main()

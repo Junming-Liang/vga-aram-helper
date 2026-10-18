@@ -42,7 +42,7 @@ def control_title_for_version(version):
     # window. Keep the pinned v0.3.0 walkthrough's legacy default unchanged.
     if version in ('0.3.0', '0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.4.4', '0.4.5', '0.4.6'):
         return CONTROL_TITLE
-    if version in ('0.4.7', '0.4.8', '0.4.9', '0.4.10', '0.4.11', '0.4.12', '0.4.13'):
+    if version in ('0.4.7', '0.4.8', '0.4.9', '0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14'):
         return LIGHT_CONTROL_TITLE
     raise AssertionError('No exact native control title is bound to this application version')
 

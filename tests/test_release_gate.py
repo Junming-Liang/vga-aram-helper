@@ -785,7 +785,10 @@ class ReleaseFixture(unittest.TestCase):
                        'original four-second deadline, never renewed by rechecking',
                        'separate critical-event ledger and routine sampling',
                        'Controlled non-game fixtures', 'Selection-route gate diagnostics',
-                       'not proof of a fixed real-client selection path'):
+                       'not proof of a fixed real-client selection path',
+                       '30/60/120/300-second capped backoff', 'before network refresh',
+                       'immutable in-memory fallback', 'malformed nested roster data',
+                       'no incident diagnostic ZIP', 'not a confirmed cause of that incident'):
             self.assertIn(phrase, notes)
         self.assertNotIn('default-off, current-launch local debug', notes)
         self.assertNotIn('retain their original v0.4.10 evaluation identity', notes)
@@ -1501,14 +1504,14 @@ class AdoptedTimingTests(unittest.TestCase):
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.13')
+        self.assertEqual(VERSION, '0.4.14')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
         self.assertIn(f'group: vga-native-preview-v{VERSION}', text)
         self.assertIn('DIAGNOSTIC prerelease', text)
         self.assertTrue(gate.genuine_report_version_matches(VERSION, VERSION))
-        for old in ('0.4.10', '0.4.11', '0.4.12'):
+        for old in ('0.4.10', '0.4.11', '0.4.12', '0.4.13'):
             self.assertFalse(gate.genuine_report_version_matches(old, VERSION))
         # Preserve the narrowly scoped historical exception, not for this release.
         self.assertTrue(gate.genuine_report_version_matches('0.4.10', '0.4.11'))
@@ -1667,7 +1670,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn('GH_TOKEN:',publication)
         self.assertIn('run: python tests/windows_selection_smoke.py --report-dir reports',text)
 
-    def test_workflow_direct_build_has_only_bounded_evidence_upload_and_final_token(self):
+    def test_workflow_direct_build_has_separate_bounded_uploads_and_final_token(self):
         text = (ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('publish_preview:', text)
@@ -1682,12 +1685,12 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn('runs-on: windows-2022', text)
         self.assertIn('timeout-minutes: 60', text)
         self.assertNotIn('actions/download-artifact', text)
-        self.assertEqual(text.count('actions/upload-artifact@v4'), 1)
+        self.assertEqual(text.count('actions/upload-artifact@v4'), 2)
         self.assertIn('path: |\n            reports/windows-*\n            reports/hero-recognition-genuine.json\n            reports/champion-select-genuine.json', text)
         self.assertNotIn('path: dist/', text)
         self.assertIn('python scripts/check_artifact_budget.py --evidence-only', text)
         self.assertIn("always() && steps.evidence_budget.outcome == 'success'", text)
-        self.assertEqual(text.count('retention-days: 1'), 1)
+        self.assertEqual(text.count('retention-days: 1'), 2)
         self.assertIn('python scripts/build_windows.py', text)
         self.assertIn('tests/windows_exe_smoke.py --exe dist/VGA-Aram-Helper.exe --browser', text)
         self.assertIn('python tests/windows_native_smoke.py --exe dist/VGA-Aram-Helper.exe', text)
@@ -1704,6 +1707,38 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotIn('38226534574', text)
         self.assertNotIn('11736459413', text)
         self.assertNotIn('publish-preview.yml', [path.name for path in (ROOT / '.github/workflows').iterdir()])
+
+    def test_nonpublishing_candidate_is_staged_and_separately_budgeted_after_verification(self):
+        text = (ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')
+        verification = text.index('- name: Verify fresh native preview')
+        staging = text.index('- name: Stage the exact verified candidate without publishing')
+        small_upload = text.index('- name: Upload only small test evidence')
+        full_budget = text.index('- name: Check the full candidate artifact budget')
+        candidate_upload = text.index('- name: Preserve this exact verified candidate for one day')
+        self.assertLess(verification, staging)
+        self.assertLess(staging, small_upload)
+        self.assertLess(small_upload, full_budget)
+        self.assertLess(full_budget, candidate_upload)
+        stage_text = text[staging:small_upload]
+        self.assertIn('if: ${{ success() && !inputs.publish_preview }}', stage_text)
+        self.assertIn('python scripts/stage_verified_artifact.py', stage_text)
+        self.assertIn('--verified-dir build/verified-preview --output-dir build/verified-artifact', stage_text)
+        for argument in ('--source-sha "$env:GITHUB_SHA"', '--run-id "$env:GITHUB_RUN_ID"',
+                         '--run-attempt "$env:GITHUB_RUN_ATTEMPT"'):
+            self.assertIn(argument, stage_text)
+        budget_text = text[full_budget:candidate_upload]
+        self.assertIn('id: candidate_budget', budget_text)
+        self.assertIn('if: ${{ success() && !inputs.publish_preview }}', budget_text)
+        self.assertIn('python scripts/check_artifact_budget.py --output build/verified-artifact-budget.json', budget_text)
+        self.assertNotIn('--evidence-only', budget_text)
+        self.assertNotIn('reports/windows-artifact-budget.json', budget_text)
+        upload_text = text[candidate_upload:text.index('- name: Write run summary')]
+        self.assertIn("if: ${{ success() && !inputs.publish_preview && steps.candidate_budget.outcome == 'success' }}", upload_text)
+        self.assertIn('name: verified-candidate-${{ github.sha }}', upload_text)
+        self.assertIn('path: build/verified-artifact', upload_text)
+        self.assertIn('if-no-files-found: error', upload_text)
+        self.assertIn('retention-days: 1', upload_text)
+        self.assertNotIn('continue-on-error:', stage_text + budget_text + upload_text)
 
 
 class RunProvenanceTests(unittest.TestCase):

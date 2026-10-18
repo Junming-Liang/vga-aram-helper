@@ -118,11 +118,20 @@ class LocalDebugTests(unittest.TestCase):
 
     def test_concurrent_records_are_valid_json_and_bounded(self):
         self.log.set_enabled(True)
-        workers = [threading.Thread(target=lambda: [self.log.record('job', phase='completed', kind='ocr', generation=n) for n in range(40)]) for _ in range(4)]
+        barrier = threading.Barrier(4)
+        def write():
+            for n in range(40):
+                self.log.record('job', phase='completed', kind='ocr', generation=n)
+                barrier.wait(timeout=5)
+        workers = [threading.Thread(target=write) for _ in range(4)]
         for worker in workers: worker.start()
         for worker in workers: worker.join()
-        _, events = self.read_export()
-        self.assertTrue(all(json.loads(line)['event'] == 'job' for line in events.splitlines()))
+        manifest, events = self.read_export()
+        rows = [json.loads(line) for line in events.splitlines()]
+        # Equal records from concurrent producers legitimately coalesce.
+        self.assertTrue(all(row['event']=='job' or
+            row['event']=='sample_summary' and row.get('sampled_event')=='job' and row.get('sample_count',0)>0 for row in rows))
+        self.assertEqual(manifest['summary']['events']['job']['observations'],160)
         self.assertLessEqual(sum(path.stat().st_size for path in (self.root / 'logs').iterdir()), 3 * 1024)
 
     def test_deeply_nested_corrupt_event_is_skipped_without_losing_valid_export(self):

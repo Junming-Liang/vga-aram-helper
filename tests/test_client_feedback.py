@@ -12,6 +12,13 @@ from selection_session import SelectionSession
 CLIENT = (1, 10, 'Chrome_WidgetWin_1')
 
 
+def deliver_portraits(window, value):
+    # Each synthetic terminal belongs to a distinct public-asset worker lease.
+    window._portraits_attempt += 1
+    window._portraits_busy = True
+    window.task_result('portraits', value, window._portraits_attempt)
+
+
 def assigned(champion='9001'):
     return {'scene': 'assigned-selection', 'assigned': True, 'championId': champion}
 
@@ -310,18 +317,18 @@ class ClientDisplayTests(unittest.TestCase):
         self.deliver(100., 100.1); self.deliver(101., 101.1)
         self.assertNotEqual(self.center_color(w.hero_avatar), (220, 30, 60))
         with patch('native_ui.time.monotonic', return_value=101.2), patch('hero_recognition.PortraitMatcher'):
-            w.task_result('portraits', ({'9001': Image.new('RGB', (120, 120), (220, 30, 60))}, {'message': 'owned bank'}), 0)
+            deliver_portraits(w, ({'9001': Image.new('RGB', (120, 120), (220, 30, 60))}, {'message': 'owned bank'}))
         self.assertEqual(self.center_color(w.hero_avatar), (220, 30, 60))
         self.assertEqual(self.center_color(w.overlay.hero_portrait), (220, 30, 60))
 
     def test_alias_detector_rebuilds_only_when_verified_roster_availability_changes(self):
         w = self.window; sentinel = object(); w.selection_detector = sentinel
-        w.task_result('portraits', ({}, {}), 0); self.assertIs(w.selection_detector, sentinel)
+        deliver_portraits(w, ({}, {})); self.assertIs(w.selection_detector, sentinel)
         folder = Path(w.state_dir) / 'hero-portraits'; folder.mkdir()
         roster = b'{"data":{}}'; (folder / 'roster-16.1.1.json').write_bytes(roster)
         (folder / 'manifest.json').write_text(json.dumps({'version': '16.1.1', 'rosterSha256': hashlib.sha256(roster).hexdigest()}))
-        w.task_result('portraits', ({}, {}), 0); self.assertIsNone(w.selection_detector)
-        w.selection_detector = sentinel; w.task_result('portraits', ({}, {}), 0)
+        deliver_portraits(w, ({}, {})); self.assertIsNone(w.selection_detector)
+        w.selection_detector = sentinel; deliver_portraits(w, ({}, {}))
         self.assertIs(w.selection_detector, sentinel)
 
     def test_bank_is_bounded_detached_exact_id_and_neutral_on_missing_or_ambiguous_mapping(self):

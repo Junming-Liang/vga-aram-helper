@@ -612,6 +612,42 @@ class NativePackagingTests(unittest.TestCase):
             result = budget.check_budget(root, fetcher=fetch, evidence_only=True)
             self.assertEqual(result['proposed_upper_estimate_bytes'], 1_030_900)
 
+    def test_full_candidate_budget_counts_both_evidence_uploads_and_extra_screenshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'dist/release').mkdir(parents=True)
+            (root/'dist/release/app.exe').write_bytes(b'X' * 100_000)
+            (root/'reports').mkdir()
+            (root/'reports/windows-fixture.json').write_bytes(b'Y' * 20_000)
+            (root/'reports/hero-recognition-genuine.json').write_bytes(b'Z' * 10_000)
+            (root/'reports/windows-native-overlay.png').write_bytes(b'P' * 5_000)
+            fetch = lambda url: {'total_count': 0, 'artifacts': []}
+            result = budget.check_budget(root, fetcher=fetch, output_path='build/full-budget.json')
+            expected = budget.math.ceil((100_000 + 2 * 35_000 + 5_000) * 1.03) + 1_000_000
+            self.assertEqual(result['proposed_upper_estimate_bytes'], expected)
+            self.assertEqual(result['upload_scope'], 'release-and-evidence')
+            self.assertEqual(json.loads((root/'build/full-budget.json').read_text()), result)
+            self.assertFalse((root/'reports/windows-artifact-budget.json').exists())
+
+    def test_separate_full_budget_preserves_verified_evidence_on_success_and_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'dist/release').mkdir(parents=True)
+            (root/'dist/release/app.exe').write_bytes(b'owned fixture')
+            (root/'reports').mkdir()
+            original = root/'reports/windows-artifact-budget.json'
+            original.write_bytes(b'{"status":"passed","upload_scope":"evidence-only"}\n')
+            original_bytes = original.read_bytes()
+            output = root/'build/full-budget.json'
+            fetch = lambda url: {'total_count': 0, 'artifacts': []}
+            budget.check_budget(root, fetcher=fetch, output_path=output)
+            self.assertEqual(original.read_bytes(), original_bytes)
+            with self.assertRaisesRegex(RuntimeError, 'budget would be exceeded'):
+                budget.check_budget(root, fetcher=lambda url: {'total_count': 1, 'artifacts': [
+                    {'expired': False, 'size_in_bytes': 490_000_000}]}, output_path=output)
+            self.assertEqual(original.read_bytes(), original_bytes)
+            self.assertEqual(json.loads(output.read_text())['status'], 'blocked')
+
     def test_artifact_budget_fails_on_unknown_repository_or_incomplete_listing(self):
         with self.assertRaises(RuntimeError):budget.check_budget(Path('.'),repository='other/repo')
         with self.assertRaises(RuntimeError):budget.check_budget(Path('.'),fetcher=lambda url:{'total_count':1,'artifacts':[]})
