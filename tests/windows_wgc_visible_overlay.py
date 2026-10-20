@@ -283,12 +283,27 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
             captured=number(product.get('captured_at'),'original captured time',minimum=0,maximum=started)
             number(product.get('boundary_at'),'explicit paint boundary',minimum=0,maximum=captured)
             boundary_epoch=integer(product.get('boundary_producer_epoch'),'boundary producer epoch')
+            prior=number(product.get('previous_observation'),'previous observation',minimum=0,maximum=captured)
+            accepted=number(product.get('accepted_observation'),'accepted observation',minimum=0)
+            post_generation=integer(product.get('post_generation'),'post-handler generation',minimum=generation)
             if (integer(product.get('capture_serial'),'product serial')!=serial
                 or integer(product.get('generation'),'product generation')!=generation
                 or integer(product.get('producer_epoch'),'product producer epoch')!=epoch
                 or epoch!=boundary_epoch+(0 if row.get('visible_request') is True else 1)
+                or prior>=captured or accepted!=captured
                 or integer(product.get('paint_state'),'product paint state',maximum=1)!=row.get('paint_state')):
                 raise RuntimeError('Product result differs from its explicit acquisition boundary')
+            evidence=row.get('product_boundary',{})
+            checks=('serial','generation','identity','producer_epoch','capture_timing',
+                    'new_observation','accepted_observation','running','post_serial')
+            expected_evidence=dict(expected_serial=serial,boundary_generation=generation,
+                signal_generation=generation,acquisition_generation=generation,post_generation=post_generation,
+                boundary_producer_epoch=boundary_epoch,acquisition_producer_epoch=epoch,
+                boundary_at=product['boundary_at'],captured_at=captured,
+                previous_observation=prior,accepted_observation=accepted,
+                checks=dict.fromkeys(checks,True))
+            if not same_json(evidence,expected_evidence):
+                raise RuntimeError('Original bridge boundary predicates differ from accepted frame')
         elif 'product' in row or row.get('case'):
             raise RuntimeError('Background/direct acquisition was relabelled as a product result')
         binding=identity(row)

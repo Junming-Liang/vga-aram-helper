@@ -1,6 +1,6 @@
 """Portable contract regressions only; never Windows exclusion evidence."""
 import copy
-from contextlib import chdir, redirect_stderr, redirect_stdout
+from contextlib import chdir, contextmanager, redirect_stderr, redirect_stdout
 import hashlib
 import io
 import json
@@ -125,7 +125,16 @@ def fixture():
         if product:
             product.update(generation=1,producer_epoch=index+1,paint_state=row['paint_state'],
                 boundary_producer_epoch=index+1-(0 if row['visible_request'] else 1),
-                captured_at=999.999+index,boundary_at=999.998+index)
+                captured_at=999.999+index,boundary_at=999.998+index,
+                previous_observation=999.+index,accepted_observation=999.999+index,post_generation=1)
+            row['product_boundary']=dict(expected_serial=row['product_serial'],boundary_generation=1,
+                signal_generation=1,acquisition_generation=1,post_generation=1,
+                boundary_producer_epoch=product['boundary_producer_epoch'],
+                acquisition_producer_epoch=index+1,boundary_at=product['boundary_at'],
+                captured_at=product['captured_at'],previous_observation=product['previous_observation'],
+                accepted_observation=product['accepted_observation'],
+                checks=dict.fromkeys(('serial','generation','identity','producer_epoch','capture_timing',
+                    'new_observation','accepted_observation','running','post_serial'),True))
     return value,dict(scale=1,frozen=False,helper=helper,foreign_proof=foreign,foreign_fixture_sha256='f'*64)
 
 
@@ -138,18 +147,21 @@ def stepped_product_fixture():
     f.overlay=SimpleNamespace(isVisible=lambda:True,_titles_pending=False,
         _badge_widgets=[SimpleNamespace(tier=t) for t in ('T1','T2','T3')])
     state=SimpleNamespace(confirmed=True,automatic_frames=2,hero='Owned hero',
-        offered=['Title A','Title B','Title C'],generation=1)
+        offered=['Title A','Title B','Title C'],generation=1,running=True)
     f.control=SimpleNamespace(state=state,ocr_busy=False,capture_pending=False,_capture_serial=3,
-        latest_capture=LatestCaptureFrame(),current_partial_names=lambda:('Title A','Title B','Title C'))
+        latest_capture=LatestCaptureFrame(),last_observation=0.,
+        current_partial_names=lambda:('Title A','Title B','Title C'))
     f.wait=lambda predicate,*args:unittest.TestCase().assertTrue(predicate())
     def complete_primary(*,paint_state=None,captured_at=None):
         captured_at=time.monotonic() if captured_at is None else captured_at
         row=copy.deepcopy(value['requests'][3])
+        for key in ('case','product','product_boundary'):row.pop(key,None)
         row.update(paint_state=f.paint_state if paint_state is None else paint_state,
             acquisition_role='primary',product_serial=f.control._capture_serial,
             product_generation=1,producer_epoch=f.control.latest_capture._epoch,
             capture_started_at=time.monotonic(),capture_returned_at=time.monotonic())
         f.records.append(row)
+        f.control.last_observation=captured_at
         f.observe_product_result('ocr',dict(_captureSerial=f.control._capture_serial,
             _capturedAt=captured_at,_windowIdentity=f.target.identity),1)
         return row
@@ -476,7 +488,7 @@ class VisibleContracts(unittest.TestCase):
                     self.assertEqual(row['product']['boundary_producer_epoch'],1)
                     self.assertEqual(row['product']['producer_epoch'],2)
                 else:
-                    with self.assertRaisesRegex(AssertionError,'explicit acquisition boundary'):
+                    with self.assertRaisesRegex(AssertionError,'boundary failed: producer_epoch'):
                         f.product_cycle('hidden-confirmation',visible=False)
 
     def test_real_qt_boundary_drains_old_producer_and_keeps_new_background_rows(self):
@@ -549,7 +561,22 @@ class VisibleContracts(unittest.TestCase):
         f.observe_product_result('ocr',value,8)
         self.assertEqual(value,original)
         self.assertEqual(f.bridge_results,[dict(generation=8,serial=7,captured_at=1.25,
-            window_identity=(1,2,'Owned'))])
+            window_identity=(1,2,'Owned'),post_generation=1,post_running=True,
+            post_serial=3,post_last_observation=0.)])
+
+    def test_rejected_result_keeps_individual_boundary_failure_evidence(self):
+        f,complete=stepped_product_fixture()
+        def capture():
+            f.control._capture_serial+=1;complete()
+            f.bridge_results[-1]['post_last_observation']=0.
+        f.control.capture_tick=capture
+        with self.assertRaisesRegex(AssertionError,'boundary failed: accepted_observation'):
+            f.product_cycle('visible-product-1',visible=True)
+        evidence=f.records[0]['product_boundary']
+        self.assertFalse(evidence['checks']['accepted_observation'])
+        self.assertTrue(evidence['checks']['generation'])
+        self.assertGreater(evidence['captured_at'],evidence['previous_observation'])
+        self.assertNotIn('product',f.records[0])
 
     def test_product_acquisition_boundary_rejects_stale_metadata(self):
         mutations=(
@@ -565,6 +592,10 @@ class VisibleContracts(unittest.TestCase):
             lambda r:r['product'].update(captured_at=True),
             lambda r:r['product'].update(paint_state=0),
             lambda r:r.update(capture_returned_at=r['capture_started_at']-1),
+            lambda r:r['product'].update(previous_observation=r['product']['captured_at']),
+            lambda r:r['product'].update(accepted_observation=r['product']['captured_at']-1),
+            lambda r:r['product_boundary']['checks'].update(accepted_observation=False),
+            lambda r:r['product_boundary'].update(signal_generation=r['product_generation']+1),
         )
         for index,mutate in enumerate(mutations):
             value,kwargs=fixture();mutate(value['requests'][3])
@@ -1063,6 +1094,120 @@ class VisibleContracts(unittest.TestCase):
             self.assertEqual(runtime.run(path),1)
             result=json.loads(path.read_text())
             self.assertEqual(result['status'],'failed');self.assertNotIn('pixel_exclusion_passed',result)
+
+
+class RealProductBoundaryContracts(unittest.TestCase):
+    """Real Qt/ControlWindow/LocalOCR; capture/native observations are explicit doubles."""
+
+    @contextmanager
+    def real_product_fixture(self):
+        from tests import test_animated_augment_rounds as real
+        if real.QtWidgets is None or not real.OCR_AVAILABLE:
+            self.skipTest('Optional Qt/local OCR dependencies are not installed')
+        from synthetic_vision import encoded
+        real.AnimatedAugmentRoundTests.setUpClass()
+        case=real.AnimatedAugmentRoundTests('test_three_animated_rounds_and_normal_reroll_without_assistant_edits')
+        case.setUp()
+        clock=patch('native_ui.time',time);clock.start()
+        try:
+            w=case.window;w.state.clear_hero();w.ocr_reuse.clock=time.monotonic
+            f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+            f.control=w;f.target=w.target;f.capture=w.capture;f.overlay=w.overlay;f.app=case.app
+            f.records=[];f.bridge_results=[];f.event_rows=[];f.title_check_events=[]
+            f._cycle_serial=None;f.active=None;f.paint_state=0;f.end=time.monotonic()+45
+            f.use_explicit_capture_cadence()
+            w.signals.result.connect(f.observe_product_result)
+            capture=w.capture;original_capture=capture.capture
+            capture.can_request_visible_overlay=True;capture.visible_capture_status='eligible'
+            capture.has_live_visible_session=False;capture.session_epoch=1;capture.last_capture_diagnostic={}
+            def prepare(visible):
+                capture.has_live_visible_session=visible
+                return True
+            def retire():
+                capture.has_live_visible_session=False;capture.session_epoch+=1
+            capture.prepare_capture_mode=prepare;capture.retire_session=retire
+            capture.validate_compositor=lambda target,rect,**kwargs:self.assertEqual((target,rect),(w.target,case.rect))
+            def observed(*args,**kwargs):
+                started=time.monotonic();visible=kwargs.get('allow_visible_overlay',False)
+                producer=threading.current_thread() is w.latest_capture._thread
+                row=dict(acquisition_role='background' if producer else 'primary',
+                    paint_state=f.paint_state,producer_epoch=w.latest_capture._epoch,
+                    product_serial=w._capture_serial,product_generation=w.state.generation,
+                    capture_started_at=started,status='passed',visible_request=visible,
+                    native_visible_before=visible,native_visible_after=visible,
+                    visibility=dict(samples=2,qt_hidden_samples=0,native_hidden_samples=0))
+                image,rect=original_capture(*args,**kwargs)
+                row.update(capture_returned_at=time.monotonic(),_png=image,
+                    pixels_sha256=hashlib.sha256(runtime.pixels(image).tobytes()).hexdigest())
+                f.records.append(row)
+                return image,rect
+            capture.capture=observed
+            def paint(state):
+                from screen_capture import bounded_roi
+                image=case.scene.image((0,1,2),state)
+                if state:
+                    proof=w._accepted_frame['title_proof']
+                    left,top,_,_=bounded_roi(image.width,image.height,tuple(spin.value()/100 for spin in w.roi))
+                    x0,y0,x1,y1=proof.regions[0];x,y=left+x0+2,top+(y0+y1)//2
+                    for dx in range(4):
+                        for dy in range(4):image.putpixel((x+dx,y+dy),(75,60,85))
+                capture.payload=encoded(image);f.paint_state=state;f.pump(.01)
+            f.paint=paint;f.paint(0)
+            yield f,case
+        finally:
+            clock.stop();case.doCleanups()
+
+    def test_real_cold_confirm_and_visible_title_mutation_preserve_input_generation(self):
+        from screen_capture import bounded_roi
+        from synthetic_vision import encoded
+        from PIL import Image
+        with self.real_product_fixture() as (f,case):
+            first=f.product_cycle('cold-hidden',visible=False)
+            self.assertEqual((first['product']['generation'],first['product']['post_generation']),(2,4))
+            self.assertFalse(first['product']['confirmed'])
+            second=f.product_cycle('hidden-confirmation',visible=False)
+            self.assertEqual((second['product']['generation'],second['product']['post_generation']),(4,5))
+            self.assertTrue(second['product']['confirmed'])
+            accepted=f.control._accepted_frame['title_proof']
+            third=f.product_cycle('visible-product-2',visible=True,paint_state=1)
+            self.assertEqual((third['product']['generation'],third['product']['post_generation']),(5,5))
+            self.assertTrue(third['product']['confirmed'])
+            with Image.open(io.BytesIO(third['_png'])) as decoded:
+                left,top,width,height=bounded_roi(decoded.width,decoded.height,tuple(spin.value()/100 for spin in f.control.roi))
+                self.assertFalse(accepted.matches(encoded(decoded.crop((left,top,left+width,top+height)))))
+            self.assertNotEqual(second['pixels_sha256'],third['pixels_sha256'])
+            self.assertEqual(second['product']['offered'],third['product']['offered'])
+            for row in (first,second,third):
+                self.assertTrue(all(row['product_boundary']['checks'].values()))
+                self.assertEqual(row['product']['captured_at'],row['product']['accepted_observation'])
+            self.assertGreaterEqual(len(f.control.ocr.records),3)
+            self.assertEqual(case.errors,[])
+
+    def test_real_handler_rejects_stale_stopped_serial_scope_and_identity_results(self):
+        for mutation in ('generation','stop','serial','scope','identity'):
+            with self.subTest(mutation=mutation),self.real_product_fixture() as (f,case):
+                f.product_cycle('cold-hidden',visible=False)
+                f.product_cycle('hidden-confirmation',visible=False)
+                w=f.control;previous=w.last_observation;generation=w.state.generation
+                value=dict(case.results[-1])
+                w._capture_serial+=1;w._active_capture_generation=generation
+                w.ocr_busy=True;w.capture_pending=True
+                value.update(_captureSerial=w._capture_serial,_capturedAt=time.monotonic(),
+                             _completedAt=time.monotonic())
+                self.assertGreater(value['_capturedAt'],previous)
+                if mutation=='generation':w.state.invalidate('Owned stale callback test')
+                elif mutation=='stop':w.stop_monitor()
+                elif mutation=='serial':value['_captureSerial']-=1
+                elif mutation=='scope':
+                    scope=list(value['_frameScope']);scope[4]=('Owned changed vocabulary',);value['_frameScope']=tuple(scope)
+                else:value['_windowIdentity']=(999,w.target.pid,'DifferentOwnedClass')
+                original=dict(value);count=len(f.bridge_results)
+                w.signals.result.emit('ocr',value,generation)
+                case.wait(lambda:len(f.bridge_results)>count)
+                self.assertEqual(value,original)
+                self.assertEqual(w.last_observation,previous)
+                self.assertEqual(f.bridge_results[-1]['post_last_observation'],previous)
+                self.assertNotEqual(f.bridge_results[-1]['post_last_observation'],value['_capturedAt'])
 
 
 if __name__=='__main__':unittest.main()
