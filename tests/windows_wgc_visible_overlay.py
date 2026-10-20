@@ -270,6 +270,27 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
         if '_png' in row or '_samples' in row:raise RuntimeError('Private pixel/sample buffers leaked into report')
         if row['status']=='rejected':continue
         if not strict_timing(row) or not finite(row.get('elapsed_ms'),0,3500):raise RuntimeError('Native freshness/caller bound differs')
+        role=row.get('acquisition_role')
+        if role not in ('primary','background','direct'):
+            raise RuntimeError('Acquisition lane is not explicit')
+        epoch=integer(row.get('producer_epoch'),'producer epoch')
+        serial=integer(row.get('product_serial'),'acquisition serial')
+        generation=integer(row.get('product_generation'),'acquisition generation')
+        started=number(row.get('capture_started_at'),'acquisition start',minimum=0)
+        returned=number(row.get('capture_returned_at'),'acquisition return',minimum=started)
+        if role=='primary':
+            product=row.get('product',{})
+            captured=number(product.get('captured_at'),'original captured time',minimum=0,maximum=started)
+            number(product.get('boundary_at'),'explicit paint boundary',minimum=0,maximum=captured)
+            boundary_epoch=integer(product.get('boundary_producer_epoch'),'boundary producer epoch')
+            if (integer(product.get('capture_serial'),'product serial')!=serial
+                or integer(product.get('generation'),'product generation')!=generation
+                or integer(product.get('producer_epoch'),'product producer epoch')!=epoch
+                or epoch!=boundary_epoch+(0 if row.get('visible_request') is True else 1)
+                or integer(product.get('paint_state'),'product paint state',maximum=1)!=row.get('paint_state')):
+                raise RuntimeError('Product result differs from its explicit acquisition boundary')
+        elif 'product' in row or row.get('case'):
+            raise RuntimeError('Background/direct acquisition was relabelled as a product result')
         binding=identity(row)
         previous=observed.get(binding)
         if previous and (row['request_id']<=previous['request_id'] or row['request_cutoff_100ns']<=previous['frame_100ns']):

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -115,7 +116,44 @@ def fixture():
         'helpers_exited_passed','pipe_readers_exited_passed','job_handles_closed_passed','windows_closed_passed'),True))
     foreign=dict(pid=88,hwnd=99,created=100,job_verified=True,executable_sha256='f'*64,
                  owner_pid=6,owner_created=3,launcher_pid=6,launcher_created=3,owner_ancestry_verified=True)
+    for index,row in enumerate(value['requests']):
+        if row['status']!='passed':continue
+        product=row.get('product')
+        row.update(acquisition_role='primary' if product else 'direct',
+            producer_epoch=index+1,product_serial=product['capture_serial'] if product else 0,
+            product_generation=1,capture_started_at=1000.+index,capture_returned_at=1000.1+index)
+        if product:
+            product.update(generation=1,producer_epoch=index+1,paint_state=row['paint_state'],
+                boundary_producer_epoch=index+1-(0 if row['visible_request'] else 1),
+                captured_at=999.999+index,boundary_at=999.998+index)
     return value,dict(scale=1,frozen=False,helper=helper,foreign_proof=foreign,foreign_fixture_sha256='f'*64)
+
+
+def stepped_product_fixture():
+    """Real fixture boundary/buffer logic with a controlled acquisition callback."""
+    from latest_capture_frame import LatestCaptureFrame
+    value,_=fixture();f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+    f.records=[];f.event_rows=[];f.title_check_events=[];f.bridge_results=[];f._cycle_serial=None
+    f.paint_state=0;f.target=SimpleNamespace(identity=(1,6,'OwnedWindow'))
+    f.overlay=SimpleNamespace(isVisible=lambda:True,_titles_pending=False,
+        _badge_widgets=[SimpleNamespace(tier=t) for t in ('T1','T2','T3')])
+    state=SimpleNamespace(confirmed=True,automatic_frames=2,hero='Owned hero',
+        offered=['Title A','Title B','Title C'],generation=1)
+    f.control=SimpleNamespace(state=state,ocr_busy=False,capture_pending=False,_capture_serial=3,
+        latest_capture=LatestCaptureFrame(),current_partial_names=lambda:('Title A','Title B','Title C'))
+    f.wait=lambda predicate,*args:unittest.TestCase().assertTrue(predicate())
+    def complete_primary(*,paint_state=None,captured_at=None):
+        captured_at=time.monotonic() if captured_at is None else captured_at
+        row=copy.deepcopy(value['requests'][3])
+        row.update(paint_state=f.paint_state if paint_state is None else paint_state,
+            acquisition_role='primary',product_serial=f.control._capture_serial,
+            product_generation=1,producer_epoch=f.control.latest_capture._epoch,
+            capture_started_at=time.monotonic(),capture_returned_at=time.monotonic())
+        f.records.append(row)
+        f.observe_product_result('ocr',dict(_captureSerial=f.control._capture_serial,
+            _capturedAt=captured_at,_windowIdentity=f.target.identity),1)
+        return row
+    return f,complete_primary
 
 
 def install_presentation_fixture(value):
@@ -366,18 +404,14 @@ class VisibleContracts(unittest.TestCase):
 
     def test_changed_gui_paint_is_inside_the_zero_hide_observation(self):
         for hide_during_paint in (False,True):
-            value,_=fixture();f=runtime.ProductFixture.__new__(runtime.ProductFixture)
-            f.records=[];f.event_rows=[];f.title_check_events=[];actions=[]
-            f.overlay=SimpleNamespace(isVisible=lambda:True,_titles_pending=False,_badge_widgets=[SimpleNamespace(tier=t) for t in ('T1','T2','T3')])
-            state=SimpleNamespace(confirmed=True,automatic_frames=2,hero='Owned hero',offered=['Title A','Title B','Title C'])
+            f,complete=stepped_product_fixture();actions=[]
             def paint(paint_state):
                 actions.append(('paint',paint_state));f.paint_state=paint_state
                 if hide_during_paint:f.event_rows.append(dict(event='hide'))
             def capture():
                 actions.append(('capture',f.paint_state))
-                row=copy.deepcopy(value['requests'][3]);row['paint_state']=f.paint_state;f.records.append(row)
-            f.paint=paint;f.wait=lambda predicate,*args:self.assertTrue(predicate())
-            f.control=SimpleNamespace(capture_tick=capture,state=state,ocr_busy=False,capture_pending=False,_capture_serial=4,current_partial_names=lambda:('Title A','Title B','Title C'))
+                f.control._capture_serial+=1;complete()
+            f.paint=paint;f.control.capture_tick=capture
             with self.subTest(hide_during_paint=hide_during_paint):
                 if hide_during_paint:
                     with self.assertRaisesRegex(AssertionError,'hid/reflowed'):
@@ -386,6 +420,156 @@ class VisibleContracts(unittest.TestCase):
                     row=f.product_cycle('visible-product-2',visible=True,paint_state=1)
                     self.assertEqual(row['product']['hide_events'],0)
                 self.assertEqual(actions,[('paint',1),('capture',1)])
+
+    def test_explicit_fixture_cadence_disconnects_due_real_qt_monitor(self):
+        try:
+            from PySide6 import QtCore, QtWidgets
+        except ImportError:
+            self.skipTest('PySide6 is needed for the real Qt timer regression')
+        app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        for explicit in (False,True):
+            with self.subTest(explicit=explicit):
+                calls=[]
+                monitor=QtCore.QTimer();monitor.setSingleShot(True)
+                watchdog=QtCore.QTimer()
+                capture=lambda:calls.append('capture')
+                monitor.timeout.connect(capture)
+                f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+                f.control=SimpleNamespace(monitor=monitor,watchdog=watchdog,capture_tick=capture)
+                f.app=app;f.end=time.monotonic()+2;f.active=None
+                monitor.start(0)
+                if explicit:f.use_explicit_capture_cadence()
+                # A real result handler may restart the monitor before the
+                # fixture next pumps events, including at an already due time.
+                monitor.start(0)
+                f.pump(.01)
+                self.assertEqual(calls,[] if explicit else ['capture'])
+                if explicit:
+                    # Manual stepping and independent one-shot acquisition
+                    # callbacks remain real and runnable.
+                    f.control.capture_tick()
+                    QtCore.QTimer.singleShot(0,capture)
+                    f.pump(.01)
+                    self.assertEqual(calls,['capture','capture'])
+
+    def test_changed_gui_cycle_rejects_prepaint_acquisition_association(self):
+        f,complete=stepped_product_fixture()
+        def paint(state):
+            f.paint_state=state
+        def capture():
+            f.control._capture_serial+=1;complete(paint_state=0)
+        f.paint=paint;f.control.capture_tick=capture
+        with self.assertRaisesRegex(AssertionError,'earlier paint state'):
+            f.product_cycle('visible-product-2',visible=True,paint_state=1)
+
+    def test_hidden_primary_accounts_for_only_its_normal_buffer_clear(self):
+        for clears in (0,1,2):
+            with self.subTest(clears=clears):
+                f,complete=stepped_product_fixture()
+                def capture():
+                    f.control._capture_serial+=1
+                    for _ in range(clears):f.control.latest_capture.clear()
+                    row=complete();row['visible_request']=False
+                f.control.capture_tick=capture
+                if clears==1:
+                    row=f.product_cycle('hidden-confirmation',visible=False)
+                    self.assertEqual(row['product']['boundary_producer_epoch'],1)
+                    self.assertEqual(row['product']['producer_epoch'],2)
+                else:
+                    with self.assertRaisesRegex(AssertionError,'explicit acquisition boundary'):
+                        f.product_cycle('hidden-confirmation',visible=False)
+
+    def test_real_qt_boundary_drains_old_producer_and_keeps_new_background_rows(self):
+        try:
+            from PySide6 import QtCore,QtWidgets
+        except ImportError:
+            self.skipTest('PySide6 is needed for the real Qt producer regression')
+        from latest_capture_frame import CapturedFrame
+        app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        f,complete=stepped_product_fixture();latest=f.control.latest_capture
+        f.app=app;f.end=time.monotonic()+5;f.active=None
+        f.control.monitor=QtCore.QTimer();f.control.monitor.setSingleShot(True)
+        f.control.watchdog=QtCore.QTimer()
+        f.wait=runtime.ProductFixture.wait.__get__(f)
+        calls=[];old_released=threading.Event();new_released=threading.Event()
+        def background(state,released):
+            def acquire(cancelled):
+                started=time.monotonic()
+                if not released.wait(2):raise AssertionError('Producer was not released by Qt')
+                f.records.append(dict(acquisition_role='background',paint_state=state,
+                    producer_epoch=latest._epoch,capture_started_at=started))
+                return CapturedFrame(b'owned synthetic bytes',object(),started,time.monotonic())
+            return acquire
+        def paint(state):
+            self.assertFalse(latest.busy)
+            self.assertIsNone(latest.take('old'))
+            self.assertEqual(len(f.records),1)
+            self.assertEqual(f.records[0]['paint_state'],0)
+            f.paint_state=state;f.pump(.005)
+        def primary():
+            calls.append('primary')
+            f.control._capture_serial+=1
+            f.control.ocr_busy=True;f.control.capture_pending=True
+            def finish():
+                complete()
+                # Reproduce capture+OCR completing in a single event pump,
+                # which previously caused an unconditional capture_tick retry.
+                f.control.ocr_busy=False;f.control.capture_pending=False
+                self.assertTrue(latest.submit('new',background(1,new_released)))
+                QtCore.QTimer.singleShot(0,new_released.set)
+            QtCore.QTimer.singleShot(0,finish)
+        f.paint=paint;f.control.capture_tick=primary
+        f.control.monitor.timeout.connect(primary)
+        f.use_explicit_capture_cadence()
+        try:
+            self.assertTrue(latest.submit('old',background(0,old_released)))
+            QtCore.QTimer.singleShot(0,old_released.set)
+            row=f.product_cycle('visible-product-2',visible=True,paint_state=1)
+            self.assertEqual(calls,['primary'])
+            self.assertEqual([r['acquisition_role'] for r in f.records],['background','primary','background'])
+            self.assertIs(row,f.records[1])
+            self.assertEqual((row['paint_state'],row['producer_epoch']),(1,1))
+            self.assertLessEqual(row['product']['boundary_at'],row['product']['captured_at'])
+            self.assertLessEqual(row['product']['captured_at'],row['capture_started_at'])
+            self.assertEqual([r.get('case') for r in f.records],[None,'visible-product-2',None])
+            self.assertFalse(latest.busy)
+            self.assertIsNotNone(latest.take('new'))
+        finally:
+            old_released.set();new_released.set();latest.close()
+            latest._thread.join(2)
+            self.assertFalse(latest._thread.is_alive())
+
+    def test_original_bridge_observation_is_not_mutated(self):
+        f,_=stepped_product_fixture()
+        value=dict(_captureSerial=7,_capturedAt=1.25,_windowIdentity=(1,2,'Owned'),
+                   untouched={'nested':['metadata']})
+        original=copy.deepcopy(value)
+        f.observe_product_result('capture-proof',value,8)
+        self.assertEqual(f.bridge_results,[])
+        f.observe_product_result('ocr',value,8)
+        self.assertEqual(value,original)
+        self.assertEqual(f.bridge_results,[dict(generation=8,serial=7,captured_at=1.25,
+            window_identity=(1,2,'Owned'))])
+
+    def test_product_acquisition_boundary_rejects_stale_metadata(self):
+        mutations=(
+            lambda r:r.update(acquisition_role='background'),
+            lambda r:r.update(acquisition_role='direct'),
+            lambda r:r.update(product_serial=r['product_serial']-1),
+            lambda r:r.update(product_generation=r['product_generation']+1),
+            lambda r:r.update(producer_epoch=r['producer_epoch']+1),
+            lambda r:r['product'].update(boundary_producer_epoch=r['producer_epoch']-1),
+            lambda r:r['product'].update(captured_at=r['product']['boundary_at']-1),
+            lambda r:r['product'].update(captured_at=r['capture_started_at']+1),
+            lambda r:r['product'].update(captured_at=float('nan')),
+            lambda r:r['product'].update(captured_at=True),
+            lambda r:r['product'].update(paint_state=0),
+            lambda r:r.update(capture_returned_at=r['capture_started_at']-1),
+        )
+        for index,mutate in enumerate(mutations):
+            value,kwargs=fixture();mutate(value['requests'][3])
+            with self.subTest(index=index),self.assertRaises(RuntimeError):
+                harness.validate_report(value,**kwargs)
 
     def test_native_negative_codes_match_actual_native_guard_sources(self):
         source=(ROOT/'native/wgc_session_capture.cpp').read_text()
