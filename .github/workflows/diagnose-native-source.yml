@@ -360,7 +360,7 @@ jobs:
                             'frozen_selection', 'frozen_native150_first', 'frozen_native150_second', 'frozen_native100', 'frozen_native200')
           CONFIG_INPUTS = ('.github/workflows/diagnose-native-source.yml',
                            'tests/test_native_source_diagnostic_workflow.py',
-                           'app_version.py', 'capture_cadence.py', 'requirements-build.txt',
+                           'app_version.py', 'capture_cadence.py', 'latest_capture_frame.py', 'requirements-build.txt',
                            'requirements-ocr.txt', 'packaging/windows-build-constraints.txt',
                            'packaging/VGA-Aram-Helper.spec', 'scripts/build_windows.py',
                            'tests/windows_ota_smoke.py', 'tests/windows_exe_smoke.py')
