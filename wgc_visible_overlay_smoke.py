@@ -11,6 +11,7 @@ from ctypes import wintypes as W
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -297,7 +298,10 @@ class ProductFixture(Fixture):
         if kind == 'ocr' and isinstance(value, dict):
             self.bridge_results.append(dict(generation=generation,
                 serial=value.get('_captureSerial'), captured_at=value.get('_capturedAt'),
-                window_identity=value.get('_windowIdentity')))
+                window_identity=value.get('_windowIdentity'),
+                post_generation=self.control.state.generation,
+                post_running=self.control.state.running, post_serial=self.control._capture_serial,
+                post_last_observation=self.control.last_observation))
 
     def drain_product_capture(self, *, clear_latest=False):
         """Keep every completed acquisition, then discard only an idle pixel slot."""
@@ -443,6 +447,7 @@ class ProductFixture(Fixture):
         epoch = self.drain_product_capture(clear_latest=True)
         if paint_state is not None:self.paint(paint_state)
         count = len(self.records); bridge_count = len(self.bridge_results); start = time.monotonic()
+        previous_observation = self.control.last_observation
         expected_serial = self.control._capture_serial+1
         generation = self.control.state.generation
         self._cycle_serial = expected_serial
@@ -472,18 +477,39 @@ class ProductFixture(Fixture):
         require(len(bridge) == 1, 'Product cycle lacks exactly one original OCR bridge result')
         observed = bridge[0]
         captured_at = observed['captured_at']
-        require(observed['serial'] == row['product_serial'] == self.control._capture_serial == expected_serial
-                and observed['generation'] == row['product_generation'] == self.control.state.generation == generation
-                and tuple(observed['window_identity'] or ()) == self.target.identity
-                # The normal strict-hidden worker explicitly clears the slot
-                # once more; the visible worker must keep this exact epoch.
-                and row['producer_epoch'] == epoch + (0 if visible else 1)
-                and type(captured_at) in (int, float)
+        finite = lambda value: type(value) in (int, float) and math.isfinite(value)
+        checks = dict(
+            serial=observed['serial'] == row['product_serial'] == self.control._capture_serial == expected_serial,
+            generation=observed['generation'] == row['product_generation'] == generation,
+            identity=tuple(observed['window_identity'] or ()) == self.target.identity,
+            # The normal strict-hidden worker clears once more; a visible
+            # worker must keep the boundary epoch exactly.
+            producer_epoch=row['producer_epoch'] == epoch + (0 if visible else 1),
+            capture_timing=finite(captured_at)
                 and start <= captured_at <= row['capture_started_at'] <= row['capture_returned_at'],
-                'Original OCR frame did not belong to the explicit acquisition boundary')
+            new_observation=finite(captured_at) and finite(previous_observation)
+                and captured_at > previous_observation,
+            accepted_observation=observed['post_last_observation'] == captured_at,
+            running=observed['post_running'] is True and self.control.state.running is True,
+            post_serial=observed['post_serial'] == expected_serial)
+        # Persist individual safe predicates before failing. Input generation
+        # remains immutable; legitimate observe_hero/observe/confirm handling
+        # can advance the state generation after this exact frame is accepted.
+        evidence=dict(checks=checks, expected_serial=expected_serial, boundary_generation=generation,
+            signal_generation=observed['generation'], acquisition_generation=row['product_generation'],
+            post_generation=observed['post_generation'], boundary_producer_epoch=epoch,
+            acquisition_producer_epoch=row['producer_epoch'], boundary_at=start,
+            captured_at=captured_at, previous_observation=previous_observation,
+            accepted_observation=observed['post_last_observation'])
+        row['product_boundary']={key:(value if key=='checks' or finite(value) else None)
+                                 for key,value in evidence.items()}
+        for check, passed in checks.items():
+            require(passed, 'Original OCR frame boundary failed: '+check)
         row['case'] = name
         row['product'] = dict(capture_serial=self.control._capture_serial,confirmed=self.control.state.confirmed,
             generation=generation, captured_at=captured_at, boundary_at=start,
+            post_generation=observed['post_generation'], previous_observation=previous_observation,
+            accepted_observation=observed['post_last_observation'],
             boundary_producer_epoch=epoch, producer_epoch=row['producer_epoch'], paint_state=self.paint_state,
             automatic_frames=self.control.state.automatic_frames, hero=self.control.state.hero,
             offered=list(self.control.state.offered), partial_names=list(self.control.current_partial_names()),
