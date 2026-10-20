@@ -215,6 +215,21 @@ class Win32Capture:
             if bitmap:self.g.DeleteObject(bitmap)
             if dc:self.g.DeleteDC(dc)
     @property
+    def session_epoch(self):
+        adapter=getattr(self,'_persistent',None)
+        return adapter.epoch if adapter is not None else None
+
+    @property
+    def has_live_visible_session(self):
+        adapter=getattr(self,'_persistent',None)
+        return bool(adapter is not None and adapter.has_live_visible_session and not self.cleanup_pending)
+
+    @property
+    def session_lifecycle_diagnostic(self):
+        adapter=getattr(self,'_persistent',None)
+        return adapter.lifecycle_diagnostic if adapter is not None else {}
+
+    @property
     def last_capture_diagnostic(self):
         """Bounded status snapshot; no raw exceptions, identifiers or pixel data."""
         from types import MappingProxyType

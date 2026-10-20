@@ -111,14 +111,36 @@ class LocalOCR:
         self._engine=None
         self._lock=threading.Lock()
 
+    def prepare(self):
+        """Initialize local models once, without recognizing or observing a frame.
+
+        Call on a background worker to move model verification/session creation
+        ahead of the first captured frame. The same lock serializes preparation
+        and inference; concurrent calls cannot create duplicate engines. A
+        failed initialization leaves the engine unset and may be retried.
+        """
+        with self._lock:
+            if self._engine is not None:
+                return
+            try:
+                load_private_onnxruntime()
+                from rapidocr import RapidOCR
+                import rapidocr
+            except ImportError as exc:
+                raise RuntimeError('未安装可选 OCR 依赖。请在虚拟环境安装 requirements-ocr.txt 后使用 --enable-ocr 启动。') from exc
+            from model_inventory import verify_models
+            model_dir=Path(rapidocr.__file__).resolve().parent/'models'
+            verify_models(model_dir)
+            self._engine=RapidOCR(params={**{'Det.model_path':str(model_dir/'PP-OCRv6_det_small.onnx'),'Rec.model_path':str(model_dir/'PP-OCRv6_rec_small.onnx'),'Cls.model_path':str(model_dir/'ch_ppocr_mobile_v2.0_cls_mobile.onnx')},**{'Global.use_cls':False,'Det.limit_type':'max','Det.limit_side_len':960,
+                'EngineConfig.onnxruntime.intra_op_num_threads':2,
+                'EngineConfig.onnxruntime.inter_op_num_threads':1}})
+
     def recognize(self, image_bytes, augment_names):
         if not isinstance(image_bytes,bytes) or not image_bytes or len(image_bytes)>MAX_IMAGE_BYTES:
             raise ValueError('图片不能为空，且不能超过 8 MiB。')
         try:
             from PIL import Image, UnidentifiedImageError
             import numpy as np
-            load_private_onnxruntime()
-            from rapidocr import RapidOCR
         except ImportError as exc:
             raise RuntimeError('未安装可选 OCR 依赖。请在虚拟环境安装 requirements-ocr.txt 后使用 --enable-ocr 启动。') from exc
         try:
@@ -132,15 +154,8 @@ class LocalOCR:
                 image=np.asarray(original.convert('RGB'))
         except (UnidentifiedImageError,OSError) as exc:
             raise ValueError('无法解码图片，请选择完整的普通截图文件。') from exc
+        self.prepare()
         with self._lock:
-            if self._engine is None:
-                from model_inventory import verify_models
-                import rapidocr
-                model_dir=Path(rapidocr.__file__).resolve().parent/'models'
-                verify_models(model_dir)
-                self._engine=RapidOCR(params={**{'Det.model_path':str(model_dir/'PP-OCRv6_det_small.onnx'),'Rec.model_path':str(model_dir/'PP-OCRv6_rec_small.onnx'),'Cls.model_path':str(model_dir/'ch_ppocr_mobile_v2.0_cls_mobile.onnx')},**{'Global.use_cls':False,'Det.limit_type':'max','Det.limit_side_len':960,
-                    'EngineConfig.onnxruntime.intra_op_num_threads':2,
-                    'EngineConfig.onnxruntime.inter_op_num_threads':1}})
             # RapidOCR accepts ndarray. RGB input is converted to BGR expected by OpenCV pipeline.
             result=self._engine(image[:,:,::-1].copy())
         texts=getattr(result,'txts',None)

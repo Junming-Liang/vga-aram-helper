@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import threading
+import time
 from types import MappingProxyType
 
 from session_windows import process_metadata
@@ -70,6 +71,45 @@ class PersistentCaptureAdapter:
         self._closed = False
         self._persistent_required = False
         self._unavailable = None
+        self._session_owners = self._session_retirements = 0
+        self._last_request_at = None
+
+    @property
+    def has_live_visible_session(self):
+        """Existing capture capability only, never authority to show a result."""
+        with self._lock:
+            owner=self._owner
+            return bool(self._allow_visible_overlay and self._enabled and not self._closed
+                and not self._interactive_overlay and self._overlay is not None
+                and self._unavailable is None and owner is not None
+                and owner.binding[-1] is True and owner.binding[3] == self._overlay
+                and owner.session is not None and owner.setup_done.is_set()
+                and not owner.revoked.is_set() and not self._native_revoked(owner))
+
+    @property
+    def lifecycle_diagnostic(self):
+        """Read-only bounded metadata. Never refresh a lease or touch native APIs."""
+        with self._lock:
+            owner = self._owner
+            state = 'closed' if self._closed else 'absent'
+            failure = 'none'
+            if owner is not None:
+                state = ('retiring' if owner.revoked.is_set() else
+                         'native_revoked' if self._native_revoked(owner) else
+                         'constructing' if owner.session is None else 'active')
+                transport = getattr(owner.session, '_transport', None)
+                error = getattr(transport, 'failure', None)
+                status = getattr(error, 'status', None)
+                if type(status) is str:
+                    failure = status if status in ('timeout','stale','cancelled','protected','backend-error','invalid-reply','unsupported') else 'unknown'
+                    if status == 'timeout' and getattr(transport, 'request_deadline', None) is None:
+                        failure = 'idle_timeout'
+            values = {'session_owners': self._session_owners,
+                      'session_retirements': self._session_retirements,
+                      'session_owner_state': state, 'session_failure': failure}
+            if self._last_request_at is not None:
+                values['session_request_age_ms'] = min(86400000., max(0., (time.monotonic()-self._last_request_at)*1000))
+            return MappingProxyType(values)
 
     @property
     def visible_capture_status(self):
@@ -123,7 +163,7 @@ class PersistentCaptureAdapter:
             if owner is not None and visible and owner.session is not None:
                 expected = getattr(owner.session, '_overlay_window_style', None)
                 mismatch = mismatch or (overlay_window_style is not None and expected is not None
-                                        and overlay_window_style != expected)
+                                        and ((overlay_window_style ^ expected) & ~0x10000000) != 0)
             invalid = owner is not None and self._native_revoked(owner)
             if changed or mismatch or invalid:
                 self._epoch += 1
@@ -244,6 +284,7 @@ class PersistentCaptureAdapter:
         if owner is None or owner.revoked.is_set():
             return
         owner.revoked.set()
+        self._session_retirements += 1
         self._last_receipt = None
         worker = threading.Thread(target=self._cleanup, args=(owner,),
                                   name='wgc-adapter-retire', daemon=True)
@@ -366,6 +407,7 @@ class PersistentCaptureAdapter:
                     raise WgcError('stale', '窗口或进程身份、客户区位置或尺寸已变化，已关闭原捕获会话。')
                 if owner is None:
                     owner = self._owner = _SessionOwner(binding)
+                    self._session_owners += 1
                 owner.call_done.clear()
             if owner.session is None:
                 try:
@@ -399,6 +441,7 @@ class PersistentCaptureAdapter:
             with self._lock:
                 previously_required = self._persistent_required
                 self._persistent_required = True
+                self._last_request_at = time.monotonic()
             try:
                 image = owner.session.capture(target, rect, pixel_roi,
                     cancelled=lambda: owner.revoked.is_set() or cancelled(),

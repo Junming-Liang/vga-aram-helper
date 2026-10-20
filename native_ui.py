@@ -22,6 +22,7 @@ from monitor_preferences import load_preferences,save_preferences
 from partial_candidates import EMPTY_SLOTS,PartialCandidateState
 from local_debug import LocalDebugLog,classify_worker_error
 from portrait_display import PortraitDisplayBank,cached_roster_fingerprint
+from latest_capture_frame import LatestCaptureFrame,CapturedFrame
 from screen_capture import Win32Capture,CaptureUnavailable,CapturePaused
 
 ROOT=Path(__file__).resolve().parent
@@ -293,7 +294,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
 class ControlWindow(QtWidgets.QWidget):
     def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=True):
         super().__init__();self.state=RecognitionState();self.hero_continuity=HeroIdentityContinuity();self.data=None;self.startup_error='';self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
-        self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
+        self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.latest_capture=LatestCaptureFrame();self._prefetch_last_attempt=0.;self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         from lcu_selection import SelectionSnapshot
         self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
         self._capture_serial=0;self._completed_capture_serial=None;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._semantic_title_frame=None;self._current_capture_proof=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
@@ -430,6 +431,7 @@ class ControlWindow(QtWidgets.QWidget):
         except (OSError,ValueError):self.debug_status.setText('本地导出失败，请检查保存目录是否可写；没有上传或更改监测。')
     def debug_event(self,event,**fields):
         if not self.debug_log.enabled:return
+        for key,value in dict(getattr(self.capture,'session_lifecycle_diagnostic',{})).items():fields.setdefault(key,value)
         fields.setdefault('target_role',self.debug_target_role())
         self.debug_log.record(event,generation=self.state.generation,serial=self._capture_serial,
             session_generation=self.selection_session.generation if self.selection_session else 0,**fields)
@@ -1099,6 +1101,7 @@ class ControlWindow(QtWidgets.QWidget):
         hero=text if self.data and text in self.data.get('heroes',{}) else getattr(self,'hero_aliases',{}).get(text,'')
         self.hero_origin='manual';self.state.select_hero(hero);self.refresh_card_details();self.overlay.hide('selection_changed');self.status.setText(self.state.reason)
     def retire_capture_session(self):
+        self.latest_capture.clear()
         self.debug_event('session',phase='retired')
         self._visible_previous=False;self._mode_wait_started=None
         # The adapter marks revocation immediately and performs any wrapper
@@ -1230,6 +1233,9 @@ class ControlWindow(QtWidgets.QWidget):
         self.overlay.hide('ttl_client');self.status.setText(self.state.reason);self.refresh_card_details()
     def check_target(self):
         if not self.state.running or not self.capture:return
+        if self.debug_log.enabled:
+            self.debug_log.sample('session',generation=self.state.generation,serial=self._capture_serial,
+                ocr_busy=self.ocr_busy,**dict(getattr(self.capture,'session_lifecycle_diagnostic',{})))
         self.queue_discovery()
         if not self.target:return
         try:
@@ -1257,6 +1263,9 @@ class ControlWindow(QtWidgets.QWidget):
                 else:self.clear_partial_candidates()
                 self.was_target_foreground=False;self.overlay.hide('focus_lost');self.status.setText('等待切回游戏；恢复前台后自动继续。');return
             self.was_target_foreground=True
+            if self.latest_capture.take_failure() is not None:
+                self.invalidate_scene('新窗口帧校验失败，已隐藏旧资料并重新连接。',debug_reason='target_unavailable');return
+            self.queue_latest_capture(now,rect)
             reference=self.client_selection_reference()
             partial=any(self.current_partial_names(now))
             if self._partial_displayed and not partial:
@@ -1311,8 +1320,44 @@ class ControlWindow(QtWidgets.QWidget):
             from capture_cadence import next_capture_delay
             delay=next_capture_delay(delay,age,self.last_timings)
         self.monitor.start(delay)
+    def queue_latest_capture(self,now,rect):
+        """Acquire at most one latest frame while OCR is busy; never recognize it here."""
+        if (not self.ocr_busy or self.capture_pending or self.client_phase()
+                or not self.enable_visible_capture or not self.overlay.click_through
+                or not getattr(self.capture,'has_live_visible_session',False)
+                or now-self._prefetch_last_attempt<.75 or self.latest_capture.busy):return
+        current=self._current_capture_proof
+        if not current or current[:2]!=(self.state.generation,self._capture_serial):return
+        frame_scope=current[2].get('_frameScope')
+        if (not frame_scope or frame_scope[0]!=self.target.identity or frame_scope[2]!=rect
+                or frame_scope[1]!=self.capture_metadata()):return
+        generation=self.state.generation;serial=self._capture_serial
+        capture=self.capture;target=self.target;metadata=frame_scope[1]
+        epoch=getattr(capture,'session_epoch',None)
+        scope=(generation,self.discovery_scope,frame_scope,epoch)
+        cancelled=self._capture_cancel;closing=self._cancel_workers;logger=self.debug_log.scoped()
+        def acquire(revoked):
+            is_cancelled=lambda:revoked() or cancelled.is_set() or closing.is_set()
+            if is_cancelled() or not capture.has_live_visible_session:raise CapturePaused('截图已取消。')
+            started=time.monotonic()
+            logger.record('capture',phase='started',reason='prefetch_started',generation=generation,serial=serial)
+            try:
+                image,current_rect=capture.capture(target,(0.,0.,1.,1.),cancelled=is_cancelled,
+                    expected_metadata=metadata,allow_visible_overlay=True)
+                acquired=time.monotonic()
+                if is_cancelled() or current_rect!=rect or capture.session_epoch!=epoch:
+                    raise CapturePaused('新窗口帧范围已经变化。')
+                logger.record('capture',phase='acquired',reason='prefetch_acquired',generation=generation,serial=serial,
+                    capture_ms=(acquired-started)*1000,**dict(capture.last_capture_diagnostic))
+                return CapturedFrame(image,current_rect,started,acquired)
+            except Exception:
+                logger.record('capture',phase='error',reason='prefetch_failed',generation=generation,serial=serial)
+                raise
+        if self.latest_capture.submit(scope,acquire):self._prefetch_last_attempt=now
+
     def capture_tick(self):
         if self.closed or self.ocr_busy or self.capture_pending or not self.state.running:self.debug_selection_gate();return
+        if self.latest_capture.busy:self.schedule_capture(50);return
         self.activate_idle_first_portraits()
         if not self.target:self.debug_selection_gate();self.schedule_capture(400);return
         if not self.capture.foreground(self.target):self.debug_selection_gate(False);self.schedule_capture(400);return
@@ -1331,7 +1376,12 @@ class ControlWindow(QtWidgets.QWidget):
         # transition. Switching back to hidden here would cancel that transition
         # on every poll and repeatedly retire otherwise healthy sessions.
         waiting_visible=bool(self._mode_wait_started is not None and self._visible_previous and mode=='cleanup_pending')
-        visible=bool(previous and (getattr(self.capture,'can_request_visible_overlay',False) or waiting_visible))
+        # An enrolled capture capability is independent of whether an old
+        # recommendation is still allowed to be displayed. A hidden owned
+        # overlay does not require tearing down a healthy visible-capable session.
+        continuing=bool(self.enable_visible_capture and self.overlay.click_through
+            and getattr(self.capture,'has_live_visible_session',False))
+        visible=bool((previous or continuing) and (getattr(self.capture,'can_request_visible_overlay',False) or waiting_visible))
         try:
             # Only this v2 preparation owns a GUI-safe drain barrier. Pending
             # legacy v1 process/pipe cleanup must be drained by the subsequent
@@ -1403,6 +1453,8 @@ class ControlWindow(QtWidgets.QWidget):
         if self.closed or not self.state.running or generation!=self.state.generation:
             self.debug_event('cancel',reason='generation_changed',cancelled=True)
             self.capture_pending=False;self.schedule_capture();return
+        if self.latest_capture.busy:
+            QtCore.QTimer.singleShot(50,lambda:self.capture_hidden(generation,serial,allow_visible_overlay=allow_visible_overlay));return
         if serial is None:self._capture_serial+=1;serial=self._capture_serial
         self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False
         try:
@@ -1432,8 +1484,8 @@ class ControlWindow(QtWidgets.QWidget):
                     for row in roster.get('data',{}).values():aliases.setdefault(str(row.get('key')),[]).extend([row.get('name',''),row.get('title','')])
                 except (OSError,ValueError,KeyError,TypeError):pass
                 self.selection_detector=ChampionSelectDetector(aliases,self.ocr)
-            # Capture and inference share the serialized worker. WGC's native
-            # wait must never block the Qt message loop or Stop/Close controls.
+            # Primary capture and inference use one serialized worker; the
+            # bounded producer is drained above. Native waits never block Qt.
             # Snapshot all Qt-derived choices here; no worker reads widgets.
             capture=self.capture;vocabulary=tuple(self.data['augments']);expected_metadata=self.capture_metadata()
             self._capture_cancel=threading.Event();cancelled=self._capture_cancel
@@ -1463,20 +1515,48 @@ class ControlWindow(QtWidgets.QWidget):
             previous_geometry=self._geometry_frame
             accepted_title_proof=(self._accepted_frame or {}).get('title_proof')
             accepted_card_geometry=(self._accepted_frame or self._accepted_partial_frame or {}).get('card_geometry')
+            frame_scope=(frame_window.identity,expected_metadata,self.last_rect,roi,vocabulary,source_key,matcher_key)
+            prefetch_scope=(generation,self.discovery_scope,frame_scope,getattr(capture,'session_epoch',None))
+            prefetched=self.latest_capture.take(prefetch_scope) if allow_visible_overlay else None
+            if not allow_visible_overlay:self.latest_capture.clear()
             def infer():
                 from hero_recognition import recognize_frame
                 if self._cancel_workers.is_set() or cancelled.is_set():
                     logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
                     raise CapturePaused('监测已结束。')
+                # Initialize models before assigning a live frame timestamp or
+                # opening WGC, so cold verification cannot consume that frame's
+                # freshness budget or the capture session's idle lease.
+                prepare_ocr=getattr(self.ocr,'prepare',None)
+                if callable(prepare_ocr):
+                    prepare_started=time.monotonic()
+                    logger.record('inference',inference_stage='ocr_prepare',phase='started',generation=generation,serial=serial)
+                    prepare_ocr()
+                    logger.record('inference',inference_stage='ocr_prepare',phase='completed',generation=generation,serial=serial,
+                        inference_ms=(time.monotonic()-prepare_started)*1000)
+                    if self._cancel_workers.is_set() or cancelled.is_set():raise CapturePaused('监测已结束。')
                 options={'allow_visible_overlay':True} if allow_visible_overlay else {}
                 logger.record('capture',phase='started',generation=generation,serial=serial,visible_capture=allow_visible_overlay)
-                captured_at=time.monotonic()
-                try:image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
+                captured_at=prefetched.captured_at if prefetched is not None else time.monotonic()
+                try:
+                    if prefetched is not None:
+                        # Buffered pixels remain tied to their original capture time;
+                        # revalidate live guards without manufacturing a new observation.
+                        if not 0<=time.monotonic()-captured_at<=.8:raise CapturePaused('预取画面已过期。')
+                        if not capture.has_live_visible_session or capture.session_epoch!=prefetch_scope[-1]:
+                            raise CapturePaused('预取画面的会话已经变化。')
+                        from session_windows import process_metadata
+                        if process_metadata(frame_window.pid)!=expected_metadata:raise CapturePaused('预取画面的进程已经变化。')
+                        capture.validate_compositor(frame_window,prefetched.rect,allow_visible_overlay=True)
+                        if not 0<=time.monotonic()-captured_at<=.8:raise CapturePaused('预取画面在校验期间已过期。')
+                        image,rect=prefetched.image,prefetched.rect
+                    else:image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
                 except Exception:
                     logger.record('capture',phase='error',generation=generation,serial=serial,capture_ms=(time.monotonic()-captured_at)*1000,**dict(getattr(capture,'last_capture_diagnostic',{})))
                     raise
                 pixels_at=time.monotonic()
-                logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=(pixels_at-captured_at)*1000,
+                capture_ms=(prefetched.acquired_at-prefetched.captured_at)*1000 if prefetched is not None else (pixels_at-captured_at)*1000
+                logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=capture_ms,prefetched=prefetched is not None,
                     backend=getattr(capture,'last_backend','unknown'),width=rect.width,height=rect.height,dpi=debug_dpi,visible_capture=allow_visible_overlay,**debug_identity,**dict(getattr(capture,'last_capture_diagnostic',{})))
                 if self._cancel_workers.is_set() or cancelled.is_set():
                     logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)
@@ -1567,7 +1647,7 @@ class ControlWindow(QtWidgets.QWidget):
                 if current_crop and not client_phase:
                     from card_title_proof import make_title_proof
                     result['_titleProof']=make_title_proof(current_crop[-1],result.get('automatic_candidates'),result.get('image_size'))
-                result.update(proof);result['_timings']={'capture_ms':round((pixels_at-captured_at)*1000,1),'inference_ms':round((time.monotonic()-pixels_at)*1000,1)}
+                result.update(proof);result['_timings']={'capture_ms':round(capture_ms,1),'inference_ms':round((time.monotonic()-pixels_at)*1000,1)}
                 result['_completedAt']=time.monotonic()
                 if not client_phase:
                     result['_timings'].update(prepare_ms=round((phase_times.get('prepared',pixels_at)-pixels_at)*1000,1),
@@ -1924,7 +2004,18 @@ class ControlWindow(QtWidgets.QWidget):
                 captured_at=value.get('_capturedAt',0)
                 if not isinstance(captured_at,(int,float)) or not math.isfinite(captured_at) or time.monotonic()-captured_at>4 or captured_at>time.monotonic():
                     self.debug_event('capture',phase='discarded',reason='stale_frame',age_ms=max(0.,(time.monotonic()-captured_at)*1000) if isinstance(captured_at,(int,float)) and math.isfinite(captured_at) else 0,ttl_ms=4000)
-                    self.invalidate_scene('识别完成时截图已过期，旧资料隐藏；等待新截图',debug_reason='stale_frame');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason);return
+                    if (type(captured_at) in (int,float) and math.isfinite(captured_at) and 0<captured_at<=time.monotonic()
+                            and time.monotonic()-captured_at>4 and self.partial_scope_current(value.get('_frameScope'))):
+                        # A late result is not a lost window/session permission.
+                        # Reject its authority and all confirmation continuity,
+                        # while an independently captured latest frame may proceed.
+                        self.expire_game_display();self.clear_partial_candidates()
+                        self.state.observed=();self.state.stable_frames=0
+                        self.state.automatic_observed=();self.state.automatic_frames=0
+                        self.state.hero_observed='';self.state.hero_stable_frames=0
+                        self.state.reason='识别完成时截图已过期，旧资料隐藏；等待新截图'
+                        self.status.setText(self.state.reason);return
+                    self.invalidate_scene('识别完成时截图时间无效，旧资料隐藏；等待新截图',debug_reason='stale_frame');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason);return
                 if self.last_observation and captured_at-self.last_observation>4:
                     # A fresh result after a long observation gap is useful,
                     # but cannot borrow old private confirmation counters.
@@ -2123,6 +2214,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.debug_event('close',reason='close');self.debug_event('cancel',reason='close',cancelled=True)
         self.overlay._hide_reason='close'
         self._capture_cancel.set();self.ocr_reuse.clear()
+        self.latest_capture.close()
         self.frame_inference_worker.close()
         close_capture=getattr(self.capture,'close',None)
         if close_capture:close_capture() # Nonblocking revocation before HWND destruction.

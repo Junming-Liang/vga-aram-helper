@@ -37,6 +37,8 @@ _ENUMS = {
                        'selection', 'capture-proof', 'title-proof', 'unknown'}),
     'phase': frozenset({'queued', 'started', 'completed', 'error', 'cancelled',
                         'shown', 'hidden', 'rechecking', 'discarded', 'requested', 'retired', 'acquired', 'prepared', 'hud_started', 'hud_completed', 'ocr_started', 'ocr_completed', 'accepted'}),
+    'session_owner_state': frozenset({'absent','constructing','active','native_revoked','retiring','closed'}),
+    'session_failure': frozenset({'none','unknown','idle_timeout','timeout','stale','cancelled','protected','backend-error','invalid-reply','unsupported'}),
     'capture_mode': frozenset({'eligible','disabled','backend_unavailable','interactive','exclusion_unregistered','cleanup_pending','stopped','unknown'}),
     'backend': frozenset({'windows-graphics-capture-session', 'windows-graphics-capture',
                           'bounded-compositor', 'window-dc', 'unknown'}),
@@ -44,7 +46,7 @@ _ENUMS = {
     'stage': frozenset({'idle', 'waiting', 'unassigned', 'assigning', 'assigned', 'transition', 'game-provisional',
                         'game-verified', 'client-expired', 'game-expired', 'unknown'}),
     'reason': frozenset({'enabled', 'disabled', 'start', 'stop', 'close', 'invalidate',
-                         'capture_wait', 'capture_pending', 'capture_failed',
+                         'capture_wait', 'capture_pending', 'capture_failed','prefetch_started','prefetch_acquired','prefetch_failed',
                          'capture_cancelled', 'capture_proof', 'unconfirmed',
                          'client_reference', 'confirmed', 'focus_lost', 'geometry_changed',
                          'card_geometry_changed', 'card_geometry_missing', 'cards_changed', 'invalid_slots', 'reference_changed',
@@ -80,7 +82,7 @@ _CAPTURE_ENUMS = {
         'window-dc-copy-failed','window-dc-blank','unknown')),
 }
 _ENUMS.update(_CAPTURE_ENUMS)
-_ENUMS['inference_stage'] = frozenset({'prepare', 'hud_prepare', 'hud_match', 'hero_resolve', 'ocr', 'title_geometry', 'selection', 'total'})
+_ENUMS['inference_stage'] = frozenset({'ocr_prepare','prepare', 'hud_prepare', 'hud_match', 'hero_resolve', 'ocr', 'title_geometry', 'selection', 'total'})
 _ENUMS['hero_source'] = frozenset({'hud', 'game-api', 'game-continuity', 'client-provisional', 'client-verified', 'manual', 'lcu-read-only', 'selection-pixels', 'unknown'})
 _ENUMS['selection_gate'] = frozenset({'closed', 'stopped', 'inference_busy', 'capture_pending', 'target_missing', 'foreground_rejected', 'client_lcu_ready', 'client_pixels_ready', 'game_pixels_ready', 'manual_pixels_ready', 'route_unknown'})
 _ENUMS['selection_route'] = frozenset({'blocked', 'selection_lcu', 'selection_pixels', 'game_pixels', 'manual_pixels', 'unknown'})
@@ -108,16 +110,16 @@ _ENUMS['worker_error_category'] = frozenset({'capture_paused', 'capture_unavaila
 _CAUSE_DIMENSIONS = ('reason', 'binding_outcome', 'worker_error_category', 'api_outcome', 'hud_outcome',
                      'identity_outcome', 'map_outcome', 'template_outcome')
 _ENUMS['sampled_event'] = _EVENTS - {'sample_summary'}
-_BOOLS = frozenset({'running', 'confirmed', 'ocr_busy', 'capture_pending', 'visible',
+_BOOLS = frozenset({'prefetched','running', 'confirmed', 'ocr_busy', 'capture_pending', 'visible',
                     'card_geometry_proven', 'title_evidence_valid',
                     'rechecking', 'click_through', 'visible_capture', 'cancelled',
                     'ocr_cold_start', 'ocr_reused', 'hero_present', 'manual_editing', 'fresh', 'catalog_match', 'tier_present', 'lcu_selection', 'hero_auto', 'pixel_fallback', 'target_present', 'target_foreground', 'client_follow', 'frozen', 'updates_enabled', 'live_identity'})
 # session_generation is the small SelectionSession counter, never a native token.
-_INTS = frozenset({'generation', 'session_generation', 'serial', 'width', 'height',
+_INTS = frozenset({'session_owners','session_retirements','generation', 'session_generation', 'serial', 'width', 'height',
                    'stable_frames', 'automatic_frames', 'hero_stable_frames',
                    'hero_revision', 'candidate_revision', 'candidate_count',
                    'sequence', 'game_generation', 'sample_count', 'first_serial', 'last_serial', 'occurrences', 'first_sequence', 'last_sequence', 'window_count', 'eligible_client_count', 'eligible_game_count', 'preferred_count', 'rejected_class_count', 'rejected_metadata_count', 'rejected_identity_count', 'rejected_installation_count', 'rejected_signature_count'})
-_FLOATS = frozenset({'capture_ms', 'inference_ms', 'queue_ms', 'prepare_ms', 'hud_ms', 'ocr_ms', 'dispatch_ms', 'elapsed_ms', 'age_ms', 'ttl_ms', 'settle_ms', 'dpi'})
+_FLOATS = frozenset({'session_request_age_ms','capture_ms', 'inference_ms', 'queue_ms', 'prepare_ms', 'hud_ms', 'ocr_ms', 'dispatch_ms', 'elapsed_ms', 'age_ms', 'ttl_ms', 'settle_ms', 'dpi'})
 _TIMINGS = _FLOATS - {'dpi', 'elapsed_ms'}
 _INTS = _INTS | frozenset(f'{key}_count' for key in _TIMINGS)
 _SUMMARY_FLOATS = frozenset(f'{key}_{suffix}' for key in _TIMINGS for suffix in ('min', 'max', 'mean'))

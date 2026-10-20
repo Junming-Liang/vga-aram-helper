@@ -41,7 +41,7 @@ NATIVE_NEGATIVE_EXIT_CODES = {
     'affinity_change': 12, 'opacity_change': 12, 'protected_target': 13,
     'focus_loss': 12, 'geometry_loss': 12,
 }
-SOURCE_FILES = ('wgc_visible_overlay_smoke.py', 'tests/windows_wgc_visible_overlay.py',
+SOURCE_FILES = ('latest_capture_frame.py', 'wgc_visible_overlay_smoke.py', 'tests/windows_wgc_visible_overlay.py',
                 'tests/test_wgc_visible_overlay_smoke.py', 'tests/test_card_badges.py', 'owned_diagnostic_json.py', 'launcher.py', 'native_ui.py',
                 'native_smoke.py', 'screen_capture.py', 'persistent_capture_adapter.py',
                 'card_badges.py', 'badge_contract.py', 'augment_card_geometry.py',
@@ -519,6 +519,55 @@ class ProductFixture(Fixture):
         self.request_product(visible=True)
         return self.capture._persistent._owner
 
+    def presentation_lifecycle(self):
+        """Separate hide/show lifecycle case; never dilute visible pixel evidence."""
+        from native_smoke import _duty_session_observation
+        from wgc_session_capture import _qpc_100ns
+        owner=self.capture._persistent._owner
+        require(owner is not None and owner.binding[-1] is True and self.overlay.isVisible(),
+                'Presentation lifecycle needs an already enrolled visible session')
+        epoch=self.capture.session_epoch;baseline=self.records[-1]
+        binding=tuple(baseline[key] for key in ('helper_pid','helper_created','session_generation'))
+        fallbacks=len(self.fallback_calls)
+        evidence=dict(baseline_request_index=len(self.records)-1,adapter_epoch=epoch,requests=[])
+        self.result['presentation_lifecycle']=evidence
+        for visible in (False,True,False,True):
+            if visible:self.overlay.show()
+            else:self.overlay.hide('owned-presentation-cycle')
+            before=time.monotonic();self.pump(.1)
+            dwell_ms=round((time.monotonic()-before)*1000,3)
+            require(self.capture.prepare_capture_mode(True) and self.capture._persistent._owner is owner
+                    and self.capture.session_epoch==epoch, 'Presentation-only change retired the adapter owner')
+            require(self.overlay.isVisible() is visible and bool(self.u.IsWindowVisible(self.overlay_hwnd)) is visible,
+                    'Owned presentation change did not reach the native HWND')
+            box={}
+            def worker():
+                try:
+                    start=_qpc_100ns();started=time.monotonic()
+                    image,rect=self.real_capture(self.target,expected_metadata=self.control.manual_metadata,
+                                                allow_visible_overlay=True)
+                    returned=_qpc_100ns();elapsed=round((time.monotonic()-started)*1000,3)
+                    receipt=dict(self.capture.last_session_receipt or {})
+                    current,_,observation=_duty_session_observation(self.capture,receipt,hidden=not visible)
+                    require(current is owner and rect==self.rect, 'Presentation cycle changed owner or target geometry')
+                    box['row']=dict(receipt,capture_start_100ns=start,capture_return_100ns=returned,
+                        elapsed_ms=elapsed,visible=visible,watchdog_dwell_ms=dwell_ms,observation=observation,
+                        overlay_window_style=int(self.capture.get_long(self.overlay_hwnd,-16))&0xffffffff,
+                        enrolled_window_style=owner.session._overlay_window_style,adapter_epoch=self.capture.session_epoch,
+                        pixels_sha256=hashlib.sha256(pixels(image).tobytes()).hexdigest())
+                except BaseException as error:box['error']=error
+            thread=threading.Thread(target=worker,name='fixture-presentation-capture',daemon=True)
+            thread.start();self.wait(lambda:not thread.is_alive(),3.5,'Presentation capture exceeded existing caller bound')
+            thread.join(0)
+            if 'error' in box:raise box['error']
+            row=box['row'];evidence['requests'].append(row)
+            require(strict_timing(row) and tuple(row[key] for key in ('helper_pid','helper_created','session_generation'))==binding
+                    and self.capture._persistent._owner is owner and self.capture.session_epoch==epoch,
+                    'Native presentation cycle replaced the enrolled helper')
+            require(row['pixels_sha256']==baseline['pixels_sha256'] and len(self.fallback_calls)==fallbacks,
+                    'Presentation cycle changed target pixels or reached a fallback')
+        evidence['fallback_calls']=len(self.fallback_calls)-fallbacks
+
     def rejected_evidence(self,name,cleanup,*,mutation=None):
         row=self.records[-1]
         require(row['status']=='rejected' and all(row.get(key)==cleanup[key]
@@ -722,6 +771,7 @@ def execute(result, report_path):
                 overlay_rect=[native_rect.left,native_rect.top,native_rect.right-native_rect.left,native_rect.bottom-native_rect.top],
                 **comparison, request_index=len(f.records)-1, hidden_reference_index=reference_rows[state]))
         result['pixel_exclusion_passed'] = True
+        f.presentation_lifecycle()
         run_negatives(f)
         # Explicit compatibility mode: a later hidden request may use v1 only
         # after the entire visible v2 ownership barrier has completed.

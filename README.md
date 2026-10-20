@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.16-0891b2" alt="源码版本 v0.4.16"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.17-0891b2" alt="源码版本 v0.4.17"></a>
   <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.16 预览版"></a>
 </p>
 <p align="center">
@@ -25,6 +25,8 @@ VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or 
 声明依据：[Riot Developer API Policy](https://developer.riotgames.com/docs/lol#developer-api-policy)。
 
 VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海克斯大乱斗（ARAM: Mayhem）的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
+
+当前源码为 v0.4.17 捕获调度修复候选，须通过本版 Windows 完整构建和验收后才发布；范围与边界见 [修复说明](CAPTURE_PIPELINE_CANDIDATE.md)。
 
 [v0.4.16 诊断预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) 已发布，完整 Windows 验证通过。该版为非 latest 的预发布，用户实战问题尚未全部确认解决；下方记录发布证据与验证边界。
 
