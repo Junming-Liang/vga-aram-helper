@@ -167,6 +167,8 @@ class ProductFixture(Fixture):
         self.event_rows = []
         self.fallback_calls = []
         self.pending_action = None
+        self.bridge_results = []
+        self._cycle_serial = None
         super().__init__(result)
 
     def initialize_windows(self, result):
@@ -188,7 +190,8 @@ class ProductFixture(Fixture):
         require(self.control.enable_visible_capture is True,
                 'Ordinary ControlWindow construction did not enable guarded visible capture')
         self.windows.extend((self.control, self.control.overlay))
-        self.control.watchdog.stop(); self.control.monitor.stop()
+        self.use_explicit_capture_cadence()
+        self.control.signals.result.connect(self.observe_product_result)
         self.wait(lambda: self.control.data is not None, 10, 'Synthetic product startup did not finish')
         self.control.hide()
         self.capture.close()
@@ -278,6 +281,34 @@ class ProductFixture(Fixture):
             require(time.monotonic() < until, message)
             self.pump(.003)
 
+    def use_explicit_capture_cadence(self):
+        """Step product cycles explicitly, including across queued Qt events.
+
+        Result handlers may restart the monitor during processEvents(). Merely
+        stopping it afterwards lets a due timeout capture the previous paint
+        state before the fixture asks for its next independently observed frame.
+        Keep the real capture method and its one-shot acquisition callbacks.
+        """
+        self.control.watchdog.stop(); self.control.monitor.stop()
+        self.control.monitor.timeout.disconnect(self.control.capture_tick)
+
+    def observe_product_result(self, kind, value, generation):
+        """Copy bounded final bridge metadata without replacing its real handler."""
+        if kind == 'ocr' and isinstance(value, dict):
+            self.bridge_results.append(dict(generation=generation,
+                serial=value.get('_captureSerial'), captured_at=value.get('_capturedAt'),
+                window_identity=value.get('_windowIdentity')))
+
+    def drain_product_capture(self, *, clear_latest=False):
+        """Keep every completed acquisition, then discard only an idle pixel slot."""
+        latest = self.control.latest_capture
+        self.wait(lambda: not self.control.ocr_busy and not self.control.capture_pending
+                  and not latest.busy, 8, 'Product primary/background acquisition did not drain')
+        with latest._condition:
+            require(latest._failure is None, 'Background acquisition failed before the fixture boundary')
+        if clear_latest:latest.clear()
+        with latest._condition:return latest._epoch
+
     def pump(self, seconds=.03):
         end = min(self.end, time.monotonic()+seconds)
         while time.monotonic() < end:
@@ -308,8 +339,16 @@ class ProductFixture(Fixture):
     def observed_capture(self, *args, **kwargs):
         from native_smoke import _duty_session_observation, _duty_process_created
         from wgc_session_capture import _qpc_100ns
+        latest = self.control.latest_capture
+        with latest._condition:
+            producer = threading.current_thread() is latest._thread
+            producer_epoch = latest._epoch
+        require(self.active is None, 'Native acquisition lanes overlapped')
         row = dict(visible_request=kwargs.get('allow_visible_overlay', False), paint_state=self.paint_state,
                    capture_start_100ns=_qpc_100ns(), _samples=[], _started=time.perf_counter(),
+                   capture_started_at=time.monotonic(), producer_epoch=producer_epoch,
+                   acquisition_role='background' if producer else 'primary' if self._cycle_serial is not None else 'direct',
+                   product_serial=self.control._capture_serial, product_generation=self.control.state.generation,
                    native_visible_before=bool(self.u.IsWindowVisible(self.overlay_hwnd)))
         owner_at_entry=self.capture._persistent._owner
         transport_at_entry=getattr(getattr(owner_at_entry,'session',None),'_transport',None)
@@ -321,6 +360,7 @@ class ProductFixture(Fixture):
         try:
             value = self.real_capture(*args, **kwargs)
             row['capture_return_100ns'] = _qpc_100ns()
+            row['capture_returned_at'] = time.monotonic()
             row['_return_at'] = time.perf_counter()
             receipt = dict(self.capture.last_session_receipt or {})
             require(receipt, 'Actual product capture returned no persistent native receipt')
@@ -399,21 +439,52 @@ class ProductFixture(Fixture):
 
     def product_cycle(self, name, *, visible, paint_state=None):
         """The real GUI route, actual matcher/OCR, and actual result handlers."""
-        count = len(self.records); events = len(self.event_rows); title_events=len(self.title_check_events); start = time.monotonic()
+        events = len(self.event_rows); title_events=len(self.title_check_events)
+        epoch = self.drain_product_capture(clear_latest=True)
         if paint_state is not None:self.paint(paint_state)
+        count = len(self.records); bridge_count = len(self.bridge_results); start = time.monotonic()
+        expected_serial = self.control._capture_serial+1
+        generation = self.control.state.generation
+        self._cycle_serial = expected_serial
         self.control.capture_tick()
         # A planned mode switch may first return while the prior owner drains.
-        while len(self.records) == count:
+        while not any(row.get('acquisition_role') == 'primary' for row in self.records[count:]):
             require(time.monotonic()-start < 8, 'GUI planned drain did not lead to a new request')
             self.pump(.005)
-            if not self.control.capture_pending and not self.control.ocr_busy:self.control.capture_tick()
-        self.wait(lambda: not self.control.ocr_busy and not self.control.capture_pending, 8,
-                  'Actual OCR/result handlers did not complete')
-        require(len(self.records) == count+1, 'A product cycle performed extra captures')
-        row = self.records[-1]
+            if (self.control._capture_serial < expected_serial
+                    and not self.control.capture_pending and not self.control.ocr_busy):
+                self.control.capture_tick()
+        self.drain_product_capture()
+        self._cycle_serial = None
+        self.wait(lambda: len(self.bridge_results) > bridge_count, 8,
+                  'Original OCR bridge metadata did not arrive')
+        require(len(self.bridge_results) <= 64, 'Product bridge inventory exceeded its bound')
+        rows = self.records[count:]
+        primary = [row for row in rows if row.get('acquisition_role') == 'primary']
+        require(len(primary) == 1 and len(self.records) <= 64
+                and all(row.get('acquisition_role') in ('primary', 'background') for row in rows),
+                'An explicit product cycle performed an unexpected primary acquisition')
+        row = primary[0]
         require(row['status'] == 'passed' and row['visible_request'] is visible, 'Product selected wrong capture route')
+        require(row['paint_state'] == self.paint_state,
+                'Product cycle was associated with an acquisition from an earlier paint state')
+        bridge = self.bridge_results[bridge_count:]
+        require(len(bridge) == 1, 'Product cycle lacks exactly one original OCR bridge result')
+        observed = bridge[0]
+        captured_at = observed['captured_at']
+        require(observed['serial'] == row['product_serial'] == self.control._capture_serial == expected_serial
+                and observed['generation'] == row['product_generation'] == self.control.state.generation == generation
+                and tuple(observed['window_identity'] or ()) == self.target.identity
+                # The normal strict-hidden worker explicitly clears the slot
+                # once more; the visible worker must keep this exact epoch.
+                and row['producer_epoch'] == epoch + (0 if visible else 1)
+                and type(captured_at) in (int, float)
+                and start <= captured_at <= row['capture_started_at'] <= row['capture_returned_at'],
+                'Original OCR frame did not belong to the explicit acquisition boundary')
         row['case'] = name
         row['product'] = dict(capture_serial=self.control._capture_serial,confirmed=self.control.state.confirmed,
+            generation=generation, captured_at=captured_at, boundary_at=start,
+            boundary_producer_epoch=epoch, producer_epoch=row['producer_epoch'], paint_state=self.paint_state,
             automatic_frames=self.control.state.automatic_frames, hero=self.control.state.hero,
             offered=list(self.control.state.offered), partial_names=list(self.control.current_partial_names()),
             tier_texts=[badge.tier for badge in self.overlay._badge_widgets], overlay_visible=self.overlay.isVisible(),
@@ -604,6 +675,7 @@ class ProductFixture(Fixture):
 
     def stop_inflight(self):
         """Stop the actual GUI worker, then prove no restart or accepted result."""
+        self.drain_product_capture(clear_latest=True)
         owner=self.capture._persistent._owner;count=len(self.records);fallbacks=len(self.fallback_calls)
         self.pending_action=self.control.stop_monitor
         try:
