@@ -319,7 +319,12 @@ void validate_overlay(Input const& p) {
     if (p.allow_visible_overlay) {
         SetLastError(0);
         auto window_style = uint32_t(GetWindowLongPtrW(p.overlay, GWL_STYLE));
-        require(GetLastError() == 0 && window_style == p.overlay_window_style, stale, "overlay-style");
+        // An explicitly enrolled visible-capable session permits the owned
+        // overlay to be shown or hidden. Only WS_VISIBLE is presentation state;
+        // every other standard-style bit remains part of the immutable contract.
+        require(GetLastError() == 0 &&
+                ((window_style ^ p.overlay_window_style) & ~uint32_t(WS_VISIBLE)) == 0,
+                stale, "overlay-style");
         COLORREF color = 0; BYTE alpha = 0; DWORD flags = 0;
         require(GetLayeredWindowAttributes(p.overlay, &color, &alpha, &flags) &&
                 color == 0 && alpha == 255 && flags == LWA_ALPHA, stale, "overlay-opacity");
@@ -345,7 +350,7 @@ BOOL CALLBACK check_above(HWND hwnd, LPARAM pointer) {
     if (intersects(scope.client, other)) {
         // Only GPU idle or an explicitly visible-capable immutable session can
         // supply this exact-HWND exemption. No PID-wide exemption exists.
-        // Validate parent/token/full styles/opacity/affinity again at this point.
+        // Revalidate parent/token/styles (except WS_VISIBLE)/opacity/affinity.
         if (scope.idle && hwnd == scope.idle->overlay) {
             try { validate_parent(*scope.idle); validate_overlay(*scope.idle); return TRUE; }
             catch (...) { scope.blocked = true; return FALSE; }
