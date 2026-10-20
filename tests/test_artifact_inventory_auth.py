@@ -58,6 +58,8 @@ class InventoryAuthenticationTests(unittest.TestCase):
             self.assertIn('VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}',block)
             self.assertNotIn('uses:',block)
         self.assertEqual(text.count('actions: read'),1)
-        self.assertEqual(text.count('GH_TOKEN:'),1)
+        self.assertEqual(text.count('GH_TOKEN:'),2)
+        before_release_steps=text.split('- name: Create verified private draft without publishing',1)[0]
+        self.assertNotIn('GH_TOKEN:',before_release_steps)
 
 if __name__=='__main__':unittest.main()

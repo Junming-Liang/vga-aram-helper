@@ -50,14 +50,21 @@ if events != ['import-disabled', 'api-disabled']:
             with self.assertRaisesRegex(RuntimeError, 'blocked'):
                 ocr_privacy.load_private_onnxruntime()
 
-    def test_api_disable_precedes_rapidocr_loading_in_recognize(self):
+    def test_api_disable_precedes_model_preparation_and_recognition(self):
         tree = ast.parse((ROOT/'local_ocr.py').read_text())
+        prepare = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'prepare')
         recognize = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'recognize')
-        disabled = [node.lineno for node in ast.walk(recognize) if isinstance(node, ast.Call)
+        disabled = [node.lineno for node in ast.walk(prepare) if isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name) and node.func.id == 'load_private_onnxruntime']
-        imports = [node.lineno for node in ast.walk(recognize) if isinstance(node, ast.ImportFrom) and node.module == 'rapidocr']
+        imports = [node.lineno for node in ast.walk(prepare) if isinstance(node, ast.ImportFrom) and node.module == 'rapidocr']
         self.assertEqual(len(disabled), 1); self.assertEqual(len(imports), 1)
         self.assertLess(disabled[0], imports[0])
+        calls = {name: [node.lineno for node in ast.walk(recognize)
+                       if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                       and isinstance(node.func.value, ast.Name) and node.func.value.id == 'self'
+                       and node.func.attr == name] for name in ('prepare', '_engine')}
+        self.assertEqual(len(calls['prepare']), 1); self.assertEqual(len(calls['_engine']), 1)
+        self.assertLess(calls['prepare'][0], calls['_engine'][0])
 
     def test_candidate_workflow_sets_opt_out_before_any_python_process(self):
         workflow = (ROOT/'.github/workflows/test-windows-minimal-opencv.yml').read_text()

@@ -178,6 +178,52 @@ def verify_product_modules(archive):
     return proof
 
 
+def validate_presentation_lifecycle(value, rows):
+    """Require separate same-helper hide/show proof; existing visible rows stay strict."""
+    evidence=value.get('presentation_lifecycle')
+    if type(evidence) is not dict:raise RuntimeError('Native presentation lifecycle evidence missing')
+    index=integer(evidence.get('baseline_request_index'),'presentation baseline index',maximum=len(rows)-1)
+    baseline=rows[index]
+    if baseline.get('status')!='passed' or baseline.get('visible_request') is not True:
+        raise RuntimeError('Presentation lifecycle baseline is not a successful visible capture')
+    binding=identity(baseline)
+    epoch=integer(evidence.get('adapter_epoch'),'presentation adapter epoch')
+    integer(evidence.get('fallback_calls'),'presentation fallback count',maximum=0)
+    transitions=evidence.get('requests')
+    if type(transitions) is not list or len(transitions)!=4:
+        raise RuntimeError('Bounded native hide/show lifecycle inventory missing')
+    expected_style=integer(baseline.get('enrolled_window_style'),'presentation enrolled style',maximum=2**32-1)
+    previous=baseline
+    for row,visible in zip(transitions,(False,True,False,True)):
+        if type(row) is not dict or row.get('visible') is not visible or '_png' in row:
+            raise RuntimeError('Native presentation state differs')
+        if identity(row)!=binding or not strict_timing(row):
+            raise RuntimeError('Presentation changed helper identity or frame freshness')
+        if row['request_id']<=previous['request_id'] or row['request_cutoff_100ns']<=previous['frame_100ns']:
+            raise RuntimeError('Presentation reused an earlier native frame')
+        if integer(row.get('adapter_epoch'),'presentation row epoch')!=epoch:
+            raise RuntimeError('Presentation retired the adapter enrollment')
+        number(row.get('watchdog_dwell_ms'),'presentation watchdog dwell',minimum=75,maximum=3500)
+        number(row.get('elapsed_ms'),'presentation capture duration',maximum=3500)
+        style=integer(row.get('overlay_window_style'),'presentation window style',maximum=2**32-1)
+        enrolled=integer(row.get('enrolled_window_style'),'presentation enrolled style',maximum=2**32-1)
+        if enrolled!=expected_style or ((style^enrolled)&~0x10000000)!=0 or bool(style&0x10000000) is not visible:
+            raise RuntimeError('Presentation changed a non-visibility style or failed to show/hide')
+        proof=row.get('observation',{})
+        if (type(proof) is not dict or identity(proof)!=binding or proof.get('native_visible') is not visible
+            or any(proof.get(key) is not True for key in ('helper_alive','overlay_registration_valid','overlay_opaque'))):
+            raise RuntimeError('Presentation lost independently observed native registration')
+        for key in ('overlay_hwnd','overlay_affinity','overlay_extended_style'):
+            maximum=2**63-1 if key=='overlay_hwnd' else 2**32-1
+            actual=integer(row.get(key),'presentation '+key,minimum=1,maximum=maximum)
+            observed=integer(proof.get(key),'presentation live '+key,minimum=1,maximum=maximum)
+            if actual!=baseline.get(key) or observed!=actual:
+                raise RuntimeError('Presentation changed exact excluded overlay binding')
+        if row.get('overlay_registration_valid') is not True or digest(row.get('pixels_sha256'))!=baseline['pixels_sha256']:
+            raise RuntimeError('Presentation lost registration or changed deterministic target pixels')
+        previous=row
+
+
 def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
                     foreign_proof=None, foreign_fixture_sha256=None, version=__version__):
     if (type(value) is not dict or value.get('status') != 'passed' or 'error' in value
@@ -380,6 +426,7 @@ def validate_report(value, *, scale, frozen, helper, executable_sha256=None,
     if pairs[0]['hidden_sha256']==pairs[1]['hidden_sha256']:raise RuntimeError('Changed target paint state was not tested')
     if c['pixels_sha256']!=pairs[0]['hidden_sha256'] or d['pixels_sha256']!=pairs[1]['hidden_sha256']:
         raise RuntimeError('Visible GUI changed pixels differ from exact hidden paint-state references')
+    validate_presentation_lifecycle(value,rows)
     negatives=value.get('negative_results')
     if type(negatives) is not dict or set(negatives)!=set(NEGATIVES):raise RuntimeError('Negative matrix incomplete')
     injected={'owner_change','wrong_hwnd','active_affinity_change','cancel','stop'}

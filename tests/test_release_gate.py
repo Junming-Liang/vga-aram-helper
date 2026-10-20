@@ -1396,7 +1396,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_publish_does_not_accept_a_historical_or_future_version(self):
         result = self.verify()
-        for version in ('0.4.14', '0.4.15', '0.4.17'):
+        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.18'):
             wrong = copy.deepcopy(result)
             wrong.update(version=version, tag='v' + version)
             for asset in wrong['assets']:
@@ -1583,7 +1583,7 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
     def test_current_publication_rejects_historical_or_future_receipt_version(self):
         gate.check_preview_identity(self.receipt(VERSION), current_provenance())
-        for version in ('0.4.14', '0.4.15', '0.4.17'):
+        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.18'):
             with self.subTest(version=version), self.assertRaises(gate.VerificationError):
                 gate.check_preview_identity(self.receipt(version), current_provenance())
 
@@ -1603,7 +1603,7 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.16')
+        self.assertEqual(VERSION, '0.4.17')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
@@ -1775,10 +1775,10 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch'",job)
         self.assertIn('github.event.repository.private == false',job)
         self.assertIn("github.ref == 'refs/heads/main'",job)
-        publication=text.split('- name: Create verified draft',1)[1]
-        self.assertIn('if: ${{ success() && inputs.publish_preview }}',publication)
+        publication=text.split('- name: Create verified draft and publish',1)[1]
+        self.assertIn('if: ${{ success() && inputs.publish_preview && !inputs.stage_preview }}',publication)
         self.assertEqual(text.count('--publish'),1)
-        self.assertEqual(text.count('GH_TOKEN:'),1)
+        self.assertEqual(text.count('GH_TOKEN:'),2)
         self.assertIn('GH_TOKEN:',publication)
         self.assertIn('run: python tests/windows_selection_smoke.py --report-dir reports',text)
 
@@ -1811,14 +1811,30 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn('--expected-sha256 $manifest.sha256 --expected-size $manifest.size', text)
         self.assertIn('python scripts/check_package_candidate.py', text)
         self.assertLess(text.index('Verify fresh native preview'), text.index('Upload only small test evidence'))
-        self.assertEqual(text.count('GH_TOKEN:'), 1)
-        self.assertGreater(text.index('GH_TOKEN:'), text.index('Create verified draft'))
+        self.assertEqual(text.count('GH_TOKEN:'), 2)
+        self.assertGreater(text.index('GH_TOKEN:'), text.index('Create verified private draft'))
         self.assertIn('--source-sha "$env:GITHUB_SHA"', text)
         self.assertIn('--run-id "$env:GITHUB_RUN_ID"', text)
         self.assertIn('--run-attempt "$env:GITHUB_RUN_ATTEMPT"', text)
         self.assertNotIn('38226534574', text)
         self.assertNotIn('11736459413', text)
         self.assertNotIn('publish-preview.yml', [path.name for path in (ROOT / '.github/workflows').iterdir()])
+
+    def test_private_draft_mode_is_explicit_mutually_exclusive_and_never_publishes(self):
+        text=(ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')
+        stage_input=text.split('      stage_preview:',1)[1].split('      publish_preview:',1)[0]
+        self.assertIn('type: boolean',stage_input)
+        self.assertIn('default: false',stage_input)
+        guard=text.split('- name: Reject conflicting release modes before building',1)[1].split('- uses: actions/checkout',1)[0]
+        self.assertIn("$env:VGA_STAGE_PREVIEW -ceq 'true' -and $env:VGA_PUBLISH_PREVIEW -ceq 'true'",guard)
+        self.assertIn("throw 'Stage and publish are mutually exclusive.'",guard)
+        private=text.split('- name: Create verified private draft without publishing',1)[1].split('- name: Create verified draft and publish',1)[0]
+        self.assertIn('success() && inputs.stage_preview && !inputs.publish_preview',private)
+        self.assertIn('--stage-draft',private)
+        self.assertNotIn('--publish',private)
+        self.assertNotIn('draft=false',private)
+        self.assertIn('--source-sha "$env:GITHUB_SHA"',private)
+        self.assertLess(text.index('Verify fresh native preview'),text.index('Create verified private draft'))
 
     def test_nonpublishing_candidate_is_staged_and_separately_budgeted_after_verification(self):
         text = (ROOT / '.github/workflows/build-native-preview.yml').read_text(encoding='utf-8')
@@ -1832,7 +1848,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertLess(small_upload, full_budget)
         self.assertLess(full_budget, candidate_upload)
         stage_text = text[staging:small_upload]
-        self.assertIn('if: ${{ success() && !inputs.publish_preview }}', stage_text)
+        self.assertIn('if: ${{ success() && !inputs.publish_preview && !inputs.stage_preview }}', stage_text)
         self.assertIn('python scripts/stage_verified_artifact.py', stage_text)
         self.assertIn('--verified-dir build/verified-preview --output-dir build/verified-artifact', stage_text)
         for argument in ('--source-sha "$env:GITHUB_SHA"', '--run-id "$env:GITHUB_RUN_ID"',
@@ -1840,12 +1856,12 @@ class WorkflowSafetyTests(unittest.TestCase):
             self.assertIn(argument, stage_text)
         budget_text = text[full_budget:candidate_upload]
         self.assertIn('id: candidate_budget', budget_text)
-        self.assertIn('if: ${{ success() && !inputs.publish_preview }}', budget_text)
+        self.assertIn('if: ${{ success() && !inputs.publish_preview && !inputs.stage_preview }}', budget_text)
         self.assertIn('python scripts/check_artifact_budget.py --output build/verified-artifact-budget.json', budget_text)
         self.assertNotIn('--evidence-only', budget_text)
         self.assertNotIn('reports/windows-artifact-budget.json', budget_text)
         upload_text = text[candidate_upload:text.index('- name: Write run summary')]
-        self.assertIn("if: ${{ success() && !inputs.publish_preview && steps.candidate_budget.outcome == 'success' }}", upload_text)
+        self.assertIn("if: ${{ success() && !inputs.publish_preview && !inputs.stage_preview && steps.candidate_budget.outcome == 'success' }}", upload_text)
         self.assertIn('name: verified-candidate-${{ github.sha }}', upload_text)
         self.assertIn('path: build/verified-artifact', upload_text)
         self.assertIn('if-no-files-found: error', upload_text)

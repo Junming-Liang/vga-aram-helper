@@ -2,7 +2,7 @@
 
 No Windows/game capture or flicker evidence. The Qt worker, native result
 handlers, local OCR, portrait matcher, and title/card geometry are production
-code. Explicit gates and a controlled native_ui clock inject startup latency;
+code. Separate preparation/inference gates and a controlled native_ui clock inject latency;
 they do not measure model performance or change freshness/anti-flicker guards.
 """
 import threading
@@ -27,21 +27,21 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
     assert_confirmed = fixture.AnimatedAugmentRoundTests.assert_confirmed
     assert_unconfirmed = fixture.AnimatedAugmentRoundTests.assert_unconfirmed
 
-    def start_cold_frame(self, *, phase=0):
-        """Block before first real model initialization, leaving Qt responsive."""
+    def start_first_inference(self, *, phase=0):
+        """Hold the first inference after cold preparation, leaving Qt responsive."""
         w = self.window
         self.assertIsNone(w.ocr._engine)
         entered, release = threading.Event(), threading.Event()
         self.releases.append(release)
         original = w.ocr.recognize
 
-        def cold(*args):
+        def delayed(*args):
             entered.set()
             if not release.wait(15):
-                raise RuntimeError('Owned cold-start gate was not released')
+                raise RuntimeError('Owned first-inference gate was not released')
             return original(*args)
 
-        gate = patch.object(w.ocr, 'recognize', side_effect=cold)
+        gate = patch.object(w.ocr, 'recognize', side_effect=delayed)
         gate.start()
         self.addCleanup(gate.stop)
         previous = len(self.results)
@@ -54,7 +54,9 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
                 w._current_capture_proof[2].get('hero_observation', {}).get('confident')))
         self.assertTrue(w.ocr_busy)
         self.assertFalse(w.overlay.isVisible())
-        self.assertIsNone(w.ocr._engine)
+        # Production initializes before capture; this gate deliberately holds
+        # the later first recognition, whose existing frame TTL still applies.
+        self.assertIsNotNone(w.ocr._engine)
         return previous, self.now, release, gate
 
     def drain_rejected_frame(self, previous, release, gate):
@@ -82,9 +84,9 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
         self.assertEqual(self.window.ocr_reuse.hits, 0)
         return first, second
 
-    def test_cold_first_result_over_four_seconds_is_discarded_then_recovers(self):
+    def test_first_inference_over_four_seconds_is_discarded_then_recovers(self):
         from native_ui import ControlWindow
-        previous, captured, release, gate = self.start_cold_frame()
+        previous, captured, release, gate = self.start_first_inference()
         w = self.window
         calls = len(w.capture.calls)
         w.capture_tick()
@@ -99,9 +101,9 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
         w.monitor.stop()
         self.recover_in_two_independent_frames()
 
-    def test_cold_first_timeout_releases_worker_lease_then_recovers(self):
+    def test_first_inference_timeout_releases_worker_lease_then_recovers(self):
         from native_ui import ControlWindow
-        previous, captured, release, gate = self.start_cold_frame()
+        previous, captured, release, gate = self.start_first_inference()
         w = self.window
         generation = w.state.generation
         self.now = captured + 8.001
@@ -121,8 +123,8 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
         self.recover_in_two_independent_frames()
         self.assertFalse(w.ocr_timed_out)
 
-    def test_fresh_delayed_cold_frame_counts_once_and_next_frame_confirms(self):
-        previous, captured, release, gate = self.start_cold_frame()
+    def test_fresh_delayed_first_inference_counts_once_and_next_frame_confirms(self):
+        previous, captured, release, gate = self.start_first_inference()
         self.now = captured + 3.7
         release.set()
         first = self.finish_frame(previous)
@@ -135,6 +137,61 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
         self.assert_confirmed((0, 1, 2))
         self.assertEqual(self.window.state.automatic_frames, 2)
         self.assertEqual(self.window.ocr_reuse.hits, 0)
+
+    def test_cold_preparation_finishes_before_capture_and_frame_timestamp(self):
+        w = self.window
+        self.assertIsNone(w.ocr._engine)
+        entered, release = threading.Event(), threading.Event()
+        self.releases.append(release)
+        original = w.ocr.prepare
+        prepared_at = []
+
+        def delayed_prepare():
+            if w.ocr._engine is not None:
+                return original()
+            entered.set()
+            if not release.wait(15):
+                raise RuntimeError('Owned model-preparation gate was not released')
+            original()
+            prepared_at.append(self.now)
+
+        previous = len(self.results)
+        calls_before = len(w.capture.calls)
+        with patch.object(w.ocr, 'prepare', side_effect=delayed_prepare):
+            self.start_frame((0, 1, 2), 0)
+            self.wait(entered.is_set)
+            preparation_started = self.now
+            # More than a frame TTL passes while setup is blocked, without
+            # acquiring pixels or inventing an observation to keep them fresh.
+            self.now += 5.
+            w.check_target()
+            w.capture_tick()
+            self.assertTrue(w.ocr_busy)
+            self.assertTrue(w.capture_pending)
+            self.assertIsNone(w.ocr._engine)
+            self.assertIsNone(w._current_capture_proof)
+            self.assertEqual(len(w.capture.calls), calls_before)
+            self.assertEqual(len(self.results), previous)
+            self.assertEqual(w.ocr.records, [])
+            self.assertEqual(w.last_observation, 0.)
+            self.assertEqual(w.state.automatic_frames, 0)
+            self.assertFalse(w.overlay.isVisible())
+            released_at = self.now
+            release.set()
+            first = self.finish_frame(previous)
+        self.assertEqual(prepared_at, [released_at])
+        self.assertEqual(len(w.capture.calls), calls_before + 1)
+        self.assertEqual(first['_capturedAt'], prepared_at[0])
+        self.assertGreater(first['_capturedAt'] - preparation_started, 4.)
+        self.assertEqual(w.last_observation, first['_capturedAt'])
+        self.assertIsNotNone(w.ocr._engine)
+        self.assertEqual(len(w.ocr.records), 1)
+        self.assertEqual(w.state.automatic_frames, 1)
+        self.assert_unconfirmed()
+        self.observe((0, 1, 2), 1)
+        self.assert_confirmed((0, 1, 2))
+        self.assertEqual(w.state.automatic_frames, 2)
+        self.assertEqual(w.ocr_reuse.hits, 0)
 
     def test_initial_card_free_frames_do_not_latch_out_later_valid_cards(self):
         for phase in range(3):
@@ -176,11 +233,11 @@ class FirstCardRecoveryAuditTests(unittest.TestCase):
         w.hero_matcher = matcher
         self.recover_in_two_independent_frames()
 
-    def test_templates_arriving_during_cold_inference_discard_old_scope_and_recover(self):
+    def test_templates_arriving_during_first_inference_discard_old_scope_and_recover(self):
         w = self.window
         matcher = w.hero_matcher
         w.hero_matcher = None
-        previous, _, release, gate = self.start_cold_frame()
+        previous, _, release, gate = self.start_first_inference()
         generation = w.state.generation
         w.hero_matcher = matcher
         self.drain_rejected_frame(previous, release, gate)

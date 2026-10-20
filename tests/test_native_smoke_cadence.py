@@ -79,6 +79,7 @@ class NativeSmokeCadenceTests(unittest.TestCase):
         dispatched = []
         control.target = object()
         control.capture = SimpleNamespace(foreground=lambda target: True)
+        control.latest_capture = SimpleNamespace(busy=False)
         control.enable_visible_capture = False
         control._mode_wait_started = None
         control._capture_serial = 0

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -52,7 +53,7 @@ def fixture():
             overlay_registration_valid=True,overlay_hwnd=4,overlay_affinity=17,overlay_extended_style=0x080800a8,
             parent_pid=6,overlay_owner_pid=6,visible_request=visible,
             paint_state=state,pixels_sha256=str(state)*64,
-            native_visible_before=visible,native_visible_after=visible,overlay_window_style=123,enrolled_window_style=123,
+            native_visible_before=visible,native_visible_after=visible,overlay_window_style=0x90000000,enrolled_window_style=0x90000000,
             visibility=dict(samples=2,qt_hidden_samples=0 if visible else 2,native_hidden_samples=0 if visible else 2,
                 duration_us=1000,samples_us=[[250,3 if visible else 0],[750,3 if visible else 0]],
                 sample_format=runtime.SAMPLE_FORMAT,max_sample_gap_ms=.5),
@@ -67,6 +68,7 @@ def fixture():
             hidden_magenta_pixels=0,visible_magenta_pixels=0,request_index=index+5,
             hidden_reference_index=1 if state==0 else 4,
             overlay_rect=[20,240 if placement=='titles' else 548,900,80]))
+    install_presentation_fixture(value)
     for offset in range(3):
         row=copy.deepcopy(value['requests'][7]);visible=offset==2;generation=5 if visible else 4
         binding=dict(helper_pid=10+generation,helper_created=20+generation,session_generation=30+generation)
@@ -115,6 +117,25 @@ def fixture():
                  owner_pid=6,owner_created=3,launcher_pid=6,launcher_created=3,owner_ancestry_verified=True)
     return value,dict(scale=1,frozen=False,helper=helper,foreign_proof=foreign,foreign_fixture_sha256='f'*64)
 
+
+def install_presentation_fixture(value):
+    """Synthetic native lifecycle metadata, never live Windows evidence."""
+    baseline=value['requests'][7]
+    lifecycle=dict(baseline_request_index=7,adapter_epoch=9,fallback_calls=0,requests=[])
+    value['presentation_lifecycle']=lifecycle
+    for index,visible in enumerate((False,True,False,True)):
+        start=baseline['capture_return_100ns']+100+index*100
+        row={key:copy.deepcopy(baseline[key]) for key in (
+            'helper_pid','helper_created','session_generation','overlay_hwnd','overlay_affinity',
+            'overlay_extended_style','overlay_registration_valid','observation','enrolled_window_style','pixels_sha256')}
+        row.update(request_id=baseline['request_id']+1+index,visible=visible,adapter_epoch=9,
+                   watchdog_dwell_ms=100.,elapsed_ms=1.,capture_start_100ns=start,
+                   request_cutoff_100ns=start+1,frame_100ns=start+2,idle_enter_100ns=start+3,
+                   capture_return_100ns=start+4,overlay_window_style=0x90000000 if visible else 0x80000000)
+        row['observation']['native_visible']=visible
+        lifecycle['requests'].append(row)
+
+
 def observed_shape_fixture():
     """Synthetic run50-sized data, never a claim of actual Windows acceptance."""
     from test_wgc_session_build import manifest
@@ -153,6 +174,7 @@ def observed_shape_fixture():
             mutation=None if row['negative_case']=='foreign_pid_occluder' else start+duration*5 if 'pending_exchange_request_id' in row else start-100
             row['mutation_100ns']=mutation
             negative.update(capture_start_100ns=start,capture_return_100ns=start+duration*10,mutation_100ns=mutation)
+    install_presentation_fixture(detail)
     # Real-sized creation times and generations make the old compact-JSON-only
     # test unable to hide the production aggregate overflow behind tiny IDs.
     def identities(value):
@@ -196,6 +218,88 @@ def write_scale_reports(folder, *, count=3):
 class VisibleContracts(unittest.TestCase):
     def test_complete_synthetic_report_contract(self):
         value,kwargs=fixture();self.assertIs(harness.validate_report(value,**kwargs),value)
+
+    def test_presentation_lifecycle_is_separate_and_strictly_bound(self):
+        mutations=(
+            lambda v:v.pop('presentation_lifecycle'),
+            lambda v:v['presentation_lifecycle'].update(baseline_request_index=0),
+            lambda v:v['presentation_lifecycle'].update(fallback_calls=1),
+            lambda v:v['presentation_lifecycle']['requests'].pop(),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(visible=True),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(visible=0),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(helper_pid=999),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(adapter_epoch=10),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(adapter_epoch=True),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(request_id=8),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(frame_100ns=1),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(watchdog_dwell_ms=24),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_window_style=0x90000000),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_window_style=0x80000001),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(enrolled_window_style=0x80000000),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_hwnd=8),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_affinity=1),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_extended_style=0x08080088),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(overlay_registration_valid=False),
+            lambda v:v['presentation_lifecycle']['requests'][0]['observation'].update(native_visible=True),
+            lambda v:v['presentation_lifecycle']['requests'][0]['observation'].update(overlay_opaque=False),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(pixels_sha256='f'*64),
+            lambda v:v['presentation_lifecycle']['requests'][0].update(_png='private'),
+        )
+        for index,mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                value,kwargs=fixture();mutate(value)
+                with self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+        # The lifecycle allowance never relaxes the original continuously shown
+        # product/pixel proof, even for a presentation-only style difference.
+        value,kwargs=fixture();value['requests'][2]['overlay_window_style']^=0x10000000
+        with self.assertRaises(RuntimeError):harness.validate_report(value,**kwargs)
+
+    def test_presentation_producer_keeps_main_capture_inventory_and_uses_real_backend(self):
+        value,_=fixture();f=runtime.ProductFixture.__new__(runtime.ProductFixture)
+        f.records=[copy.deepcopy(value['requests'][7])];f.result={};f.fallback_calls=[]
+        raw=b'owned deterministic pixels';f.records[0]['pixels_sha256']=hashlib.sha256(raw).hexdigest()
+        state=dict(visible=True,now=100.,qpc=100000,request=8)
+        owner=SimpleNamespace(binding=('exact',True),session=SimpleNamespace(_overlay_window_style=0x90000000))
+        f.capture=SimpleNamespace(_persistent=SimpleNamespace(_owner=owner),session_epoch=9,
+            prepare_capture_mode=Mock(return_value=True),last_session_receipt=None,
+            get_long=lambda hwnd,field:0x90000000 if state['visible'] else 0x80000000)
+        f.overlay=SimpleNamespace(isVisible=lambda:state['visible'],
+            show=lambda:state.update(visible=True),hide=lambda reason:state.update(visible=False))
+        f.overlay_hwnd=4;f.u=SimpleNamespace(IsWindowVisible=lambda hwnd:state['visible'])
+        f.target=object();f.rect=object();f.control=SimpleNamespace(manual_metadata=object())
+        f.pump=lambda seconds:state.update(now=state['now']+seconds)
+        def wait(predicate,*args):
+            deadline=time.monotonic()+1
+            while not predicate():
+                self.assertLess(time.monotonic(),deadline);time.sleep(.001)
+        f.wait=wait
+        def qpc():state['qpc']+=1;return state['qpc']
+        def capture(*args,**kwargs):
+            self.assertEqual(args,(f.target,));self.assertIs(kwargs['allow_visible_overlay'],True)
+            self.assertIs(kwargs['expected_metadata'],f.control.manual_metadata)
+            state['request']+=1
+            f.capture.last_session_receipt={key:f.records[0][key] for key in (
+                'helper_pid','helper_created','session_generation','overlay_hwnd','overlay_affinity',
+                'overlay_extended_style','overlay_registration_valid')}
+            f.capture.last_session_receipt.update(request_id=state['request'],request_cutoff_100ns=qpc(),
+                                                frame_100ns=qpc(),idle_enter_100ns=qpc())
+            return b'encoded pixels',f.rect
+        f.real_capture=Mock(side_effect=capture)
+        def observe(capture,receipt,*,hidden):
+            self.assertIs(capture,f.capture);self.assertIs(hidden,not state['visible'])
+            proof=copy.deepcopy(f.records[0]['observation']);proof['native_visible']=state['visible']
+            return owner,None,proof
+        with patch.dict(sys.modules,{'native_smoke':SimpleNamespace(_duty_session_observation=observe)}), \
+                patch('wgc_session_capture._qpc_100ns',side_effect=qpc), \
+                patch.object(runtime,'time',SimpleNamespace(monotonic=lambda:state['now'])), \
+                patch.object(runtime,'pixels',return_value=SimpleNamespace(tobytes=lambda:raw)):
+            f.presentation_lifecycle()
+        self.assertEqual(len(f.records),1)
+        self.assertEqual(f.real_capture.call_count,4)
+        self.assertEqual(f.capture.prepare_capture_mode.call_args_list,[((True,),)]*4)
+        self.assertIs(f.capture._persistent._owner,owner)
+        self.assertTrue(state['visible'])
+        harness.validate_presentation_lifecycle(f.result,f.records)
 
     def test_explicit_release_version_binds_the_detail_report(self):
         value,kwargs=fixture()
@@ -492,6 +596,7 @@ class VisibleContracts(unittest.TestCase):
             hidden=value['requests'][pair['hidden_reference_index']]
             visible=value['requests'][pair['request_index']]
             pair.update(runtime.compare_pixels(frames[hidden['paint_state']],frames[visible['paint_state']]))
+        install_presentation_fixture(value)
         self.assertIs(harness.validate_report(value,**kwargs),value)
         # Even mutually equal hashes over widened arithmetic buffers must
         # remain rejected when they do not bind to the acquired RGB8 bytes.

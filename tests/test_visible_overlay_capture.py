@@ -184,21 +184,61 @@ class VisibleOverlayRoutingTests(AdapterFixture, unittest.TestCase):
         self.assertEqual(self.factory.call_args.kwargs, {'allow_visible_overlay': True})
         self.assertEqual(old.capture.call_count, 1)
 
-    def test_prepare_retires_style_change_without_native_capture_or_gui_wait(self):
+    def test_prepare_preserves_visible_session_across_presentation_hide_show(self):
+        self.assertTrue(self.adapter.prepare_capture_mode(True))
+        self.capture(allow_visible_overlay=True)
+        old = self.sessions[0]
+        owner = self.adapter._owner
+        epoch = self.adapter.epoch
+        with patch('ctypes.set_last_error', create=True), \
+             patch('ctypes.get_last_error', return_value=0, create=True):
+            for enrolled in (0x90000000, 0x80000000):
+                old._overlay_window_style = enrolled
+                for current in (0x80000000, 0x90000000, 0x80000000, 0x90000000):
+                    with self.subTest(enrolled=enrolled, current=current):
+                        self.api.get_long = Mock(return_value=current)
+                        self.assertTrue(self.api.prepare_capture_mode(True))
+                        self.assertIs(self.adapter._owner, owner)
+                        self.assertFalse(owner.revoked.is_set())
+                        self.assertEqual(self.adapter.epoch, epoch)
+            self.assertEqual(old.capture.call_count, 1)
+            self.assertEqual(self.factory.call_count, 1)
+            old.close.assert_not_called()
+        self.assert_no_compatibility()
+
+    def test_prepare_retires_every_other_style_bit_without_capture_or_gui_wait(self):
+        for bit in range(32):
+            if 1 << bit == 0x10000000:  # Only WS_VISIBLE is presentation state.
+                continue
+            with self.subTest(bit=bit):
+                self.setUp()
+                self.assertTrue(self.adapter.prepare_capture_mode(True))
+                self.capture(allow_visible_overlay=True)
+                old = self.sessions[0]
+                old._overlay_window_style = 0x90000000
+                old.cleanup_pending = True
+                self.api.get_long = Mock(return_value=0x90000000 ^ (1 << bit))
+                with patch('ctypes.set_last_error', create=True), \
+                     patch('ctypes.get_last_error', return_value=0, create=True):
+                    self.assertFalse(self.api.prepare_capture_mode(True))
+                    self.assertTrue(self.adapter._owner.revoked.is_set())
+                    self.assertEqual(old.capture.call_count, 1)
+                    self.assertEqual(self.factory.call_count, 1)
+                    old.cleanup_pending = False
+                    self.ready()
+                    self.assertTrue(self.api.prepare_capture_mode(True))
+                self.assert_no_compatibility()
+                self.adapter.close()
+
+    def test_visibility_mask_never_preserves_session_across_strict_hidden_transition(self):
         self.assertTrue(self.adapter.prepare_capture_mode(True))
         self.capture(allow_visible_overlay=True)
         old = self.sessions[0]
         old._overlay_window_style = 0x90000000
         old.cleanup_pending = True
-        self.api.get_long = Mock(return_value=0x80000000)  # WS_VISIBLE removed.
-        with patch('ctypes.set_last_error', create=True), \
-             patch('ctypes.get_last_error', return_value=0, create=True):
-            self.assertFalse(self.api.prepare_capture_mode(True))
-            self.assertEqual(old.capture.call_count, 1)
-            self.assertEqual(self.factory.call_count, 1)
-            old.cleanup_pending = False
-            self.ready()
-            self.assertTrue(self.api.prepare_capture_mode(True))
+        self.assertFalse(self.adapter.prepare_capture_mode(False, overlay_window_style=0x80000000))
+        self.assertTrue(self.adapter._owner.revoked.is_set())
+        self.assertEqual(old.capture.call_count, 1)
         self.assert_no_compatibility()
 
     def test_prepare_during_construction_revokes_owner_and_blocks_replacement(self):

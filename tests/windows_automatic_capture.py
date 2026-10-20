@@ -42,7 +42,7 @@ from windows_selection_smoke import (assert_owned_window, child_environment,
 from windows_session_fixture import CLASSES, compile_fixture, fixture_argv, validate_ready, poll_owned_json
 
 MAX_SECONDS = 240
-SOURCE_FILES = ('capture_cadence.py', 'badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
+SOURCE_FILES = ('capture_cadence.py', 'latest_capture_frame.py', 'badge_contract.py', 'source_combo_hints.py', 'tests/badge_fixture.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'screen_capture.py', 'session_windows.py',
                 'wgc_capture.py', 'native/wgc_capture.cpp', 'persistent_capture_adapter.py',
                 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
                 'tests/windows_automatic_capture.py', 'tests/windows_selection_smoke.py','tests/windows_wgc_visible_overlay.py','tests/overlay_duty_contract.py','tests/windows_ota_smoke.py', 'tests/SessionWindowFixture.cs', 'owned_diagnostic_json.py', 'tests/windows_session_fixture.py')

@@ -257,7 +257,7 @@ class DebugUITests(unittest.TestCase):
         _,events,_=self.exported()
         rejected=next(e for e in events if e.get('phase')=='discarded' and e.get('reason')=='stale_frame')
         self.assertGreater(rejected['age_ms'],4000);self.assertEqual(rejected['ttl_ms'],4000)
-        stage=next(e for e in events if e.get('event')=='inference' and e.get('phase')=='completed')
+        stage=next(e for e in events if e.get('event')=='inference' and e.get('phase')=='completed' and e.get('inference_stage')=='ocr')
         self.assertEqual(stage['inference_stage'],'ocr');self.assertGreaterEqual(stage['inference_ms'],4000)
         self.assertEqual(stage['serial'],rejected['serial']);self.assertFalse(w.state.confirmed)
         same_frame=[e for e in events if e.get('serial')==rejected['serial']]
