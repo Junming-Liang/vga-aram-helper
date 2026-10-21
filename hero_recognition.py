@@ -217,15 +217,22 @@ def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_m
         if pending is None:result=recognize_titles(ocr.recognize)
     else:
         if before_match is not None:before_match(None,crop_bytes)
-        phase_started=begin('hud_match')
-        hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好',hudOutcome='templates_unavailable')
-        complete('hud_match',phase_started)
-        if resolve_hero is not None:
-            phase_started=begin('hero_resolve')
-            hero=resolve_hero(hero)
-            complete('hero_resolve',phase_started)
-        if before_ocr is not None:before_ocr(hero,crop_bytes)
-        result=recognize_titles(ocr.recognize)
+        # Missing/loading portrait templates must not serialize the independent
+        # title OCR behind the local identity API. Reuse the same single bounded
+        # worker as the prepared-matcher path, with the same join on all exits.
+        pending=inference_worker.submit(recognize_titles,ocr.recognize) if inference_worker is not None else None
+        try:
+            phase_started=begin('hud_match')
+            hero=matcher.recognize(image_bytes) if matcher else PortraitMatcher.unknown('头像模板尚未准备好',hudOutcome='templates_unavailable')
+            complete('hud_match',phase_started)
+            if resolve_hero is not None:
+                phase_started=begin('hero_resolve')
+                hero=resolve_hero(hero)
+                complete('hero_resolve',phase_started)
+            if before_ocr is not None:before_ocr(hero,crop_bytes)
+        finally:
+            if pending is not None:result=pending.result()
+        if pending is None:result=recognize_titles(ocr.recognize)
     # A title cache hit can race the fresh HUD inference. Unknown current HUD
     # must obtain independent OCR evidence for historical-identity recovery.
     if result.get('ocr_reused') is True and hero.get('confident') is not True and hasattr(ocr,'recognize_fresh'):

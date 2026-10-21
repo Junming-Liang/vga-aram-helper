@@ -245,8 +245,22 @@ class BadgeOverlayMixin:
             # move or rename any visible badge. Keep those exact regions.
             active=[card['slot']-1 for card in self.cards if not card.get('pending')]
             unchanged=bool(anchors is not None and self._badge_anchors is not None
-                and anchors.rects==self._badge_anchors.rects
-                and all(anchors.names[i]==self._badge_anchors.names[i] for i in active))
+                and all(anchors.names[i]==self._badge_anchors.names[i] for i in active)
+                and anchors.rects==self._badge_anchors.rects)
+            # Card bottom/width measurements can change without changing a
+            # single rendered badge pixel. Retain only an already placed,
+            # identical physical region, never unproved geometry or identities.
+            if (not unchanged and anchors is not None and self._badge_anchors is not None
+                    and self._placed_key is not None and active
+                    and all(anchors.names[i]==self._badge_anchors.names[i] for i in active)):
+                try:
+                    rect,revision,dpr=self._placed_key[:3]
+                    unchanged=(revision==self._layout_revision
+                        and float(self.windowHandle().devicePixelRatio())==dpr
+                        and badge_placement(rect,dpr,anchors,active)
+                            ==(self._badge_bounds,self._badge_regions))
+                except (CaptureUnavailable,AttributeError,TypeError,ValueError):
+                    unchanged=False
             if not unchanged:
                 if self.cards:self.hide('card_geometry_changed')
                 self._placed_key=None
@@ -316,11 +330,16 @@ class BadgeOverlayMixin:
             # An invisible unknown slot has no name/grade/capture exemption.
             anchors=BadgeAnchors(tuple(name if i in slots else None for i,name in enumerate(anchors.names)),anchors.rects)
             hwnd=int(self.winId());dpr=float(self.windowHandle().devicePixelRatio())
-            key=(rect,self._layout_revision,dpr,anchors,tuple(slots))
-            if self._placed_key==key:
-                self.show();self.configure();self._ensure_badge_bounds(self._badge_bounds);native_region(hwnd,self._badge_regions,verify_only=True)
-                if self.capture:self._verify_rect(rect)
-                if float(self.windowHandle().devicePixelRatio())==dpr:return
+            # Only compare cached placement on its original monitor/DPI.
+            # A move must first discover the destination DPI below; computing
+            # its badge budget with the old monitor's scale can reject it.
+            if self._placed_key is not None and self._placed_key[:3]==(rect,self._layout_revision,dpr):
+                bounds,regions=badge_placement(rect,dpr,anchors,slots)
+                key=(rect,self._layout_revision,dpr,bounds,regions,tuple(slots))
+                if self._placed_key==key:
+                    self.show();self.configure();self._ensure_badge_bounds(self._badge_bounds);native_region(hwnd,self._badge_regions,verify_only=True)
+                    if self.capture:self._verify_rect(rect)
+                    if float(self.windowHandle().devicePixelRatio())==dpr:return
             self.hide('layout')
             retire=getattr(self.capture,'retire_session',None)
             if retire:retire()
@@ -349,7 +368,7 @@ class BadgeOverlayMixin:
                 if self.capture:self._verify_rect(rect)
                 final_dpr=float(self.windowHandle().devicePixelRatio())
                 if final_dpr==dpr:
-                    self._placed_key=(rect,self._layout_revision,dpr,anchors,tuple(slots));return
+                    self._placed_key=(rect,self._layout_revision,dpr,bounds,regions,tuple(slots));return
                 self.hide('layout');dpr=final_dpr
             raise CaptureUnavailable('评级跨显示器缩放持续变化，等待稳定。')
         except Exception:
