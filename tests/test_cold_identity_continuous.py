@@ -35,6 +35,20 @@ MINIMUM_WORK_SECONDS = 1.1
 OBSERVATIONS = 6
 
 
+def wait_for_minimum_work(started, minimum):
+    """Enforce the fixture floor on its measured clock, including coarse clocks.
+
+    A completed sleep need not advance a coarse Windows monotonic clock by
+    the requested amount. Recheck the same clock used by the strict assertion;
+    this extends only owned fixture work, never a product freshness deadline.
+    """
+    while True:
+        remaining = minimum - (time.monotonic() - started)
+        if remaining <= 0:
+            return
+        time.sleep(remaining)
+
+
 class MinimumWorkLocalOCR(fixture.ObservedLocalOCR):
     """Delay genuine LocalOCR work if necessary; never synthesize OCR rows."""
     def __init__(self):
@@ -44,9 +58,7 @@ class MinimumWorkLocalOCR(fixture.ObservedLocalOCR):
     def recognize(self, image_bytes, vocabulary):
         started = time.monotonic()
         result = super().recognize(image_bytes, vocabulary)
-        remaining = MINIMUM_WORK_SECONDS - (time.monotonic() - started)
-        if remaining > 0:
-            time.sleep(remaining)
+        wait_for_minimum_work(started, MINIMUM_WORK_SECONDS)
         self.intervals.append((started, time.monotonic(), threading.get_ident()))
         return result
 
@@ -175,7 +187,7 @@ class ColdIdentityContinuousTests(unittest.TestCase):
                 super().__init__(transport.Response(json.dumps(payload).encode()))
 
             def getresponse(inner):
-                time.sleep(MINIMUM_WORK_SECONDS / 4)
+                wait_for_minimum_work(time.monotonic(), MINIMUM_WORK_SECONDS / 4)
                 return super().getresponse()
 
             def close(inner):
@@ -242,8 +254,9 @@ class ColdIdentityContinuousTests(unittest.TestCase):
                     zip(api_intervals, ocr_intervals)]
         self.trace = {'scope': 'controlled warmed visible-session double; not cold WGC or game',
             'receipts': self.receipts, 'visible_to_hidden': self.hidden,
-            'api_work_s': [round(end - start, 4) for start, end in api_intervals],
-            'ocr_work_s': [round(end - start, 4) for start, end, _ in ocr_intervals],
+            'api_work_s': [end - start for start, end in api_intervals],
+            'ocr_work_s': [end - start for start, end, _ in ocr_intervals],
+            'fixture_clock': vars(time.get_clock_info('monotonic')),
             'same_frame_overlap': overlaps, 'http_requests': len(self.connections),
             'captures': len(self.capture_calls), 'maximum_active_captures': self.maximum_active_captures,
             'workers_drained': not w._workers and not w.frame_inference_worker._busy
@@ -267,9 +280,9 @@ class ColdIdentityContinuousTests(unittest.TestCase):
         self.assertTrue(all(thread != self.main_thread
                             for _, _, thread in self.capture_calls))
         self.assertTrue(all(end - start >= MINIMUM_WORK_SECONDS
-                            for start, end in api_intervals))
+                            for start, end in api_intervals), detail)
         self.assertTrue(all(end - start >= MINIMUM_WORK_SECONDS
-                            for start, end, _ in ocr_intervals))
+                            for start, end, _ in ocr_intervals), detail)
         self.assertTrue(all(row.thread != self.main_thread for row in self.connections))
         self.assertTrue(all(thread != self.main_thread for _, _, thread in ocr_intervals))
         for index, connection in enumerate(self.connections):
