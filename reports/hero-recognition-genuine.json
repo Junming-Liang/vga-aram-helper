@@ -5,7 +5,7 @@
   "scope": "Local Linux screenshot evaluation of a small selected public sample. Not Windows live-game capture, aggregate game accuracy, all skins, Riot approval or Vanguard compatibility. Genuine images are not redistributed.",
   "platform": "Linux",
   "implementation_sha256": {
-    "hero_recognition.py": "4841774eeb9215c7507c16827f6f458184ef053e2454934e8e02427a95543cf3",
+    "hero_recognition.py": "8fad724359acc5717b44a23d80287dab7e4f0a79e312875ff4ac8bb0fdd101af",
     "hero_portraits.py": "3969e80609765e3b9f1d59f3d59946997176176b6a08c4ad3f346478e0ec04f7",
     "local_ocr.py": "04082f6e3fa1b4858d6e4d3bdfa590b21258512818fd75bbc0b2b30de299a4bc",
     "ocr_privacy.py": "f69075d8baf04d61001c80c78f3e694b0a9fd04b197c1daa94a1187469973487",
@@ -65,7 +65,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.593,
+      "elapsed_seconds": 0.899,
       "image_redistributed": false
     },
     {
@@ -131,7 +131,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.702,
+      "elapsed_seconds": 0.718,
       "image_redistributed": false
     },
     {
@@ -169,7 +169,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.603,
+      "elapsed_seconds": 0.704,
       "image_redistributed": false
     },
     {
@@ -207,7 +207,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.706,
+      "elapsed_seconds": 0.726,
       "image_redistributed": false
     },
     {
@@ -245,7 +245,7 @@
       "safety_pass": true,
       "kind": "genuine_public_screenshot",
       "transformation": null,
-      "elapsed_seconds": 0.669,
+      "elapsed_seconds": 0.81,
       "image_redistributed": false
     }
   ],
