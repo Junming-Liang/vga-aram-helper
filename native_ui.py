@@ -104,6 +104,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         self.portrait_bank=portrait_bank or PortraitDisplayBank();self.hero_id_lookup=hero_id_lookup;self._portrait_revision=None;self.hero_portrait=None
         self._last_hidden_at=None;self.debug_log=debug_log;self._hide_reason='unknown';self._show_reason='unknown'
         self._before_capture_retirement=before_capture_retirement
+        self._capture_retirement_pending=False
         # The validated redirected Windows renderer has no per-pixel alpha.
         # Set this before winId()/show; changing it later can recreate the HWND.
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground,False)
@@ -200,9 +201,11 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         # its session while a frame is in flight would turn our own retirement
         # into a failure of the newly confirmed display. Never clear a pending
         # real failure: the controller consumes it before retrying placement.
+        self._capture_retirement_pending=True
         if self._before_capture_retirement and not self._before_capture_retirement():return False
         retire=getattr(self.capture,'retire_session',None)
         if retire:retire()
+        self._capture_retirement_pending=False
         return True
     def set_rechecking(self,value):
         value=bool(value)
@@ -1341,6 +1344,7 @@ class ControlWindow(QtWidgets.QWidget):
     def queue_latest_capture(self,now,rect):
         """Acquire at most one latest frame while OCR is busy; never recognize it here."""
         if (not self.ocr_busy or self.capture_pending or self.client_phase()
+                or getattr(self.overlay,'_capture_retirement_pending',False)
                 or not self.enable_visible_capture or not self.overlay.click_through
                 or not getattr(self.capture,'has_live_visible_session',False)
                 or now-self._prefetch_last_attempt<.75 or self.latest_capture.busy):return
