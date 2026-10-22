@@ -1,0 +1,134 @@
+name: Diagnose one owned WGC helper crash
+
+# Manual, single-attempt source diagnostic. No release, frozen EXE, acceptance
+# substitution, automatic retry, game access, or upload of unsanitized output.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vga-owned-wgc-crash-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  owned-helper-crash:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'Junming-Liang/vga-aram-helper' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+      ORT_DISABLE_TELEMETRY: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Require the exact first-attempt checkout and fresh outputs
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($head -cne $env:GITHUB_SHA -or $env:GITHUB_RUN_ATTEMPT -cne '1') { throw 'Exact first dispatch attempt required.' }
+          git diff HEAD --exit-code --quiet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($path in @('build/owned-crash', 'build/native', 'dist')) {
+            if (Test-Path -LiteralPath $path) { throw 'Diagnostic outputs must be fresh.' }
+          }
+          if (Get-ChildItem reports/windows-* -File -ErrorAction SilentlyContinue) { throw 'Existing native evidence must not be reused.' }
+      - name: Install only the existing pinned build dependencies
+        timeout-minutes: 8
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the owned diagnostic safety regressions
+        timeout-minutes: 2
+        run: python -m unittest discover -s tests -p 'test_windows_wgc_helper_crash.py' -v
+      - name: Install approved free Community compiler tooling
+        timeout-minutes: 22
+        run: ./scripts/install-community-runtime.ps1 -AcceptCommunityLicense
+      - name: Build unchanged one-shot WGC helper
+        timeout-minutes: 4
+        run: python scripts/build_wgc_capture.py
+      - name: Build unchanged persistent WGC helper
+        timeout-minutes: 4
+        run: python scripts/build_wgc_session_capture.py
+      - name: Verify existing CDB or install only the approved SDK debugger feature once
+        timeout-minutes: 15
+        run: ./scripts/prepare_windows_debugger.ps1 -AcceptSdkLicense -InstallTimeoutMinutes 10
+      - name: Run one canary then the original source duty lifecycle at 100 percent
+        id: diagnostic
+        timeout-minutes: 6
+        run: python tests/windows_wgc_helper_crash.py --debugger-proof build/owned-crash/debugger.json --reports build/owned-crash/evidence
+      - name: Validate only sanitized bounded text evidence without changing the result
+        id: evidence
+        if: ${{ always() && (steps.diagnostic.outcome == 'success' || steps.diagnostic.outcome == 'failure') }}
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          import sys
+          root = Path.cwd().resolve()
+          sys.path.insert(0, str(root / 'tests'))
+          from windows_wgc_helper_crash import validate_artifact
+          folder = root / 'build/owned-crash/evidence/reports'
+          allowed = {'windows-wgc-helper-crash.json'}
+          if folder.is_symlink() or not folder.is_dir():
+              raise RuntimeError('No sanitized diagnostic report set was produced')
+          for ancestor in folder.parents:
+              if ancestor == root:
+                  break
+              if ancestor.is_symlink():
+                  raise RuntimeError('Symbolic evidence ancestor is forbidden')
+          paths = list(folder.iterdir())
+          if (not paths or {path.name for path in paths} - allowed or
+                  'windows-wgc-helper-crash.json' not in {path.name for path in paths} or
+                  any(path.is_symlink() or not path.is_file() for path in paths) or
+                  sum(path.stat().st_size for path in paths) > 1024 * 1024):
+              raise RuntimeError('Diagnostic artifact file/type/byte allowlist failed')
+          def unique(pairs):
+              result = {}
+              for key, item in pairs:
+                  if key in result:
+                      raise RuntimeError('Duplicate diagnostic evidence key')
+                  result[key] = item
+              return result
+          def invalid_number(text):
+              raise RuntimeError('Non-finite diagnostic evidence number')
+          def finite_float(text):
+              import math
+              value = float(text)
+              if not math.isfinite(value):
+                  invalid_number(text)
+              return value
+          for path in paths:
+              value = json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique,
+                                 parse_constant=invalid_number, parse_float=finite_float)
+              validate_artifact(value)
+          print('Sanitized text-only artifact allowlist passed; original diagnostic result is unchanged.')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the unchanged read-only repository artifact budget
+        id: evidence_budget
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        env:
+          VGA_ARTIFACT_READ_TOKEN: ${{ github.token }}
+        run: >-
+          python -c "import json; from pathlib import Path; from scripts.check_artifact_budget import check_budget; print(json.dumps(check_budget(Path('build/owned-crash/evidence'), evidence_only=True, output_path='../artifact-budget.json'), indent=2))"
+      - name: Retain only sanitized JSON and text for one day
+        if: ${{ always() && steps.evidence.outcome == 'success' && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: owned-wgc-crash-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/owned-crash/evidence/reports
+          if-no-files-found: error
+          retention-days: 1
