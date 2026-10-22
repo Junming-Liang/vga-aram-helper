@@ -95,6 +95,7 @@ class LatestCaptureUiTests(unittest.TestCase):
         mutations = (
             lambda c: setattr(c, 'ocr_busy', False),
             lambda c: setattr(c, 'capture_pending', True),
+            lambda c: setattr(c.overlay, '_capture_retirement_pending', True),
             lambda c: setattr(c, 'client_phase', lambda: True),
             lambda c: setattr(c, 'enable_visible_capture', False),
             lambda c: setattr(c.overlay, 'click_through', False),

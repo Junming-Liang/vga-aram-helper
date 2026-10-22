@@ -676,6 +676,7 @@ class NativeSelectionWindowRoutingTests(unittest.TestCase):
                     generation=w.state.generation;valid=self.table.discovery_snapshot()
                     value=dict(_captureRect=self.table.rect(target),_windowIdentity=target.identity,
                         _capturedAt=time.monotonic(),scene='assigned-selection',assigned=True,championId='9001')
+                    if w.selection_session:value['_sessionGeneration']=w.selection_session.generation
                     with patch.object(self.table,'discovery_snapshot',side_effect=[valid,failure]) as query:
                         w.task_result(kind,value,generation)
                     self.assertEqual(query.call_count,2)
