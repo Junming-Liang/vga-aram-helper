@@ -29,6 +29,7 @@ def selection_capture_status(state):
         'captured': '选人截图已收到 · 正在识别英雄',
         'unrecognized': '选人截图成功 · 英雄尚未确认',
         'recognized': '选人截图成功 · 英雄已确认',
+        'invalid_result': '选人结果已失效 · 正在重新识别',
         'capture_failed': '选人截图未完成 · 正在重试',
         'recognition_failed': '选人截图成功 · 识别失败，正在重试',
         'interface': '本机选人接口 · 本次无需截图',

@@ -178,22 +178,97 @@ class LCUDisplayTests(unittest.TestCase):
             self.assertEqual(w.selection_session.candidate_frames,2)
             self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
 
-    def test_stale_source_cannot_clear_current_assignment_or_snapshot(self):
+    def test_old_job_or_fresh_replay_cannot_clear_current_assignment_or_snapshot(self):
         w=self.prepare();self.deliver(100.);self.deliver(101.)
         current=w.selection_session.generation;source=w.last_selection_source;snapshot=w.lcu_snapshot.value
+        last_event=w.selection_session.last_event_frame;last_client=w.selection_session.last_client_frame
+        frames=w.selection_session.candidate_frames;w._capture_serial=12
         value={'scene':'assigned-selection','assigned':True,'championId':'9002',
                'method':'client-own-row-and-center-ocr','_capturedAt':102.,
                '_sessionGeneration':current-1,'_windowIdentity':fixtures.CLIENT,
                '_captureRect':self.proof['rect']}
-        for changes in ({},{'_sessionGeneration':current,'_capturedAt':100.5},
-                        {'_sessionGeneration':current,'_capturedAt':97.},
-                        {'_sessionGeneration':current,'_capturedAt':103.}):
-            with patch('native_ui.time.monotonic',return_value=102.1):
-                w.task_result('selection',{**value,**changes},w.state.generation)
-            w.monitor.stop()
-            self.assertEqual(w.selection_session.generation,current)
-            self.assertEqual(w.last_selection_source,source);self.assertIs(w.lcu_snapshot.value,snapshot)
-            self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
+        cases=[({},w.state.generation),
+               ({'_sessionGeneration':current,'_capturedAt':100.5,'_captureSerial':12},w.state.generation)]
+        for stamp in (97.,103.,None,float('nan')):
+            cases.extend((({'_capturedAt':stamp},w.state.generation),
+                          ({'_sessionGeneration':current,'_capturedAt':stamp,'_captureSerial':11},w.state.generation),
+                          ({'_sessionGeneration':current,'_capturedAt':stamp},w.state.generation-1)))
+        for changes,generation in cases:
+            with self.subTest(changes=changes,generation=generation):
+                with patch('native_ui.time.monotonic',return_value=102.1):
+                    w.task_result('selection',{**value,**changes},generation)
+                w.monitor.stop()
+                self.assertEqual(w.selection_session.generation,current)
+                self.assertEqual(w.last_selection_source,source);self.assertIs(w.lcu_snapshot.value,snapshot)
+                self.assertEqual(w.selection_session.last_event_frame,last_event)
+                self.assertEqual(w.selection_session.last_client_frame,last_client)
+                self.assertEqual(w.selection_session.candidate_frames,frames)
+                self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
+
+    def test_current_owned_invalid_time_revokes_without_changing_source_or_backoff(self):
+        for stamp in (97.,103.,None,float('nan'),float('inf'),-1.,True,'102','missing'):
+            for diagnostic in (False,True):
+                with self.subTest(stamp=stamp,diagnostic=diagnostic):
+                    w=self.prepare();self.deliver(100.);self.deliver(101.)
+                    source=w.last_selection_source;current=w.selection_session.generation
+                    last_event=w.selection_session.last_event_frame
+                    w.selection_retry.failed(101.);retry_at=w.selection_retry.retry_at
+                    w._capture_serial+=1
+                    value={'scene':'assigned-selection','assigned':True,'championId':'9002',
+                           'method':'client-own-row-and-center-ocr','_capturedAt':stamp,
+                           '_sessionGeneration':current,'_windowIdentity':fixtures.CLIENT}
+                    if stamp=='missing':value.pop('_capturedAt')
+                    if diagnostic:w.selection_smoke_input='owned synthetic handler diagnostic'
+                    else:
+                        w.selection_smoke_input=''
+                        value.update(_captureSerial=w._capture_serial,_captureRect=self.proof['rect'])
+                    with patch('native_ui.time.monotonic',return_value=102.1):
+                        w.task_result('selection',value,w.state.generation)
+                        self.assertIsNone(w.client_selection_reference())
+                    w.monitor.stop()
+                    self.assertGreater(w.selection_session.generation,current)
+                    self.assertFalse(w.selection_session.assigned);self.assertFalse(w.selection_session.candidate)
+                    self.assertEqual(w.selection_session.candidate_frames,0)
+                    self.assertEqual(w.selection_session.last_event_frame,last_event)
+                    self.assertEqual(w.selection_session.last_client_frame,0.)
+                    self.assertEqual(w.last_selection_source,source)
+                    self.assertIsNone(w.lcu_snapshot.value);self.assertFalse(w.state.hero)
+                    self.assertFalse(w.state.confirmed);self.assertEqual(w.state.offered,())
+                    self.assertFalse(w.overlay.isVisible());self.assertEqual(w.selection_retry.retry_at,retry_at)
+                    self.assertIn('观察时间无效或已过期',w.status.text())
+                    self.assertEqual(w._selection_capture_state,'invalid_result')
+                    self.assertIn('选人结果已失效',w.footer_note.text())
+                    self.assertNotIn('英雄已确认',w.footer_note.text())
+                    # Neither the failed result nor a source change can supply
+                    # the first of the two new independent observations.
+                    self.deliver(103.);self.assertFalse(w.overlay.isVisible())
+                    self.assertEqual(w.selection_session.candidate_frames,1)
+                    self.deliver(104.);self.assertTrue(w.overlay.isVisible())
+        w.selection_smoke_input=''
+
+    def test_current_owned_observation_at_four_second_boundary_remains_valid(self):
+        w=self.prepare();self.deliver(100.);self.deliver(101.)
+        w._capture_serial+=1
+        value={'scene':'assigned-selection','assigned':True,'championId':'9001',
+               'method':'lcu-read-only','_capturedAt':102.,'_captureSerial':w._capture_serial,
+               '_sessionGeneration':w.selection_session.generation,'_windowIdentity':fixtures.CLIENT,
+               '_captureRect':self.proof['rect']}
+        with patch('native_ui.time.monotonic',return_value=106.):
+            w.task_result('selection',value,w.state.generation)
+        w.monitor.stop()
+        self.assertEqual(w.selection_session.last_client_frame,102.)
+        self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
+
+    def test_client_expiry_clears_confirmed_status_without_replacing_new_capture_progress(self):
+        for state in ('recognized','unrecognized','capturing','captured','interface'):
+            with self.subTest(state=state):
+                w=self.prepare();self.deliver(100.);self.deliver(101.)
+                w._selection_capture_state=state
+                with patch('native_ui.time.monotonic',return_value=105.1):
+                    w.check_target();w.refresh_status_badge()
+                self.assertFalse(w.state.hero);self.assertFalse(w.overlay.isVisible())
+                self.assertEqual(w._selection_capture_state,'invalid_result' if state in ('recognized','unrecognized') else state)
+                self.assertNotIn('英雄已确认',w.footer_note.text())
 
     def test_old_selection_job_cannot_release_a_new_capture_lease(self):
         w=self.prepare();w.ocr_busy=True;w.capture_pending=True;w._capture_serial=12

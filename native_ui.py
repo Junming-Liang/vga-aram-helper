@@ -1243,6 +1243,7 @@ class ControlWindow(QtWidgets.QWidget):
     def expire_client_display(self):
         self.clear_partial_candidates()
         self.debug_event('expiry',reason='ttl_client',ttl_ms=4000)
+        if self._selection_capture_state in ('recognized','unrecognized'):self._selection_capture_state='invalid_result'
         # The older selection is no longer displayable. Do not cancel or change
         # the generation of a newer same-authority inference solely for age.
         # Permission/focus/geometry/Stop still follow the hard invalidation path.
@@ -1988,14 +1989,20 @@ class ControlWindow(QtWidgets.QWidget):
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
                 session_generation=value.get('_sessionGeneration');captured_at=value.get('_capturedAt');now=time.monotonic()
-                # Source changes are meaningful only for a current, independent
-                # observation. A late callback must not clear a newer source.
-                if (session_generation!=self.selection_session.generation
-                        or not self.selection_session._fresh(captured_at,now)
-                        or captured_at<=self.selection_session.last_event_frame):return
+                # Old jobs cannot revoke a newer selection. Once this request
+                # owns the current session and window, invalid time is failed
+                # evidence and must hide the previous assignment immediately.
+                if session_generation!=self.selection_session.generation:return
                 if not self.captured_frame_current(value):return
                 if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                     self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
+                if not self.selection_session._fresh(captured_at,now):
+                    self.selection_session.clear('Client observation expired or invalid');self.lcu_snapshot.clear()
+                    self.expire_client_display();self._selection_capture_state='invalid_result'
+                    self.state.reason='选人观察时间无效或已过期，旧资料已隐藏；等待新画面复核。'
+                    self.status.setText(self.state.reason);return
+                # A fresh duplicate cannot count again or change the source.
+                if captured_at<=self.selection_session.last_event_frame:return
                 if value.get('_lcuUnavailable'):
                     from lcu_selection import unavailable_reason
                     self._lcu_pixel_fallback=True;self._lcu_error=value['_lcuUnavailable']

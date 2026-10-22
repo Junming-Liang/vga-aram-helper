@@ -53,6 +53,8 @@ class SelectionRetryTests(unittest.TestCase):
         self.assertIn('识别失败', selection_capture_status('recognition_failed'))
         self.assertIn('未完成', selection_capture_status('capture_failed'))
         self.assertIn('无需截图', selection_capture_status('interface'))
+        self.assertIn('已失效', selection_capture_status('invalid_result'))
+        self.assertNotIn('截图', selection_capture_status('invalid_result'))
         self.assertNotIn('PRIVATE', selection_capture_status('PRIVATE'))
 
 
