@@ -42,7 +42,7 @@ MAX_HELPER_BYTES = 4 * 1024 * 1024
 SOURCE_FILES = ('native/wgc_session_capture.cpp', 'wgc_session_capture.py',
     'wgc_session_smoke.py', 'wgc_visible_overlay_smoke.py', 'owned_diagnostic_json.py', 'tests/windows_wgc_visible_overlay.py', 'wgc_session_diagnostic.py', 'wgc_capture.py',
     'screen_capture.py', 'session_windows.py', 'app_version.py',
-    'native_ui.py', 'portrait_display.py', 'local_debug.py', 'automatic_windows.py', 'selection_session.py', 'persistent_capture_adapter.py',
+    'native_ui.py', 'portrait_display.py', 'local_debug.py', 'automatic_windows.py', 'selection_session.py', 'selection_retry.py', 'latest_capture_frame.py', 'persistent_capture_adapter.py',
     'scripts/build_wgc_session_capture.py', 'scripts/build_wgc_capture.py',
     'scripts/build_windows.py', 'scripts/build_minimal_opencv.py', 'scripts/windows_package.py',
     'scripts/microsoft_runtime.py', 'scripts/qt_licenses.py',

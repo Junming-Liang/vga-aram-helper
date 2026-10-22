@@ -341,8 +341,7 @@ class BadgeOverlayMixin:
                     if self.capture:self._verify_rect(rect)
                     if float(self.windowHandle().devicePixelRatio())==dpr:return
             self.hide('layout')
-            retire=getattr(self.capture,'retire_session',None)
-            if retire:retire()
+            if not self.retire_capture_session():return
             if self.capture:
                 if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),rect.x+rect.width//2,rect.y+rect.height//2,0,0,0x0001|0x0010):
                     raise CaptureUnavailable('无法定位评级所属显示器。')

@@ -100,7 +100,125 @@ class LCUDisplayTests(unittest.TestCase):
         self.assertEqual(w.selection_session.candidate_frames,1)
         self.deliver(103.,method='client-own-row-and-center-ocr')
         self.assertEqual(w.selection_session.candidate_frames,2)
-        self.assertTrue(w.overlay.isVisible());self.assertFalse(w._lcu_pixel_fallback)
+        self.assertTrue(w.overlay.isVisible());self.assertTrue(w._lcu_pixel_fallback)
+        self.assertFalse(w.selection_retry.ready(103.1))
+
+    def test_failed_api_retries_after_backoff_while_pixels_keep_running(self):
+        w=self.prepare();w.client_phase=lambda:True
+        value={'_lcuUnavailable':'local_client_timeout','_capturedAt':100.,
+               '_sessionGeneration':w.selection_session.generation,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        with patch('native_ui.time.monotonic',return_value=100.1):
+            w.task_result('selection',value,w.state.generation)
+        w.monitor.stop()
+        with patch.object(w,'capture_selection') as api,patch.object(w,'capture_hidden') as pixels, \
+             patch('native_ui.QtCore.QTimer.singleShot',side_effect=lambda delay,fn:fn()):
+            for stamp in (101.,102.,105.099):
+                with patch('native_ui.time.monotonic',return_value=stamp):w.capture_tick()
+                w.capture_pending=False
+            self.assertEqual(pixels.call_count,3);api.assert_not_called()
+            with patch('native_ui.time.monotonic',return_value=105.1):w.capture_tick()
+            api.assert_called_once()
+        self.deliver(106.)
+        self.assertFalse(w._lcu_pixel_fallback);self.assertEqual(w.selection_retry.failures,0)
+
+    def test_pixel_receipt_distinguishes_capture_from_recognition_failure(self):
+        w=self.prepare_client();w.ocr_busy=True
+        value={'_capturedAt':100.,'_captureSerial':w._capture_serial,
+               '_sessionGeneration':w.selection_session.generation,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        w._selection_capture_state='capturing';w.refresh_status_badge()
+        self.assertIn('准备选人截图',w.footer_note.text())
+        with patch('native_ui.time.monotonic',return_value=100.1):
+            w.task_result('selection-capture',value,w.state.generation)
+        self.assertIn('截图已收到',w.footer_note.text())
+        w.task_error('selection','owned OCR failure',w.state.generation);w.monitor.stop()
+        self.assertIn('截图成功',w.footer_note.text());self.assertIn('识别失败',w.footer_note.text())
+
+    def test_stale_capture_receipt_never_claims_current_pixels(self):
+        w=self.prepare_client();w.ocr_busy=True
+        value={'_capturedAt':100.,'_captureSerial':w._capture_serial,
+               '_sessionGeneration':w.selection_session.generation,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        for changes,generation in (({},w.state.generation-1),({'_captureSerial':-1},w.state.generation)):
+            with patch('native_ui.time.monotonic',return_value=100.1):
+                w.task_result('selection-capture',{**value,**changes},generation)
+            self.assertEqual(w._selection_capture_state,'waiting')
+
+    def test_stop_clears_api_backoff_and_pixel_receipt(self):
+        w=self.prepare();w.selection_retry.failed(100.);w._selection_capture_state='captured'
+        w.stop_monitor()
+        self.assertTrue(w.selection_retry.ready(100.));self.assertEqual(w._selection_capture_state,'waiting')
+
+    def test_failed_pixel_work_preserves_api_backoff(self):
+        w=self.prepare();w.selection_retry.failed(100.);w._lcu_pixel_fallback=True
+        w._lcu_error='local_client_timeout';w._selection_capture_state='captured'
+        with patch('native_ui.time.monotonic',return_value=101.):
+            w.task_error('selection','owned OCR failure',w.state.generation)
+        w.monitor.stop()
+        self.assertEqual(w.selection_retry.retry_at,105.);self.assertFalse(w.selection_retry.ready(101.))
+        self.assertTrue(w._lcu_pixel_fallback);self.assertEqual(w._lcu_error,'local_client_timeout')
+
+    def test_unexpected_interface_failure_still_backs_off_to_pixels(self):
+        w=self.prepare();w._selection_capture_state='interface'
+        with patch('native_ui.time.monotonic',return_value=100.):
+            w.task_error('selection','owned failure',w.state.generation)
+        w.monitor.stop()
+        self.assertEqual(w._selection_capture_state,'interface_failed')
+        self.assertTrue(w._lcu_pixel_fallback);self.assertEqual(w.selection_retry.retry_at,105.)
+        self.assertNotIn('截图成功',w.footer_note.text())
+
+    def test_source_switch_counts_first_fresh_frame_but_requires_second(self):
+        w=self.prepare();self.deliver(100.);self.deliver(101.)
+        for stamp,method in ((102.,'client-own-row-and-center-ocr'),(104.,'lcu-read-only')):
+            self.deliver(stamp,method=method)
+            self.assertEqual(w.selection_session.candidate_frames,1)
+            self.assertFalse(w.state.hero);self.assertFalse(w.overlay.isVisible())
+            self.deliver(stamp+1,method=method)
+            self.assertEqual(w.selection_session.candidate_frames,2)
+            self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
+
+    def test_stale_source_cannot_clear_current_assignment_or_snapshot(self):
+        w=self.prepare();self.deliver(100.);self.deliver(101.)
+        current=w.selection_session.generation;source=w.last_selection_source;snapshot=w.lcu_snapshot.value
+        value={'scene':'assigned-selection','assigned':True,'championId':'9002',
+               'method':'client-own-row-and-center-ocr','_capturedAt':102.,
+               '_sessionGeneration':current-1,'_windowIdentity':fixtures.CLIENT,
+               '_captureRect':self.proof['rect']}
+        for changes in ({},{'_sessionGeneration':current,'_capturedAt':100.5},
+                        {'_sessionGeneration':current,'_capturedAt':97.},
+                        {'_sessionGeneration':current,'_capturedAt':103.}):
+            with patch('native_ui.time.monotonic',return_value=102.1):
+                w.task_result('selection',{**value,**changes},w.state.generation)
+            w.monitor.stop()
+            self.assertEqual(w.selection_session.generation,current)
+            self.assertEqual(w.last_selection_source,source);self.assertIs(w.lcu_snapshot.value,snapshot)
+            self.assertEqual(w.state.hero,self.hero);self.assertTrue(w.overlay.isVisible())
+
+    def test_old_selection_job_cannot_release_a_new_capture_lease(self):
+        w=self.prepare();w.ocr_busy=True;w.capture_pending=True;w._capture_serial=12
+        w._active_capture_generation=w.state.generation
+        value={'scene':'assigned-selection','assigned':True,'championId':'9001',
+               'method':'lcu-read-only','_capturedAt':100.,'_captureSerial':11,
+               '_sessionGeneration':w.selection_session.generation-1,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        with patch('native_ui.time.monotonic',return_value=100.1):
+            w.task_result('selection',value,w.state.generation)
+        self.assertTrue(w.ocr_busy);self.assertTrue(w.capture_pending)
+        self.assertEqual(w._active_capture_generation,w.state.generation)
+        self.assertEqual(w.selection_session.candidate_frames,0)
+
+    def test_current_job_with_revoked_selection_generation_releases_own_lease(self):
+        w=self.prepare();w.ocr_busy=True;w.capture_pending=True;w._capture_serial=12
+        value={'scene':'assigned-selection','assigned':True,'championId':'9001',
+               'method':'lcu-read-only','_capturedAt':100.,'_captureSerial':12,
+               '_sessionGeneration':w.selection_session.generation-1,
+               '_windowIdentity':fixtures.CLIENT,'_captureRect':self.proof['rect']}
+        with patch('native_ui.time.monotonic',return_value=100.1):
+            w.task_result('selection',value,w.state.generation)
+        w.monitor.stop()
+        self.assertFalse(w.ocr_busy);self.assertFalse(w.capture_pending)
+        self.assertEqual(w.selection_session.candidate_frames,0);self.assertFalse(w.state.hero)
 
     def test_failed_api_revokes_its_own_previous_assignment(self):
         w=self.prepare();self.deliver(100.);self.deliver(101.)

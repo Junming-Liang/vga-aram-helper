@@ -40,6 +40,23 @@ class LatestCaptureFrameTests(unittest.TestCase):
         def fail(_):raise RuntimeError('private path')
         self.buffer.submit('s',fail);self.wait();self.assertIsNone(self.buffer.take('s'));self.assertEqual(self.buffer.take_failure(),'s')
         self.assertIsNone(self.buffer.take_failure())
+    def test_retirement_barrier_waits_without_cancelling_producer(self):
+        entered=threading.Event();release=threading.Event();self.addCleanup(release.set)
+        cancelled_seen=[]
+        def acquire(cancelled):
+            entered.set();release.wait(1);cancelled_seen.append(cancelled());return self.packet()
+        self.buffer.submit('s',acquire);self.assertTrue(entered.wait(1))
+        self.assertFalse(self.buffer.prepare_retirement())
+        release.set();self.wait()
+        self.assertEqual(cancelled_seen,[False])
+        self.assertTrue(self.buffer.prepare_retirement())
+        self.assertIsNone(self.buffer.take('s'));self.assertIsNone(self.buffer.take_failure())
+    def test_retirement_barrier_preserves_failure_until_controller_consumes_it(self):
+        def fail(_):raise RuntimeError('owned real failure')
+        self.buffer.submit('s',fail);self.wait()
+        self.assertFalse(self.buffer.prepare_retirement())
+        self.assertEqual(self.buffer.take_failure(),'s')
+        self.assertTrue(self.buffer.prepare_retirement())
     def test_close_is_nonblocking_and_revokes_future_submissions(self):
         entered=threading.Event();release=threading.Event();self.addCleanup(release.set)
         def acquire(cancelled):entered.set();release.wait(1);return self.packet()
