@@ -41,6 +41,7 @@ tests/windows_wgc_capture.py text eol=lf
 hero_strength.py text eol=lf
 selection_smoke.py text eol=lf
 selection_session.py text eol=lf
+selection_retry.py text eol=lf
 overlay_geometry.py text eol=lf
 synthetic_vision.py text eol=lf
 tests/windows_selection_smoke.py text eol=lf
