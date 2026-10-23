@@ -8,8 +8,9 @@ actual four-request live-client parser uses owned HTTP connections and a
 hash-verified owned champion roster; no game or network is contacted.
 
 The real Qt schedule_capture/capture_tick/check_target/task_result path must
-confirm two independent frames and then keep four refreshes visible without
-extending the unchanged four-second capture-time TTL. Both API and genuine OCR
+confirm two independent frames, drain any pending first-layout acquisition,
+and then keep four refreshes visible without extending the unchanged
+four-second capture-time TTL. Both API and genuine OCR
 take at least 1.1 seconds per observation. Missing portrait templates must not
 serialize those independent jobs.
 
@@ -32,6 +33,7 @@ from tests import test_native_identity_diagnostics as identity_fixture
 
 
 MINIMUM_WORK_SECONDS = 1.1
+INITIAL_DISPLAY_WAIT_SECONDS = 1.
 OBSERVATIONS = 6
 
 
@@ -163,17 +165,30 @@ class ColdIdentityContinuousTests(unittest.TestCase):
         capture.capture = acquire
         self.receipts = []
         self.hidden = []
+        self.first_display = None
         self.connections = []
         self.trace = {}
         real_hide = w.overlay.hide
 
         def observed_hide(reason='unknown'):
-            if len(self.results) >= 2 and w.overlay.isVisible():
+            if self.first_display is not None and w.overlay.isVisible():
                 self.hidden.append({'reason': reason,
                     'age_s': round(time.monotonic() - w.last_observation, 4)})
             return real_hide(reason)
 
         w.overlay.hide = observed_hide
+
+        class DisplayObserver(fixture.QtCore.QObject):
+            def eventFilter(inner, obj, event):
+                if event.type() == fixture.QtCore.QEvent.Type.Show and self.first_display is None:
+                    self.first_display = {'shown_at': time.monotonic(),
+                        'captured_at': w.last_observation,
+                        'serial': w._capture_serial,
+                        'confirmed': w.state.confirmed, 'hero': w.state.hero}
+                return False
+
+        self.display_observer = DisplayObserver(w.overlay)
+        w.overlay.installEventFilter(self.display_observer)
 
         class OwnedConnection(transport.Connection):
             def __init__(inner, index, context):
@@ -216,6 +231,7 @@ class ColdIdentityContinuousTests(unittest.TestCase):
         w = self.window
         self.receipts.append({'confirmed': w.state.confirmed,
             'visible': w.overlay.isVisible(), 'hero': w.state.hero,
+            'received_at': time.monotonic(), 'serial': value['_captureSerial'],
             'age_s': round(time.monotonic() - value['_capturedAt'], 4),
             'timings': dict(value['_timings'])})
         if len(self.results) == OBSERVATIONS:
@@ -239,6 +255,29 @@ class ColdIdentityContinuousTests(unittest.TestCase):
         del w.schedule_capture
         w.watchdog.start()
         w.schedule_capture(0)
+        self.wait(lambda: self.errors or len(self.results) >= 2, seconds=15)
+        self.assertEqual(self.errors, [])
+        self.assertTrue(self.receipts[1]['confirmed'])
+        initial = self.results[1]
+        # Confirmation is not synchronous placement: a producer may still own
+        # the first layout's capture session. Wait only for that exact second
+        # frame to become visible, never for a later observation to hide a
+        # failed first presentation or extend its original freshness budget.
+        remaining = initial['_capturedAt'] + 4. - time.monotonic()
+        self.assertGreater(remaining, 0.)
+        self.wait(lambda: self.errors or self.first_display is not None,
+                  seconds=min(INITIAL_DISPLAY_WAIT_SECONDS, remaining))
+        self.assertEqual(self.errors, [])
+        self.assertIsNotNone(self.first_display)
+        self.assertTrue(self.first_display['confirmed'])
+        self.assertEqual(self.first_display['hero'], fixture.HERO)
+        self.assertEqual(self.first_display['serial'], initial['_captureSerial'])
+        self.assertEqual(self.first_display['captured_at'], initial['_capturedAt'])
+        self.assertLessEqual(self.first_display['shown_at'] - self.receipts[1]['received_at'],
+                             INITIAL_DISPLAY_WAIT_SECONDS)
+        self.assertLessEqual(self.first_display['shown_at'] - initial['_capturedAt'], 4.)
+        self.assertTrue(w.state.confirmed)
+        self.assertTrue(w.overlay.isVisible())
         self.wait(lambda: self.errors or len(self.results) >= OBSERVATIONS, seconds=35)
         w.monitor.stop()
         w.watchdog.stop()
@@ -254,6 +293,7 @@ class ColdIdentityContinuousTests(unittest.TestCase):
                     zip(api_intervals, ocr_intervals)]
         self.trace = {'scope': 'controlled warmed visible-session double; not cold WGC or game',
             'receipts': self.receipts, 'visible_to_hidden': self.hidden,
+            'first_display': self.first_display,
             'api_work_s': [end - start for start, end in api_intervals],
             'ocr_work_s': [end - start for start, end, _ in ocr_intervals],
             'fixture_clock': vars(time.get_clock_info('monotonic')),
@@ -266,8 +306,11 @@ class ColdIdentityContinuousTests(unittest.TestCase):
         self.assertEqual(self.errors, [], detail)
         self.assertEqual(len(self.results), OBSERVATIONS, detail)
         self.assertFalse(self.receipts[0]['confirmed'], detail)
+        refreshes = self.receipts[2:]
+        self.assertEqual(len(refreshes), 4, detail)
         self.assertTrue(all(row['confirmed'] and row['visible']
-                            for row in self.receipts[1:]), detail)
+                            and row['received_at'] > self.first_display['shown_at']
+                            for row in refreshes), detail)
         self.assertEqual(self.hidden, [], detail)
         self.assert_confirmed((0, 1, 2))
         self.assertIsNone(w.hero_matcher)

@@ -9,7 +9,7 @@ import re
 from badge_contract import WIDTH,MIN_WIDTH,HEIGHT,GAP,choose_width,align_physical_regions,top_gap
 
 SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py',
-    'frame_inference_worker.py', 'partial_candidates.py', 'lcu_selection.py', 'live_client_identity.py',
+    'frame_inference_worker.py', 'latest_capture_frame.py', 'partial_candidates.py', 'lcu_selection.py', 'selection_retry.py', 'live_client_identity.py',
     'assets/riotgames.pem', 'public_payload.py', 'native_smoke.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'hero_recognition.py', 'hero_portraits.py',
     'local_ocr.py', 'ocr_privacy.py', 'model_inventory.py', 'frame_ocr_cache.py', 'native_state.py',
     'screen_capture.py', 'wgc_capture.py', 'persistent_capture_adapter.py', 'wgc_session_capture.py',

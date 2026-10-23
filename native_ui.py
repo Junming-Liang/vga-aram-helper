@@ -98,11 +98,13 @@ class TaskSignals(QtCore.QObject):
 from card_badges import BadgeOverlayMixin
 
 class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
-    def __init__(self,capture=None,portrait_bank=None,hero_id_lookup=None,debug_log=None):
+    def __init__(self,capture=None,portrait_bank=None,hero_id_lookup=None,debug_log=None,*,before_capture_retirement=None):
         super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
         self.capture=capture;self.click_through=True;self.cards=[];self.reference=None;self._layout_revision=0;self._placed_key=None;self._detail_labels=[];self._compact=False;self._rechecking=False
         self.portrait_bank=portrait_bank or PortraitDisplayBank();self.hero_id_lookup=hero_id_lookup;self._portrait_revision=None;self.hero_portrait=None
         self._last_hidden_at=None;self.debug_log=debug_log;self._hide_reason='unknown';self._show_reason='unknown'
+        self._before_capture_retirement=before_capture_retirement
+        self._capture_retirement_pending=False
         # The validated redirected Windows renderer has no per-pixel alpha.
         # Set this before winId()/show; changing it later can recreate the HWND.
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground,False)
@@ -194,6 +196,17 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         self._set_compact(True);self.adjustSize();self.resize(820,max(52,self.height()))
     def configure(self):
         if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through or bool(self.cards),opaque=True)
+    def retire_capture_session(self):
+        # A replacement layout must wait for the producer to drain. Closing
+        # its session while a frame is in flight would turn our own retirement
+        # into a failure of the newly confirmed display. Never clear a pending
+        # real failure: the controller consumes it before retrying placement.
+        self._capture_retirement_pending=True
+        if self._before_capture_retirement and not self._before_capture_retirement():return False
+        retire=getattr(self.capture,'retire_session',None)
+        if retire:retire()
+        self._capture_retirement_pending=False
+        return True
     def set_rechecking(self,value):
         value=bool(value)
         if self._rechecking==value:return
@@ -297,6 +310,8 @@ class ControlWindow(QtWidgets.QWidget):
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.latest_capture=LatestCaptureFrame();self._prefetch_last_attempt=0.;self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         from lcu_selection import SelectionSnapshot
         self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
+        from selection_retry import SelectionRetry
+        self.selection_retry=SelectionRetry();self._selection_capture_state='waiting'
         self._capture_serial=0;self._completed_capture_serial=None;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._semantic_title_frame=None;self._current_capture_proof=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
         self.partial_candidates=PartialCandidateState();self._partial_revision=0;self._partial_hero='';self._partial_scope=None;self._partial_displayed=False
         self._accepted_partial_frame=None;self._semantic_partial_frame=None
@@ -402,7 +417,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.refresh.clicked.connect(self.refresh_windows);self.window_list.currentIndexChanged.connect(self.target_changed);self.hero_box.currentTextChanged.connect(self.hero_changed);self.hero_auto.toggled.connect(self.hero_mode_changed);self.client_follow.toggled.connect(self.follow_scope_changed);self.start_button.clicked.connect(self.start_monitor);self.stop_button.clicked.connect(self.stop_monitor);self.toggle_button.clicked.connect(self.toggle_clickthrough);self.update_button.clicked.connect(self.install_update)
         try:self.capture=Win32Capture(allow_visible_overlay=True) if enable_visible_capture else Win32Capture()
         except CaptureUnavailable as exc:self.status.setText(str(exc))
-        self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log);self.overlay.debug_context=lambda:dict(generation=self.state.generation,serial=self._capture_serial);self.overlay.winId();self.overlay.configure()
+        self.overlay=Overlay(self.capture,self.portrait_bank,lambda hero:self.portrait_bank.hero_id(self.data,hero),debug_log=self.debug_log,before_capture_retirement=self.latest_capture.prepare_retirement);self.overlay.debug_context=lambda:dict(generation=self.state.generation,serial=self._capture_serial);self.overlay.winId();self.overlay.configure()
         for control in (self.hero_auto,self.client_follow,self.lcu_toggle,self.live_identity_toggle):control.toggled.connect(self.record_debug_config)
         for spin in self.roi:spin.valueChanged.connect(self.record_debug_config)
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
@@ -447,7 +462,7 @@ class ControlWindow(QtWidgets.QWidget):
             running=self.state.running,ocr_busy=self.ocr_busy,capture_pending=self.capture_pending,
             target_present=bool(self.target),target_role=self.debug_target_role(),
             target_foreground=foreground,lcu_selection=self.lcu_toggle.isChecked(),
-            hero_auto=self.hero_auto.isChecked(),pixel_fallback=self._lcu_pixel_fallback))
+            hero_auto=self.hero_auto.isChecked(),pixel_fallback=self._lcu_pixel_fallback and not self.selection_retry.ready(time.monotonic())))
     def debug_state(self,state):
         if not self.debug_log.enabled:return
         # Revisions identify hero/round changes without persisting any names.
@@ -558,7 +573,7 @@ class ControlWindow(QtWidgets.QWidget):
         running=self.state.running
         self.lcu_toggle.setChecked(True)
         if running:self.start_monitor()
-        self.status.setText('本机只读接口权限已改变，请重新开始监测。')
+        self.status.setText('本机选人识别已开启，请切回客户端。' if running else '本机选人识别已开启，请点击开始监测。')
     def game_identity_scope(self,value):
         if not self.state.running or not self.hero_auto.isChecked() or self.client_phase():return None
         verified=bool((self.automatic_policy and self.automatic_policy.bound and self.automatic_policy.bound.role=='game') or (self.window_policy and self.target and self.target.identity==self.window_policy.game_identity))
@@ -764,7 +779,8 @@ class ControlWindow(QtWidgets.QWidget):
         mode=getattr(self.capture,'visible_capture_status','unknown') if self.capture else 'unknown'
         mode_text={'eligible':'保护显示捕获','interactive':'交互模式，需隐藏截图','exclusion_unregistered':'排除未确认，需隐藏截图','backend_unavailable':'后端需隐藏截图','cleanup_pending':'等待截图清理','disabled':'隐藏截图','stopped':'截图停止'}.get(mode,'等待截图')
         if self.client_assignment_visible():
-            self.footer_note.setText(('本机选人接口 · 正在截图回退' if self._lcu_error else '本机选人接口已开启') if self.lcu_toggle.isChecked() else '截图选人 · 选人接口未开启')
+            from selection_retry import selection_capture_status
+            self.footer_note.setText(selection_capture_status(self._selection_capture_state)+(' · 接口稍后重试' if self._lcu_error and self._selection_capture_state!='interface_failed' else ''))
         else:self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
         self.debug_state(state)
     def spawn(self,kind,fn,generation=0):
@@ -1119,7 +1135,11 @@ class ControlWindow(QtWidgets.QWidget):
         self.debug_event('invalidate',reason=debug_reason)
         self.debug_event('cancel',reason=debug_reason,cancelled=True)
         self._visible_previous=False
-        self._lcu_pixel_fallback=False;self._lcu_error=''
+        # An OCR/capture worker failure does not make an unavailable optional
+        # API healthy again. Authority changes still revoke its retry scope.
+        if debug_reason!='worker_error':
+            self._lcu_pixel_fallback=False;self._lcu_error='';self.selection_retry.reset()
+        self._selection_capture_state='waiting'
         self.lcu_snapshot.clear()
         self._capture_cancel.set();self.ocr_reuse.clear()
         self.retire_capture_session()
@@ -1179,6 +1199,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.hero_continuity.clear()
         self.clear_partial_candidates()
         self.lcu_snapshot.clear();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
+        self.selection_retry.reset();self._selection_capture_state='waiting'
         self.debug_event('cancel',reason='stop',cancelled=True)
         self._visible_previous=False
         self.retire_capture_session()
@@ -1222,6 +1243,7 @@ class ControlWindow(QtWidgets.QWidget):
     def expire_client_display(self):
         self.clear_partial_candidates()
         self.debug_event('expiry',reason='ttl_client',ttl_ms=4000)
+        if self._selection_capture_state in ('recognized','unrecognized'):self._selection_capture_state='invalid_result'
         # The older selection is no longer displayable. Do not cancel or change
         # the generation of a newer same-authority inference solely for age.
         # Permission/focus/geometry/Stop still follow the hard invalidation path.
@@ -1323,6 +1345,7 @@ class ControlWindow(QtWidgets.QWidget):
     def queue_latest_capture(self,now,rect):
         """Acquire at most one latest frame while OCR is busy; never recognize it here."""
         if (not self.ocr_busy or self.capture_pending or self.client_phase()
+                or getattr(self.overlay,'_capture_retirement_pending',False)
                 or not self.enable_visible_capture or not self.overlay.click_through
                 or not getattr(self.capture,'has_live_visible_session',False)
                 or now-self._prefetch_last_attempt<.75 or self.latest_capture.busy):return
@@ -1362,7 +1385,7 @@ class ControlWindow(QtWidgets.QWidget):
         if not self.target:self.debug_selection_gate();self.schedule_capture(400);return
         if not self.capture.foreground(self.target):self.debug_selection_gate(False);self.schedule_capture(400);return
         self.debug_selection_gate(True)
-        if self.client_phase() and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and not self._lcu_pixel_fallback:
+        if self.client_phase() and self.lcu_toggle.isChecked() and self.hero_auto.isChecked() and self.selection_retry.ready(time.monotonic()):
             self.capture_selection();return
         mode=getattr(self.capture,'visible_capture_status','unknown')
         self.debug_log.sample('capture',generation=self.state.generation,capture_mode=mode)
@@ -1429,6 +1452,7 @@ class ControlWindow(QtWidgets.QWidget):
             self.ocr_started=time.monotonic();self.ocr_timed_out=False;self._restore_while_ocr=False
             self._visible_previous=bool(self.overlay.isVisible() and self.client_selection_reference())
             self.overlay.set_rechecking(self._visible_previous)
+            self._selection_capture_state='interface'
             self.status.setText('正在读取本机客户端选人资料…');self.refresh_status_badge()
             def read_selection():
                 from lcu_selection import LocalSelectionReader,LCUUnavailable,UNAVAILABLE_REASONS
@@ -1469,6 +1493,8 @@ class ControlWindow(QtWidgets.QWidget):
             matcher=self.hero_matcher if self.hero_auto.isChecked() else None
             session_generation=self.selection_session.generation if self.selection_session else None
             frame_window=self.target;client_phase=self.client_phase()
+            if client_phase:
+                self._selection_capture_state='capturing';self.refresh_status_badge()
             if client_phase and self.selection_detector is None:
                 from champion_select import ChampionSelectDetector
                 aliases={}
@@ -1563,6 +1589,11 @@ class ControlWindow(QtWidgets.QWidget):
                     raise CapturePaused('监测已结束。')
                 proof={'_identityMapping':tuple(sorted(source_heroes.items())),'_capturedAt':captured_at,'_sessionGeneration':session_generation,'_windowIdentity':frame_window.identity,'_captureRect':rect,'_captureSerial':serial,
                     '_frameScope':(frame_window.identity,expected_metadata,rect,roi,vocabulary,source_key,matcher_key)}
+                if client_phase:
+                    # A separate receipt distinguishes pixel acquisition from
+                    # later OCR failure without storing or exposing the frame.
+                    with self._worker_lock:
+                        if not self.closed and not self._cancel_workers.is_set():self.signals.result.emit('selection-capture',dict(proof),generation)
                 title_snapshot=[]
                 def emit_phase():
                     with self._worker_lock:
@@ -1662,7 +1693,10 @@ class ControlWindow(QtWidgets.QWidget):
             if self.state.reason!=str(exc):self.invalidate_scene(str(exc),debug_reason='target_unavailable')
             self.status.setText(str(exc));self.overlay.hide('target_unavailable');self.schedule_capture(1000)
         except Exception as exc:
-            self.ocr_busy=False;self.capture_pending=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc));self.status.setText(self.state.reason);self.overlay.hide('target_unavailable');self.schedule_capture(1000)
+            client_failure=self.client_phase()
+            self.ocr_busy=False;self.capture_pending=False;self.invalidate_scene('截图或识别初始化失败：'+str(exc),debug_reason='worker_error')
+            if client_failure:self._selection_capture_state='capture_failed'
+            self.status.setText(self.state.reason);self.overlay.hide('target_unavailable');self.schedule_capture(1000)
     def remember_accepted_partial_frame(self,value):
         """Snapshot final, independently confirmed fixed-slot display authority."""
         names=self.current_partial_names();hero=value.get('hero_observation',{})
@@ -1944,17 +1978,35 @@ class ControlWindow(QtWidgets.QWidget):
                 self.overlay.set_rechecking(self._restore_while_ocr)
                 if not self._restore_while_ocr:self.overlay.hide('capture_proof')
                 self.check_target()
+            elif kind=='selection-capture':
+                if (not self.state.running or generation!=self.state.generation or not self.selection_session
+                        or value.get('_captureSerial')!=self._capture_serial or not self.ocr_busy
+                        or value.get('_sessionGeneration')!=self.selection_session.generation):return
+                if self.captured_frame_current(value):self._selection_capture_state='captured'
             elif kind=='selection':
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
                 self._visible_previous=False
                 self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
                 if not self.state.running or generation!=self.state.generation or not self.selection_session:return
+                session_generation=value.get('_sessionGeneration');captured_at=value.get('_capturedAt');now=time.monotonic()
+                # Old jobs cannot revoke a newer selection. Once this request
+                # owns the current session and window, invalid time is failed
+                # evidence and must hide the previous assignment immediately.
+                if session_generation!=self.selection_session.generation:return
                 if not self.captured_frame_current(value):return
                 if not self.target_allowed() or tuple(value.get('_windowIdentity',()))!=self.target.identity:
                     self.selection_session.clear('Client permission changed during inference');self.invalidate_scene('客户端身份变化，旧选人资料已清空');return
+                if not self.selection_session._fresh(captured_at,now):
+                    self.selection_session.clear('Client observation expired or invalid');self.lcu_snapshot.clear()
+                    self.expire_client_display();self._selection_capture_state='invalid_result'
+                    self.state.reason='选人观察时间无效或已过期，旧资料已隐藏；等待新画面复核。'
+                    self.status.setText(self.state.reason);return
+                # A fresh duplicate cannot count again or change the source.
+                if captured_at<=self.selection_session.last_event_frame:return
                 if value.get('_lcuUnavailable'):
                     from lcu_selection import unavailable_reason
                     self._lcu_pixel_fallback=True;self._lcu_error=value['_lcuUnavailable']
+                    self.selection_retry.failed(time.monotonic());self._selection_capture_state='interface_failed'
                     self.lcu_snapshot.clear()
                     if self.last_selection_source and self.last_selection_source[0]=='lcu-read-only':
                         self.selection_session.clear('Local client unavailable; require fresh pixel evidence')
@@ -1964,17 +2016,19 @@ class ControlWindow(QtWidgets.QWidget):
                         self.overlay.hide('selection_changed')
                     self.hero_status.setText(unavailable_reason(self._lcu_error)+'；正在尝试截图识别。')
                     self.status.setText(self.hero_status.text());return
-                self._lcu_pixel_fallback=False
-                if value.get('method')=='lcu-read-only':self._lcu_error=''
+                if value.get('method')=='lcu-read-only':
+                    self._lcu_pixel_fallback=False;self._lcu_error='';self.selection_retry.reset();self._selection_capture_state='interface'
                 self.clear_partial_candidates()
                 self.hero_continuity.clear()
                 now=time.monotonic()
                 selection_source=(value.get('method'),value.get('_lcuInstance'))
                 if self.last_selection_source is not None and selection_source!=self.last_selection_source:
                     self.selection_session.clear('Selection source/session changed')
+                    session_generation=self.selection_session.generation
                 self.last_selection_source=selection_source
                 self.lcu_snapshot.observe(value,self.target.identity,value.get('_capturedAt',now-5),now)
-                stable=self.selection_session.observe_client(value,self.target.identity,value.get('_capturedAt'),now,generation=value.get('_sessionGeneration'))
+                stable=self.selection_session.observe_client(value,self.target.identity,captured_at,now,generation=session_generation)
+                if value.get('method')!='lcu-read-only':self._selection_capture_state='recognized' if stable else 'unrecognized'
                 self.state.confirmed=False;self.state.offered=()
                 hero=next((name for name,row in self.data['heroes'].items() if self.selection_session.assigned and str(row.get('championId'))==self.selection_session.assigned),'')
                 if self.hero_auto.isChecked():
@@ -2156,10 +2210,14 @@ class ControlWindow(QtWidgets.QWidget):
                 self.discovery_busy=False;self.pause_window_discovery()
             return
         if kind in ('ocr','selection'):
+            selection_failure=('interface_failed' if self._selection_capture_state=='interface' else 'recognition_failed' if self._selection_capture_state=='captured' else 'capture_failed') if kind=='selection' else None
             self._visible_previous=False
             self.ocr_busy=False;self.capture_pending=False;self._restore_while_ocr=False;self.overlay.set_rechecking(False)
             if kind=='selection' and self.selection_session:self.selection_session.clear('Client recognition failure')
             if generation==self.state.generation:self.invalidate_scene('识别失败：'+error,debug_reason='worker_error');self.overlay.hide('target_unavailable');self.status.setText(self.state.reason)
+            if selection_failure:self._selection_capture_state=selection_failure
+            if selection_failure=='interface_failed':
+                self._lcu_pixel_fallback=True;self._lcu_error='local_client_unavailable';self.selection_retry.failed(time.monotonic())
             self.schedule_capture(1000)
         elif kind=='portraits':
             if generation!=self._portraits_attempt or generation==self._portraits_completed_attempt:return

@@ -28,6 +28,20 @@ class LatestCaptureFrame:
     def clear(self):
         with self._condition:
             self._epoch+=1;self._slot=None;self._failure=None
+    def prepare_retirement(self):
+        """GUI-only, nonblocking drain barrier before replacing overlay layout.
+
+        Do not close a session underneath the producer, or discard a failure
+        that the controller has not consumed yet. A false result leaves all
+        evidence intact; the controller's next watchdog pass handles failure
+        before retrying placement. Only an idle, successful producer can lose
+        its now-obsolete buffered frame. No capture or display authority is
+        created here.
+        """
+        with self._condition:
+            if self._busy or self._failure is not None:return False
+            self._epoch+=1;self._slot=None
+            return True
     def close(self):
         with self._condition:
             self._closed=True;self._epoch+=1;self._slot=None;self._failure=None

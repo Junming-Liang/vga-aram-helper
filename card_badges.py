@@ -237,6 +237,7 @@ class BadgeOverlayMixin:
         self.overlay_debug(phase='rechecking',visible=self.isVisible(),rechecking=value,reason='title_recheck')
     def clear_candidate_geometry(self):
         if self.cards:self.hide('card_geometry_missing')
+        self._capture_retirement_pending=False
         self._badge_anchors=None;self._placed_key=None
     def set_candidate_geometry(self,candidates,image_size,roi,card_geometry):
         anchors=accepted_anchors(candidates,image_size,roi,card_geometry)
@@ -325,7 +326,9 @@ class BadgeOverlayMixin:
         try:
             anchors=self._badge_anchors
             slots=[card['slot']-1 for card in self.cards if not card.get('pending') and anchors is not None and anchors.names[card['slot']-1]==card['name']]
-            if not slots:self.hide('card_geometry_missing');return
+            if not slots:
+                self._capture_retirement_pending=False
+                self.hide('card_geometry_missing');return
             # Only the names with actual native regions affect placement.
             # An invisible unknown slot has no name/grade/capture exemption.
             anchors=BadgeAnchors(tuple(name if i in slots else None for i,name in enumerate(anchors.names)),anchors.rects)
@@ -339,10 +342,11 @@ class BadgeOverlayMixin:
                 if self._placed_key==key:
                     self.show();self.configure();self._ensure_badge_bounds(self._badge_bounds);native_region(hwnd,self._badge_regions,verify_only=True)
                     if self.capture:self._verify_rect(rect)
-                    if float(self.windowHandle().devicePixelRatio())==dpr:return
+                    if float(self.windowHandle().devicePixelRatio())==dpr:
+                        self._capture_retirement_pending=False
+                        return
             self.hide('layout')
-            retire=getattr(self.capture,'retire_session',None)
-            if retire:retire()
+            if not self.retire_capture_session():return
             if self.capture:
                 if not self.capture.u.SetWindowPos(hwnd,W.HWND(-1),rect.x+rect.width//2,rect.y+rect.height//2,0,0,0x0001|0x0010):
                     raise CaptureUnavailable('无法定位评级所属显示器。')
