@@ -1,3 +1,9 @@
+# v0.4.18 published validation (2026-10-23)
+
+[Complete Windows publication run](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39891745106) passed on source `92b0db677f4e3e9f955bf0d0e272509f7565b858`. Both full Python rounds, official/custom image-library comparison, source and frozen capture, three-scale native overlays and selection handoff, and same-binary OTA success/rollback passed. Release version, source licenses and exact assets passed final verification.
+
+The published EXE is 107,140,125 bytes, SHA-256 `0b2b5be57434bdcb25e1c2d6f8fef5ff04d955421a4bf6db31c5336edc67a235`. Fresh Linux public still-image evaluations record hero positives 2/3 with one abstention, negatives 3/3 abstained; selection positive 1/1, negatives 3/3 abstained. These are limited controlled/still-image observations, not actual LoL/Vanguard or user-session verification. [Release](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18). Earlier records below are historical.
+
 # v0.4.16 selection-routing recovery candidate (2026-10-18 UTC)
 
 Local candidate preparation only: no v0.4.16 Windows EXE, final candidate commit,

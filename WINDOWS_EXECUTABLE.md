@@ -1,6 +1,12 @@
 # Windows 便携版
 
-## 下载与发布状态
+## 当前下载：v0.4.18
+
+[v0.4.18 预发布版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18)已于 2026-10-23 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/vga-aram-helper-0.4.18-windows-x64.exe)，核对[同版 SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/SHA256SUMS.txt)。
+
+[完整 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39891745106)通过；发布源码 `92b0db677f4e3e9f955bf0d0e272509f7565b858`。EXE 为 **107,140,125 字节**，SHA-256 `0b2b5be57434bdcb25e1c2d6f8fef5ff04d955421a4bf6db31c5336edc67a235`。保持非 latest 预发布，需手动下载；真实对局仍待验证。以下旧版身份信息保留作历史记录。
+
+## v0.4.11 历史发布身份
 
 [v0.4.11 预览版](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11) 已于 2026-10-17 发布。[下载 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/vga-aram-helper-0.4.11-windows-x64.exe)，并核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.11/SHA256SUMS.txt)。
 
@@ -18,7 +24,7 @@
 
 Windows 便携版的目标平台为 Windows 10/11 x64。单文件 EXE 包含 Python 运行时、QtWidgets 原生界面、RapidOCR、ONNX Runtime 和本地模型，无需另装 Python 或配置 API key。
 
-**Windows 便携版目前以预览版提供，尚非稳定正式版。** 当前下载 [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11)，并核对同版 SHA-256；构建结果见 [Windows 完整发布运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768)。
+**Windows 便携版目前以预览版提供，尚非稳定正式版。** 历史下载 [v0.4.11](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.11)，并核对同版 SHA-256；构建结果见 [Windows 完整发布运行](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39025025768)。
 
 ## 运行
 

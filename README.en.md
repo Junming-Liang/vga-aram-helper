@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI: latest manual build and tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.16-0891b2" alt="Source version v0.4.16"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.16 preview"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.18-0891b2" alt="Source version v0.4.18"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.18 preview"></a>
 </p>
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
@@ -22,7 +22,7 @@
 
 VGA ARAM Helper (VGA乱斗助手) is an open-source Windows helper for **League of Legends (LoL) ARAM: Mayhem**, known in Chinese as **英雄联盟海克斯大乱斗**. Its native control panel and game overlay provide champion-specific augment tiers, effects, and condition notes for three-choice augment selections.
 
-The [v0.4.16 diagnostic preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) is published and has passed complete Windows validation. It is a non-latest prerelease; the user’s field symptoms are not yet all confirmed resolved. Release evidence and limits are recorded below.
+The [v0.4.18 diagnostic preview](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18) is published and has passed complete Windows validation. It is a non-latest prerelease; the user’s field symptoms are not yet all confirmed resolved. Release evidence and limits are recorded below.
 
 The own-HUD portrait and three card titles are detected locally; stable high-confidence observations automatically display reference cards. Uncertainty keeps manual correction available.
 
@@ -41,14 +41,14 @@ Champion-select handoff: when a client is detected, click “开启本机选人�
 
 ### Windows
 
-1. Download the [v0.4.16 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.16/vga-aram-helper-0.4.16-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.16/SHA256SUMS.txt).
+1. Download the [v0.4.18 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/vga-aram-helper-0.4.18-windows-x64.exe) and verify the matching [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/SHA256SUMS.txt).
 2. Place the EXE in a writable folder and double-click it.
 3. Keep automatic League discovery selected and click Start. The control window stays visible by default and waits for or follows your client/game without selecting a window. The first launch prepares about 5 MB of public portrait templates.
 4. To use the selection API, click “开启本机选人识别” in the dashboard after client detection. Consent lasts for this launch only and is off again after restart.
 
-The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.16) includes test evidence and corresponding source.
+The single-file EXE includes QtWidgets, the OCR runtime, and models. See the [Windows guide](WINDOWS_EXECUTABLE.md) for setup and [License](#license) below for applicable terms. The [Release page](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18) includes test evidence and corresponding source.
 
-v0.4.16 is a diagnostic preview and is not marked latest. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
+v0.4.18 is a diagnostic preview and is not marked latest. Download previews manually and verify the same-release manifest and SHA-256; stable OTA excludes prereleases. See [UPDATES.md](UPDATES.md).
 
 ### Run from source
 
@@ -60,6 +60,10 @@ python launcher.py
 ```
 
 `python launcher.py --demo` loads synthetic demonstration data. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and test commands.
+
+## v0.4.18: selection capture and overlay stability, published
+
+Fixes discarded first selection observations, repeated unavailable selection-API waits, and overlay layout retirement interrupting active capture. Explicit status reports actual screenshot receipts. [Complete Windows publication validation](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39891745106) passed both full test rounds, three-scale source/frozen capture, overlay and selection handoff, plus same-binary update and rollback. This remains a non-latest prerelease; actual gameplay acceptance is pending.
 
 ## v0.4.16: selection routing and regression recovery diagnostic preview, published
 

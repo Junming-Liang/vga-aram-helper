@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml"><img src="https://github.com/Junming-Liang/vga-aram-helper/actions/workflows/build-native-preview.yml/badge.svg?branch=main&amp;event=workflow_dispatch" alt="Windows CI：最近一次手动构建与测试"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="License: MIT"></a>
-  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.17-0891b2" alt="源码版本 v0.4.17"></a>
-  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.17"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.17 诊断预览版"></a>
+  <a href="app_version.py"><img src="https://img.shields.io/badge/source-v0.4.18-0891b2" alt="源码版本 v0.4.18"></a>
+  <a href="https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18"><img src="https://img.shields.io/badge/status-preview-d97706" alt="v0.4.18 诊断预览版"></a>
 </p>
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -26,7 +26,7 @@ VGA ARAM Helper is not endorsed by Riot Games and does not reflect the views or 
 
 VGA乱斗助手是一款面向《英雄联盟》（League of Legends / LoL）海克斯大乱斗（ARAM: Mayhem）的开源 Windows 辅助工具。通过原生控制面板与游戏叠加层，为海克斯强化符文三选一提供英雄专属评级、机制说明与条件提醒。
 
-v0.4.17 捕获调度诊断预览版已于 2026-10-20 发布，[完整 Windows 运行 #89](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39367919853) 通过。
+v0.4.18 选人连续识别与叠加稳定性预览版已于 2026-10-23 发布，[完整 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39891745106) 通过。
 
 该版保持非 latest 预发布，需手动下载；受控验收不代表用户实战问题已全部解决。下方记录本版验收证据，历史候选设计与边界见[捕获调度说明](CAPTURE_PIPELINE_CANDIDATE.md)。
 
@@ -47,14 +47,14 @@ v0.4.17 捕获调度诊断预览版已于 2026-10-20 发布，[完整 Windows �
 
 ### Windows
 
-1. 下载 [v0.4.17 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.17/vga-aram-helper-0.4.17-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.17/SHA256SUMS.txt)。
+1. 下载 [v0.4.18 Windows x64 EXE](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/vga-aram-helper-0.4.18-windows-x64.exe)，核对同版 [SHA-256](https://github.com/Junming-Liang/vga-aram-helper/releases/download/v0.4.18/SHA256SUMS.txt)。
 2. 将 EXE 放入有写入权限的文件夹，双击启动。
 3. 保持默认“自动识别英雄联盟”，点击“开始本局监测”。默认保持控制台可见，自动等待或接续客户端/游戏，无需选择窗口。首次启动会准备约 5 MB 的公开头像缓存。
 4. 如需选人接口识别，在检测到客户端后点击主界面“开启本机选人识别”。该授权仅本次启动有效，重启后仍默认关闭。
 
-单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[v0.4.17 Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.17)提供测试证据和对应源码。
+单文件 EXE 已集成 QtWidgets、OCR 运行时与模型。安装说明见 [Windows 指南](WINDOWS_EXECUTABLE.md)，许可与使用条款见下方[许可](#许可)。[v0.4.18 Release 页面](https://github.com/Junming-Liang/vga-aram-helper/releases/tag/v0.4.18)提供测试证据和对应源码。
 
-v0.4.17 为非 latest 诊断预览版。预览版需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
+v0.4.18 为非 latest 诊断预览版。预览版需手动下载，稳定 OTA 不自动发现。请核对同版清单与 SHA-256；机制见 [UPDATES.md](UPDATES.md)。
 
 ### 从源码运行
 
@@ -66,6 +66,12 @@ python launcher.py
 ```
 
 `python launcher.py --demo` 可载入合成演示数据。开发配置和测试命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## v0.4.18：选人连续识别与叠加稳定性（已发布）
+
+修复选人识别切换来源时丢掉首张有效画面、接口失败反复打断截图，以及海克斯重排关闭在途截图会话导致推荐撤销的问题。增加实际截图状态提示；当前失效回执清空旧资料，原四秒期限和两帧确认保留。截图模式提供本人英雄评级；队伍和备选席资料仍需主动开启本机接口。
+
+[完整 Windows 发布验证](https://github.com/Junming-Liang/vga-aram-helper/actions/runs/39891745106)全部通过，包含两轮完整回归、源码与同一 EXE 的三档截图/叠加/选人切换及同文件更新成功和回滚测试。源码 `92b0db677f4e3e9f955bf0d0e272509f7565b858`；EXE 为 **107,140,125 字节**，SHA-256 为 `0b2b5be57434bdcb25e1c2d6f8fef5ff04d955421a4bf6db31c5336edc67a235`。受控窗口验收不等同于真实 LoL/Vanguard 或用户现场验收。
 
 ## v0.4.17：捕获调度诊断预览版（已发布）
 
