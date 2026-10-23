@@ -7,18 +7,18 @@ on:
   workflow_dispatch:
     inputs:
       stage_preview:
-        description: 'Build and test v0.4.17, then stage a verified private draft without publishing'
+        description: 'Build and test v0.4.18, then stage a verified private draft without publishing'
         type: boolean
         default: false
       publish_preview:
-        description: 'Build, test and publish v0.4.17 as a capture pipeline DIAGNOSTIC prerelease'
+        description: 'Build, test and publish v0.4.18 as a capture pipeline DIAGNOSTIC prerelease'
         type: boolean
         default: false
 
 permissions: {}
 
 concurrency:
-  group: vga-native-preview-v0.4.17
+  group: vga-native-preview-v0.4.18
   cancel-in-progress: false
 
 jobs:

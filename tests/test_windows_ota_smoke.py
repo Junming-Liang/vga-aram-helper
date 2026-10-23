@@ -32,7 +32,7 @@ class WindowsOtaHarnessTests(unittest.TestCase):
         self.assertEqual(inspect.signature(smoke.NativeJob.close_application).parameters['title'].default, smoke.CONTROL_TITLE)
 
     def test_control_title_rejects_unknown_and_noncanonical_versions(self):
-        for version in ('', '0.3', 'v0.4.7', '0.4.07', '0.4.7-rc1', '0.4.18', '99.0.0', None, True):
+        for version in ('', '0.3', 'v0.4.7', '0.4.07', '0.4.7-rc1', '0.4.19', '99.0.0', None, True):
             with self.subTest(version=version), self.assertRaises(AssertionError):
                 smoke.control_title_for_version(version)
 

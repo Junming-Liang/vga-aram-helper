@@ -1396,7 +1396,7 @@ class ReleaseFixture(unittest.TestCase):
 
     def test_publish_does_not_accept_a_historical_or_future_version(self):
         result = self.verify()
-        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.18'):
+        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.17', '0.4.19'):
             wrong = copy.deepcopy(result)
             wrong.update(version=version, tag='v' + version)
             for asset in wrong['assets']:
@@ -1583,7 +1583,7 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
     def test_current_publication_rejects_historical_or_future_receipt_version(self):
         gate.check_preview_identity(self.receipt(VERSION), current_provenance())
-        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.18'):
+        for version in ('0.4.14', '0.4.15', '0.4.16', '0.4.17', '0.4.19'):
             with self.subTest(version=version), self.assertRaises(gate.VerificationError):
                 gate.check_preview_identity(self.receipt(version), current_provenance())
 
