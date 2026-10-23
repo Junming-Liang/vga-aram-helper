@@ -25,7 +25,7 @@ from scripts.minimal_opencv_package import validate_build_profile, verify_custom
 from scripts.check_package_candidate import validate_evidence as validate_package_evidence
 
 REPOSITORY = 'Junming-Liang/vga-aram-helper'
-PREVIEW_VERSION = '0.4.17'
+PREVIEW_VERSION = '0.4.18'
 PREVIEW_WORKFLOW = '.github/workflows/build-native-preview.yml'
 NATIVE_AUTOMATION_FIELDS = ('automatic_hero_passed', 'automatic_choices_passed', 'auto_without_manual_hero_selection', 'auto_unknown_clears_passed', 'auto_hero_change_clears_passed', 'auto_manual_fallback_passed', 'own_overlay_hidden_capture_passed', 'unchanged_frame_ocr_reuse_passed', 'partial_candidate_slots_passed', 'partial_to_full_recovery_passed', 'async_capture_ui_passed')
 NATIVE_REQUIRED_FIELDS = ('native_window', 'window_closed', 'capture_passed', 'ocr_passed', 'click_through_passed',
@@ -1201,6 +1201,7 @@ def verify(release_dir, evidence_dir, repository, source_sha, output_dir, run_id
     (output_dir / 'verified-release.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     notes = (f'VGA capture-pipeline recovery DIAGNOSTIC PREVIEW {version} / 诊断测试版 (pre-release).\n\n'
              '诊断测试版默认开启可关闭的本地日志：有界日志文件合计最多 768 KiB，导出只替换同一个本地 ZIP，不自动上传。仅记录白名单诊断信息及已匹配的目录英雄/强化名称，不含截图、原始 OCR、玩家账号、凭据或私有路径。v0.4.14 已发布后，用户再次报告闪烁和初始识别失败；未取得该次诊断 ZIP，实际安装版本、发生阶段与具体原因尚不能确认，完整实战验收仍未完成。\n\n'
+             'v0.4.18 修正选人从未知画面切换到有效英雄时丢失首帧的问题；本机选人接口失败后按 5/10/20/30 秒退避，期间继续截图。新增实际截图回执状态。海克斯重新布局先等待在途截图结束，避免关闭会话后撤销刚显示的推荐；身份查询与 OCR 并行，位置不变时保留叠加。当前任务时间无效立即清空资料，旧任务不能影响新结果，四秒期限和两帧确认保留。截图模式提供本人评级，队友/备选席资料仍需主动开启本机接口。真实对局及黄色边框缺失的现场原因仍待验证。\n\n'
              'v0.4.17 修正受控复现的慢识别与会话反复关闭链路：模型在首帧截图前准备；已有授权的可见叠加会话在 OCR 忙时使用单任务、单槽的最新帧采集；推荐隐藏不再因 WS_VISIBLE 展示位变化关闭同一会话；正常过期的同范围结果只清理展示和确认计数，不关闭仍健康的采集会话。缓存消费前后重新检查原始时间与范围，四秒显示期限、前台和遮挡、进程身份、取消和停止清理均保留。新增同窗口隐藏/显示、同辅助进程及像素验证，真实 Qt/OCR 慢任务与旧帧拒绝回归；Windows 自有夹具并不等于用户实战或反作弊兼容性验收，不能确定用户所见黄框的现场原因。详见 CAPTURE_PIPELINE_CANDIDATE.md。\n\n'
              'v0.4.16 修正两个受控复现的选人路由缺陷：前台客户端不再被后台或最小化游戏抢占；手动指定客户端时，进程元数据和窗口类决定选人角色，不再依赖自动接续开关，关闭接续仍走选人识别且不授权切换窗口。前台与可用性仅选择角色，全部同角色和安装目录歧义证据保留；接纳、目录确认和采集许可使用新鲜快照重新核对身份。快照查询失败立即撤销旧显示证据，有效查询可安全恢复；固定 query_failed / window_unavailable 原因码不含私有载荷。未扩大标题匹配、窗口类、渲染子进程或 LCU 同意范围，未引入虎牙专有代码。这些复现尚不能确定用户现场原因；详见 WINDOW_ROUTING_RECOVERY.md。\n\n'
              '未发布的 v0.4.15 修复一并保留。历史 Windows Run 81 已构建并通过运行时门禁，但匿名制品预算 API 返回 HTTP 403，最终校验和发布未执行；该运行不能替代本版最终验证。预算查询现在仅在固定只读库存端点使用已有工作流令牌并拒绝重定向，500,000,000 字节预算、10,000,000 字节保留量和未知库存阻断不变。Run 80 的间歇性辅助程序失败原因仍未知，后续切换诊断通过不能证明现场问题已修复。\n\n'

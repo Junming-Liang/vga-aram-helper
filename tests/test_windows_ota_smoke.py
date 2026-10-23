@@ -26,7 +26,7 @@ class WindowsOtaHarnessTests(unittest.TestCase):
             self.assertEqual(smoke.control_title_for_version(version), smoke.CONTROL_TITLE)
         self.assertEqual(smoke.control_title_for_version('0.4.7'), 'VGA乱斗助手')
         self.assertEqual(smoke.control_title_for_version('0.4.8'), 'VGA乱斗助手')
-        for version in ('0.4.9', '0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14', '0.4.15', '0.4.16', '0.4.17'):
+        for version in ('0.4.9', '0.4.10', '0.4.11', '0.4.12', '0.4.13', '0.4.14', '0.4.15', '0.4.16', '0.4.17', '0.4.18'):
             self.assertEqual(smoke.control_title_for_version(version), 'VGA乱斗助手')
         self.assertEqual(inspect.signature(smoke.NativeJob.windows).parameters['title'].default, smoke.CONTROL_TITLE)
         self.assertEqual(inspect.signature(smoke.NativeJob.close_application).parameters['title'].default, smoke.CONTROL_TITLE)

@@ -1603,7 +1603,7 @@ class PreviewVersionIdentityTests(unittest.TestCase):
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_diagnostic_release_version_and_workflow_are_consistent(self):
-        self.assertEqual(VERSION, '0.4.17')
+        self.assertEqual(VERSION, '0.4.18')
         self.assertEqual(gate.PREVIEW_VERSION, VERSION)
         text = (ROOT / gate.PREVIEW_WORKFLOW).read_text(encoding='utf-8')
         self.assertIn(f'publish v{VERSION}', text)
