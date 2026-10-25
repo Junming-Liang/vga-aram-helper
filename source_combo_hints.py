@@ -1,6 +1,7 @@
 """Short source-template hints, never a next-pick model or inferred ranking."""
 from __future__ import annotations
 import re
+from patch_catalog import ratings_available, active_augment, NEW_NAMES
 
 _ID = re.compile(r'[0-9]{1,12}\Z')
 
@@ -52,14 +53,14 @@ def source_combo_hint(data, hero, augment):
     No selected-augment history is accepted or assumed. No equipment inference.
     """
     meta = data.get('metadata', {})
-    if meta.get('isDemo') or meta.get('officialHeroStatistics') is not True:
+    if not isinstance(meta, dict) or meta.get('isDemo') or not ratings_available(data, hero):
         return None
     heroes, augments = data.get('heroes', {}), data.get('augments', {})
-    h, a = heroes.get(hero), augments.get(augment)
+    h, a = heroes.get(hero), active_augment(data, augment)
     if not isinstance(h, dict) or not isinstance(a, dict):
         return None
     hid, aid = _id(h.get('championId')), _id(a.get('augmentId'))
-    if not hid or not aid or a.get('isDeleted') is True:
+    if not hid or not aid or a.get('isDeleted') is True or augment in NEW_NAMES:
         return None
     if sum(isinstance(x, dict) and x.get('championId') == hid for x in heroes.values()) != 1:
         return None
@@ -80,7 +81,7 @@ def source_combo_hint(data, hero, augment):
         partners = [names[x] for x in ids if x != aid]
         if any(not isinstance(x, str) or not 1 <= len(x) <= 24 or
                any(ord(c) < 32 or c in '<>\u2028\u2029' for c in x) or
-               augments[x].get('isDeleted') is True for x in partners):
+               active_augment(data, x) is None or x in NEW_NAMES for x in partners):
             continue
         # Do not truncate names into misleading partial labels.
         text = '搭配：' + '、'.join(partners)

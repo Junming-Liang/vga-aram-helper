@@ -17,6 +17,31 @@ import os
 import subprocess
 import threading
 
+# Internal lossless transport, not a stored/exported screenshot. The recognizers
+# already cap complete-frame inputs at 16 MiB. Do not make an image which fitted
+# under that bound in the old encoder fail only because faster PNG is larger.
+_FAST_CAPTURE_PNG_LIMIT = 16 * 1024 * 1024
+
+
+def encode_capture_png(image):
+    """Keep exact pixels while avoiding full-frame default PNG compression.
+
+    Compression is only an in-memory transport cost. Level 1 retains every
+    pixel and deterministic encoding for the exact-frame cache. If its output
+    exceeds the existing consumer bound, use the original level 6 instead.
+    The caller still rechecks cancellation after serialization and retains the
+    original capture timestamp; this never grants freshness or display rights.
+    """
+    out = io.BytesIO()
+    image.save(out, format='PNG', compress_level=1)
+    if out.tell() <= _FAST_CAPTURE_PNG_LIMIT:
+        return out.getvalue()
+    out.seek(0)
+    out.truncate()
+    image.save(out, format='PNG', compress_level=6)
+    return out.getvalue()
+
+
 # Fixed diagnostic vocabulary only. These fields never participate in routing.
 CAPTURE_DIAGNOSTIC_ENUMS = {
     'capture_status': frozenset(('ok','pending','unknown','missing-helper','unsupported',
@@ -435,7 +460,7 @@ class Win32Capture:
                 if image.size!=(width,height):raise CapturePaused('系统截图区域校验失败，已丢弃本帧。')
                 if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。',reason_code='blank_frame')
                 self.last_backend='windows-graphics-capture-session';self._blank_frames=(None,0)
-                out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+                return encode_capture_png(image),rect
             if allow_visible_overlay:
                 raise CapturePaused('可见叠加捕获未返回画面，已跳过本帧。')
             status=getattr(adapter,'compatibility_status','unknown')
@@ -456,7 +481,7 @@ class Win32Capture:
                 if blank_image(image):raise CapturePaused('图形画面为空或受保护；已跳过本帧，稍后自动重试。',reason_code='blank_frame')
                 self._capture_diagnose(oneshot_status='used')
                 self.last_backend='windows-graphics-capture';self._blank_frames=(None,0)
-                out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+                return encode_capture_png(image),rect
             except WgcUnavailable as exc:
                 self._wgc=None # Unsupported API only; exact GDI bounds remain below.
                 self._wgc_unavailable_status=exc.status
@@ -494,7 +519,7 @@ class Win32Capture:
             raise CapturePaused('游戏画面持续为空；仍会重试，独占全屏可尝试无边框模式。' if count>=5 else '等待游戏画面；当前帧为空白，稍后自动重试。',reason_code='blank_frame')
         self._blank_frames=(None,0)
         if is_cancelled():raise CapturePaused('截图已取消。')
-        out=io.BytesIO();image.save(out,format='PNG');return out.getvalue(),rect
+        return encode_capture_png(image),rect
     def _owned_overlay(self,hwnd):
         pid=W.DWORD()
         if (not self.u.IsWindow(hwnd) or int(self.u.GetAncestor(hwnd,2) or 0)!=hwnd

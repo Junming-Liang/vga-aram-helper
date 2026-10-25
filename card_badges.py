@@ -227,6 +227,7 @@ class BadgeOverlayMixin:
     """Controller-compatible badge renderer; legacy hero reference stays separate."""
     def _init_badges(self):
         self._titles_pending=False;self._badge_anchors=None;self._badge_regions=();self._badge_widgets=[TierBadge(self) for _ in range(3)]
+        self._expired_badge_placement=None
         for badge in self._badge_widgets:badge.hide()
     def set_title_checking(self,value):
         value=bool(value)
@@ -235,9 +236,21 @@ class BadgeOverlayMixin:
         self._refresh_badges()
         self.heading.setText('候选复核中' if value else self._previous_heading if self._rechecking else self._compact_heading if self._compact else self._full_heading)
         self.overlay_debug(phase='rechecking',visible=self.isVisible(),rechecking=value,reason='title_recheck')
-    def clear_candidate_geometry(self):
+    def clear_candidate_geometry(self,*,preserve_placement=False):
         if self.cards:self.hide('card_geometry_missing')
         self._capture_retirement_pending=False
+        # TTL expiry revokes every candidate anchor and display proof, but does
+        # not physically change our hidden HWND's mask. Retain only that exact
+        # installed layout for possible requalification by NEW accepted data.
+        # All other invalidations discard it; it can never display by itself.
+        if preserve_placement:
+            hwnd=int(self.winId())
+            if self._placed_key is not None:self._expired_badge_placement=(hwnd,self._placed_key)
+            elif self._expired_badge_placement is not None and self._expired_badge_placement[0]!=hwnd:
+                self._expired_badge_placement=None
+            # Repeated soft expiry (watchdog, then an old worker callback)
+            # must not destroy an unchanged installed-layout hint.
+        else:self._expired_badge_placement=None
         self._badge_anchors=None;self._placed_key=None
     def set_candidate_geometry(self,candidates,image_size,roi,card_geometry):
         anchors=accepted_anchors(candidates,image_size,roi,card_geometry)
@@ -301,6 +314,7 @@ class BadgeOverlayMixin:
             else:badge.set_title_checking(slot)
     def _leave_badges(self):
         self.hide('reference_changed')
+        self._expired_badge_placement=None
         for badge in self._badge_widgets:badge.hide()
         self.clearMask();clear_native_region(int(self.winId()));self._badge_regions=();self.panel.show()
     def _refresh_badges(self):
@@ -333,6 +347,17 @@ class BadgeOverlayMixin:
             # An invisible unknown slot has no name/grade/capture exemption.
             anchors=BadgeAnchors(tuple(name if i in slots else None for i,name in enumerate(anchors.names)),anchors.rects)
             hwnd=int(self.winId());dpr=float(self.windowHandle().devicePixelRatio())
+            installed=self._expired_badge_placement
+            if self._placed_key is None and installed is not None and installed[0]==hwnd:
+                saved=installed[1]
+                if saved[:3]==(rect,self._layout_revision,dpr):
+                    bounds,regions=badge_placement(rect,dpr,anchors,slots)
+                    key=(rect,self._layout_revision,dpr,bounds,regions,tuple(slots))
+                    if (saved==key and (bounds,regions)==(self._badge_bounds,self._badge_regions)):
+                        # The fast path below still checks the actual native
+                        # bounds/region, current target rectangle and final DPI.
+                        self._placed_key=saved
+            self._expired_badge_placement=None
             # Only compare cached placement on its original monitor/DPI.
             # A move must first discover the destination DPI below; computing
             # its badge budget with the old monitor's scale can reject it.
@@ -376,4 +401,4 @@ class BadgeOverlayMixin:
                 self.hide('layout');dpr=final_dpr
             raise CaptureUnavailable('评级跨显示器缩放持续变化，等待稳定。')
         except Exception:
-            self._placed_key=None;self.hide('layout_error');raise
+            self._expired_badge_placement=None;self._placed_key=None;self.hide('layout_error');raise

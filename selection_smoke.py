@@ -17,7 +17,10 @@ FOCUS_SINK_TITLE='VGA owned focus sink'
 DEMO_REFERENCE={'hero':DEMO_HERO,'championId':'9001','sourceTier':'T5',
     'sourceTierLabel':'虚构英雄评级（演示）','sourceLabel':'虚构演示 · 不能用于对局',
     'sourceUrl':None,'sourceDataDate':'2026-01-02','sourceVersion':'0.1',
-    'gamePatch':'0.2','wikiDataVersion':'synthetic-selection-v1','isDemo':True}
+    'gamePatch':'0.2','wikiDataVersion':'synthetic-selection-v1','isDemo':True,
+    'ratingStatus':'demo','ratingMessage':'虚构演示，不能用于对局。',
+    'targetGamePatch':'26.21','statisticsPatch':'0.2','statisticsDate':'2026-01-02',
+    'statisticsRegion':'unverified','ratingConfidence':'unverified'}
 _MAX_REPORT_BYTES=64*1024
 _REPORT_REPLACE_ATTEMPTS=11
 _REPORT_REPLACE_SECONDS=.25

@@ -121,11 +121,13 @@ def adapt_official_wiki(raw):
 
 def normalize(raw):
     """Whitelist text fields; discard remote images, executable markup and extras."""
-    raw = adapt_official_wiki(raw)
+    from patch_catalog import apply_official_catalog
+    raw = apply_official_catalog(adapt_official_wiki(raw))
     from source_combo_hints import normalize_source_combos
     source_combos = normalize_source_combos(raw)
     data = {"metadata": deepcopy(raw.get("metadata", {})), "heroes": {}, "augments": {}, "items": {}, "relations": {}, "combinations": [], "heroAugmentStats": {}}
     data['heroSourceCombos'] = source_combos
+    data['retiredAugments'] = deepcopy(raw.get('retiredAugments', {}))
     for kind in ["heroes", "augments", "items"]:
         source = raw.get(kind, {})
         if not isinstance(source, dict):
@@ -139,6 +141,10 @@ def normalize(raw):
                     "isSkillEnhancement": record.get("isSkillEnhancement") is True,
                     "changes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("changes",[]) if isinstance(x,dict)],
                     "bugFixes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("bugFixes",[]) if isinstance(x,dict)]}
+            for field in ('catalogId', 'catalogStatus', 'catalogPatch', 'catalogSourceUrl',
+                          'catalogSourceDate', 'catalogConfidence'):
+                if isinstance(record.get(field), str):
+                    item[field] = plain(record[field])
             if kind == "augments":
                 item.update(rarity=record.get("rarity") if record.get("rarity") in ["gold", "silver", "prismatic"] else "unknown",
                             isDeleted=record.get("isDeleted") is True, limit=names(record.get("limit")))
@@ -199,9 +205,15 @@ def recommend(data, augment_name):
     Duplicate evidence contributes the maximum score, never a sum. Traps stay
     separate and also mark an otherwise recommended item as a conflict.
     """
-    augment = data["augments"].get(augment_name)
+    from patch_catalog import active_augment, statistics_status
+    augment = active_augment(data, augment_name)
     if augment is None:
         raise KeyError(augment_name)
+    if data.get('metadata', {}).get('isDemo') is not True:
+        return {'augment': augment_name, 'recommendations': [], 'warnings': [],
+                'missingItems': [], 'pairWinRate': None,
+                'scoreMeaning': '装备联动的独立版本依据未经核实，不沿用旧版推荐。',
+                'ratingStatus': statistics_status(data)['ratingStatus']}
     recommended, warnings = {}, {}
     missing = set()
     def add(target, link, score, source, warning=False):

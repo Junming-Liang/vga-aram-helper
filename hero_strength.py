@@ -10,6 +10,7 @@ from datetime import date
 import re
 
 from data_updates import WIKI_PAGE
+from patch_catalog import ratings_available, statistics_status
 
 
 # The reviewed champion-level public table uses T1 through T5. Augment-level
@@ -62,7 +63,9 @@ def hero_strength_reference(data, hero, *, champion_id=None):
     is_demo = metadata.get('isDemo') is True
     is_public = (not is_demo and metadata.get('officialHeroStatistics') is True
                  and metadata.get('sourceUrl') == WIKI_PAGE)
-    tier = hero_source_tier(record.get('overallTier')) if is_demo or is_public else None
+    eligibility = statistics_status(data, hero)
+    available = ratings_available(data, hero)
+    tier = hero_source_tier(record.get('overallTier')) if available else None
     source_version = _token(metadata.get('wikiDataVersion'), r'[A-Za-z0-9_.-]{1,64}')
     if source_version in ('.', '..'):
         source_version = None
@@ -71,9 +74,11 @@ def hero_strength_reference(data, hero, *, champion_id=None):
         'championId': canonical_id,
         'sourceTier': tier,
         'sourceTierLabel': ('虚构英雄评级（演示）' if is_demo else
-                            '虎牙公开源英雄评级' if is_public else '英雄评级 · 来源待核对'),
+                            '虎牙公开源英雄评级' if is_public and available else
+                            '英雄评级 · 旧版不适用' if eligibility['ratingStatus'] == 'outdated' else
+                            '英雄评级 · 来源待核对'),
         'sourceLabel': ('虚构演示 · 不能用于对局' if is_demo else
-                        '虎牙公开源资料快照 · 非实时评级 · 非 Riot 评级/批准' if is_public else
+                        '虎牙公开源资料快照 · 非实时评级 · 非 Riot 评级/批准；' + eligibility['ratingMessage'] if is_public else
                         '来源待核对'),
         'sourceUrl': WIKI_PAGE if is_public else None,
         'sourceDataDate': _source_date(metadata.get('sourceDataDate')),
@@ -81,4 +86,5 @@ def hero_strength_reference(data, hero, *, champion_id=None):
         'gamePatch': _token(metadata.get('gamePatch'), r'[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?'),
         'sourceVersion': _token(record.get('sourceVersion'), r'[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?'),
         'isDemo': is_demo,
+        **eligibility,
     }

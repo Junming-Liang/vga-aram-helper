@@ -357,6 +357,10 @@ def _wiki_failure(cache_dir, checked, *, error_code=None, failed_stage=None):
         status = dict(cached['status'], state='cached', checkedAt=checked, usingCached=True,
                       errorCode=error_code, failedStage=failed_stage,
                       message='本次联网更新未完成，继续使用上次已校验的虎牙海斗 wiki 数据；请留意版本与抓取时间。')
+        from patch_catalog import statistics_status
+        applicability = statistics_status({'metadata': dict(cached['data'].get('metadata', {}), officialHeroStatistics=True)})
+        status.update(applicability)
+        status['message'] += ' ' + applicability['ratingMessage']
         return {'data': cached['data'], 'status': status}
     return {'data': None, 'status': {'state': 'unavailable', 'checkedAt': checked, 'fetchedAt': None,
             'sourceUrls': [WIKI_PAGE], 'latestChangelogDate': None, 'version': None, 'sha256': None,
@@ -455,6 +459,7 @@ def _refresh_wiki(cache_dir, fetcher, version_fetcher):
                  if isinstance(row.get('date'), str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', row['date'])]
         source_date = dates[0] if len(dates) == len(wiki['championDetail']) and len(set(dates)) == 1 else None
         metadata = {'source': '虎牙海斗 wiki 公开数据', 'sourceUrl': WIKI_PAGE,
+                    'officialHeroStatistics': True,
                     'wikiDataVersion': version, 'gamePatch': patch, 'wikiBaseUrl': root,
                     'isDemo': False, 'demo': False, 'dataFreshness': 'fetched', 'fetchedAt': fetched,
                     'sourceUpdatedAt': None, 'sourceDataDate': source_date, 'latestChangelogDate': None}
@@ -470,6 +475,10 @@ def _refresh_wiki(cache_dir, fetcher, version_fetcher):
                   'bundleSha256': hashlib.sha256(bundle_bytes).hexdigest() if bundle_bytes else None, 'artifacts': artifacts,
                   'versionResponseSha256': version_info.get('responseSha256'),
                   'message': '本次启动已校验虎牙海斗 wiki 数据。数据版本与游戏补丁分别展示；抓取时间不代表官方更新时间。'}
+        from patch_catalog import statistics_status
+        applicability = statistics_status(data)
+        status.update(applicability)
+        status['message'] += ' ' + applicability['ratingMessage']
         envelope = {'schema_version': 1, 'sha256': checksum, 'data': data, 'status': status}
         stage = 'cache-commit'
         _commit(cache_dir, envelope)

@@ -87,29 +87,50 @@ def source_tier(value):
 
 
 def display_cards(data, hero, offered):
-    """Keep offered screen order; copy only the hero's literal public source tier.
+    """Keep screen order; only expose source grades applicable to this patch.
 
-    No win-rate conversion, global-tier fallback, custom S/A mapping, sorting,
-    unique-best directive, or claim of equivalence to the private live model.
+    Transport freshness is not statistical applicability. Announcement identities
+    cannot inherit a same-name historical row, description or combo.
     """
-    rows={}
-    for row in data.get('heroAugmentStats',{}).get(hero,[]):
-        if isinstance(row,dict) and isinstance(row.get('augmentName'),str):
-            rows.setdefault(row['augmentName'],row)
-    relation=data.get('relations',{}).get(hero,{})
-    cards=[]
+    from patch_catalog import (active_augment, pair_rating_available,
+                               statistics_status)
     from source_combo_hints import source_combo_hint
-    is_demo=data.get('metadata',{}).get('isDemo') is True
-    for slot,name in enumerate(offered,1):
-        row=rows.get(name,{});item=data.get('augments',{}).get(name,{})
-        notes=[record.get('reason','') for key in ('specialAugments','trapAugments') for record in relation.get(key,[]) if record.get('name')==name]
-        cards.append({'name':name,'slot':slot,'description':display_description(item.get('description','描述未提供')),
-            'sourceTier':source_tier(row.get('tier')),'notes':notes,
-            'sourceTierLabel':'虚构源评级（演示）' if is_demo else '虎牙公开源评级',
-            'sourceLabel':'虚构演示' if is_demo else '英雄专属公开资料快照；非云端实时评级；非 Riot 批准'})
-        hint=source_combo_hint(data,hero,name) if not is_demo else None
+    status = statistics_status(data, hero)
+    is_demo = data.get('metadata', {}).get('isDemo') is True
+    rows = {}
+    for row in data.get('heroAugmentStats', {}).get(hero, []):
+        if isinstance(row, dict) and isinstance(row.get('augmentName'), str):
+            rows.setdefault(row['augmentName'], row)
+    relation = data.get('relations', {}).get(hero, {})
+    cards = []
+    for slot, name in enumerate(offered, 1):
+        row = rows.get(name, {})
+        item = active_augment(data, name)
+        available = pair_rating_available(data, hero, name, row)
+        new = item is not None and item.get('catalogStatus') == 'new'
+        notes = [record.get('reason', '') for key in ('specialAugments', 'trapAugments')
+                 for record in relation.get(key, []) if isinstance(record, dict)
+                 and record.get('name') == name] if is_demo and not new and item else []
+        label = ('虚构源评级（演示）' if is_demo else '新版评级待核实' if new else
+                 '旧版评级不适用' if status['ratingStatus'] == 'outdated' else
+                 '虎牙公开源评级' if available else '评级待核实')
+        cards.append({'name': name, 'slot': slot,
+            'description': display_description(item.get('description', '描述未提供')) if item else '描述未提供',
+            'sourceTier': source_tier(row.get('tier')) if available else None, 'notes': notes,
+            'sourceTierLabel': label,
+            'sourceLabel': '虚构演示' if is_demo else
+                ('国服 26.21 官方新增目录；无已核实的新版评级。' if new else status['ratingMessage']) + ' 非 Riot 评级/批准。',
+            'ratingStatus': 'unverified' if new or item is None else status['ratingStatus'],
+            'catalogStatus': item.get('catalogStatus', 'unverified') if item else 'retired_or_unknown',
+            'sourceDataDate': status['statisticsDate'],
+            'gamePatch': status['statisticsPatch'], 'targetGamePatch': status['targetGamePatch'],
+            'catalogSourceUrl': item.get('catalogSourceUrl') if new else None,
+            'catalogSourceDate': item.get('catalogSourceDate') if new else None,
+            'catalogConfidence': item.get('catalogConfidence') if new else 'unverified'})
+        hint = source_combo_hint(data, hero, name) if not is_demo and item and not new else None
         if hint:
-            cards[-1]['sourceHint']=hint['text'];cards[-1]['sourceHintProvenance']=hint
+            cards[-1]['sourceHint'] = hint['text']
+            cards[-1]['sourceHintProvenance'] = hint
     return cards
 
 

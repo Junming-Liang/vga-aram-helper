@@ -1311,7 +1311,7 @@ class ControlWindow(QtWidgets.QWidget):
         # defensive hide would otherwise obscure the actual cause in the log.
         self.debug_event('expiry',reason='ttl_game',ttl_ms=4000,age_ms=max(0.,(time.monotonic()-self.last_observation)*1000))
         self.overlay.hide('ttl_game')
-        self.overlay.clear_candidate_geometry()
+        self.overlay.clear_candidate_geometry(preserve_placement=True)
         self._geometry_frame=None
         # Hide partial display too, but retain private per-slot continuity for
         # a still-fresh independent capture already in flight. observe() checks
@@ -1565,24 +1565,36 @@ class ControlWindow(QtWidgets.QWidget):
                 logger.record('capture',phase='started',generation=generation,serial=serial,visible_capture=allow_visible_overlay)
                 captured_at=prefetched.captured_at if prefetched is not None else time.monotonic()
                 try:
-                    if prefetched is not None:
+                    buffered=prefetched
+                    if buffered is not None:
                         # Buffered pixels remain tied to their original capture time;
                         # revalidate live guards without manufacturing a new observation.
-                        if not 0<=time.monotonic()-captured_at<=.8:raise CapturePaused('预取画面已过期。')
+                        age=time.monotonic()-captured_at
+                        if not math.isfinite(age) or age<0:raise CapturePaused('预取画面的时间无效。')
                         if not capture.has_live_visible_session or capture.session_epoch!=prefetch_scope[-1]:
                             raise CapturePaused('预取画面的会话已经变化。')
                         from session_windows import process_metadata
                         if process_metadata(frame_window.pid)!=expected_metadata:raise CapturePaused('预取画面的进程已经变化。')
-                        capture.validate_compositor(frame_window,prefetched.rect,allow_visible_overlay=True)
-                        if not 0<=time.monotonic()-captured_at<=.8:raise CapturePaused('预取画面在校验期间已过期。')
-                        image,rect=prefetched.image,prefetched.rect
-                    else:image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
+                        capture.validate_compositor(frame_window,buffered.rect,allow_visible_overlay=True)
+                        age=time.monotonic()-captured_at
+                        if not math.isfinite(age) or age<0:raise CapturePaused('预取画面的时间无效。')
+                        # A cache packet can age out during model preparation or
+                        # guard checks. Its pixels are unusable, but age alone is
+                        # not a failed session. Acquire a new fully guarded frame
+                        # instead of invalidating/rebuilding the healthy session.
+                        # Scope/session/compositor failures above still abort.
+                        if age>.8:buffered=None
+                    if buffered is not None:
+                        image,rect=buffered.image,buffered.rect
+                    else:
+                        captured_at=time.monotonic()
+                        image,rect=capture.capture(frame_window,(0.,0.,1.,1.),cancelled=cancelled,expected_metadata=expected_metadata,**options)
                 except Exception:
                     logger.record('capture',phase='error',generation=generation,serial=serial,capture_ms=(time.monotonic()-captured_at)*1000,**dict(getattr(capture,'last_capture_diagnostic',{})))
                     raise
                 pixels_at=time.monotonic()
-                capture_ms=(prefetched.acquired_at-prefetched.captured_at)*1000 if prefetched is not None else (pixels_at-captured_at)*1000
-                logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=capture_ms,prefetched=prefetched is not None,
+                capture_ms=(buffered.acquired_at-buffered.captured_at)*1000 if buffered is not None else (pixels_at-captured_at)*1000
+                logger.record('capture',phase='acquired',generation=generation,serial=serial,capture_ms=capture_ms,prefetched=buffered is not None,
                     backend=getattr(capture,'last_backend','unknown'),width=rect.width,height=rect.height,dpi=debug_dpi,visible_capture=allow_visible_overlay,**debug_identity,**dict(getattr(capture,'last_capture_diagnostic',{})))
                 if self._cancel_workers.is_set() or cancelled.is_set():
                     logger.record('cancel',reason='capture_cancelled',generation=generation,serial=serial,cancelled=True)

@@ -30,13 +30,29 @@ def compare_augments(data, hero_name, offered):
     if len(set(offered))!=3:raise ValueError('三个候选不能重复，请核对识别结果或手动修改。')
     missing=[name for name in offered if name not in data.get('augments',{})]
     if missing:raise ValueError('以下名称不在当前资料中：'+'、'.join(missing))
+    from patch_catalog import active_augment, ratings_available, pair_rating_available, statistics_status
+    inactive = [name for name in offered if active_augment(data, name) is None]
+    if inactive:
+        raise ValueError('以下名称已移除或不适用于当前目录：' + '、'.join(inactive))
+    if not ratings_available(data, hero_name):
+        from native_state import display_cards
+        status = statistics_status(data, hero_name)
+        return {'hero': hero_name, 'offered': offered,
+                'cards': display_cards(data, hero_name, offered), 'groups': [],
+                'recommendedName': None, 'pairWinRatesAvailable': False,
+                'decision': status['ratingMessage'], 'policy': 'current-patch-abstention-v1',
+                'policyExplanation': '旧版或来源不明的评级与关系不作为当前版本推荐。',
+                'warnings': [status['ratingMessage']], 'source': data.get('metadata', {})}
     hero=data['heroes'][hero_name]
-    relation=data.get('relations',{}).get(hero_name,{})
+    relation=(data.get('relations',{}).get(hero_name,{})
+              if data.get('metadata', {}).get('isDemo') is True else {})
     entries=[]
     for index,name in enumerate(offered):
-        augment=data['augments'][name]
+        augment=active_augment(data, name)
         special=_notes(relation.get('specialAugments',[]),name)
         traps=_notes(relation.get('trapAugments',[]),name)
+        if augment.get('catalogStatus') == 'new':
+            special, traps = [], []
         reason_text=' '.join(x['reason'] for x in special)
         condition_flags=[term for term in CONDITION_TERMS if term in reason_text]
         caution_flags=[term for term in CAUTION_TERMS if term in reason_text]
@@ -78,6 +94,7 @@ def compare_augments(data, hero_name, offered):
         if not isinstance(row,dict):continue
         name=row.get('augmentName') or row.get('name')
         if not isinstance(name,str) or name in stats_by_name:continue
+        if not pair_rating_available(data, hero_name, name, row):continue
         stats_by_name[name]={**row,'sourceRank':source_index+1}
     if stats_rows:
         for entry in entries:

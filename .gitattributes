@@ -116,3 +116,7 @@ badge_contract.py text eol=lf
 scripts/benchmark_card_geometry_pipeline.py text eol=lf
 scripts/validate_card_geometry_public.py text eol=lf
 tests/badge_fixture.py text eol=lf
+
+# Exact 26.21 applicability and hot-path reproducibility.
+patch_catalog.py text eol=lf
+scripts/benchmark_recognition_hotpaths.py text eol=lf

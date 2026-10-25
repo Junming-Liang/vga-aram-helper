@@ -53,13 +53,18 @@ class PortraitMatcher:
             gray=cv2.cvtColor(crop,cv2.COLOR_RGB2GRAY);crop.setflags(write=False);gray.setflags(write=False)
             templates[str(key)]=(crop,gray)
             # The exact same 15 grayscale scales are immutable model inputs,
-            # independent of captured pixels. Prepare once; still search every
-            # template/scale on every fresh frame with unchanged scoring.
+            # independent of captured pixels. Prepare once; every uncached
+            # input still searches all templates/scales with unchanged scoring.
             variants=[]
             for size in range(20,49,2):
                 pixels=cv2.resize(gray,(size,size),interpolation=cv2.INTER_AREA);pixels.setflags(write=False);variants.append((size,pixels))
             scales[str(key)]=tuple(variants)
         self._templates=MappingProxyType(templates);self._template_scales=MappingProxyType(scales);self._model_token=object()
+        # One deterministic search result, not an identity observation. Keep no
+        # screenshot/ROI or frame timestamp. Fresh preparation and every final
+        # confidence/color/name gate still run for each independently captured
+        # frame. Only the exact built-in immutable model may use this cache.
+        self._search_cache=None
     @property
     def names(self):return self._names
     @property
@@ -109,15 +114,7 @@ class PortraitMatcher:
         if isinstance(prepared,dict):return prepared
         cv=self.cv;np=self.np;roi=prepared.rgb;gray=prepared.gray
         scale,x0,y0=prepared.scale,prepared.x0,prepared.y0
-        found=[]
-        for key,(color,template) in self.templates.items():
-            best=(-1,None,None)
-            for size,scaled in self._scaled_templates[key]:
-                scores=cv.matchTemplate(gray,scaled,cv.TM_CCOEFF_NORMED);_,value,_,location=cv.minMaxLoc(scores)
-                if math.isfinite(value) and value>best[0]:best=(value,location,size)
-            value,location,size=best
-            found.append((value,key,location,size,color))
-        found.sort(key=lambda item:item[0],reverse=True)
+        found=self._search_portraits(prepared)
         if len(found)<2:return self.unknown('模板词典不完整',hudOutcome='incomplete_templates')
         value,key,(x,y),size,color=found[0];second=found[1][0];margin=value-second
         evidence={'score':round(value,4),'margin':round(margin,4),'box':[round((x0+x)/scale),round((y0+y)/scale),round(size/scale),round(size/scale)],'candidateChampionId':key}
@@ -132,6 +129,31 @@ class PortraitMatcher:
         hero=self.names.get(key)
         if not hero:return self.unknown('头像对应英雄没有当前资料',hudOutcome='champion_unmapped',**evidence)
         return {'hero':hero,'championId':key,'confident':True,'method':'own-hud-portrait','reason':'本人 HUD 头像通过空间与模板校验','hudOutcome':'recognized',**evidence}
+    def _search_portraits(self,prepared):
+        """Memoize only exhaustive scores for exactly equal validated inputs.
+
+        The digest comes from this frame's full normalized RGB search ROI plus
+        layout/dimensions, after fresh letterbox checks. Model and thresholds
+        are additionally bound, and subclass search/model overrides never hit.
+        A hit cannot bypass current color gates, create a frame, renew a TTL,
+        count an OCR confirmation or carry identity between game sessions.
+        """
+        search_key=(self.proof_identity(),prepared.signature)
+        cached=self._search_cache if type(self) is PortraitMatcher else None
+        if cached is not None and cached[0]==search_key:return cached[1]
+        cv=self.cv;gray=prepared.gray
+        found=[]
+        for key,(color,template) in self.templates.items():
+            best=(-1,None,None)
+            for size,scaled in self._scaled_templates[key]:
+                scores=cv.matchTemplate(gray,scaled,cv.TM_CCOEFF_NORMED);_,value,_,location=cv.minMaxLoc(scores)
+                if math.isfinite(value) and value>best[0]:best=(value,location,size)
+            value,location,size=best
+            found.append((value,key,location,size,color))
+        found.sort(key=lambda item:item[0],reverse=True)
+        top=tuple(found[:2])
+        if type(self) is PortraitMatcher:self._search_cache=(search_key,top)
+        return top
 
 
 def recognize_frame(image_bytes, roi, ocr, vocabulary, matcher=None, *, before_match=None, before_ocr=None, inference_worker=None, resolve_hero=None, prior_card_geometry=None, prepared_frame=None, diagnostic_callback=None, after_titles=None):
