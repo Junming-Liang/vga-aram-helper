@@ -6,7 +6,7 @@
     "晶盾回路（演示）",
     "风步微光（演示）"
   ],
-  "environment": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "environment": "Linux-6.18.55-x86_64-with-glibc2.41",
   "fixture": "Original synthetic image, not real gameplay",
   "names_expected": [
     "珠光护手",
@@ -20,14 +20,14 @@
   ],
   "matched_on_fixture": "3/3 (not an accuracy estimate)",
   "blank_candidates": 0,
-  "first_call_seconds": 0.953,
-  "warm_call_seconds": 0.304,
-  "blank_call_seconds": 0.137,
+  "first_call_seconds": 0.943,
+  "warm_call_seconds": 0.312,
+  "blank_call_seconds": 0.148,
   "network_controls": "Bundled local model files are hash-checked and passed explicitly; ONNX telemetry disabled. No process-global socket patch; no cloud vision API. Native OS egress was not independently measured.",
   "versions": {
     "rapidocr": "3.10.0",
     "onnxruntime": "1.31.0",
-    "numpy": "2.5.4",
+    "numpy": "2.3.5",
     "Pillow": "12.3.0"
   },
   "fixture_sha256": "81aea6ff24dff816aaecb257618413ab6eeea43915f8c7609014b03ce801258f",

@@ -1,0 +1,74 @@
+{
+  "scope": "Portable deterministic microbenchmark only; no Windows/game timing claim",
+  "baseline_ref": "6c0073dcf8dd112478b76b50941db6c1bc27422b",
+  "baseline_hero_sha256": "8fad724359acc5717b44a23d80287dab7e4f0a79e312875ff4ac8bb0fdd101af",
+  "current_sha256": {
+    "hero_recognition.py": "d80dfd53141b2b3c353ee6b9912d0350f5d89eac6e5c3d8ae05b1e6386d6c18c",
+    "screen_capture.py": "49e310e9227e6385a7fb8a86bf3831dd105bde55feebe7e43fa0437302e5bb3f"
+  },
+  "platform": "Linux",
+  "python": "3.12.14",
+  "hud": {
+    "owned_template_count": 173,
+    "scales_per_template": 15,
+    "complete_output_equal": true,
+    "fresh_all_template_search": {
+      "samples_ms": [
+        643.7419579999641,
+        615.655715999992,
+        701.9857560001128,
+        672.3304999998163,
+        687.0337440000185,
+        746.1824479998995,
+        664.4156059999204
+      ],
+      "median_ms": 672.3304999998163
+    },
+    "exact_input_search_reuse_with_fresh_gates": {
+      "samples_ms": [
+        0.8514010000908456,
+        0.6877779999285849,
+        0.6736069999533356,
+        1.0878350001348736,
+        0.6901499998548388,
+        0.632324999969569,
+        0.5729459999201936
+      ],
+      "median_ms": 0.6877779999285849
+    }
+  },
+  "png": {
+    "input_kind": "caller-authorized still",
+    "size": [
+      3440,
+      1440
+    ],
+    "decoded_pixels_equal": true,
+    "default_level_6": {
+      "samples_ms": [
+        789.2254410000987,
+        792.4959479998961,
+        789.8199209998893,
+        860.889079999879,
+        876.28671199991,
+        906.8008080000709,
+        889.7768190001898
+      ],
+      "median_ms": 860.889079999879,
+      "encoded_bytes": 5202545
+    },
+    "bounded_level_1": {
+      "samples_ms": [
+        362.3786890000247,
+        347.9404479999175,
+        327.6763869998831,
+        342.99196100005247,
+        400.58818399984375,
+        346.9756970000617,
+        329.592423999884
+      ],
+      "median_ms": 346.9756970000617,
+      "encoded_bytes": 5615682
+    }
+  }
+}
