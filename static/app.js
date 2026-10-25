@@ -40,7 +40,7 @@ function renderHeroes() {
   $('hero-context').hidden = !hero;
   if (hero) {
     const record = data.heroes[hero], rel = data.relations[hero];
-    $('hero-context').innerHTML = `<div class="row"><div><span class="eyebrow">当前手动选择</span><br><strong>${escapeText(hero)}</strong><p>${escapeText(record.position.join(' · '))}</p></div><button data-detail-kind="heroes" data-name="${escapeText(hero)}">查看联动与陷阱 →</button></div><p>${rel?.specialAugments.length || 0} 条联动 · ${rel?.trapAugments.length || 0} 条陷阱说明 · ${data.heroAugmentStats?.[hero]?.length || 0} 条官方英雄海克斯统计</p>`;
+    $('hero-context').innerHTML = `<div class="row"><div><span class="eyebrow">当前手动选择</span><br><strong>${escapeText(hero)}</strong><p>${escapeText(record.position.join(' · '))}</p></div><button data-detail-kind="heroes" data-name="${escapeText(hero)}">查看联动与陷阱 →</button></div><p>${rel?.specialAugments.length || 0} 条联动 · ${rel?.trapAugments.length || 0} 条陷阱说明 · ${data.heroAugmentStats?.[hero]?.length || 0} 条英雄海克斯来源记录</p>`;
   }
 }
 function getMainList() {
@@ -72,9 +72,15 @@ function showDialog(markup) {
   $('detail').scrollTop = 0;
 }
 function closeDialog() { detailGeneration++; $('detail').close(); }
+function sourceBanner(m) {
+  if (m.isDemo) return '<strong>演示模式</strong> · 原创虚构样例，不可用于真实对局。';
+  if (!m.officialHeroStatistics) return '<strong>来源待核对</strong> · 当前评级未核实，不推测推荐。';
+  const catalog = m.catalogPatch ? `国服 ${escapeText(m.catalogPatch)} 官方目录差量${m.catalogCoverage==='partial-official-delta' ? '（仅部分目录已复核）' : ''}。` : '';
+  const transport = m.updateStatus?.state==='cached' ? '当前使用缓存。' : m.updateStatus?.state==='fresh' ? '本次下载已校验。' : '使用显式本地快照。';
+  return `<strong>虎牙公开源资料</strong> · 数据包 ${escapeText(m.wikiDataVersion || '未知')} / 统计版本 ${escapeText(m.gamePatch || '未知')}，源日期 ${escapeText(m.sourceDataDate || '未知')}。${catalog}${escapeText(m.ratingMessage || '当前版本评级待核实。')}${transport}下载成功不代表统计适用于当前版本；非 Riot 评级或批准。`;
+}
 function sourceNotice() {
-  if(data.metadata.officialHeroStatistics)return `<div class="notice">官方数据包 ${escapeText(data.metadata.wikiDataVersion || '未知')} · 游戏资料版本 ${escapeText(data.metadata.gamePatch || '未知')}。统计为来源快照，不是实时对局预测。</div>`;
-  return data.metadata.isDemo ? '<div class="notice">虚构演示数据：此处所有数值与玩法仅用于测试。</div>' : `<div class="notice">旧参考快照：最新可见日志 ${escapeText(data.metadata.latestChangelogDate || '未知')}。实际统计日期、样本量及当前版本适用性未验证。</div>`;
+  return `<div class="notice">${sourceBanner(data.metadata)}</div>`;
 }
 async function openDetail(kind, name) {
   const generation = ++detailGeneration;
@@ -85,10 +91,13 @@ async function openDetail(kind, name) {
   if (item.tips) html += `<div class="rule-note">${escapeText(item.tips)}</div>`;
   if (kind === 'heroes') {
     const relations = data.relations[name];
-    html += `<p class="muted">${escapeText(item.alias.join(' / '))} · ${escapeText(item.position.join(' · '))}</p><p>英雄整体评级：${grade(item.overallTier,true)}</p><div class="notice">${data.heroAugmentStats?.[name]?.length || 0} 条官方英雄海克斯统计。请在首页确认三个候选后比较；仅展示原始评级，保留候选原位置。</div><div class="detail-grid"><section><h3>联动说明</h3>${relations?.specialAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录联动，不等于没有联动。</p>'}</section><section><h3>陷阱与限制</h3>${relations?.trapAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录陷阱，不代表全部安全。</p>'}</section></div>`;
+    html += `<p class="muted">${escapeText(item.alias.join(' / '))} · ${escapeText(item.position.join(' · '))}</p><p>英雄整体评级：${grade(item.overallTier,true)}</p><div class="notice">${data.heroAugmentStats?.[name]?.length || 0} 条英雄海克斯来源记录。请在首页确认三个候选后比较；仅展示原始评级，保留候选原位置。</div><div class="detail-grid"><section><h3>联动说明</h3>${relations?.specialAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录联动，不等于没有联动。</p>'}</section><section><h3>陷阱与限制</h3>${relations?.trapAugments.map(x=>linkedBox(x,'augments')).join('') || '<p class="muted">暂无已收录陷阱，不代表全部安全。</p>'}</section></div>`;
   } else if (kind === 'augments') {
-    html += `<p class="muted">${escapeText(rarityNames[item.rarity])} · ${escapeText(item.position.join(' · '))}</p><p>公开源评级：${grade(item.overallTier)} · 当前英雄配对评级：${hero ? grade(data.heroAugmentStats?.[hero]?.find(x=>x.augmentName===name)?.tier) : '请先选择英雄'}</p>${item.isDeleted ? '<div class="notice error">源数据标记该海克斯已移除。当前是否可选尚未验证。</div>' : ''}`;
-    if (item.limit.length) html += `<p class="muted">源资料限制标签：${escapeText(item.limit.join('、'))}（仅展示，未推断适配性）</p>`;
+    // Announcement-only catalog records intentionally have no legacy build/role fields.
+    const positions = Array.isArray(item.position) ? item.position : [];
+    const limits = Array.isArray(item.limit) ? item.limit : [];
+    html += `<p class="muted">${escapeText(rarityNames[item.rarity])} · ${escapeText(positions.join(' · '))}</p><p>公开源评级：${grade(item.overallTier)} · 当前英雄配对评级：${hero ? grade(data.heroAugmentStats?.[hero]?.find(x=>x.augmentName===name)?.tier) : '请先选择英雄'}</p>${item.isDeleted ? '<div class="notice error">源数据标记该海克斯已移除。当前是否可选尚未验证。</div>' : ''}`;
+    if (limits.length) html += `<p class="muted">源资料限制标签：${escapeText(limits.join('、'))}（仅展示，未推断适配性）</p>`;
     if (hero) {
       html += `<h3>与 ${escapeText(hero)} 的关系</h3>` + relation(name,'specialAugments').map(x=>`<div class="rule-note">联动：${escapeText(x.reason || '未提供理由')}</div>`).join('') + relation(name,'trapAugments').map(x=>`<div class="notice error">陷阱：${escapeText(x.reason || '未提供理由')}</div>`).join('');
       if (!relation(name,'specialAugments').length && !relation(name,'trapAugments').length) html += '<p class="muted">暂无这对英雄与海克斯的明确关系记录。</p>';
@@ -140,7 +149,7 @@ async function init() {
     const response = await fetch('/api/data'); if (!response.ok) throw new Error('data request failed');
     data = await response.json();
     const m = data.metadata;
-    $('source-banner').innerHTML = m.isDemo ? '<strong>演示模式</strong> · 原创虚构样例，不可用于真实对局。' : m.officialHeroStatistics ? `<strong>官方英雄统计</strong> · 数据包 ${escapeText(m.wikiDataVersion || '未知')} / 游戏资料版本 ${escapeText(m.gamePatch || '未知')}。源数据日期 ${escapeText(m.sourceDataDate || '未知')}；获取时间不代表数据更新时间。${m.updateStatus?.state==='cached' ? '当前使用上次成功缓存，请查看下方更新状态。' : m.updateStatus?.state==='fresh' ? '本次启动已检查数据。' : '使用显式本地快照，在线版本未检查。'}配对统计不是实时预测。` : '<strong>官方英雄统计未就绪</strong> · 当前只有参考资料或没有可用数据，不能假装给出官方三选一评分。';
+    $('source-banner').innerHTML = sourceBanner(m);
     bindSearch('hero-search',()=>{heroLimit=28;renderHeroes();});
     bindSearch('main-search',()=>{cardLimit=28;renderCards();});
     ['hero-role','hero-sort'].forEach(id=>$(id).addEventListener('change',()=>{heroLimit=28;renderHeroes();}));
