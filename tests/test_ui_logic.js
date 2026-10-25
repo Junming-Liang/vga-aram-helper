@@ -23,6 +23,16 @@ let count=0;function check(name,fn){fn();count++;console.log('PASS '+name);}
 check('Malformed favorites fall back safely',()=>assert.equal(vm.runInContext('favorites.size',context),0));
 check('Text escaping prevents raw HTML markup',()=>assert.equal(vm.runInContext("escapeText('<script>x</script>')",context),'&lt;script&gt;x&lt;/script&gt;'));
 check('Unknown source grade is not invented',()=>assert.equal(vm.runInContext('grade(99)',context),'暂无评级'));
+check('Downloaded old statistics remain visibly inapplicable',()=>{
+  const value=vm.runInContext("sourceBanner({officialHeroStatistics:true,gamePatch:'16.17',sourceDataDate:'2026-09-07',catalogPatch:'26.21',catalogCoverage:'partial-official-delta',ratingMessage:'旧版评级不适用；等待新版统计。',updateStatus:{state:'fresh'}})",context);
+  assert.match(value,/旧版评级不适用/);assert.match(value,/仅部分目录已复核/);assert.match(value,/下载成功不代表/);assert.doesNotMatch(value,/<strong>官方英雄统计/);
+});
+check('Applicability text is escaped and absent proof stays unknown',()=>{
+  assert.match(vm.runInContext("sourceBanner({officialHeroStatistics:true})",context),/当前版本评级待核实/);
+  const value=vm.runInContext("sourceBanner({officialHeroStatistics:true,ratingMessage:'<script>bad</script>',catalogPatch:'<b>x</b>'})",context);
+  assert.doesNotMatch(value,/<script>|<b>/);assert.match(value,/&lt;script&gt;/);
+  assert.match(vm.runInContext("sourceBanner({isDemo:true,officialHeroStatistics:true})",context),/演示模式/);
+});
 check('Search normalizes whitespace and case',()=>assert.equal(vm.runInContext("normalized(' A B C ')",context),'abc'));
 check('Hero aliases filter',()=>{el('hero-search').value='小星';vm.runInContext('renderHeroes()',context);assert.match(el('heroes').innerHTML,/星火术士/);assert.doesNotMatch(el('heroes').innerHTML,/磐石守卫/);});
 check('Support includes both soft and hard support',()=>{el('hero-search').value='';el('hero-role').value='辅助';vm.runInContext('renderHeroes()',context);assert.match(el('heroes').innerHTML,/磐石守卫/);assert.match(el('heroes').innerHTML,/萤光使者/);});
@@ -39,6 +49,17 @@ check('Chinese name tie-break uses Intl.Collator',()=>assert.equal(vm.runInConte
   await vm.runInContext("openDetail('heroes','星火术士（演示）')",context);
   check('Hero detail is grade-only',()=>{assert.match(el('detail-content').innerHTML,/仅展示原始评级/);assert.doesNotMatch(el('detail-content').innerHTML,/胜率|[0-9]+\.[0-9]+%/);});
   check('Rate fields cannot reach hero or augment card markup',()=>{vm.runInContext("data.heroes['星火术士（演示）'].winRate=98.765;data.augments['星火共鸣（演示）'].winRate=98.765;tab='augments';renderHeroes();renderCards()",context);assert.doesNotMatch(el('heroes').innerHTML+el('cards').innerHTML,/98\.765|98\.77|公开参考胜率/);});
+  // Exact optional-field shape of public_data's announcement-only record.
+  // No legacy position/limit arrays, statistics ID, build links or T grade.
+  context.announcement={name:'罪恶快感',description:'获得骑乘爆炸火箭的召唤师技能。',rarity:'gold',augmentId:'',catalogId:'tencent-cn:26.21:罪恶快感',catalogStatus:'new',catalogPatch:'26.21',alias:[],items:[],specialItems:[],trapItems:[],overallTier:null};
+  vm.runInContext("data.augments[announcement.name]=announcement",context);
+  await vm.runInContext("openDetail('augments','罪恶快感')",context);
+  check('New announcement without legacy role/limit fields opens safely',()=>{
+    assert.match(el('detail-content').innerHTML,/罪恶快感/);assert.match(el('detail-content').innerHTML,/火箭/);
+    assert.match(el('detail-content').innerHTML,/暂无评级/);assert.doesNotMatch(el('detail-content').innerHTML,/旧机制标记|1322/);
+    assert.match(el('recommendation-result').innerHTML,/没有可用的装备关联/);
+  });
+  vm.runInContext("delete data.augments[announcement.name]",context);
   let resolvePending;
   context.fetch=()=>new Promise(resolve=>{resolvePending=resolve;});
   const pending=vm.runInContext("openDetail('augments','星火共鸣（演示）')",context);

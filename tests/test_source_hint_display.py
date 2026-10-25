@@ -4,7 +4,7 @@ from tests.test_source_combo_hints import fixture
 
 class SourceHintDisplayTests(unittest.TestCase):
     def test_source_hint_follows_original_card_slot_and_keeps_grade_literal(self):
-        data=fixture();data['heroAugmentStats']={'英雄甲':[{'augmentName':'强化甲','tier':'T3'}]}
+        data=fixture();data['heroAugmentStats']={'英雄甲':[{'augmentName':'强化甲','augmentId':'11','tier':'T3'}]}
         cards=display_cards(data,'英雄甲',['强化丁','强化甲','强化乙'])
         self.assertEqual([c['slot'] for c in cards],[1,2,3])
         self.assertEqual(cards[1]['sourceTier'],'T3')

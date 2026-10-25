@@ -160,7 +160,7 @@ class WindowsPackageTests(unittest.TestCase):
 
     def test_spec_preserves_models_and_standard_compression_without_collect_all(self):
         spec = (ROOT / 'packaging/VGA-Aram-Helper.spec').read_text(encoding='utf-8')
-        for value in ('rapidocr.main', 'rapidocr.inference_engine.onnxruntime',
+        for value in ('patch_catalog', 'rapidocr.main', 'rapidocr.inference_engine.onnxruntime',
                       "collect_data_files('rapidocr', include_py_files=False)", 'verify_models()',
                       'replace_runtime_entries(a.binaries)', 'trim_unused_binaries(a.binaries)', 'upx=False'):
             self.assertIn(value, spec)

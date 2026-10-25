@@ -57,7 +57,7 @@ LEGACY_FIELDS = ('process_exited', 'owned_processes_exited', 'game_launched_afte
 SAFETY_FIELDS = ('before_second_observation_hidden', 'hidden_during_recapture',
     'unknown_handler_hidden', 'swap_handler_hidden', 'stale_handler_hidden',
     'cleared_hero_hidden', 'foreground_loss_hidden', 'handoff_reference_removed')
-SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
+SOURCE_FILES = ('patch_catalog.py', 'badge_contract.py', 'source_combo_hints.py', 'hero_identity_continuity.py', 'monitor_preferences.py', 'card_title_proof.py', 'augment_card_geometry.py', 'card_badges.py', 'automatic_windows.py', 'native_ui.py', 'portrait_display.py', 'local_debug.py', 'native_state.py', 'screen_capture.py', 'overlay_geometry.py',
     'persistent_capture_adapter.py', 'wgc_session_capture.py', 'native/wgc_session_capture.cpp',
     'hero_strength.py', 'champion_select.py', 'selection_session.py', 'selection_retry.py', 'session_windows.py',
     'latest_capture_frame.py',
@@ -68,7 +68,10 @@ SOURCE_FILES = ('badge_contract.py', 'source_combo_hints.py', 'hero_identity_con
 EXPECTED_REFERENCE = {'hero': '星火术士（演示）', 'championId': '9001', 'sourceTier': 'T5',
     'sourceTierLabel': '虚构英雄评级（演示）', 'sourceLabel': '虚构演示 · 不能用于对局',
     'sourceUrl': None, 'sourceDataDate': '2026-01-02', 'sourceVersion': '0.1',
-    'gamePatch': '0.2', 'wikiDataVersion': 'synthetic-selection-v1', 'isDemo': True}
+    'gamePatch': '0.2', 'wikiDataVersion': 'synthetic-selection-v1', 'isDemo': True,
+    'ratingStatus':'demo','ratingMessage':'虚构演示，不能用于对局。',
+    'targetGamePatch':'26.21','statisticsPatch':'0.2','statisticsDate':'2026-01-02',
+    'statisticsRegion':'unverified','ratingConfidence':'unverified'}
 EXPECTED_TEXT = {'hero': '星火术士（演示）', 'tier': '英雄整体强度：T5',
     'heading': '当前分配 · 仍可交换 · HUD未复核', 'footer': '虚构演示 · 非 Riot 评级/批准',
     'metadata': '英雄评级快照 2026-01-02 · 英雄资料 0.1 · 游戏资料 0.2 · 数据包 synthetic-selection-v1'}

@@ -68,17 +68,17 @@ class PortraitTemplateScaleTests(unittest.TestCase):
                 if confident:
                     self.assertEqual(actual['championId'], '9001')
 
-    def test_every_template_scale_is_searched_without_per_frame_template_resize(self):
+    def test_cache_miss_searches_every_scale_and_exact_hit_retains_fresh_color_checks(self):
         from synthetic_vision import encoded, frame
         image = encoded(frame(self.bank['9001']))
         before = {key: tuple(pixels.tobytes() for _, pixels in variants)
                   for key, variants in self.matcher._scaled_templates.items()}
-        for _ in range(2):
+        for expected_searches in (len(self.bank)*15, 0):
             with patch.object(cv2, 'resize', wraps=cv2.resize) as resize, \
                     patch.object(cv2, 'matchTemplate', wraps=cv2.matchTemplate) as match:
                 result = self.matcher.recognize(image)
                 self.assertTrue(result['confident'])
-                self.assertEqual(match.call_count, len(self.bank)*15)
+                self.assertEqual(match.call_count, expected_searches)
                 # Full-frame normalization and winning RGB color check remain.
                 self.assertEqual(resize.call_count, 2)
         after = {key: tuple(pixels.tobytes() for _, pixels in variants)

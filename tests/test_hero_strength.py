@@ -11,10 +11,10 @@ from native_state import source_tier
 def fixture():
     return {
         'metadata': {'isDemo': False, 'officialHeroStatistics': True,
-                     'sourceUrl': WIKI_PAGE, 'sourceDataDate': '2026-09-07',
-                     'wikiDataVersion': '395', 'gamePatch': '16.17',
+                     'sourceUrl': WIKI_PAGE, 'sourceDataDate': '2026-10-22',
+                     'wikiDataVersion': '395', 'gamePatch': '16.21',
                      'fetchedAt': '2026-10-12T06:52:18+00:00'},
-        'heroes': {'测试英雄': {'championId': '9001', 'overallTier': 'T5', 'sourceVersion': '16.17',
+        'heroes': {'测试英雄': {'championId': '9001', 'overallTier': 'T5', 'sourceVersion': '16.21',
                              'alias': ['测试别名'], 'winRate': 99.9}},
         'heroAugmentStats': {'测试英雄': [{'augmentName': '测试强化', 'tier': 'T1',
                                          'winRate': 99.9, 'numGames': 100000}]},
@@ -47,10 +47,10 @@ class HeroStrengthReferenceTests(unittest.TestCase):
         self.assertIn('资料快照', result['sourceLabel'])
         self.assertIn('非实时评级', result['sourceLabel'])
         self.assertEqual(result['sourceUrl'], WIKI_PAGE)
-        self.assertEqual(result['sourceDataDate'], '2026-09-07')
+        self.assertEqual(result['sourceDataDate'], '2026-10-22')
         self.assertEqual(result['wikiDataVersion'], '395')
-        self.assertEqual(result['gamePatch'], '16.17')
-        self.assertEqual(result['sourceVersion'], '16.17')
+        self.assertEqual(result['gamePatch'], '16.21')
+        self.assertEqual(result['sourceVersion'], '16.21')
         self.assertIs(result['isDemo'], False)
         for key in ['winRate', 'pickRate', 'numGames', 'rank', 'score', 'recommended',
                     'rawTier', 'fetchedAt']:
@@ -105,19 +105,19 @@ class HeroStrengthReferenceTests(unittest.TestCase):
         data = fixture()
         for field in ['sourceDataDate', 'wikiDataVersion', 'gamePatch']:
             del data['metadata'][field]
-        data['heroes']['测试英雄']['sourceVersion'] = '16.17'
+        data['heroes']['测试英雄']['sourceVersion'] = '16.21'
         result = hero_strength_reference(data, '测试英雄')
-        self.assertEqual(result['sourceTier'], 'T5')
+        self.assertIsNone(result['sourceTier'])
         for field in ['sourceDataDate', 'wikiDataVersion', 'gamePatch']:
             self.assertIsNone(result[field])
-        self.assertEqual(result['sourceVersion'], '16.17')
+        self.assertEqual(result['sourceVersion'], '16.21')
 
     def test_row_version_is_separate_and_never_filled_from_metadata(self):
         data = fixture()
         data['heroes']['测试英雄']['sourceVersion'] = '16.16'
         result = hero_strength_reference(data, '测试英雄')
         self.assertEqual(result['sourceVersion'], '16.16')
-        self.assertEqual(result['gamePatch'], '16.17')
+        self.assertEqual(result['gamePatch'], '16.21')
         for value in [None, '', 'latest', '16.17<script>', True, {}]:
             with self.subTest(value=value):
                 data['heroes']['测试英雄']['sourceVersion'] = value
@@ -157,7 +157,7 @@ class HeroStrengthReferenceTests(unittest.TestCase):
         result['hero'] = 'other'
         self.assertEqual(data, original)
 
-    def test_existing_wiki_adapter_preserves_hero_tier_separate_from_augment_tier(self):
+    def test_existing_wiki_adapter_preserves_internal_tier_but_old_patch_abstains(self):
         raw = {
             'metadata': {'sourceDataDate': '2026-09-07'},
             'wiki': {'version': '395', 'championDetail': [
@@ -170,7 +170,9 @@ class HeroStrengthReferenceTests(unittest.TestCase):
         data = normalize(raw)
         self.assertEqual(normalize(data), data)
         result = hero_strength_reference(data, '测试英雄', champion_id='9001')
-        self.assertEqual(result['sourceTier'], 'T5')
+        self.assertIsNone(result['sourceTier'])
+        self.assertEqual(result['ratingStatus'], 'outdated')
+        self.assertEqual(data['heroes']['测试英雄']['overallTier'], 'T5')
         self.assertEqual(result['gamePatch'], '16.17')
         self.assertEqual(result['sourceVersion'], '16.17')
         self.assertEqual(data['heroAugmentStats']['测试英雄'][0]['tier'], 'T1')

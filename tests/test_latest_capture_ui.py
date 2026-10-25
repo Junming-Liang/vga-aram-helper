@@ -1,5 +1,6 @@
 """Extracted production GUI methods; synthetic routing, never Windows pixel proof."""
 import ast
+import math
 from pathlib import Path
 import threading
 from types import MethodType, SimpleNamespace
@@ -266,13 +267,14 @@ class BufferedConsumptionTests(unittest.TestCase):
         self.rect = ClientRect(20, 30, 80, 60)
         self.metadata = ProcessMetadata('C:/owned.exe', 12345)
         self.capture = SimpleNamespace(has_live_visible_session=True, session_epoch=9,
-            validate_compositor=Mock(), capture=Mock(), last_capture_diagnostic={})
+            validate_compositor=Mock(), capture=Mock(return_value=(b'fresh frame', self.rect)), last_capture_diagnostic={})
         self.namespace = dict(prefetched=CapturedFrame(b'owned frame', self.rect, 99.3, 99.5),
             capture=self.capture, prefetch_scope=(7, 3, 'exact frame scope', 9),
             frame_window=WindowInfo(100, 20, 'Owned target', 'OwnedClass'),
             expected_metadata=self.metadata, CapturePaused=CapturePaused,
             time=SimpleNamespace(monotonic=lambda: 100.), logger=SimpleNamespace(record=Mock()),
-            generation=7, serial=12)
+            generation=7, serial=12, math=math, cancelled=threading.Event(),
+            options={'allow_visible_overlay': True})
 
     def test_consuming_slot_retains_original_timestamp_and_rechecks_live_binding(self):
         with patch('session_windows.process_metadata', return_value=self.metadata) as metadata:
@@ -285,8 +287,20 @@ class BufferedConsumptionTests(unittest.TestCase):
             self.namespace['frame_window'], self.rect, allow_visible_overlay=True)
         self.capture.capture.assert_not_called()
 
-    def test_worker_delay_after_slot_take_rejects_expired_or_future_frame(self):
-        for now in (101.3, 99.2):
+    def test_worker_delay_replaces_expired_pixels_with_guarded_fresh_capture(self):
+        self.namespace['time'] = SimpleNamespace(monotonic=lambda: 101.3)
+        with patch('session_windows.process_metadata', return_value=self.metadata):
+            exec(self.code, self.namespace)
+        self.capture.validate_compositor.assert_called_once()
+        self.capture.capture.assert_called_once_with(self.namespace['frame_window'],
+            (0., 0., 1., 1.), cancelled=self.namespace['cancelled'],
+            expected_metadata=self.metadata, allow_visible_overlay=True)
+        self.assertEqual(self.namespace['image'], b'fresh frame')
+        self.assertEqual(self.namespace['captured_at'], 101.3)
+        self.assertIsNone(self.namespace['buffered'])
+
+    def test_future_and_nonfinite_age_remain_fail_closed_without_new_capture(self):
+        for now in (99.2, float('nan'), float('inf'), float('-inf')):
             with self.subTest(now=now):
                 self.namespace['time'] = SimpleNamespace(monotonic=lambda: now)
                 with patch('session_windows.process_metadata', return_value=self.metadata):
@@ -295,15 +309,26 @@ class BufferedConsumptionTests(unittest.TestCase):
                 self.capture.capture.assert_not_called()
                 self.assertNotIn('image', self.namespace)
 
-    def test_compositor_guard_duration_cannot_age_buffer_past_limit(self):
+    def test_compositor_duration_expiry_uses_new_capture_not_old_pixels(self):
         now = [100.]
         self.namespace['time'] = SimpleNamespace(monotonic=lambda: now[0])
         self.capture.validate_compositor.side_effect = lambda *a, **kw: now.__setitem__(0, 100.2)
         with patch('session_windows.process_metadata', return_value=self.metadata):
-            with self.assertRaises(CapturePaused): exec(self.code, self.namespace)
+            exec(self.code, self.namespace)
         self.capture.validate_compositor.assert_called_once()
-        self.capture.capture.assert_not_called()
+        self.capture.capture.assert_called_once()
+        self.assertEqual(self.namespace['image'], b'fresh frame')
+        self.assertEqual(self.namespace['captured_at'], 100.2)
+        self.assertIsNone(self.namespace['buffered'])
+
+    def test_new_capture_failure_propagates_and_never_reuses_expired_pixels(self):
+        self.namespace['time'] = SimpleNamespace(monotonic=lambda: 101.3)
+        self.capture.capture.side_effect = CapturePaused('Fresh capture rejected')
+        with patch('session_windows.process_metadata', return_value=self.metadata):
+            with self.assertRaisesRegex(CapturePaused, 'Fresh capture rejected'):
+                exec(self.code, self.namespace)
         self.assertNotIn('image', self.namespace)
+        self.assertIsNone(self.namespace['buffered'])
 
     def test_live_process_change_rejects_buffer_without_new_capture(self):
         for changed in (ProcessMetadata('C:/owned.exe', 54321), ProcessMetadata('C:/other.exe', 12345)):
@@ -314,9 +339,11 @@ class BufferedConsumptionTests(unittest.TestCase):
                 self.capture.capture.assert_not_called()
 
     def test_lifecycle_or_compositor_failure_never_falls_back(self):
-        for cause in ('revoked', 'epoch', 'compositor'):
-            with self.subTest(cause=cause):
+        for cause, now in ((cause, now) for cause in ('revoked', 'epoch', 'compositor')
+                           for now in (100., 101.3)):
+            with self.subTest(cause=cause, expired=now>101):
                 self.setUp()
+                self.namespace['time'] = SimpleNamespace(monotonic=lambda: now)
                 if cause == 'revoked': self.capture.has_live_visible_session = False
                 if cause == 'epoch': self.capture.session_epoch = 10
                 if cause == 'compositor': self.capture.validate_compositor.side_effect = CapturePaused('Changed')

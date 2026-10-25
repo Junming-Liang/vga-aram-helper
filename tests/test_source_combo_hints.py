@@ -2,13 +2,15 @@ import copy
 import json
 import unittest
 from engine import normalize
+from patch_catalog import WIKI_URL
 from source_combo_hints import normalize_source_combos, source_combo_hint
 
 
 def fixture():
     return {'metadata': {'officialHeroStatistics': True, 'isDemo': False,
-                         'sourceDataDate': '2026-09-07', 'wikiDataVersion': '395'},
-            'heroes': {'英雄甲': {'championId': '1'}, '英雄乙': {'championId': '2'}},
+                         'sourceDataDate': '2026-10-22', 'wikiDataVersion': 'synthetic-current',
+                         'gamePatch': '16.21', 'sourceUrl': WIKI_URL},
+            'heroes': {'英雄甲': {'championId': '1', 'sourceVersion': '16.21'}, '英雄乙': {'championId': '2', 'sourceVersion': '16.21'}},
             'augments': {name: {'augmentId': str(i)} for i, name in enumerate(['强化甲', '强化乙', '强化丙', '强化丁'], 11)},
             'heroSourceCombos': {'1': [['11', '12', '13']], '2': [['11', '14']]}}
 
@@ -20,7 +22,7 @@ class SourceComboHintTests(unittest.TestCase):
         self.assertEqual(hint['text'], '搭配：强化乙、强化丙')
         self.assertEqual(hint['partnerIds'], ['12', '13'])
         self.assertEqual(source_combo_hint(d, '英雄乙', '强化甲')['text'], '搭配：强化丁')
-        self.assertEqual(hint['sourceDate'], '2026-09-07')
+        self.assertEqual(hint['sourceDate'], '2026-10-22')
         self.assertIn('非后续选择顺序', hint['sourceLabel'])
 
     def test_missing_is_not_invented(self):
@@ -89,7 +91,8 @@ class SourceComboHintTests(unittest.TestCase):
         self.assertEqual(source_combo_hint(result, '英雄甲', '强化甲')['text'], '搭配：强化乙、强化丙')
 
     def test_raw_wiki_adapter_uses_stable_ids(self):
-        raw = {'wiki': {'version': '395', 'championDetail': [{'championId': '1', 'championName': '英雄甲 别名',
+        raw = {'metadata': {'sourceDataDate': '2026-10-22', 'gamePatch': '16.21'},
+               'wiki': {'version': 'synthetic-current', 'championDetail': [{'championId': '1', 'championName': '英雄甲 别名', 'version': '16.21',
                 'topAugmentCombos': [{'augments': ['11', '12'], 'tier': '', 'winRate': '99%'}]}],
                 'augmentDetail': [{'augmentId': '11', 'augmentName': '强化甲'}, {'augmentId': '12', 'augmentName': '强化乙'}]}}
         d = normalize(raw)

@@ -6,6 +6,20 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from native_state import RecognitionState,display_cards,source_tier
 from screen_capture import bounded_roi,CaptureUnavailable,WindowInfo
+from patch_catalog import WIKI_URL
+
+
+def current_source_fixture(data):
+    """Synthetic applicable source records, not real current-patch statistics."""
+    data['metadata'] = {'officialHeroStatistics': True, 'sourceUrl': WIKI_URL,
+                        'gamePatch': '16.21', 'sourceDataDate': '2026-10-22'}
+    for index, item in enumerate(data['augments'].values(), 1):
+        item['augmentId'] = str(index)
+    for hero, rows in data['heroAugmentStats'].items():
+        data.setdefault('heroes', {}).setdefault(hero, {})['sourceVersion'] = '16.21'
+        for row in rows:
+            row['augmentId'] = data['augments'][row['augmentName']]['augmentId']
+    return data
 
 class NativeStateTests(unittest.TestCase):
     def setUp(self):
@@ -38,7 +52,7 @@ class NativeStateTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.state.confirm(names,['甲','乙','丙'])
     def test_literal_hero_tier_has_no_rates_or_ranking(self):
         data={'heroes':{'英雄甲':{}},'augments':{'甲':{'description':'原描述'}},'heroAugmentStats':{'英雄甲':[{'augmentName':'甲','tier':'T1','winRate':88.5,'numGames':500}]},'metadata':{}}
-        cards=display_cards(data,'英雄甲',['甲'])
+        cards=display_cards(current_source_fixture(data),'英雄甲',['甲'])
         self.assertEqual(cards[0]['description'],'原描述');self.assertEqual(cards[0]['sourceTier'],'T1');self.assertNotIn('sourceRank',cards[0])
         self.assertNotIn('winRate',str(cards));self.assertNotIn('recommended',str(cards));self.assertNotIn('88.5',str(cards))
     def test_source_tier_missing_null_unknown_never_maps_or_guesses(self):
@@ -50,6 +64,7 @@ class NativeStateTests(unittest.TestCase):
         data={'metadata':{},'augments':{'甲':{'overallTier':'T1'},'乙':{},'丙':{}},'heroAugmentStats':{
             '英雄甲':[{'augmentName':'丙','tier':'T1'},{'augmentName':'乙','tier':'T2'},{'augmentName':'甲','tier':'T3'}],
             '英雄乙':[{'augmentName':'乙','tier':'T4'},{'augmentName':'甲','tier':'T1'},{'augmentName':'丙','tier':None}]}}
+        current_source_fixture(data)
         before=display_cards(data,'英雄甲',['甲','乙','丙']);after=display_cards(data,'英雄乙',['甲','乙','丙'])
         self.assertEqual([x['name'] for x in before],['甲','乙','丙']);self.assertEqual([x['slot'] for x in before],[1,2,3])
         self.assertEqual([x['sourceTier'] for x in before],['T3','T2','T1']);self.assertEqual([x['sourceTier'] for x in after],['T1','T4',None])
@@ -57,7 +72,7 @@ class NativeStateTests(unittest.TestCase):
     def test_global_tier_and_high_winrate_never_fill_missing_hero_tier(self):
         data={'metadata':{},'augments':{'甲':{'tier':'T1','overallTier':'T1','winRate':99}},'heroAugmentStats':{'英雄甲':[{'augmentName':'甲','tier':None,'winRate':99}]}}
         card=display_cards(data,'英雄甲',['甲'])[0]
-        self.assertIsNone(card['sourceTier']);self.assertEqual(card['sourceTierLabel'],'虎牙公开源评级')
+        self.assertIsNone(card['sourceTier']);self.assertEqual(card['sourceTierLabel'],'评级待核实')
         self.assertNotIn('winRate',str(card));self.assertNotIn('99',str(card))
 
     def test_missing_description_and_relations_never_fabricate_synergy(self):

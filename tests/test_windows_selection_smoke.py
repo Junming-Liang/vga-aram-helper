@@ -718,6 +718,20 @@ class SelectionHarnessTests(unittest.TestCase):
                 value=self.good_aggregate(frozen=frozen);value['runs'][index]['negative_game_return_focus']['target']['created']+=1
                 with self.assertRaises(AssertionError):smoke.validate_aggregate(value,'0.4.1',frozen=frozen)
 
+    def test_production_demo_reference_matches_source_and_frozen_contracts(self):
+        from hero_strength import hero_strength_reference
+        data={'metadata':{'isDemo':True,'sourceDataDate':'2026-01-02',
+                          'gamePatch':'0.2','wikiDataVersion':'synthetic-selection-v1'},
+              'heroes':{diagnostic.DEMO_HERO:{'championId':'9001',
+                        'overallTier':'T5','sourceVersion':'0.1'}}}
+        reference=hero_strength_reference(data,diagnostic.DEMO_HERO,champion_id='9001')
+        self.assertEqual(reference,diagnostic.DEMO_REFERENCE)
+        self.assertEqual(reference,smoke.EXPECTED_REFERENCE)
+        for frozen in (False,True):
+            value=self.good_report(frozen=frozen)
+            value['client_hero_reference']['reference']=reference
+            smoke.validate_report(value,'0.4.1',frozen=frozen)
+
     def test_literal_hero_reference_and_no_augment_confirmation_are_strict(self):
         mutations=[('assigned','9002'),('stage','assigning'),('state_hero',''),('observation_count',1),
             ('observation_count',True),('observation_count',2.0),('confirmed',True),('confirmed',0),
@@ -733,7 +747,10 @@ class SelectionHarnessTests(unittest.TestCase):
         for key,replacement in [('championId','9002'),('hero','未知英雄'),('sourceTier','T1'),
             ('sourceTierLabel','虎牙公开源英雄评级'),('sourceLabel','unknown'),('sourceDataDate','2026-01-03'),
             ('sourceVersion','0.2'),('gamePatch','0.1'),('wikiDataVersion','latest'),
-            ('sourceUrl','https://example.com'),('isDemo',1)]:
+            ('sourceUrl','https://example.com'),('isDemo',1),
+            ('ratingStatus','current'),('ratingMessage',''),('targetGamePatch','26.22'),
+            ('statisticsPatch','16.21'),('statisticsDate','2026-10-22'),
+            ('statisticsRegion','CN'),('ratingConfidence','source-snapshot')]:
             value=self.good_report();value['client_hero_reference']['reference'][key]=replacement
             with self.subTest(reference=key),self.assertRaises(AssertionError):
                 smoke.validate_report(value,'0.4.1')

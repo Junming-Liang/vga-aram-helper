@@ -6,6 +6,7 @@ The tail gate delays a genuine LocalOCR result; it never invents OCR rows.
 """
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -203,6 +204,59 @@ class LatestCaptureRealOCRTests(unittest.TestCase):
         self.assertTrue(w.state.confirmed)
         self.assertEqual(self.maximum_active_captures, 1)
         self.assertEqual(self.errors, [])
+
+    def run_age_only_expiry(self, phase):
+        """Advance only the controller clock; no timing-sensitive sleep race."""
+        from synthetic_vision import encoded
+        w = self.window
+        release, previous = self.start_held_ocr()
+        packet = self.acquire_distinct_buffer()
+        release.set()
+        self.wait(lambda: len(self.results) > previous and not w.ocr_busy and not w._workers)
+        generation, epoch = w.state.generation, w.capture.session_epoch
+        calls_before = len(self.capture_calls)
+        previous = len(self.results)
+        # It is usable when taken, then expires strictly during the selected
+        # worker phase. Fresh capture uses different owned animated pixels.
+        now = [packet.captured_at + .7]
+        w.capture.payload = encoded(self.scene.image((0, 1, 2), 8))
+        advanced = []
+        original_prepare = w.ocr.prepare
+        original_validate = w.capture.validate_compositor
+        def prepare():
+            original_prepare()
+            if phase == 'prepare' and not advanced:
+                now[0] += .2; advanced.append(True)
+        def validate(*args, **kwargs):
+            original_validate(*args, **kwargs)
+            if phase == 'compositor' and not advanced:
+                now[0] += .2; advanced.append(True)
+        with patch('native_ui.time', SimpleNamespace(monotonic=lambda: now[0])), \
+                patch.object(w.latest_capture, '_clock', lambda: now[0]), \
+                patch.object(w.ocr, 'prepare', side_effect=prepare), \
+                patch.object(w.capture, 'validate_compositor', side_effect=validate), \
+                patch.object(w, 'queue_latest_capture'):
+            w.capture_tick()
+            self.wait(lambda: (len(self.results) > previous or self.errors)
+                      and not w.ocr_busy and not w._workers)
+        self.assertEqual(self.errors, [])
+        self.assertEqual(len(self.capture_calls), calls_before + 1)
+        self.assertEqual(self.capture_calls[-1]['payload'], w.capture.payload)
+        result = self.results[-1]
+        self.assertEqual(result['_capturedAt'], now[0])
+        self.assertGreater(result['_capturedAt'], packet.captured_at)
+        self.assertEqual(w.last_observation, now[0])
+        self.assertTrue(w.state.confirmed)
+        self.assertEqual(w.state.generation, generation)
+        self.assertEqual(w.capture.session_epoch, epoch)
+        self.assertTrue(w.capture.has_live_visible_session)
+        self.assertEqual(self.maximum_active_captures, 1)
+
+    def test_expiry_during_prepare_recaptures_without_resetting_session(self):
+        self.run_age_only_expiry('prepare')
+
+    def test_expiry_during_compositor_recaptures_without_resetting_session(self):
+        self.run_age_only_expiry('compositor')
 
     def test_stop_revokes_buffered_frame_generation_and_late_recognition(self):
         w = self.window

@@ -33,7 +33,7 @@ class LCUTests(unittest.TestCase):
         x=selection_observation(*inputs());s=SelectionSnapshot();s.observe(x,'scope',10.,10.1);s.observe(x,'scope',11.,11.1);s.observe({},'scope',12.,12.1);self.assertIsNone(s.current('scope',12.2))
     def test_literal_source_tier_only(self):
         from data_updates import WIKI_PAGE
-        d={'metadata':{'officialHeroStatistics':True,'sourceUrl':WIKI_PAGE},'heroes':{'Cho':{'championId':'31','overallTier':'T3'}}};x=selection_observation(*inputs());r=selection_reference(d,x);self.assertEqual(r['selectionRows'][0][1][0]['sourceTier'],'T3');self.assertEqual(r['selectionRows'][1][1],[])
+        d={'metadata':{'officialHeroStatistics':True,'sourceUrl':WIKI_PAGE,'gamePatch':'16.21','sourceDataDate':'2026-10-22'},'heroes':{'Cho':{'championId':'31','overallTier':'T3','sourceVersion':'16.21'}}};x=selection_observation(*inputs());r=selection_reference(d,x);self.assertEqual(r['selectionRows'][0][1][0]['sourceTier'],'T3');self.assertEqual(r['selectionRows'][1][1],[])
     def reader(self):
         from session_windows import ProcessMetadata
         return LocalSelectionReader(ProcessMetadata(r'C:\League\LeagueClientUx.exe',1),resolver=lambda pid:ProcessMetadata(r'c:\league\leagueclient.exe',2),clock=lambda:1.)
