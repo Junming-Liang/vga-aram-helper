@@ -12,7 +12,7 @@ from app_version import __version__
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--templates',type=Path,required=True);parser.add_argument('--fixtures',type=Path,required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--data',type=Path)
     args=parser.parse_args()
-    implementation={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in ['hero_recognition.py','hero_portraits.py','local_ocr.py','ocr_privacy.py','model_inventory.py','screen_capture.py','native_state.py','engine.py']}
+    implementation={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in ['patch_catalog.py','hero_recognition.py','hero_portraits.py','local_ocr.py','ocr_privacy.py','model_inventory.py','screen_capture.py','native_state.py','engine.py']}
     roster=json.loads((args.templates/'champion.en_US.json').read_text());bank={row['key']:Image.open(args.templates/'square'/row['image']['full']).convert('RGB') for row in roster['data'].values()};heroes={row['name']:{'championId':row['key']} for row in roster['data'].values()}
     matcher=PortraitMatcher(bank,heroes);records=json.loads(args.fixtures.read_text());cases=[]
     for row in records:
