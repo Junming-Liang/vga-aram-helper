@@ -132,6 +132,17 @@ class LocalOfflineTests(unittest.TestCase):
         finally:
             folder.cleanup()
 
+    def test_load_bundle_strips_game_icon_tokens(self):
+        payload = bundle()
+        payload['data']['augments']['甲']['description'] = '获得%i:Augment%强化符文，+15%治疗。'
+        folder, path = self.write(payload)
+        try:
+            self.assertEqual(load_bundle(path)['augments']['甲']['description'], '获得强化符文，+15%治疗。')
+            startup = load_startup_data(None, offline_path=path)
+            self.assertEqual(startup['data']['augments']['甲']['description'], '获得强化符文，+15%治疗。')
+        finally:
+            folder.cleanup()
+
     def test_champion_and_augment_source_rankings(self):
         aram = bundle()['aram']
         champions = champion_rows(aram, 5)

@@ -30,6 +30,16 @@ def load_bundle(path):
     for key in ('augments', 'champions', 'combos', 'items'):
         if not isinstance(aram.get(key), list):
             raise ValueError('Offline bundle is missing aram ' + key)
+    for kind in ('heroes', 'augments', 'items'):
+        records = data.get(kind)
+        if not isinstance(records, dict):
+            continue
+        for record in records.values():
+            if not isinstance(record, dict):
+                continue
+            for field in ('description', 'tips'):
+                if isinstance(record.get(field), str):
+                    record[field] = plain(record[field])
     metadata = data.setdefault('metadata', {})
     if not isinstance(metadata, dict):
         raise ValueError('Offline bundle has invalid metadata')
