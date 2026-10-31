@@ -47,7 +47,7 @@ def recommendation_rows(data, hero, limit=DEFAULT_ROW_LIMIT):
     if isinstance(data.get('metadata'), dict) and data['metadata'].get('offlineLocal') is True:
         meta = data['metadata']
         return {'available': False, 'rows': [],
-                'reason': '本地离线模式：请查看三个候选的本地热度档位；此处不展示旧版统计。',
+                'reason': '本地离线模式：请查看三个候选的本地离线档位（热度/英雄历史）；此处不展示旧版统计。',
                 'status': 'offline-local', 'sourceDataDate': meta.get('sourceDataDate'),
                 'gamePatch': meta.get('gamePatch')}
     status = statistics_status(data, hero)

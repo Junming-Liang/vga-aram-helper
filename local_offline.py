@@ -62,6 +62,28 @@ def _hero_keys(data, hero):
     return {canonical_name(value) for value in values if isinstance(value, str) and value.strip()}
 
 
+HISTORY_TIERS = {'T1': 'S', 'T2': 'A', 'T3': 'B', 'T4': 'C'}
+
+
+def _history_tiers(data, hero):
+    """Unique 16.17 hero-specific tiers used only as a local base; never rates."""
+    rows = data.get('heroAugmentStats', {}).get(hero, []) if isinstance(data.get('heroAugmentStats'), dict) else []
+    result, ambiguous = {}, set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name, tier = row.get('augmentName'), row.get('tier')
+        if not isinstance(name, str) or tier not in HISTORY_TIERS:
+            continue
+        key = canonical_name(name)
+        if key in result and result[key] != HISTORY_TIERS[tier]:
+            ambiguous.add(key)
+        result[key] = HISTORY_TIERS[tier]
+    for key in ambiguous:
+        result.pop(key, None)
+    return result
+
+
 def _combos_for(aram, hero_keys, augment_name, offered_keys=None):
     key = canonical_name(augment_name)
     matches = []
@@ -144,6 +166,7 @@ def local_cards(data, hero, offered):
     meta = aram.get('metadata') if isinstance(aram.get('metadata'), dict) else {}
     offered_keys = {canonical_name(name) for name in offered
                     if isinstance(name, str) and name.strip()}
+    history_tiers = _history_tiers(data, hero)
     cards = []
     for slot, name in enumerate(offered, 1):
         item = data.get('augments', {}).get(name) if isinstance(name, str) else None
@@ -160,6 +183,9 @@ def local_cards(data, hero, offered):
                           'targetGamePatch': meta.get('patch')})
             continue
         tier = _tier(augment.get('pickRateRank'), total)
+        history_tier = history_tiers.get(canonical_name(name))
+        if history_tier:
+            tier = history_tier
         combos = _combos_for(aram, hero_keys, name, offered_keys)
         combos_types = {value for combo in combos for value in combo.get('types', []) if isinstance(value, str)}
         if 'trap' in combos_types:
@@ -167,17 +193,22 @@ def local_cards(data, hero, offered):
         elif 'god' in combos_types:
             tier = _move(tier, -1)
         hint, notes = _combo_hint(combos, name)
+        if history_tier:
+            notes = notes + ['英雄档位基础来自 16.17 历史快照；仅本地近似。']
         pick_rate = augment.get('pickRate')
         cards.append({
             'name': name, 'slot': slot, 'description': description,
-            'sourceTier': tier, 'sourceTierLabel': '本地热度档位',
-            'sourceLabel': '本地 26.21 热度 · aram mayhem CC BY 4.0 · 非虎牙 AI 强度',
-            'ratingStatus': 'local-heat', 'catalogStatus': 'local',
+            'sourceTier': tier,
+            'sourceTierLabel': '本地综合档位' if history_tier else '本地热度档位',
+            'sourceLabel': ('本地 26.21 热度 + 英雄历史档位 · aram mayhem CC BY 4.0 · 非虎牙 AI 强度'
+                            if history_tier else
+                            '本地 26.21 热度 · aram mayhem CC BY 4.0 · 非虎牙 AI 强度'),
+            'ratingStatus': 'local-hybrid' if history_tier else 'local-heat', 'catalogStatus': 'local',
             'notes': notes, 'sourceHint': hint,
             'heatLabel': (f"热度 {pick_rate:.2f}% · 全强化第 {augment.get('pickRateRank')}"
                           if isinstance(pick_rate, (int, float)) else ''),
             'pickRate': pick_rate, 'heatRank': augment.get('pickRateRank'),
-            'sourceBadge': '本地', 'offlineLocal': True,
+            'sourceBadge': '本地综合' if history_tier else '本地热度', 'offlineLocal': True,
             'sourceDataDate': meta.get('statsDate'), 'gamePatch': meta.get('patch'),
             'targetGamePatch': meta.get('patch'),
         })

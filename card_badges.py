@@ -157,7 +157,7 @@ class TierBadge(QtWidgets.QWidget):
         self.identity_provenance=identity_provenance
         warning='HUD未复核' if '来自本局选人' in identity_provenance and 'HUD未复核' in identity_provenance else '本局已确认' if '头像未重新确认' in identity_provenance else ''
         self._pending_identity=bool(warning and rechecking)
-        self.source=warning or ('复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else '本地热度' if card.get('sourceBadge')=='本地' else '源评级')
+        self.source=warning or ('复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else card.get('sourceBadge') if card.get('sourceBadge') in ('本地','本地综合','本地热度') else '源评级')
         heat=card.get('heatLabel');heat=heat.strip() if isinstance(heat,str) else ''
         hint=card.get('sourceHint');hint=hint.strip() if isinstance(hint,str) else ''
         self.hint=' · '.join(value for value in (heat,hint) if value)

@@ -82,11 +82,35 @@ class LocalOfflineTests(unittest.TestCase):
         self.assertIn('陷阱', cards[0]['sourceHint'])
         self.assertTrue(cards[0]['notes'])
 
+    def test_hero_history_tier_is_used_when_unique(self):
+        data = bundle()['data']
+        data['heroAugmentStats'] = {'英雄': [
+            {'augmentName': '丙', 'tier': 'T1'},
+            {'augmentName': '丁', 'tier': 'T4'},
+            {'augmentName': '戊', 'tier': 'T2'},
+        ]}
+        cards = local_cards(data, '英雄', ['丙', '丁', '癸'])
+        self.assertEqual([card['sourceTier'] for card in cards], ['S', 'C', 'C'])
+        self.assertEqual([card['sourceTierLabel'] for card in cards],
+                         ['本地综合档位', '本地综合档位', '本地热度档位'])
+        self.assertIn('英雄历史档位', cards[0]['sourceLabel'])
+        self.assertIn('16.17', cards[0]['notes'][-1])
+        self.assertNotIn('英雄历史档位', cards[2]['sourceLabel'])
+
+    def test_ambiguous_history_tier_abstains(self):
+        data = bundle()['data']
+        data['heroAugmentStats'] = {'英雄': [
+            {'augmentName': '丙', 'tier': 'T1'},
+            {'augmentName': '丙', 'tier': 'T3'},
+        ]}
+        card = local_cards(data, '英雄', ['丙'])[0]
+        self.assertEqual(card['sourceTierLabel'], '本地热度档位')
+
     def test_display_cards_branches_to_local(self):
         data = bundle()['data']
         cards = display_cards(data, '英雄', ['甲', '乙', '戊'])
         self.assertEqual([card['sourceTier'] for card in cards], ['S', 'S', 'C'])
-        self.assertEqual(cards[0]['sourceBadge'], '本地')
+        self.assertEqual(cards[0]['sourceBadge'], '本地热度')
         self.assertIsNotNone(heat_view(data))
 
     def test_offline_equipment_reference(self):
