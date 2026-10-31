@@ -655,6 +655,12 @@ class ControlWindow(QtWidgets.QWidget):
                 rarity={'silver':'白银','gold':'黄金','prismatic':'棱彩'}.get(row['rarity'],row['rarity'] or '未知')
                 rows.append(f"{index}. {row['name']} · {rarity} · 登场率 {row['pickRate']:.2f}%（全强化第 {row['rank']}）")
             rows.append(f"来源：{meta.get('sourcePage','https://arammayhem.com/zh-cn/data/')} · {meta.get('attribution','Data: arammayhem.com')} · 登场率不是胜率或强度，不参与排序。")
+            from patch_catalog import official_delta
+            delta=official_delta()
+            rows.append(f"国服 {delta['patch']} 海克斯大乱斗目录变更（官方公告机制摘要，非强度评级）")
+            rows.append(f"新增 {len(delta['new'])} 个："+'、'.join(row['name'] for row in delta['new']))
+            rows.append(f"移除 {len(delta['retired'])} 个："+'、'.join(row['name'] for row in delta['retired']))
+            rows.append(f"公告日期 {delta['releaseDate']} · 核对日期 {delta['checkedDate']} · {delta['sourceUrl']}")
         text='\n\n'.join(rows)
         if self.card_details.text()!=text:self.card_details.setText(text)
     def client_assignment_visible(self):

@@ -75,6 +75,16 @@ def official_records():
             for name, rarity, description in _NEW}
 
 
+def official_delta():
+    """Reviewed CN announcement delta for local reference; not strength data."""
+    return {'patch': CURRENT_PATCH, 'releaseDate': RELEASE_DATE,
+            'checkedDate': CHECKED_DATE, 'sourceUrl': OFFICIAL_URL,
+            'new': [{'name': name, 'rarity': rarity, 'description': description}
+                    for name, rarity, description in _NEW],
+            'retired': [{'name': name, 'legacySourceId': augment_id}
+                        for name, augment_id in RETIRED]}
+
+
 def _meta(data):
     meta = data.get('metadata') if isinstance(data, dict) else None
     return meta if isinstance(meta, dict) else {}

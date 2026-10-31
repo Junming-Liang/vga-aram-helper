@@ -88,6 +88,8 @@ class NativeOfflineUITests(unittest.TestCase):
         self.assertIn('英雄登场率排行', text)
         self.assertIn('强化热度排行', text)
         self.assertIn('非胜率', text)
+        self.assertIn('目录变更', text)
+        self.assertIn('26.21', text)
         self.assertNotIn('winRate', text)
 
 

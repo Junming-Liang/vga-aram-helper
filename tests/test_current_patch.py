@@ -11,7 +11,7 @@ from engine import normalize, recommend
 from hero_strength import hero_strength_reference
 from native_state import display_cards
 from patch_catalog import (CURRENT_PATCH, NEW_NAMES, RETIRED_NAMES, OFFICIAL_URL,
-                           WIKI_URL, official_records, statistics_status,
+                           WIKI_URL, official_delta, official_records, statistics_status,
                            ratings_available, pair_rating_available)
 from public_payload import public_data, public_comparison, public_recommendation
 from source_combo_hints import source_combo_hint
@@ -50,6 +50,14 @@ def assert_public_safe(case, value):
 
 
 class CurrentPatchTests(unittest.TestCase):
+    def test_official_delta_is_announcement_only(self):
+        delta = official_delta()
+        self.assertEqual(delta['patch'], CURRENT_PATCH)
+        self.assertEqual(delta['sourceUrl'], OFFICIAL_URL)
+        self.assertEqual({row['name'] for row in delta['new']}, set(NEW_NAMES))
+        self.assertEqual({row['name'] for row in delta['retired']}, set(RETIRED_NAMES))
+        self.assertTrue(all(row['description'] and 'tier' not in row for row in delta['new']))
+        self.assertTrue(all('winRate' not in row for row in delta['new'] + delta['retired']))
     def test_fetched_today_old_source_stays_outdated(self):
         data = normalize(fixture())
         self.assertEqual(statistics_status(data)['ratingStatus'], 'outdated')
