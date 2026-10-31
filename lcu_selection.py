@@ -16,6 +16,8 @@ import time
 PATHS = frozenset(('/lol-gameflow/v1/gameflow-phase', '/lol-gameflow/v1/session',
                    '/lol-champ-select/v1/session'))
 MAX_RESPONSE = 512 * 1024
+# Hextech ARAM queue IDs used by the verified public helper build.
+HEX_ARAM_QUEUE_IDS = frozenset({2400, 2410, 3270})
 
 UNAVAILABLE_REASONS = {
     'local_client_unavailable': '本机客户端只读连接暂不可用',
@@ -66,9 +68,9 @@ def selection_observation(phase, flow, session):
         return {**unknown, 'reason': '本机客户端当前不在选人阶段'}
     if not isinstance(flow, dict) or not isinstance(session, dict):
         return {**unknown, 'reason': '本机客户端未提供完整的选人资料'}
-    # Fail closed for other modes. Queue 2400 is ARAM: Mayhem, not ordinary ARAM.
+    # Fail closed for other modes. These IDs are Hextech ARAM, not ordinary ARAM.
     queue = flow.get('gameData', {}).get('queue', {}) if isinstance(flow.get('gameData'), dict) else {}
-    if not isinstance(queue, dict) or type(queue.get('id')) is not int or queue['id'] != 2400:
+    if not isinstance(queue, dict) or type(queue.get('id')) is not int or queue['id'] not in HEX_ARAM_QUEUE_IDS:
         return unknown
     local = session.get('localPlayerCellId')
     team = session.get('myTeam'); bench = session.get('benchChampions', [])

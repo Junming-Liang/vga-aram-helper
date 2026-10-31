@@ -12,6 +12,13 @@ class LCUTests(unittest.TestCase):
         x=selection_observation(*inputs());self.assertEqual(x['championId'],'31');self.assertEqual(x['benchChampionIds'],('1',));self.assertNotIn('PRIVATE',str(x))
     def test_ordinary_aram_is_not_mayhem(self):
         a,b,c=inputs();b['gameData']['queue']['id']=450;self.assertFalse(selection_observation(a,b,c)['assigned'])
+    def test_verified_hex_queue_ids(self):
+        for queue_id in (2400,2410,3270):
+            a,b,c=inputs();b['gameData']['queue']['id']=queue_id;x=selection_observation(a,b,c)
+            self.assertTrue(x['assigned']);self.assertEqual(x['championId'],'31')
+    def test_unverified_queue_ids_abstain(self):
+        for queue_id in (0,450,2401,2411,3271,True,'2400',None):
+            a,b,c=inputs();b['gameData']['queue']['id']=queue_id;self.assertFalse(selection_observation(a,b,c)['assigned'])
     def test_unassigned_not_hover(self):
         a,b,c=inputs();c['myTeam'][0].update(championId=0,championPickIntent=22);x=selection_observation(a,b,c);self.assertFalse(x['assigned']);self.assertIsNone(x['championId'])
     def test_no_or_ambiguous_self(self):

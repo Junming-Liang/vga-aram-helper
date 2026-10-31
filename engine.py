@@ -63,6 +63,47 @@ def links(value):
     return result
 
 
+def equipment_builds(value):
+    """Whitelist public item-build names only; rates and sample counts stay out.
+
+    Accepts both the raw wiki shape and an already-projected shape so that
+    normalize() can re-check adapted heroes without dropping their builds.
+    """
+    if not isinstance(value, list):
+        return []
+    result = []
+    for build in value[:12]:
+        if not isinstance(build, dict):
+            continue
+        style = build.get("buildStyle", build.get("style"))
+        style = plain(style)[:40] if isinstance(style, str) else ""
+        core = []
+        rows = build.get("coreItems")
+        if isinstance(rows, list):
+            for row in rows[:12]:
+                if isinstance(row, list):
+                    item_names = [plain(name)[:40] for name in row if isinstance(name, str)][:8]
+                elif isinstance(row, dict):
+                    item_names = [plain(name)[:40] for name in names(row.get("itemNames"))[:8]]
+                else:
+                    continue
+                item_names = [name for name in item_names if name]
+                if item_names:
+                    core.append(item_names)
+        starting = []
+        groups = build.get("startingItemGroups", build.get("startingItems"))
+        if isinstance(groups, list):
+            for group in groups[:8]:
+                if not isinstance(group, list):
+                    continue
+                group_names = [plain(name)[:40] for name in group if isinstance(name, str)][:8]
+                group_names = [name for name in group_names if name]
+                if group_names:
+                    starting.append(group_names)
+        if core or starting:
+            result.append({"style": style, "coreItems": core, "startingItems": starting})
+    return result[:8]
+
 
 def percentage(value):
     if isinstance(value,str) and re.fullmatch(r"\s*\d+(?:\.\d+)?%\s*",value):
@@ -99,7 +140,8 @@ def adapt_official_wiki(raw):
         aliases=list(dict.fromkeys([x for x in [alias,full,*legacy.get('alias',[]),*(['人马'] if str(row.get('championId'))=='120' else [])] if isinstance(x,str) and x]))
         output['heroes'][name]={**legacy,'name':name,'alias':aliases,'championId':str(row.get('championId','')),
             'winRate':percentage(row.get('winRate')),'overallPickRate':percentage(row.get('pickRate')),
-            'overallTier':row.get('tier',''),'sourceVersion':str(row.get('version',''))}
+            'overallTier':row.get('tier',''),'sourceVersion':str(row.get('version','')),
+            'equipmentBuilds':equipment_builds(row.get('equipmentBuilds'))}
         if row.get('version'):metadata.setdefault('gamePatch',str(row['version']))
         stats=[]
         for item in row.get('augmentRecommendations',[]):
@@ -138,6 +180,7 @@ def normalize(raw):
             item = {"name": name, "description": plain(record.get("description")), "alias": names(record.get("alias")),
                     "position": names(record.get("position")), "winRate": number(record.get("winRate")),
                     "tips": plain(record.get("tips")), "championId": str(record.get("championId","")), "augmentId": str(record.get("augmentId","")), "sourceVersion":str(record.get("sourceVersion","")), "overallTier":str(record.get("overallTier","")), "overallPickRate":number(record.get("overallPickRate")), "version": names(record.get("version")),
+                    "equipmentBuilds": equipment_builds(record.get("equipmentBuilds")),
                     "isSkillEnhancement": record.get("isSkillEnhancement") is True,
                     "changes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("changes",[]) if isinstance(x,dict)],
                     "bugFixes": [{"version":str(x.get("version","")),"text":plain(x.get("text",x.get("changesHtml","")))} for x in record.get("bugFixes",[]) if isinstance(x,dict)]}

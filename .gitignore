@@ -4,6 +4,7 @@ private-data*.json
 private/
 reports/*private*
 *.zip
+test-artifacts/
 
 .venv/
 .venv-ocr/

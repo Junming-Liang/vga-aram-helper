@@ -555,6 +555,29 @@ class ControlWindow(QtWidgets.QWidget):
                 if card.get('sourceHint'):text+='\n公开源搭配：'+card['sourceHint']
                 if card['notes']:text+='\n条件/提醒：'+'；'.join(card['notes'])
             rows.append(text)
+        if hero:
+            from hero_reference import equipment_reference, recommendation_rows
+            recommendation=recommendation_rows(self.data,hero)
+            rows.append('英雄海克斯来源顺序（保留公开源原顺序，不按评级排序；不含胜率与样本量）')
+            if recommendation['available']:
+                for index,row in enumerate(recommendation['rows'],1):
+                    line=f"{index}. {row['name']} · {row['tier'] or '暂无评级'}"
+                    if row['hint']:line+=' · '+row['hint']
+                    rows.append(line)
+            else:
+                rows.append('暂无可用推荐：'+recommendation['reason'])
+            equipment=equipment_reference(self.data,hero)
+            rows.append('公开源出装参考（仅名称，不含胜率与样本量；不按强度排序）')
+            if equipment['available']:
+                for build in equipment['builds']:
+                    core=build['coreItems'][0] if build['coreItems'] else []
+                    starting=build['startingItems'][0] if build['startingItems'] else []
+                    line='- '+(build['style'] or '未标注流派')
+                    if core:line+='｜核心：'+' → '.join(core)
+                    if starting:line+='｜出门：'+'、'.join(starting)
+                    rows.append(line)
+            else:
+                rows.append('暂无可用出装：'+equipment['reason'])
         text='\n\n'.join(rows)
         if self.card_details.text()!=text:self.card_details.setText(text)
     def client_assignment_visible(self):
