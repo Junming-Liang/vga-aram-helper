@@ -413,8 +413,8 @@ class ControlWindow(QtWidgets.QWidget):
         self.live_identity_toggle.toggled.connect(self.live_identity_preference_changed)
         self.minimize_on_start=QtWidgets.QCheckBox('开始监测后自动最小化（默认关闭）');self.minimize_on_start.setChecked(self.monitor_preferences['minimize_on_start']);advanced.addWidget(self.minimize_on_start)
         self.minimize_on_start.toggled.connect(self.save_monitor_preferences)
-        self.auto_item_sets_toggle=QtWidgets.QCheckBox('确认英雄后自动导出推荐出装到所选目录');self.auto_item_sets_toggle.setChecked(self.monitor_preferences['auto_item_sets']);self.auto_item_sets_toggle.toggled.connect(self.auto_item_sets_changed);advanced.addWidget(self.auto_item_sets_toggle)
-        self.item_set_dir_label=label(self.monitor_preferences['item_set_dir'] or '未选择自动出装目录',True);advanced.addWidget(self.item_set_dir_label)
+        self.auto_item_sets_toggle=QtWidgets.QCheckBox('确认英雄后自动导出推荐出装（自选或已检测 LoL 目录）');self.auto_item_sets_toggle.setChecked(self.monitor_preferences['auto_item_sets']);self.auto_item_sets_toggle.toggled.connect(self.auto_item_sets_changed);advanced.addWidget(self.auto_item_sets_toggle)
+        self.item_set_dir_label=label(self.monitor_preferences['item_set_dir'] or '自动检测已核验 LoL 推荐目录',True);advanced.addWidget(self.item_set_dir_label)
         self.item_set_dir_button=QtWidgets.QPushButton('选择自动导出目录…');self.item_set_dir_button.clicked.connect(self.choose_item_set_dir);advanced.addWidget(self.item_set_dir_button)
         self.debug_toggle=QtWidgets.QCheckBox('本地诊断日志（此诊断版默认开启）');self.debug_toggle.setChecked(False);self.debug_toggle.setAccessibleName('本机诊断日志，此诊断版默认开启，可关闭');advanced.addWidget(self.debug_toggle)
         self.debug_export_button=QtWidgets.QPushButton('导出调试 ZIP');self.debug_export_button.setAccessibleName('仅在本机导出调试 ZIP');advanced.addWidget(self.debug_export_button)
@@ -652,9 +652,25 @@ class ControlWindow(QtWidgets.QWidget):
         try:save_preferences(self.state_dir,self.monitor_preferences)
         except OSError:self.status.setText('设置已用于本次启动，但未能保存；下次启动请重新核对。')
     def auto_item_sets_changed(self,checked):
-        if checked and not self.monitor_preferences.get('item_set_dir'):
-            self.status.setText('自动出装需要先选择导出目录。');self.auto_item_sets_toggle.setChecked(False);return
+        if checked:
+            folder=self.monitor_preferences.get('item_set_dir','') or self.detected_item_set_dir()
+            self.status.setText('自动出装已开启：'+(folder or '等待检测已核验 LoL 推荐目录。'))
         self.save_monitor_preferences()
+    def detected_item_set_dir(self):
+        try:
+            from item_sets import recommended_directories
+            targets=[self.target,self.client_target]
+            policy=getattr(self,'automatic_policy',None)
+            bound=getattr(policy,'bound',None) if policy is not None else None
+            if bound is not None:targets.append(getattr(bound,'window',None))
+            for target in targets:
+                metadata=getattr(target,'metadata',None)
+                path=getattr(metadata,'path',None)
+                if path:
+                    dirs=recommended_directories(path)
+                    if dirs:return str(dirs[0])
+        except Exception:pass
+        return ''
     def choose_item_set_dir(self):
         folder=QtWidgets.QFileDialog.getExistingDirectory(self,'选择自动导出推荐出装的目录',self.monitor_preferences.get('item_set_dir') or str(Path.home()))
         if not folder:return
@@ -664,8 +680,12 @@ class ControlWindow(QtWidgets.QWidget):
         toggle=getattr(self,'auto_item_sets_toggle',None)
         if toggle is None or not toggle.isChecked() or not self.state.running or not self.state.hero:return
         if not isinstance(self.data.get('aram'),dict):return
-        folder=self.monitor_preferences.get('item_set_dir','')
-        if not folder:return
+        folder=self.monitor_preferences.get('item_set_dir','') or self.detected_item_set_dir()
+        if not folder:
+            if getattr(self,'_item_set_signature',None)!=('nodir',):
+                self._item_set_signature=('nodir',)
+                self.hero_status.setText('自动出装等待检测已核验 LoL 推荐目录；也可手动选择目录。')
+            return
         from item_sets import build_sets, export
         hero=self.state.hero
         try:sets=build_sets(self.data,hero)

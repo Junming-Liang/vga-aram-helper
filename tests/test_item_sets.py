@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from item_sets import build_sets, export, item_index
+from item_sets import build_sets, export, item_index, recommended_directories
 
 
 def data():
@@ -60,6 +60,21 @@ class ItemSetTests(unittest.TestCase):
         broken['heroes']['英雄']['equipmentBuilds'] = [{'coreItems': [['未知']]}]
         with self.assertRaises(ValueError):
             build_sets(broken, '英雄')
+
+    def test_recommended_directories_from_verified_paths(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            recommended = root / 'Config' / 'Global' / 'Recommended'
+            recommended.mkdir(parents=True)
+            exe = root / 'Game' / 'League of Legends.exe'
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b'')
+            self.assertEqual(recommended_directories(exe), [recommended])
+            client = root / 'LeagueClientUx.exe'
+            client.write_bytes(b'')
+            self.assertEqual(recommended_directories(client), [recommended])
+            self.assertEqual(recommended_directories(root / 'unrelated.exe'), [])
+            self.assertEqual(recommended_directories(None), [])
 
 
 if __name__ == '__main__':

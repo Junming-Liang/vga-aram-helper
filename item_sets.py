@@ -17,6 +17,31 @@ MAX_BUILDS = 6
 MAX_ITEMS = 12
 
 
+def recommended_directories(target_path):
+    """Existing LoL Recommended dirs inferred from a verified game/client path."""
+    try:
+        path = Path(target_path)
+    except (TypeError, ValueError):
+        return []
+    name = path.name.lower()
+    if name == 'league of legends.exe':
+        roots = [path.parent.parent]
+    elif name in ('leagueclient.exe', 'leagueclientux.exe'):
+        roots = [path.parent]
+    else:
+        return []
+    candidates = []
+    for root in roots:
+        candidates.extend((root / 'Config' / 'Global' / 'Recommended',
+                           root / 'Game' / 'Config' / 'Global' / 'Recommended',
+                           root.parent / 'Game' / 'Config' / 'Global' / 'Recommended'))
+    result = []
+    for candidate in candidates:
+        if candidate.is_dir() and candidate not in result:
+            result.append(candidate)
+    return result
+
+
 def item_index(data):
     """Localized item name -> numeric game item ID from the bundled item list."""
     rows = data.get('aram', {}).get('items') if isinstance(data, dict) else None
