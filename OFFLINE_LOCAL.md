@@ -55,6 +55,19 @@ python build_offline_data.py --fetch --output offline/offline-data.json
 - 装备价值差：Tab 键触发本机 LCU 2999 只读读取，按离线装备价格计算已购装备价值差，浮层显示。
 - 本机英雄身份：离线模式默认启用本机只读选人/本局身份；无头像缓存时仍可用 LCU 身份，HUD 头像仅作回退。
 
+## Windows 便携测试包（内置运行时）
+
+除源码运行外，可在带网络和 Linux/macOS 的构建机上组装“拷贝即用、运行时断网”的 Windows 便携包：
+
+1. 下载 Python 3.12.10 embeddable `python-3.12.10-embed-amd64.zip` 并解压到 `python/`。
+2. 用 `pip download --platform win_amd64 --python-version 3.12 --implementation cp --abi cp312 --only-binary=:all: -r requirements-build.txt -c packaging/windows-build-constraints.txt` 下载 Windows wheels，解压到 `python/Lib/site-packages`。
+3. 把本仓库源码放到 `app/`，再放入 `app/offline/offline-data.json`。
+4. `python312._pth` 增加 `Lib\site-packages`、`..\app` 和 `import site`。
+5. 根目录放 `start.bat`：`..\python\python.exe launcher.py --offline --no-updates`；可另放 `smoke.bat` 运行 `--self-test`。
+6. 连同 VC++ 运行库 DLL（若 wheels/embeddable 未自带）一起打包。
+
+该便携包不是签名的正式 EXE，仍需在 Windows 上运行 `smoke.bat` 与实际对局验证。构建机需要联网；用户端解压后不需要联网。
+
 ## 边界
 
 - 不包含虎牙远端 AI 模型或服务；本地档位是可解释的热度近似，不保证与虎牙输出一致。
