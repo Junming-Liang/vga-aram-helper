@@ -5,8 +5,9 @@
 - “核对资料”在人工选择英雄后新增公开源出装参考（最多 6 套，仅流派/核心装/出门装名称）与英雄级海克斯来源顺序（最多 8 项，保留原顺序）。两者沿用补丁/日期门禁，当前旧版快照只显示不可用原因；仍未输出胜率、选取率、样本量或唯一最佳项。
 - 本机选人只读识别接受已验证的海斗队列 2400/2410/3270；其它队列继续拒绝。该队列集合来自对官方助手构建的静态分析，未扩大 LCU 读取端点或授权范围。
 - 新增 26.21 新海克斯名称的 OCR 变体回归测试（全角/半角标点、空格），不改变识别门槛。
+- 新增可选的 aram mayhem 26.21 登场率缓存与资料页区块（CC BY 4.0，仅登场率/排名，不含胜率/T 级，不参与排序）；按中文名匹配，未收录/重名弃权。运行 `python sync_arammayhem.py` 同步。
 
-English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. No new LCU endpoints or Huya service calls.
+English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. Adds an optional CC BY 4.0 aram mayhem 26.21 pick-rate cache and UI block, explicitly not a win rate or strength rating and never used for ordering; unmatched or ambiguous names abstain. No new LCU endpoints or Huya service calls.
 
 ## v0.4.18 · 选人连续识别与叠加稳定性
 

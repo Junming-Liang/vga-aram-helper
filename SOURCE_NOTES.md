@@ -8,7 +8,9 @@
 - `augment-list.json`、`augment-detail.json`
 - `item-detail.json`
 
-英雄专属推荐来自 `champion-detail` 的 `augmentRecommendations`。内部导入/缓存保留数组顺序，以及各项的 `tier`、`winRate`、`pickRate`、`numGames`；玩家界面和公开 HTTP 响应只输出原始评级及机制资料，过滤胜率、选取率、样本量和推荐排名，不输出唯一最佳项。v0.4.10 原生候选版另对 `topAugmentCombos` 做稳定 ID 投影，只给当前英雄/强化匹配的组合示例，不推断已选内容或实时最优。英雄详情同时提供 `equipmentBuilds`（流派、核心装、出门装及来源统计）；资料页只投影流派和装备名称，丢弃胜率与样本量，并与评级使用同一适用性门禁。字段解释见 [DATA.md](DATA.md)，发现、验证和缓存流程见 [UPDATES.md](UPDATES.md)。
+英雄专属推荐来自 `champion-detail` 的 `augmentRecommendations`。内部导入/缓存保留数组顺序，以及各项的 `tier`、`winRate`、`pickRate`、`numGames`；玩家界面和公开 HTTP 响应只输出原始评级及机制资料，过滤虎牙来源的胜率、选取率、样本量和推荐排名，不输出唯一最佳项。v0.4.10 原生候选版另对 `topAugmentCombos` 做稳定 ID 投影，只给当前英雄/强化匹配的组合示例，不推断已选内容或实时最优。英雄详情同时提供 `equipmentBuilds`（流派、核心装、出门装及来源统计）；资料页只投影流派和装备名称，丢弃胜率与样本量，并与评级使用同一适用性门禁。字段解释见 [DATA.md](DATA.md)，发现、验证和缓存流程见 [UPDATES.md](UPDATES.md)。
+
+另有一个独立的可选登场率来源：[arammayhem.com 数据页](https://arammayhem.com/zh-cn/data/)。其 26.21 数据集（统计日期 2026-10-30）以 CC BY 4.0 授权，只含登场率和登场率排名，明确不含胜率、梯队或胜率排名；引用需注明 “Data: arammayhem.com” 并链接来源。程序通过 `sync_arammayhem.py` 将其缓存到本机状态目录，资料页单独展示并标注“登场率不是胜率或强度评级，不参与排序”，不映射为虎牙 T 级。未收录、重名或已退役条目不展示。
 
 ### 已检查快照
 

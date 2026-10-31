@@ -578,6 +578,28 @@ class ControlWindow(QtWidgets.QWidget):
                     rows.append(line)
             else:
                 rows.append('暂无可用出装：'+equipment['reason'])
+            if self.data.get('metadata',{}).get('isDemo') is not True:
+                try:
+                    from arammayhem_stats import load_cached, lookup_augment, lookup_champion
+                    if not hasattr(self,'_arammayhem_cache'):
+                        self._arammayhem_cache=load_cached(self.state_dir)
+                    heat=self._arammayhem_cache
+                except Exception:
+                    heat=None
+                if heat:
+                    from patch_catalog import CURRENT_PATCH
+                    meta=heat.get('metadata',{})
+                    if meta.get('patch')==CURRENT_PATCH:
+                        rows.append(f"当前版本登场率 · aram mayhem {meta['patch']}（统计 {meta['statsDate']} · CC BY 4.0）")
+                        hero_record=self.data.get('heroes',{}).get(hero,{})
+                        champion=lookup_champion(heat,hero,hero_record.get('alias',[]) if isinstance(hero_record,dict) else [])
+                        if champion:
+                            rows.append(f"英雄热度：{champion['pickRate']:.2f}%（全英雄第 {champion['pickRateRank']}）")
+                        for index,edit in enumerate(self.inputs,1):
+                            name=edit.text().strip()
+                            row=lookup_augment(heat,name)
+                            rows.append(f"{index} · {name}：登场率 {row['pickRate']:.2f}%（全强化第 {row['pickRateRank']}）" if row else f"{index} · {name}：当前热度数据未收录")
+                        rows.append(f"来源：{meta['sourcePage']} · {meta['attribution']} · 登场率不是胜率或强度评级，不参与排序。")
         text='\n\n'.join(rows)
         if self.card_details.text()!=text:self.card_details.setText(text)
     def client_assignment_visible(self):
