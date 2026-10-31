@@ -92,6 +92,8 @@ def main(argv=None) -> int:
     parser.add_argument("--headless", "--no-browser", dest="headless", action="store_true", help="仅开发诊断：启动本机 HTTP 服务，不显示原生窗口")
     parser.add_argument("--no-updates", action="store_true", help="本次禁用软件更新检查（测试用）")
     parser.add_argument("--demo", action="store_true", help="仅使用虚构测试样例；不用于真实对局")
+    parser.add_argument("--offline", action="store_true", help="使用程序目录 offline/offline-data.json，不联网")
+    parser.add_argument("--offline-data", type=Path, help="指定本地离线数据包 JSON；给出时禁用联网")
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help="校验内置模型并运行离线合成图片识别后退出")
     parser.add_argument("--report", type=Path, help="把 --self-test 结果写入 JSON 文件")
@@ -153,6 +155,17 @@ def main(argv=None) -> int:
     from updates import runtime_state_dir
     from server import load_startup_data, make_server
     state_dir = runtime_state_dir()
+    offline_path = args.offline_data
+    if offline_path is None and args.offline:
+        offline_path = next((candidate for candidate in (
+            ROOT / "offline" / "offline-data.json",
+            Path(sys.executable).resolve().parent / "offline" / "offline-data.json",
+            state_dir / "offline-data.json") if candidate.is_file()), None)
+        if offline_path is None:
+            parser.error("未找到离线数据包：请放置 offline/offline-data.json 或使用 --offline-data PATH")
+    if offline_path is not None and not Path(offline_path).is_file():
+        parser.error(f"离线数据包不存在：{offline_path}")
+    offline = offline_path is not None
     if not args.headless:
         from native_ui import run_native
         def ready():
@@ -164,21 +177,24 @@ def main(argv=None) -> int:
                 mark_update_healthy(args.update_health)
             if args.ready_file:
                 write_json(args.ready_file, {"pid": os.getpid(), "applicationVersion": __version__,
-                           "frozen": bool(getattr(sys, "frozen", False)), "mode": "native-overlay"})
-        return run_native(lambda: load_startup_data(state_dir / "data", demo=args.demo or bool(args.native_smoke_report or args.selection_smoke_report)),
+                           "frozen": bool(getattr(sys, "frozen", False)), "mode": "offline" if offline else "native-overlay"})
+        return run_native(lambda: load_startup_data(state_dir / "data", demo=args.demo or bool(args.native_smoke_report or args.selection_smoke_report), offline_path=offline_path),
                           state_dir=state_dir, current_executable=Path(sys.executable).resolve(),
                           current_version=__version__, frozen=bool(getattr(sys, "frozen", False)),
-                          enable_updates=not (args.no_updates or args.selection_smoke_report),
+                          enable_updates=not (args.no_updates or args.selection_smoke_report or offline),
                           on_ready=ready if (args.update_health or args.ready_file) else None,
                           smoke_report=args.native_smoke_report or args.selection_smoke_report,
                           smoke_screenshot=args.native_smoke_report.with_suffix(".png") if args.native_smoke_report else None,
-                          selection_smoke_input=args.selection_smoke_input)
-    if args.demo:
+                          selection_smoke_input=args.selection_smoke_input,
+                          offline=offline)
+    if offline:
+        print(f"正在加载本地离线数据包：{offline_path}（不联网）", flush=True)
+    elif args.demo:
         print("正在加载明确标注的虚构演示数据…", flush=True)
     else:
         print("正在同步虎牙官方数据，首次启动可能需要几十秒；失败会保留已验证缓存。", flush=True)
-    startup = load_startup_data(state_dir / "data", demo=args.demo)
-    context = None if args.no_updates else {"state_dir": state_dir, "current_executable": Path(sys.executable).resolve(),
+    startup = load_startup_data(state_dir / "data", demo=args.demo, offline_path=offline_path)
+    context = None if (args.no_updates or offline) else {"state_dir": state_dir, "current_executable": Path(sys.executable).resolve(),
                                            "current_version": __version__, "frozen": bool(getattr(sys, "frozen", False))}
     try:
         server = make_server(startup["data"], args.port, enable_ocr=True,

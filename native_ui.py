@@ -97,6 +97,27 @@ class TaskSignals(QtCore.QObject):
 
 from card_badges import BadgeOverlayMixin
 
+class GoldDiffOverlay(QtWidgets.QWidget):
+    """Small nonactivating overlay for the Tab-triggered local item-value diff."""
+    def __init__(self):
+        super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowTransparentForInput,True)
+        self.label=QtWidgets.QLabel('',self)
+        self.label.setStyleSheet('background:rgba(11,20,30,235);color:#F2F7FB;border:1px solid #46647A;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;')
+        self._hide_timer=QtCore.QTimer(self);self._hide_timer.setSingleShot(True);self._hide_timer.timeout.connect(self.hide)
+        self.hide()
+    def show_text(self,text):
+        self.label.setText(str(text));self.label.adjustSize();self.resize(self.label.size())
+        screen=QtWidgets.QApplication.primaryScreen()
+        if screen is not None:
+            area=screen.availableGeometry();self.move(area.x()+(area.width()-self.width())//2,area.y()+int(area.height()*.76))
+        self.show();self.raise_();self._hide_timer.start(1800)
+        if os.name=='nt':
+            try:ctypes.windll.user32.SetWindowDisplayAffinity(int(self.winId()),0x11)
+            except Exception:pass
+
+
 class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
     def __init__(self,capture=None,portrait_bank=None,hero_id_lookup=None,debug_log=None,*,before_capture_retirement=None):
         super().__init__(None,QtCore.Qt.WindowType.Tool|QtCore.Qt.WindowType.FramelessWindowHint|QtCore.Qt.WindowType.WindowStaysOnTopHint|QtCore.Qt.WindowType.WindowDoesNotAcceptFocus)
@@ -305,7 +326,7 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         return super().nativeEvent(event_type,message)
 
 class ControlWindow(QtWidgets.QWidget):
-    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=True):
+    def __init__(self,startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,enable_visible_capture=True,offline=False):
         super().__init__();self.state=RecognitionState();self.hero_continuity=HeroIdentityContinuity();self.data=None;self.startup_error='';self.target=None;self.capture=None;self.last_rect=None;self.was_target_foreground=False;self.ocr_busy=False;self.manual_editing=False;self.capture_pending=False;self.last_observation=0.;self.ocr_started=0.;self.ocr_timed_out=False;self.closed=False;self.on_ready=on_ready
         self._worker_lock=threading.Lock();self._cancel_workers=threading.Event();self._workers=set();self.latest_capture=LatestCaptureFrame();self._prefetch_last_attempt=0.;self.ocr_reuse=FrameOCRCache();self._capture_cancel=threading.Event();self.manual_metadata=None;self.manual_identity=None
         from lcu_selection import SelectionSnapshot
@@ -320,7 +341,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.enable_visible_capture=enable_visible_capture;self._visible_previous=False;self._mode_wait_started=None
         from frame_inference_worker import FrameInferenceWorker
         self.frame_inference_worker=FrameInferenceWorker()
-        self.enable_updates=enable_updates;self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
+        self.enable_updates=enable_updates;self.offline=bool(offline);self.hero_matcher=None;self.selection_session=None;self.window_policy=None;self.client_target=None;self.selection_detector=None;self.hero_origin='hud';self.selection_smoke_input=selection_smoke_input;self.last_window_discovery=0.;self.automatic_policy=None;self.discovery_busy=False;self.discovery_scope=0
         self.current_version=current_version;self.current_executable=Path(current_executable);self.state_dir=Path(state_dir);self.frozen=frozen;self.release=None;self.smoke_report=smoke_report;self.smoke_screenshot=smoke_screenshot;self.hotkey_registered=False
         self.debug_log=LocalDebugLog(self.state_dir/'local-debug',version=current_version);self._debug_snapshot=None;self._debug_hero=None;self._debug_candidates=None;self._debug_hero_revision=0;self._debug_candidate_revision=0;self._debug_game_window=None
         self._portraits_busy=False;self._portraits_attempt=0;self._portraits_completed_attempt=None;self._portraits_failures=0;self._portraits_retry_at=None;self._portraits_bank=None;self._portrait_memory_map=()
@@ -370,6 +391,7 @@ class ControlWindow(QtWidgets.QWidget):
             column=QtWidgets.QVBoxLayout();caption=label(name,True);edit=QtWidgets.QLineEdit();edit.setAccessibleName(name+'候选');edit.setPlaceholderText('等待识别');caption.setBuddy(edit);edit.textEdited.connect(self.edit_changed);self.inputs.append(edit);column.addWidget(caption);column.addWidget(edit);fields.addLayout(column,1)
         candidate_box.addLayout(fields);self.confirm_button=QtWidgets.QPushButton('人工纠正并确认三项');self.confirm_button.clicked.connect(self.confirm);candidate_box.addWidget(self.confirm_button)
         self.details_toggle=QtWidgets.QToolButton();self.details_toggle.setText('查阅输入名称的完整资料');self.details_toggle.setCheckable(True);self.details_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon);self.details_toggle.setArrowType(QtCore.Qt.ArrowType.RightArrow);candidate_box.addWidget(self.details_toggle)
+        self.export_builds_button=QtWidgets.QPushButton('导出推荐出装…');self.export_builds_button.setToolTip('使用离线包装备 ID 导出到可选目录；不自动修改游戏目录');self.export_builds_button.clicked.connect(self.export_builds);candidate_box.addWidget(self.export_builds_button)
         self.card_details=label('',True);self.card_details.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse|QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard);self.card_details.setAccessibleName('输入名称的词典资料');self.card_details.hide();candidate_box.addWidget(self.card_details);self.details_toggle.toggled.connect(self.refresh_card_details)
         self.history_view=label('上次候选 · 最终选择未知\n尚无本次监测记录。',True);self.history_view.setAccessibleName('历史候选，不代表已选择的强化');self.history_view.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse|QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard);candidate_box.addWidget(self.history_view)
         self.advanced_panel=QtWidgets.QFrame();self.advanced_panel.setObjectName('section');advanced=QtWidgets.QVBoxLayout(self.advanced_panel);advanced.setContentsMargins(16,16,16,16);advanced.setSpacing(10);secondary.addWidget(self.advanced_panel);self.advanced_panel.hide();self.advanced_toggle.toggled.connect(self.set_advanced_visible)
@@ -382,11 +404,11 @@ class ControlWindow(QtWidgets.QWidget):
         for name,value in [('左',15),('上',25),('宽',70),('高',35)]:
             field=QtWidgets.QWidget();column=QtWidgets.QVBoxLayout(field);column.setContentsMargins(0,0,0,0);caption=label(name,True);spin=QtWidgets.QSpinBox();spin.setRange(0,100);spin.setValue(value);spin.setSuffix('%');spin.setAccessibleName('截图范围'+name);caption.setBuddy(spin);spin.valueChanged.connect(self.roi_changed);self.roi.append(spin);column.addWidget(caption);column.addWidget(spin);self.roi_fields.append(field);roi_row.addWidget(field,0,len(self.roi_fields)-1)
         advanced.addLayout(roi_row)
-        self.lcu_toggle=QtWidgets.QCheckBox('本机客户端只读选人（仅本次启动）');self.lcu_toggle.setChecked(False);advanced.addWidget(self.lcu_toggle)
+        self.lcu_toggle=QtWidgets.QCheckBox('本机客户端只读选人（仅本次启动）');self.lcu_toggle.setChecked(bool(offline));advanced.addWidget(self.lcu_toggle)
         advanced.addWidget(label('可选：读取已核验安装目录的临时会话凭据，仅请求本机客户端选人和阶段资料；不读游戏内存、不修改客户端、不保存凭据。Riot 未正式支持此接口；失败时回退截图识别。',True))
         self.lcu_toggle.toggled.connect(self.lcu_consent_changed)
         self.monitor_preferences=load_preferences(self.state_dir)
-        self.live_identity_toggle=QtWidgets.QCheckBox('本局英雄身份只读核验（默认开启，可关闭）');self.live_identity_toggle.setChecked(self.monitor_preferences['live_identity']);advanced.addWidget(self.live_identity_toggle)
+        self.live_identity_toggle=QtWidgets.QCheckBox('本局英雄身份只读核验（默认开启，可关闭）');self.live_identity_toggle.setChecked(self.monitor_preferences['live_identity'] or bool(offline));advanced.addWidget(self.live_identity_toggle)
         advanced.addWidget(label('通过 Riot 本机游戏接口读取当前玩家标识与玩家英雄列表，仅在内存中匹配本人英雄；不保存或记录玩家标识，不读游戏内存。连接失败不会被当作英雄变更；关闭后仅使用截图。此开关会记住你的选择。',True))
         self.live_identity_toggle.toggled.connect(self.live_identity_preference_changed)
         self.minimize_on_start=QtWidgets.QCheckBox('开始监测后自动最小化（默认关闭）');self.minimize_on_start.setChecked(self.monitor_preferences['minimize_on_start']);advanced.addWidget(self.minimize_on_start)
@@ -410,7 +432,7 @@ class ControlWindow(QtWidgets.QWidget):
         footer=QtWidgets.QHBoxLayout();footer.setSpacing(16)
         self.hero_auto=Switch('自动识别');self.hero_auto.setToolTip('结合本局选人文字与局内 HUD，高置信连续识别后自动使用');self.hero_auto.setChecked(True);footer.addWidget(self.hero_auto)
         self.toggle_button=Switch('鼠标穿透');self.toggle_button.setChecked(True);self.toggle_button.setToolTip('Ctrl+Alt+O 切换鼠标穿透，不改变识别或叠加确认状态');footer.addWidget(self.toggle_button);footer.addStretch()
-        self.footer_note=label('截图 + 本机只读英雄接口' if self.live_identity_toggle.isChecked() else '仅窗口像素 · 兼容性待验证',True);footer.addWidget(self.footer_note);self.shortcut_label=label('Ctrl + Alt + O',True);self.shortcut_label.setStyleSheet('border:1px solid #D9E0E9;border-radius:5px;padding:4px 8px');footer.addWidget(self.shortcut_label);outer.addLayout(footer)
+        self.footer_note=label('本地离线 · 本机只读接口' if self.offline else '截图 + 本机只读英雄接口' if self.live_identity_toggle.isChecked() else '仅窗口像素 · 兼容性待验证',True);footer.addWidget(self.footer_note);self.shortcut_label=label('Ctrl + Alt + O',True);self.shortcut_label.setStyleSheet('border:1px solid #D9E0E9;border-radius:5px;padding:4px 8px');footer.addWidget(self.shortcut_label);outer.addLayout(footer)
         self.back_button.clicked.connect(lambda:self.show_page('main'));self.correction_button.clicked.connect(lambda:self.show_page('correction'));self.about_button.clicked.connect(lambda:self.show_page('about'))
         order=[self.start_button,self.stop_button,self.hero_auto,self.toggle_button,self.correction_button,self.advanced_toggle,self.about_button,*self.inputs,self.confirm_button,self.details_toggle,self.window_list,self.refresh,self.client_follow,self.hero_box,*self.roi,self.debug_toggle,self.debug_export_button,self.cache_diagnostic_button,self.update_button]
         for before,after in zip(order,order[1:]):QtWidgets.QWidget.setTabOrder(before,after)
@@ -422,6 +444,8 @@ class ControlWindow(QtWidgets.QWidget):
         for spin in self.roi:spin.valueChanged.connect(self.record_debug_config)
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
         self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.timeout.connect(self.retry_portraits);self.watchdog.start()
+        self.gold_overlay=None;self._gold_busy=False;self._gold_tab_down=False
+        self.gold_key=QtCore.QTimer(self);self.gold_key.setInterval(60);self.gold_key.timeout.connect(self.poll_gold_key);self.gold_key.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
         self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.debug_toggle.setChecked(True);self.spawn('load',startup_loader)
     def toggle_debug(self,enabled):
@@ -532,6 +556,18 @@ class ControlWindow(QtWidgets.QWidget):
         self.secondary_title.setText({'correction':'核对与资料','settings':'监测设置','about':'关于与数据来源'}.get(page,''))
     def set_advanced_visible(self,visible):
         self.show_page('settings' if visible else 'main')
+    def export_builds(self):
+        hero=self.hero_box.currentText().strip() if not self.hero_auto.isChecked() else ''
+        if not hero or not self.data or hero not in self.data.get('heroes',{}):
+            QtWidgets.QMessageBox.information(self,'导出推荐出装','请先在“设置”关闭自动本人英雄，并选择要导出的英雄。');return
+        folder=QtWidgets.QFileDialog.getExistingDirectory(self,'选择出装导出目录',str(Path.home()))
+        if not folder:return
+        try:
+            from item_sets import export
+            paths=export(self.data,hero,Path(folder))
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self,'导出失败',str(exc));return
+        QtWidgets.QMessageBox.information(self,'导出完成',f'已导出 {len(paths)} 套到：\n{folder}\n\n文件前缀 !!!vga-aram-；仅写入你选择的目录。')
     def refresh_card_details(self,*_):
         self.refresh_dashboard()
         expanded=self.details_toggle.isChecked();self.card_details.setVisible(expanded);self.details_toggle.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
@@ -576,14 +612,18 @@ class ControlWindow(QtWidgets.QWidget):
                     if core:line+='｜核心：'+' → '.join(core)
                     if starting:line+='｜出门：'+'、'.join(starting)
                     rows.append(line)
+                if equipment.get('note'):rows.append(equipment['note'])
             else:
                 rows.append('暂无可用出装：'+equipment['reason'])
             if self.data.get('metadata',{}).get('isDemo') is not True:
                 try:
                     from arammayhem_stats import load_cached, lookup_augment, lookup_champion
-                    if not hasattr(self,'_arammayhem_cache'):
-                        self._arammayhem_cache=load_cached(self.state_dir)
-                    heat=self._arammayhem_cache
+                    if self.data.get('metadata',{}).get('offlineLocal') is True:
+                        heat=self.data.get('aram')
+                    else:
+                        if not hasattr(self,'_arammayhem_cache'):
+                            self._arammayhem_cache=load_cached(self.state_dir)
+                        heat=self._arammayhem_cache
                 except Exception:
                     heat=None
                 if heat:
@@ -770,7 +810,7 @@ class ControlWindow(QtWidgets.QWidget):
             view['name'].setText(card['name'] if card else '等待识别');view['tier'].setText(tier or '—')
             view['tier'].setAccessibleName((card['sourceTierLabel'] if card else '选项尚未确认')+'：'+(tier or '暂无评级'))
             view['tier'].setProperty('known',tier=='T1');view['tier'].style().unpolish(view['tier']);view['tier'].style().polish(view['tier'])
-            view['detail'].setText((('暂无评级 · ' if not tier else '')+card['description'][:34]+('…' if len(card['description'])>34 else '')) if card and not card.get('pending') else '识别稳定后显示资料')
+            view['detail'].setText((('暂无评级 · ' if not tier else '')+(card.get('heatLabel','')+' · ' if card.get('heatLabel') else '')+card['description'][:34]+('…' if len(card['description'])>34 else '')) if card and not card.get('pending') else '识别稳定后显示资料')
         self._refresh_badge()
         self.refresh_history()
         if self.last_timings:
@@ -828,6 +868,30 @@ class ControlWindow(QtWidgets.QWidget):
             self.footer_note.setText(selection_capture_status(self._selection_capture_state)+(' · 接口稍后重试' if self._lcu_error and self._selection_capture_state!='interface_failed' else ''))
         else:self.footer_note.setText(('本机英雄核验开启' if self.live_identity_toggle.isChecked() else '仅截图身份')+' · '+mode_text)
         self.debug_state(state)
+    def poll_gold_key(self):
+        if os.name!='nt' or not self.state.running or not self.target or self.client_phase() or not self.live_identity_toggle.isChecked():
+            self._gold_tab_down=False;return
+        try:down=bool(ctypes.windll.user32.GetAsyncKeyState(0x09)&0x8000)
+        except Exception:self._gold_tab_down=False;return
+        if down and not self._gold_tab_down and self.target_allowed():self.request_gold_diff()
+        self._gold_tab_down=down
+    def request_gold_diff(self):
+        if self._gold_busy or not self.state.running:return
+        from gold_diff import observe
+        self._gold_busy=True
+        def work():
+            try:return observe(self.data)
+            except Exception:return None
+        self.spawn('gold',work,self.state.generation)
+    def show_gold_diff(self,value):
+        if self.closed:return
+        if self.gold_overlay is None:self.gold_overlay=GoldDiffOverlay()
+        if isinstance(value,dict):
+            side='我方蓝方' if value.get('selfTeam')=='ORDER' else '我方红方'
+            extra='' if value.get('knownItems')==value.get('totalItems') else f" · 已识别 {value.get('knownItems')}/{value.get('totalItems')} 件"
+            self.gold_overlay.show_text(f"装备价值差（已购装备，不是金币） · 蓝 {value['blueText']} / 红 {value['redText']} / 差 {value['diffText']} · {side}{extra}")
+        else:
+            self.gold_overlay.show_text('装备价值差暂不可用（本机 2999 只读接口）')
     def spawn(self,kind,fn,generation=0):
         logger=self.debug_log.scoped();queued_at=time.monotonic();serial=self._capture_serial if kind in ('ocr','selection') else 0
         logger.record('job',kind=kind,phase='queued',generation=generation,serial=serial)
@@ -1258,6 +1322,8 @@ class ControlWindow(QtWidgets.QWidget):
         if self.window_policy:self.window_policy.stop()
         self.selection_session=None;self.window_policy=None;self.client_target=None;self.hero_origin='hud'
         self.monitor.stop();self.state.stop();self.refresh_card_details()
+        self._gold_busy=False;self._gold_tab_down=False
+        if self.gold_overlay is not None:self.gold_overlay.hide()
         if self.hero_auto.isChecked():self.state.clear_hero()
         self.overlay.hide('stop');self.stop_button.setEnabled(False);self.confirm_button.setEnabled(False)
         self.apply_pending_portraits()
@@ -1917,6 +1983,10 @@ class ControlWindow(QtWidgets.QWidget):
         if kind in ('ocr','selection','capture-proof','title-proof') and (not self.state.running or generation!=self.state.generation):
             self.debug_log.record('job',kind=kind,phase='discarded',generation=generation,reason='generation_changed')
         try:
+            if kind=='gold':
+                self._gold_busy=False
+                if generation==self.state.generation and self.state.running:self.show_gold_diff(value)
+                return
             if kind=='windows':
                 self.apply_discovery(value,generation);return
             if kind=='load':
@@ -2262,6 +2332,7 @@ class ControlWindow(QtWidgets.QWidget):
         # another failure or a parse of the exception's message.
         self.debug_log.record('job',kind=kind,phase='accepted',generation=generation,
             serial=self._capture_serial if kind in ('ocr','selection') else 0,reason='worker_error')
+        if kind=='gold':self._gold_busy=False;return
         if kind=='windows':
             if generation==self.discovery_scope:
                 self.discovery_busy=False;self.pause_window_discovery()
@@ -2339,6 +2410,8 @@ class ControlWindow(QtWidgets.QWidget):
         if self.automatic_policy:self.automatic_policy.stop()
         self.discovery_scope+=1
         self.monitor.stop();self.watchdog.stop();self.state.stop();self.overlay.close()
+        self.gold_key.stop()
+        if self.gold_overlay is not None:self.gold_overlay.close()
         if self.capture and self.hotkey_registered:self.capture.release_hotkey(int(self.winId()));self.hotkey_registered=False
         # Running native inference cannot safely be killed; discard its result and
         # let the daemon exit naturally. Never wait indefinitely in the UI thread.
@@ -2349,10 +2422,10 @@ class ControlWindow(QtWidgets.QWidget):
         event.accept()
 
 
-def run_native(startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None):
+def run_native(startup_loader,*,state_dir,current_executable,current_version,frozen,on_ready=None,smoke_report=None,smoke_screenshot=None,enable_updates=True,selection_smoke_input=None,offline=False):
     app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([]);app.setApplicationName(APP_NAME);app.setQuitOnLastWindowClosed(True)
     # Keep existing native/selection diagnostic baselines strictly hidden.
     capture_options={'enable_visible_capture':False} if smoke_report or selection_smoke_input else {}
-    control=ControlWindow(startup_loader,state_dir=state_dir,current_executable=current_executable,current_version=current_version,frozen=frozen,on_ready=on_ready,smoke_report=smoke_report,smoke_screenshot=smoke_screenshot,enable_updates=enable_updates,selection_smoke_input=selection_smoke_input,**capture_options)
+    control=ControlWindow(startup_loader,state_dir=state_dir,current_executable=current_executable,current_version=current_version,frozen=frozen,on_ready=on_ready,smoke_report=smoke_report,smoke_screenshot=smoke_screenshot,enable_updates=enable_updates,selection_smoke_input=selection_smoke_input,offline=offline,**capture_options)
     app._vga_control=control
     return app.exec()

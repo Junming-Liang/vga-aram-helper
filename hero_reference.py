@@ -44,6 +44,12 @@ def recommendation_rows(data, hero, limit=DEFAULT_ROW_LIMIT):
     limit = _limit(limit, DEFAULT_ROW_LIMIT)
     if _hero(data, hero) is None:
         return _unavailable('请选择并确认英雄')
+    if isinstance(data.get('metadata'), dict) and data['metadata'].get('offlineLocal') is True:
+        meta = data['metadata']
+        return {'available': False, 'rows': [],
+                'reason': '本地离线模式：请查看三个候选的本地热度档位；此处不展示旧版统计。',
+                'status': 'offline-local', 'sourceDataDate': meta.get('sourceDataDate'),
+                'gamePatch': meta.get('gamePatch')}
     status = statistics_status(data, hero)
     if not ratings_available(data, hero):
         return _unavailable(status['ratingMessage'], status)
@@ -71,18 +77,9 @@ def recommendation_rows(data, hero, limit=DEFAULT_ROW_LIMIT):
             'gamePatch': status['statisticsPatch']}
 
 
-def equipment_reference(data, hero, limit=DEFAULT_BUILD_LIMIT):
-    """Public item names only; the source's rates/sample counts are discarded."""
-    limit = _limit(limit, DEFAULT_BUILD_LIMIT)
-    record = _hero(data, hero)
-    if record is None:
-        return _unavailable('请选择并确认英雄')
-    status = statistics_status(data, hero)
-    if not ratings_available(data, hero):
-        return _unavailable(status['ratingMessage'], status)
-    builds = record.get('equipmentBuilds')
+def _project_builds(builds, limit):
     if not isinstance(builds, list) or not builds:
-        return _unavailable('公开源未提供该英雄的出装资料', status)
+        return []
     result = []
     for build in builds[:limit]:
         if not isinstance(build, dict):
@@ -104,6 +101,29 @@ def equipment_reference(data, hero, limit=DEFAULT_BUILD_LIMIT):
                 starting.append(names)
         if core or starting:
             result.append({'style': style[:40], 'coreItems': core, 'startingItems': starting})
+    return result
+
+
+def equipment_reference(data, hero, limit=DEFAULT_BUILD_LIMIT):
+    """Public item names only; the source's rates/sample counts are discarded."""
+    limit = _limit(limit, DEFAULT_BUILD_LIMIT)
+    record = _hero(data, hero)
+    if record is None:
+        return _unavailable('请选择并确认英雄')
+    if isinstance(data.get('metadata'), dict) and data['metadata'].get('offlineLocal') is True:
+        result = _project_builds(record.get('equipmentBuilds'), limit)
+        if not result:
+            return _unavailable('本地离线包未提供该英雄的出装资料')
+        meta = data['metadata']
+        return {'available': True, 'builds': result, 'reason': '',
+                'status': 'offline-local',
+                'sourceDataDate': meta.get('sourceDataDate'),
+                'gamePatch': meta.get('gamePatch'),
+                'note': '本地离线快照（16.17 / 2026-09-07）；仅装备名称，可能已过期。'}
+    status = statistics_status(data, hero)
+    if not ratings_available(data, hero):
+        return _unavailable(status['ratingMessage'], status)
+    result = _project_builds(record.get('equipmentBuilds'), limit)
     if not result:
         return _unavailable('公开源未提供该英雄的出装资料', status)
     return {'available': True, 'builds': result, 'reason': '',

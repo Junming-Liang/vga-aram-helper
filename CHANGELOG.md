@@ -6,8 +6,9 @@
 - 本机选人只读识别接受已验证的海斗队列 2400/2410/3270；其它队列继续拒绝。该队列集合来自对官方助手构建的静态分析，未扩大 LCU 读取端点或授权范围。
 - 新增 26.21 新海克斯名称的 OCR 变体回归测试（全角/半角标点、空格），不改变识别门槛。
 - 新增可选的 aram mayhem 26.21 登场率缓存与资料页区块（CC BY 4.0，仅登场率/排名，不含胜率/T 级，不参与排序）；按中文名匹配，未收录/重名弃权。运行 `python sync_arammayhem.py` 同步。
+- 新增本地离线模式：`--offline` 使用随附 26.21 数据包，禁用数据/软件/头像下载；三个候选显示本地 S/A/B/C 热度档位与登场率，Tab 显示本机装备价值差，资料页可导出推荐出装 JSON。详见 [本地离线说明](OFFLINE_LOCAL.md)。
 
-English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. Adds an optional CC BY 4.0 aram mayhem 26.21 pick-rate cache and UI block, explicitly not a win rate or strength rating and never used for ordering; unmatched or ambiguous names abstain. No new LCU endpoints or Huya service calls.
+English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. Adds an optional CC BY 4.0 aram mayhem 26.21 pick-rate cache and UI block, explicitly not a win rate or strength rating and never used for ordering; unmatched or ambiguous names abstain. Adds a fully local `--offline` mode with a bundled 26.21 dataset, local heat tiers/pick rates, Tab-triggered LCU item-value difference and user-selected recommended-item-set export. No new LCU endpoints beyond the documented local ones and no Huya remote service calls.
 
 ## v0.4.18 · 选人连续识别与叠加稳定性
 

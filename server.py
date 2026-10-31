@@ -20,7 +20,11 @@ STATIC={'/':('static/index.html','text/html; charset=utf-8'),'/app.js':('static/
         '/brand.png':('assets/branding/vga-icon-512.png','image/png')}
 
 
-def load_startup_data(cache_dir, demo=False):
+def load_startup_data(cache_dir, demo=False, offline_path=None):
+    if offline_path is not None:
+        from local_offline import load_bundle
+        return {'data':load_bundle(offline_path),
+                'status':{'state':'offline','message':'本地离线数据包；运行时不需要联网。','usingCached':False}}
     if demo:
         return {'data':load_data(ROOT/'fixtures/demo.json'),'status':{'state':'demo','message':'明确启用的虚构演示模式，不用于真实对局。','usingCached':False}}
     from data_updates import refresh_official_data
@@ -135,12 +139,14 @@ def make_server(data, port=8765, enable_ocr=False, ocr_engine=None, data_status=
 def main():
     parser=argparse.ArgumentParser(description='VGA乱斗助手：英雄 + 三个海克斯比较')
     parser.add_argument('--data',type=Path,help='显式本地开发数据；不替代正式启动时的官方刷新')
+    parser.add_argument('--offline-data',type=Path,help='本地离线数据包 JSON；不联网')
     parser.add_argument('--demo',action='store_true',help='仅使用虚构演示数据')
     parser.add_argument('--port',type=int,default=8765)
     parser.add_argument('--enable-ocr',action='store_true')
     args=parser.parse_args()
     try:
         if args.data:startup={'data':load_data(args.data),'status':{'state':'local','message':'显式本地数据模式','usingCached':False}}
+        elif args.offline_data:startup=load_startup_data(None,offline_path=args.offline_data)
         else:
             from updates import runtime_state_dir
             startup=load_startup_data(runtime_state_dir()/'data',demo=args.demo)

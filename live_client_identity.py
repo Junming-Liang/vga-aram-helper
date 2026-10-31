@@ -145,6 +145,19 @@ def _get(path, context, deadline, cancelled, clock):
         connection.close()
 
 
+def fetch_live_json(path, *, timeout=BATCH_TIMEOUT, ca_file=None):
+    """Read one documented local Game Client path without credentials."""
+    if path not in PATHS:
+        raise ValueError('unsupported live client path')
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= BATCH_TIMEOUT:
+        raise ValueError('invalid live client timeout')
+    import threading
+    context = ssl.create_default_context(cafile=str(ca_file or
+        Path(__file__).resolve().parent / 'assets' / 'riotgames.pem'))
+    deadline = time.monotonic() + timeout
+    return _get(path, context, deadline, threading.Event(), time.monotonic)
+
+
 def read_current_identity(canonical_name_to_id, *, enabled=False, cancelled,
                           scope_probe, ca_file=None, clock=time.monotonic,
                           diagnostic_callback=None):

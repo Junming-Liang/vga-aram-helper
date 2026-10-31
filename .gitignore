@@ -5,6 +5,7 @@ private/
 reports/*private*
 *.zip
 test-artifacts/
+offline/
 
 .venv/
 .venv-ocr/

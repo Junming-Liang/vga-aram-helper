@@ -92,6 +92,10 @@ def display_cards(data, hero, offered):
     Transport freshness is not statistical applicability. Announcement identities
     cannot inherit a same-name historical row, description or combo.
     """
+    if (isinstance(data, dict) and isinstance(data.get('metadata'), dict)
+            and data['metadata'].get('offlineLocal') is True):
+        from local_offline import local_cards
+        return local_cards(data, hero, offered)
     from patch_catalog import (active_augment, pair_rating_available,
                                statistics_status)
     from source_combo_hints import source_combo_hint

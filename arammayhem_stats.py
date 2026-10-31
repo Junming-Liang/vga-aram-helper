@@ -139,6 +139,11 @@ def _canonical(value):
                    if char.isalnum())
 
 
+def canonical_name(value):
+    """NFKC/casefold/alnum form used only for unique fallback matching."""
+    return _canonical(value)
+
+
 def _patch_entry(index, target):
     if not isinstance(index, dict):
         raise AramMayhemError('Invalid index')
@@ -292,6 +297,61 @@ def load_cached(state_dir):
     if not isinstance(meta.get('attribution'), str) or 'arammayhem.com' not in meta['attribution']:
         return None
     return cache
+
+
+def normalize_items(doc):
+    """Project item names/costs for local item-value and build hints."""
+    _attribution(doc)
+    rows = doc.get('rows')
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 5000:
+        raise AramMayhemError('Invalid items rows')
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = _name(row.get('name'))
+        game_id = row.get('gameItemId')
+        game_id = str(game_id) if isinstance(game_id, (str, int)) and not isinstance(game_id, bool) else None
+        cost = row.get('cost')
+        cost = cost if isinstance(cost, int) and not isinstance(cost, bool) and 0 <= cost <= 100000 else None
+        if not name:
+            continue
+        result.append({'gameItemId': game_id[:16] if game_id else None,
+                       'name': name, 'category': _text(row.get('category'), 30),
+                       'cost': cost})
+    if not result:
+        raise AramMayhemError('No usable items')
+    return result[:5000]
+
+
+def normalize_combos(doc):
+    """Project hero-specific augment combos; god/trap are local synergy hints."""
+    _attribution(doc)
+    rows = doc.get('rows')
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 5000:
+        raise AramMayhemError('Invalid combos rows')
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        champion = _name(row.get('championName'))
+        names = row.get('augmentNames')
+        names = [_name(item) for item in names] if isinstance(names, list) else []
+        names = [name for name in names if name][:5]
+        slugs = row.get('augmentIds')
+        slugs = [slug.strip()[:64] for slug in slugs if isinstance(slug, str) and slug.strip()][:5] \
+            if isinstance(slugs, list) else []
+        types = row.get('types')
+        types = [value.strip()[:20] for value in types if isinstance(value, str) and value.strip()][:4] \
+            if isinstance(types, list) else []
+        if not champion or not names:
+            continue
+        result.append({'champion': champion, 'augmentNames': names,
+                       'augmentSlugs': slugs, 'types': types,
+                       'url': _text(row.get('url'), 300)})
+    if not result:
+        raise AramMayhemError('No usable combos')
+    return result[:5000]
 
 
 def _active_augments(cache):

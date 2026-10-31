@@ -14,7 +14,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from screen_capture import CaptureUnavailable
 
 from badge_contract import WIDTH, MIN_WIDTH, HEIGHT, GAP, TIER_ROW_HEIGHT, HINT_FONT_SIZE, choose_width, align_physical_regions, top_gap, logical_hull_from_physical
-COLORS = {'T1':'#F2CE86','T2':'#79D9EF','T3':'#B2BED2','T4':'#AEB6C2'}
+COLORS = {'S':'#F2CE86','A':'#79D9EF','B':'#B2BED2','C':'#AEB6C2','T1':'#F2CE86','T2':'#79D9EF','T3':'#B2BED2','T4':'#AEB6C2'}
 
 
 def _finite(value):
@@ -157,9 +157,10 @@ class TierBadge(QtWidgets.QWidget):
         self.identity_provenance=identity_provenance
         warning='HUD未复核' if '来自本局选人' in identity_provenance and 'HUD未复核' in identity_provenance else '本局已确认' if '头像未重新确认' in identity_provenance else ''
         self._pending_identity=bool(warning and rechecking)
-        self.source=warning or ('复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else '源评级')
-        hint=card.get('sourceHint')
-        self.hint=hint.strip() if isinstance(hint,str) else ''
+        self.source=warning or ('复核中' if rechecking else '演示评级' if card.get('sourceTierLabel')=='虚构源评级（演示）' else '本地热度' if card.get('sourceBadge')=='本地' else '源评级')
+        heat=card.get('heatLabel');heat=heat.strip() if isinstance(heat,str) else ''
+        hint=card.get('sourceHint');hint=hint.strip() if isinstance(hint,str) else ''
+        self.hint=' · '.join(value for value in (heat,hint) if value)
         self._fit_hint()
         self.setToolTip((identity_provenance+'\n' if warning else '')+('候选复核中\n' if warning and rechecking else '')+self.hint)
         self.setAccessibleName(f"选项 {card['slot']} · {card['name']} · {self.tier} · {self.source}"+(f' · {identity_provenance}' if warning else '')+(' · 候选复核中' if warning and rechecking else '')+(f' · {self.hint}' if self.hint else ''))
