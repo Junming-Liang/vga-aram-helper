@@ -128,4 +128,4 @@ class NativeHeroContinuityTests(unittest.TestCase):
         self.assertFalse(w.minimize_on_start.isChecked())
         w.live_identity_toggle.setChecked(False);w.minimize_on_start.setChecked(True)
         from monitor_preferences import load_preferences
-        self.assertEqual(load_preferences(w.state_dir),{'live_identity':False,'minimize_on_start':True})
+        self.assertEqual(load_preferences(w.state_dir),{'live_identity':False,'minimize_on_start':True,'auto_item_sets':False,'item_set_dir':''})

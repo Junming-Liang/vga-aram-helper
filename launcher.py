@@ -94,6 +94,7 @@ def main(argv=None) -> int:
     parser.add_argument("--demo", action="store_true", help="仅使用虚构测试样例；不用于真实对局")
     parser.add_argument("--offline", action="store_true", help="使用程序目录 offline/offline-data.json，不联网")
     parser.add_argument("--offline-data", type=Path, help="指定本地离线数据包 JSON；给出时禁用联网")
+    parser.add_argument("--online", action="store_true", help="即使存在随附离线包也使用联网数据")
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help="校验内置模型并运行离线合成图片识别后退出")
     parser.add_argument("--report", type=Path, help="把 --self-test 结果写入 JSON 文件")
@@ -155,7 +156,15 @@ def main(argv=None) -> int:
     from updates import runtime_state_dir
     from server import load_startup_data, make_server
     state_dir = runtime_state_dir()
+    if args.online and (args.offline or args.offline_data):
+        parser.error("--online 不能与 --offline/--offline-data 同时使用")
+    if args.demo and (args.offline or args.offline_data):
+        parser.error("--demo 不能与离线数据包同时使用")
     offline_path = args.offline_data
+    if offline_path is None and not args.online and not args.demo:
+        offline_path = next((candidate for candidate in (
+            ROOT / "offline" / "offline-data.json",
+            Path(sys.executable).resolve().parent / "offline" / "offline-data.json") if candidate.is_file()), None)
     if offline_path is None and args.offline:
         offline_path = next((candidate for candidate in (
             ROOT / "offline" / "offline-data.json",

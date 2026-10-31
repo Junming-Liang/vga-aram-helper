@@ -252,6 +252,27 @@ def normalize_payload(augments_doc, champions_doc, *, index_doc=None, fetched_at
     }
 
 
+def fetch_current_docs(target_patch=None):
+    """Fetch the current patch JSON documents; build-time network use only."""
+    target = target_patch or CURRENT_PATCH
+    index = _fetch(INDEX_URL, max_bytes=MAX_INDEX_BYTES)
+    entry = _patch_entry(index, target)
+    docs = {
+        'index': index,
+        'augments': _fetch(_file_url(entry, 'augments'), max_bytes=MAX_DATA_BYTES),
+        'champions': _fetch(_file_url(entry, 'champions'), max_bytes=MAX_DATA_BYTES),
+        'combos': _fetch('https://arammayhem.com/data/v1/latest/combos.json', max_bytes=MAX_DATA_BYTES),
+        'items': _fetch('https://arammayhem.com/data/v1/latest/items.json', max_bytes=MAX_DATA_BYTES),
+    }
+    releases = {doc.get('meta', {}).get('releaseId') for doc in
+                (docs['augments'], docs['champions'], docs['combos'], docs['items'])
+                if isinstance(doc, dict) and isinstance(doc.get('meta'), dict)
+                and isinstance(doc['meta'].get('releaseId'), str)}
+    if len(releases) > 1:
+        raise AramMayhemError('Inconsistent release documents')
+    return docs
+
+
 def sync(state_dir, *, fetcher=None, target_patch=None, fetched_at=None):
     """Fetch the current patch, normalize it and atomically cache the result."""
     fetcher = fetcher or (lambda url: _fetch(url, max_bytes=(

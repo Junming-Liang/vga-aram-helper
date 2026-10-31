@@ -28,7 +28,8 @@ def bundle():
             {'champion': '别名', 'augmentNames': ['乙'], 'types': ['god']},
             {'champion': '英雄', 'augmentNames': ['戊'], 'types': ['trap']},
         ],
-        'items': [{'gameItemId': '1001', 'name': '测试装备', 'category': 'legendary', 'cost': 3000}],
+        'items': [{'gameItemId': '1001', 'name': '装备甲', 'category': 'legendary', 'cost': 3000},
+                  {'gameItemId': '1002', 'name': '装备乙', 'category': 'legendary', 'cost': 800}],
     }
     data = {
         'metadata': {'isDemo': False, 'offlineLocal': True},

@@ -8,17 +8,12 @@
 :: Windows 10/11 x64 + Python 3.12 x64；依赖只需首次安装
 python -m venv .venv
 .venv\Scripts\python -m pip install --index-url https://pypi.org/simple --only-binary=:all: -r requirements-build.txt
-.venv\Scripts\python launcher.py --offline --no-updates
+.venv\Scripts\python launcher.py
 ```
 
-`--offline` 查找以下位置并使用其中一份数据包，随后禁用数据/软件/头像下载等联网检查：
-
-1. 程序目录 `offline/offline-data.json`
-2. EXE 同目录 `offline/offline-data.json`
-3. 状态目录 `offline-data.json`
-4. 或显式：`--offline-data PATH`
-
-运行时的网络请求只剩本机回环：已核验 LoL 客户端的只读接口与 `127.0.0.1:2999` 装备价值差。不连接虎牙、aramgg、arammayhem 或任何远端 AI。
+只要程序目录或 EXE 同目录存在 `offline/offline-data.json`，启动器会**默认使用离线包**并禁用联网；
+需要临时联网数据时加 `--online`。也可以用 `--offline` 显式启用（额外允许状态目录中的包），
+或用 `--offline-data PATH` 指定路径。`--demo` 不能与离线包同时使用。
 
 ## 数据包
 
@@ -29,6 +24,14 @@ python build_offline_data.py --huya-dir <本地虎牙快照目录> \
   --arammayhem-dir <本地 arammayhem 26.21 目录> \
   --output offline/offline-data.json
 ```
+
+CI/构建机可省略本地目录，构建时从公开源抓取（运行时仍然完全离线）：
+
+```sh
+python build_offline_data.py --fetch --output offline/offline-data.json
+```
+
+`packaging/VGA-Aram-Helper.spec` 在构建时若存在该文件会把它打入 EXE；启动器默认使用它。
 
 - 虎牙快照：英雄/强化名称与说明、历史英雄统计、出装名称。旧 T 级不用于本地档位。
 - arammayhem 26.21（CC BY 4.0）：当前登场率/排名、英雄组合（god/trap）、装备 ID 与价格。
@@ -48,6 +51,7 @@ python build_offline_data.py --huya-dir <本地虎牙快照目录> \
 - 三个候选的名称 OCR、卡片边界/槽位、叠加层与资料页（既有截图识别链路）。
 - 本地档位 + 登场率：资料页与卡片上方叠加层。
 - 装备参考：公开源快照的出装名称；`导出推荐出装…` 可按离线装备 ID 生成推荐 JSON。
+- 自动出装：在“设置”选择自动导出目录并勾选“确认英雄后自动导出推荐出装”，确认英雄后会写入用户选择的目录；默认关闭，绝不自动修改其他目录。
 - 装备价值差：Tab 键触发本机 LCU 2999 只读读取，按离线装备价格计算已购装备价值差，浮层显示。
 - 本机英雄身份：离线模式默认启用本机只读选人/本局身份；无头像缓存时仍可用 LCU 身份，HUD 头像仅作回退。
 

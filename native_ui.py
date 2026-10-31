@@ -413,6 +413,9 @@ class ControlWindow(QtWidgets.QWidget):
         self.live_identity_toggle.toggled.connect(self.live_identity_preference_changed)
         self.minimize_on_start=QtWidgets.QCheckBox('开始监测后自动最小化（默认关闭）');self.minimize_on_start.setChecked(self.monitor_preferences['minimize_on_start']);advanced.addWidget(self.minimize_on_start)
         self.minimize_on_start.toggled.connect(self.save_monitor_preferences)
+        self.auto_item_sets_toggle=QtWidgets.QCheckBox('确认英雄后自动导出推荐出装到所选目录');self.auto_item_sets_toggle.setChecked(self.monitor_preferences['auto_item_sets']);self.auto_item_sets_toggle.toggled.connect(self.auto_item_sets_changed);advanced.addWidget(self.auto_item_sets_toggle)
+        self.item_set_dir_label=label(self.monitor_preferences['item_set_dir'] or '未选择自动出装目录',True);advanced.addWidget(self.item_set_dir_label)
+        self.item_set_dir_button=QtWidgets.QPushButton('选择自动导出目录…');self.item_set_dir_button.clicked.connect(self.choose_item_set_dir);advanced.addWidget(self.item_set_dir_button)
         self.debug_toggle=QtWidgets.QCheckBox('本地诊断日志（此诊断版默认开启）');self.debug_toggle.setChecked(False);self.debug_toggle.setAccessibleName('本机诊断日志，此诊断版默认开启，可关闭');advanced.addWidget(self.debug_toggle)
         self.debug_export_button=QtWidgets.QPushButton('导出调试 ZIP');self.debug_export_button.setAccessibleName('仅在本机导出调试 ZIP');advanced.addWidget(self.debug_export_button)
         self.debug_status=label('此诊断版默认记录，最多 3 × 256 KiB，循环覆盖。仅记录阶段、耗时和已匹配词典的英雄/强化名称；无截图、原始识别文字、账号、窗口标题、路径或原始错误，不上传。可随时关闭。',True);advanced.addWidget(self.debug_status)
@@ -444,7 +447,7 @@ class ControlWindow(QtWidgets.QWidget):
         for spin in self.roi:spin.valueChanged.connect(self.record_debug_config)
         self.monitor=QtCore.QTimer(self);self.monitor.setSingleShot(True);self.monitor.setInterval(200);self.monitor.timeout.connect(self.capture_tick)
         self.watchdog=QtCore.QTimer(self);self.watchdog.setInterval(200);self.watchdog.timeout.connect(self.check_target);self.watchdog.timeout.connect(self.refresh_status_badge);self.watchdog.timeout.connect(self.retry_portraits);self.watchdog.start()
-        self.gold_overlay=None;self._gold_busy=False;self._gold_tab_down=False
+        self.gold_overlay=None;self._gold_busy=False;self._gold_tab_down=False;self._item_set_signature=None
         self.gold_key=QtCore.QTimer(self);self.gold_key.setInterval(60);self.gold_key.timeout.connect(self.poll_gold_key);self.gold_key.start()
         self.start_button.setEnabled(False);self.confirm_button.setEnabled(False);self.stop_button.setEnabled(False)
         self.fit_control_to_screen(initial=True);self.show();self.fit_control_to_screen();self.windowHandle().screenChanged.connect(lambda _:self.fit_control_to_screen());self.register_hotkey();self.refresh_windows();self.debug_toggle.setChecked(True);self.spawn('load',startup_loader)
@@ -645,9 +648,39 @@ class ControlWindow(QtWidgets.QWidget):
     def client_assignment_visible(self):
         return bool(self.selection_session and self.selection_session.active and self.target and self.target.identity==self.selection_session.client)
     def save_monitor_preferences(self,*_):
-        self.monitor_preferences={'live_identity':self.live_identity_toggle.isChecked(),'minimize_on_start':self.minimize_on_start.isChecked()}
+        self.monitor_preferences={'live_identity':self.live_identity_toggle.isChecked(),'minimize_on_start':self.minimize_on_start.isChecked(),'auto_item_sets':self.auto_item_sets_toggle.isChecked(),'item_set_dir':self.monitor_preferences.get('item_set_dir','')}
         try:save_preferences(self.state_dir,self.monitor_preferences)
         except OSError:self.status.setText('设置已用于本次启动，但未能保存；下次启动请重新核对。')
+    def auto_item_sets_changed(self,checked):
+        if checked and not self.monitor_preferences.get('item_set_dir'):
+            self.status.setText('自动出装需要先选择导出目录。');self.auto_item_sets_toggle.setChecked(False);return
+        self.save_monitor_preferences()
+    def choose_item_set_dir(self):
+        folder=QtWidgets.QFileDialog.getExistingDirectory(self,'选择自动导出推荐出装的目录',self.monitor_preferences.get('item_set_dir') or str(Path.home()))
+        if not folder:return
+        self.monitor_preferences['item_set_dir']=folder;self.item_set_dir_label.setText(folder)
+        self.auto_item_sets_toggle.setChecked(True);self.save_monitor_preferences()
+    def maybe_auto_export_item_sets(self):
+        toggle=getattr(self,'auto_item_sets_toggle',None)
+        if toggle is None or not toggle.isChecked() or not self.state.running or not self.state.hero:return
+        if not isinstance(self.data.get('aram'),dict):return
+        folder=self.monitor_preferences.get('item_set_dir','')
+        if not folder:return
+        from item_sets import build_sets, export
+        hero=self.state.hero
+        try:sets=build_sets(self.data,hero)
+        except Exception as exc:
+            signature=('error',hero,str(exc))
+            if getattr(self,'_item_set_signature',None)!=signature:
+                self._item_set_signature=signature;self.hero_status.setText('自动出装导出失败：'+str(exc))
+            return
+        signature=(hero,folder,tuple((name,tuple(config['blocks'][0]['items'])) for name,config in sets))
+        if getattr(self,'_item_set_signature',None)==signature:return
+        try:paths=export(self.data,hero,folder)
+        except Exception as exc:
+            self._item_set_signature=('error',signature,str(exc));self.hero_status.setText('自动出装导出失败：'+str(exc));return
+        self._item_set_signature=signature
+        self.hero_status.setText(f'已自动导出 {len(paths)} 套推荐出装到所选目录。')
     def live_identity_preference_changed(self,*_):
         self.lcu_consent_changed()
         self.save_monitor_preferences()
@@ -787,6 +820,7 @@ class ControlWindow(QtWidgets.QWidget):
         return True
     def refresh_dashboard(self):
         if not hasattr(self,'candidate_views'):return
+        self.maybe_auto_export_item_sets()
         title_pending=self.overlay._titles_pending
         current=bool(not title_pending and self.state.running and self.state.confirmed and self.data and len(self.state.offered)==3 and all(name in self.data.get('augments',{}) for name in self.state.offered))
         partial=self.current_partial_names() if not current and not title_pending else EMPTY_SLOTS
