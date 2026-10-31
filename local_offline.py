@@ -250,6 +250,42 @@ def local_cards(data, hero, offered):
     return cards
 
 
+def hero_recommendations(data, hero, limit=8):
+    """Hero-specific local tiers for active augments; no win rate or AI claim."""
+    aram = data.get('aram') if isinstance(data, dict) else None
+    if not isinstance(aram, dict):
+        return []
+    rows = [row for row in aram.get('augments', [])
+            if isinstance(row, dict) and not row.get('retiredPatch')]
+    total = len(rows)
+    if not total:
+        return []
+    history = _history_tiers(data, hero)
+    keys = _hero_keys(data, hero)
+    result = []
+    for row in rows:
+        name, rank, rate = row.get('name'), row.get('pickRateRank'), row.get('pickRate')
+        if not isinstance(name, str) or not name or not isinstance(rank, int) \
+                or isinstance(rank, bool) or rank < 1:
+            continue
+        tier = history.get(canonical_name(name)) or _tier(rank, total)
+        if tier is None:
+            continue
+        combos = _combos_for(aram, keys, name)
+        types = {value for combo in combos for value in combo.get('types', []) if isinstance(value, str)}
+        if 'trap' in types:
+            tier = _move(tier, 1)
+        elif 'god' in types:
+            tier = _move(tier, -1)
+        hint, _ = _combo_hint(combos, name)
+        result.append({'name': name, 'tier': tier,
+                       'historyBase': canonical_name(name) in history,
+                       'pickRate': float(rate) if isinstance(rate, (int, float)) and not isinstance(rate, bool) else None,
+                       'pickRateRank': rank, 'sourceHint': hint})
+    result.sort(key=lambda row: (TIERS.index(row['tier']), row['pickRateRank'], row['name']))
+    return result[: _limit(limit)]
+
+
 def heat_view(data):
     """Return an arammayhem-shaped cache from the offline bundle for UI lookups."""
     aram = data.get('aram') if isinstance(data, dict) else None

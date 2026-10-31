@@ -7,8 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hero_reference import equipment_reference
-from local_offline import (augment_rows, champion_rows, heat_view, load_bundle,
-                           local_cards)
+from local_offline import (augment_rows, champion_rows, heat_view, hero_recommendations,
+                           load_bundle, local_cards)
 from native_state import display_cards
 from server import load_startup_data
 
@@ -142,6 +142,20 @@ class LocalOfflineTests(unittest.TestCase):
             self.assertEqual(startup['data']['augments']['甲']['description'], '获得强化符文，+15%治疗。')
         finally:
             folder.cleanup()
+
+    def test_hero_recommendations_use_history_and_combos(self):
+        data = bundle()['data']
+        data['heroAugmentStats'] = {'英雄': [{'augmentName': '癸', 'tier': 'T1'}]}
+        rows = hero_recommendations(data, '英雄', 10)
+        by_name = {row['name']: row for row in rows}
+        self.assertEqual(rows[0]['name'], '甲')
+        self.assertEqual(by_name['乙']['tier'], 'S')
+        self.assertTrue(by_name['癸']['historyBase'])
+        self.assertEqual(by_name['戊']['tier'], 'C')
+        self.assertTrue(by_name['乙']['sourceHint'])
+        text = json.dumps(rows, ensure_ascii=False)
+        for term in ('winRate', '胜率'):
+            self.assertNotIn(term, text)
 
     def test_champion_and_augment_source_rankings(self):
         aram = bundle()['aram']

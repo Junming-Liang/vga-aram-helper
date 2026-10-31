@@ -596,15 +596,26 @@ class ControlWindow(QtWidgets.QWidget):
             rows.append(text)
         if hero:
             from hero_reference import equipment_reference, recommendation_rows
-            recommendation=recommendation_rows(self.data,hero)
-            rows.append('英雄海克斯来源顺序（保留公开源原顺序，不按评级排序；不含胜率与样本量）')
-            if recommendation['available']:
-                for index,row in enumerate(recommendation['rows'],1):
-                    line=f"{index}. {row['name']} · {row['tier'] or '暂无评级'}"
-                    if row['hint']:line+=' · '+row['hint']
+            if self.data.get('metadata',{}).get('offlineLocal') is True and isinstance(self.data.get('aram'),dict):
+                from local_offline import hero_recommendations
+                local=hero_recommendations(self.data,hero,8)
+                rows.append('本地英雄海克斯综合推荐（26.21 热度 + 16.17 历史档位 + 组合；非虎牙 AI，不含胜率）')
+                for index,row in enumerate(local,1):
+                    line=f"{index}. {row['name']} · {row['tier'] or '暂无档位'}"
+                    if row['pickRate'] is not None:line+=f" · 热度 {row['pickRate']:.2f}%（全强化第 {row['pickRateRank']}）"
+                    if row['sourceHint']:line+=' · '+row['sourceHint']
                     rows.append(line)
+                rows.append('档位为本地近似，不代表虎牙 AI 输出，也不含胜率。' if local else '本地数据暂无可用推荐。')
             else:
-                rows.append('暂无可用推荐：'+recommendation['reason'])
+                recommendation=recommendation_rows(self.data,hero)
+                rows.append('英雄海克斯来源顺序（保留公开源原顺序，不按评级排序；不含胜率与样本量）')
+                if recommendation['available']:
+                    for index,row in enumerate(recommendation['rows'],1):
+                        line=f"{index}. {row['name']} · {row['tier'] or '暂无评级'}"
+                        if row['hint']:line+=' · '+row['hint']
+                        rows.append(line)
+                else:
+                    rows.append('暂无可用推荐：'+recommendation['reason'])
             equipment=equipment_reference(self.data,hero)
             rows.append('公开源出装参考（仅名称，不含胜率与样本量；不按强度排序）')
             if equipment['available']:

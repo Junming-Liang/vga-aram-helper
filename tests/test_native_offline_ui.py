@@ -92,6 +92,19 @@ class NativeOfflineUITests(unittest.TestCase):
         self.assertIn('26.21', text)
         self.assertNotIn('winRate', text)
 
+    def test_reference_page_hero_uses_local_recommendations(self):
+        window = self.window
+        window.data = bundle()['data']
+        window.hero_auto.setChecked(False)
+        window.hero_box.setCurrentText('英雄')
+        window.details_toggle.setChecked(True)
+        window.refresh_card_details()
+        text = window.card_details.text()
+        self.assertIn('本地英雄海克斯综合推荐', text)
+        self.assertIn('本地近似', text)
+        self.assertIn('甲', text)
+        self.assertNotIn('暂无可用推荐', text)
+
 
 if __name__ == '__main__':
     unittest.main()
