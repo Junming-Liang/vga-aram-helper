@@ -11,6 +11,7 @@
 - 本地热度档位加入本轮三选一之间的英雄组合协同：两项命中同一 `god/trap` 组合时只应用一次并标注“本轮组合”。
 - 本地档位优先使用离线包的旧版英雄专属 `T1–T4` 作为基础（标注“本地综合档位”与 16.17 来源），无历史项时才用 26.21 登场率百分位；当前热度/组合继续调整。
 - 自动出装支持从已核验游戏/客户端路径检测 LoL `Config/Global/Recommended`（仅已存在目录）；用户自选目录优先，默认关闭。
+- 离线“核对资料”页在未选择人工英雄时显示当前英雄登场率排行与强化热度排行（aram mayhem 26.21 来源排名，非胜率/强度）。
 
 English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. Adds an optional CC BY 4.0 aram mayhem 26.21 pick-rate cache and UI block, explicitly not a win rate or strength rating and never used for ordering; unmatched or ambiguous names abstain. Adds a fully local default-offline mode with a bundled 26.21 dataset, local heat tiers/pick rates, Tab-triggered LCU item-value difference, user-selected automatic or manual recommended-item-set export, and build-time offline bundle generation. No new LCU endpoints beyond the documented local ones and no Huya remote service calls.
 

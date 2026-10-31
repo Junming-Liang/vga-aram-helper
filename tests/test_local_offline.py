@@ -7,7 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hero_reference import equipment_reference
-from local_offline import heat_view, load_bundle, local_cards
+from local_offline import (augment_rows, champion_rows, heat_view, load_bundle,
+                           local_cards)
 from native_state import display_cards
 from server import load_startup_data
 
@@ -130,6 +131,19 @@ class LocalOfflineTests(unittest.TestCase):
             self.assertTrue(startup['data']['metadata']['offlineLocal'])
         finally:
             folder.cleanup()
+
+    def test_champion_and_augment_source_rankings(self):
+        aram = bundle()['aram']
+        champions = champion_rows(aram, 5)
+        self.assertEqual(champions[0], {'name': '英雄', 'pickRate': 10.0, 'rank': 1})
+        augments = augment_rows(aram, 4)
+        self.assertEqual([row['name'] for row in augments], ['甲', '乙', '丙', '丁'])
+        self.assertEqual([row['rank'] for row in augments], [1, 2, 3, 4])
+        self.assertEqual(champion_rows(aram, 0)[0]['name'], '英雄')
+        self.assertEqual(len(champion_rows(aram, 999)), 1)
+        text = json.dumps([champions, augments], ensure_ascii=False)
+        for term in ('winRate', '胜率'):
+            self.assertNotIn(term, text)
 
     def test_invalid_bundle_rejected(self):
         folder, path = self.write({'schemaVersion': 99, 'data': {}, 'aram': {}})

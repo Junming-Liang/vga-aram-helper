@@ -244,3 +244,48 @@ def heat_view(data):
     """Return an arammayhem-shaped cache from the offline bundle for UI lookups."""
     aram = data.get('aram') if isinstance(data, dict) else None
     return aram if isinstance(aram, dict) and isinstance(aram.get('augments'), list) else None
+
+
+def _limit(value, fallback=10):
+    if isinstance(value, bool) or not isinstance(value, int):
+        return fallback
+    return max(1, min(value, 50))
+
+
+def champion_rows(aram, limit=10):
+    """Source pick-rate-ranked champions; no invented score or win rate."""
+    rows = aram.get('champions') if isinstance(aram, dict) else None
+    if not isinstance(rows, list):
+        return []
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name, rank, rate = row.get('name'), row.get('pickRateRank'), row.get('pickRate')
+        if not isinstance(name, str) or not name or not isinstance(rank, int) \
+                or isinstance(rank, bool) or rank < 1 or not isinstance(rate, (int, float)) \
+                or isinstance(rate, bool):
+            continue
+        result.append({'name': name, 'pickRate': float(rate), 'rank': rank})
+    result.sort(key=lambda row: (row['rank'], row['name']))
+    return result[: _limit(limit)]
+
+
+def augment_rows(aram, limit=12):
+    """Source pick-rate-ranked active augments; no win rate or tier claim."""
+    rows = aram.get('augments') if isinstance(aram, dict) else None
+    if not isinstance(rows, list):
+        return []
+    result = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get('retiredPatch'):
+            continue
+        name, rank, rate = row.get('name'), row.get('pickRateRank'), row.get('pickRate')
+        if not isinstance(name, str) or not name or not isinstance(rank, int) \
+                or isinstance(rank, bool) or rank < 1 or not isinstance(rate, (int, float)) \
+                or isinstance(rate, bool):
+            continue
+        result.append({'name': name, 'pickRate': float(rate), 'rank': rank,
+                       'rarity': row.get('rarity') if isinstance(row.get('rarity'), str) else ''})
+    result.sort(key=lambda row: (row['rank'], row['name']))
+    return result[: _limit(limit)]

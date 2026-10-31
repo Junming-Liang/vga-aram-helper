@@ -78,6 +78,18 @@ class NativeOfflineUITests(unittest.TestCase):
             overlay.hide()
             overlay.deleteLater()
 
+    def test_reference_page_shows_source_rankings_without_hero(self):
+        window = self.window
+        window.data = bundle()['data']
+        window.hero_auto.setChecked(True)
+        window.details_toggle.setChecked(True)
+        window.refresh_card_details()
+        text = window.card_details.text()
+        self.assertIn('英雄登场率排行', text)
+        self.assertIn('强化热度排行', text)
+        self.assertIn('非胜率', text)
+        self.assertNotIn('winRate', text)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -643,6 +643,18 @@ class ControlWindow(QtWidgets.QWidget):
                             row=lookup_augment(heat,name)
                             rows.append(f"{index} · {name}：登场率 {row['pickRate']:.2f}%（全强化第 {row['pickRateRank']}）" if row else f"{index} · {name}：当前热度数据未收录")
                         rows.append(f"来源：{meta['sourcePage']} · {meta['attribution']} · 登场率不是胜率或强度评级，不参与排序。")
+        elif self.data.get('metadata',{}).get('offlineLocal') is True and isinstance(self.data.get('aram'),dict):
+            from local_offline import augment_rows, champion_rows
+            aram=self.data.get('aram');meta=aram.get('metadata',{}) if isinstance(aram.get('metadata'),dict) else {}
+            heroes=champion_rows(aram,10);augments=augment_rows(aram,12)
+            rows.append(f"当前版本英雄登场率排行 · aram mayhem {meta.get('patch','26.21')} · 统计 {meta.get('statsDate','未知')} · CC BY 4.0（非胜率）")
+            for index,row in enumerate(heroes,1):
+                rows.append(f"{index}. {row['name']} · 登场率 {row['pickRate']:.2f}%（全英雄第 {row['rank']}）")
+            rows.append(f"当前版本强化热度排行 · 保留来源排名，不展示胜率/强度评级")
+            for index,row in enumerate(augments,1):
+                rarity={'silver':'白银','gold':'黄金','prismatic':'棱彩'}.get(row['rarity'],row['rarity'] or '未知')
+                rows.append(f"{index}. {row['name']} · {rarity} · 登场率 {row['pickRate']:.2f}%（全强化第 {row['rank']}）")
+            rows.append(f"来源：{meta.get('sourcePage','https://arammayhem.com/zh-cn/data/')} · {meta.get('attribution','Data: arammayhem.com')} · 登场率不是胜率或强度，不参与排序。")
         text='\n\n'.join(rows)
         if self.card_details.text()!=text:self.card_details.setText(text)
     def client_assignment_visible(self):
