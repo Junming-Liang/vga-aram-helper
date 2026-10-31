@@ -838,7 +838,7 @@ class ControlWindow(QtWidgets.QWidget):
         if hasattr(self,'overlay'):self.toggle_button.setChecked(self.overlay.click_through)
         self.monitor_actions.setCurrentWidget(self.stop_button if self.state.running else self.start_button);self.stop_button.setEnabled(bool(self.state.running))
         cards=display_cards(self.data,hero,self.state.offered) if current else self.partial_display_cards(partial) if any(partial) else []
-        self.candidate_caption.setText('正在核对当前候选，确认后显示评级' if title_pending else '上次候选 · 正在复核，尚非本帧结果' if cards and self.overlay._rechecking else ('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '虎牙公开源 · 非 Riot 评级') if current else '部分候选已确认 · 其余等待识别' if any(partial) else '等待三个候选稳定确认')
+        self.candidate_caption.setText('正在核对当前候选，确认后显示评级' if title_pending else '上次候选 · 正在复核，尚非本帧结果' if cards and self.overlay._rechecking else ('虚构演示资料' if self.data.get('metadata',{}).get('isDemo') else '本地 26.21 热度 · 非 Riot 评级' if self.data.get('metadata',{}).get('offlineLocal') else '虎牙公开源 · 非 Riot 评级') if current else '部分候选已确认 · 其余等待识别' if any(partial) else '等待三个候选稳定确认')
         for index,view in enumerate(self.candidate_views):
             card=cards[index] if cards else None;tier=card.get('sourceTier') if card else None
             view['name'].setText(card['name'] if card else '等待识别');view['tier'].setText(tier or '—')
@@ -2027,7 +2027,10 @@ class ControlWindow(QtWidgets.QWidget):
                 if self.state.running:self.invalidate_scene('资料已改变，等待当前画面重新识别。')
                 else:self.clear_partial_candidates()
                 self.startup_error='';self.data=value['data'];meta=self.data.get('metadata',{});status=value.get('status',{})
-                self.source.setText(('虚构演示，不能用于对局。 ' if meta.get('isDemo') else '')+f"软件 {self.current_version} · 来源日期 {meta.get('sourceDataDate','未知')} · 数据包 {meta.get('wikiDataVersion','未知')} · 游戏资料版本 {meta.get('gamePatch','未知')} · {status.get('message','资料已加载')} 获取成功不代表统计内容最新。")
+                if meta.get('offlineLocal'):
+                    self.source.setText(f"本地离线 · aram mayhem {meta.get('offlinePatch','未知')}（统计 {meta.get('offlineStatsDate','未知')}） · 软件 {self.current_version} · 虎牙快照 来源日期 {meta.get('sourceDataDate','未知')} · 数据包 {meta.get('wikiDataVersion','未知')} · 游戏资料版本 {meta.get('gamePatch','未知')} · {status.get('message','资料已加载')}")
+                else:
+                    self.source.setText(('虚构演示，不能用于对局。 ' if meta.get('isDemo') else '')+f"软件 {self.current_version} · 来源日期 {meta.get('sourceDataDate','未知')} · 数据包 {meta.get('wikiDataVersion','未知')} · 游戏资料版本 {meta.get('gamePatch','未知')} · {status.get('message','资料已加载')} 获取成功不代表统计内容最新。")
                 self.hero_aliases={}
                 ambiguous=set()
                 for name,record in self.data.get('heroes',{}).items():
