@@ -63,6 +63,25 @@ class LocalOfflineTests(unittest.TestCase):
         for term in ('winRate', '胜率'):
             self.assertNotIn(term, text)
 
+    def test_pair_combo_god_synergy_boosts_both_cards(self):
+        data = bundle()['data']
+        data['aram']['combos'].append(
+            {'champion': '英雄', 'augmentNames': ['甲', '丙'], 'types': ['god']})
+        cards = local_cards(data, '英雄', ['甲', '丙', '癸'])
+        self.assertEqual([card['sourceTier'] for card in cards], ['S', 'S', 'C'])
+        self.assertIn('本轮组合', cards[0]['sourceHint'])
+        self.assertIn('本轮组合', cards[1]['sourceHint'])
+        self.assertNotIn('本轮组合', cards[2]['sourceHint'])
+
+    def test_pair_combo_trap_drops_both_cards(self):
+        data = bundle()['data']
+        data['aram']['combos'].append(
+            {'champion': '英雄', 'augmentNames': ['丙', '癸'], 'types': ['trap']})
+        cards = local_cards(data, '英雄', ['丙', '癸'])
+        self.assertEqual([card['sourceTier'] for card in cards], ['B', 'C'])
+        self.assertIn('陷阱', cards[0]['sourceHint'])
+        self.assertTrue(cards[0]['notes'])
+
     def test_display_cards_branches_to_local(self):
         data = bundle()['data']
         cards = display_cards(data, '英雄', ['甲', '乙', '戊'])

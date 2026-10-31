@@ -8,6 +8,7 @@
 - 新增可选的 aram mayhem 26.21 登场率缓存与资料页区块（CC BY 4.0，仅登场率/排名，不含胜率/T 级，不参与排序）；按中文名匹配，未收录/重名弃权。运行 `python sync_arammayhem.py` 同步。
 - 新增本地离线模式：`--offline` 使用随附 26.21 数据包，禁用数据/软件/头像下载；三个候选显示本地 S/A/B/C 热度档位与登场率，Tab 显示本机装备价值差，资料页可导出推荐出装 JSON。详见 [本地离线说明](OFFLINE_LOCAL.md)。
 - 存在随附离线包时默认离线启动，`--online` 可强制联网；构建时可用 `build_offline_data.py --fetch` 生成数据包，打包规格会自动带上它。设置中可选择自动导出目录，确认英雄后自动写入推荐出装（默认关闭）。
+- 本地热度档位加入本轮三选一之间的英雄组合协同：两项命中同一 `god/trap` 组合时只应用一次并标注“本轮组合”。
 
 English: Adds hero equipment-reference names and source-order hero augment rows to the manual reference page, both patch/date gated with no rates or rankings; accepts verified Hex ARAM queue IDs 2400/2410/3270; adds OCR variant regressions for the 26.21 catalog. Adds an optional CC BY 4.0 aram mayhem 26.21 pick-rate cache and UI block, explicitly not a win rate or strength rating and never used for ordering; unmatched or ambiguous names abstain. Adds a fully local default-offline mode with a bundled 26.21 dataset, local heat tiers/pick rates, Tab-triggered LCU item-value difference, user-selected automatic or manual recommended-item-set export, and build-time offline bundle generation. No new LCU endpoints beyond the documented local ones and no Huya remote service calls.
 

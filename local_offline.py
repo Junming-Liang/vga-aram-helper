@@ -62,7 +62,7 @@ def _hero_keys(data, hero):
     return {canonical_name(value) for value in values if isinstance(value, str) and value.strip()}
 
 
-def _combos_for(aram, hero_keys, augment_name):
+def _combos_for(aram, hero_keys, augment_name, offered_keys=None):
     key = canonical_name(augment_name)
     matches = []
     for combo in aram.get('combos', []):
@@ -74,8 +74,37 @@ def _combos_for(aram, hero_keys, augment_name):
         if not isinstance(names, list):
             continue
         if key in {canonical_name(name) for name in names if isinstance(name, str)}:
+            if offered_keys is not None:
+                # A combo spanning two offered cards is applied once by the
+                # pair pass, never again as two individual tier changes.
+                offered_in_combo = sum(1 for name in names if isinstance(name, str)
+                                       and canonical_name(name) in offered_keys)
+                if offered_in_combo > 1:
+                    continue
             matches.append(combo)
     return matches
+
+
+def _pair_combo(aram, hero_keys, name_a, name_b):
+    """One hero combo containing both offered augments; trap wins over god."""
+    keys = {canonical_name(name_a), canonical_name(name_b)}
+    matches = []
+    for combo in aram.get('combos', []):
+        if not isinstance(combo, dict):
+            continue
+        if canonical_name(combo.get('champion', '')) not in hero_keys:
+            continue
+        names = {canonical_name(name) for name in combo.get('augmentNames', [])
+                 if isinstance(name, str)}
+        if keys <= names:
+            matches.append(combo)
+    for combo in matches:
+        if 'trap' in combo.get('types', []):
+            return combo
+    for combo in matches:
+        if 'god' in combo.get('types', []):
+            return combo
+    return matches[0] if matches else None
 
 
 def _combo_hint(combos, augment_name):
@@ -113,6 +142,8 @@ def local_cards(data, hero, offered):
             and isinstance(row.get('pickRateRank'), int) and not isinstance(row.get('pickRateRank'), bool)]
     total = len(rows)
     meta = aram.get('metadata') if isinstance(aram.get('metadata'), dict) else {}
+    offered_keys = {canonical_name(name) for name in offered
+                    if isinstance(name, str) and name.strip()}
     cards = []
     for slot, name in enumerate(offered, 1):
         item = data.get('augments', {}).get(name) if isinstance(name, str) else None
@@ -129,7 +160,7 @@ def local_cards(data, hero, offered):
                           'targetGamePatch': meta.get('patch')})
             continue
         tier = _tier(augment.get('pickRateRank'), total)
-        combos = _combos_for(aram, hero_keys, name)
+        combos = _combos_for(aram, hero_keys, name, offered_keys)
         combos_types = {value for combo in combos for value in combo.get('types', []) if isinstance(value, str)}
         if 'trap' in combos_types:
             tier = _move(tier, 1)
@@ -150,6 +181,31 @@ def local_cards(data, hero, offered):
             'sourceDataDate': meta.get('statsDate'), 'gamePatch': meta.get('patch'),
             'targetGamePatch': meta.get('patch'),
         })
+    if len(cards) >= 2:
+        effects = {}
+        for first in range(len(cards)):
+            for second in range(first + 1, len(cards)):
+                combo = _pair_combo(aram, hero_keys, cards[first]['name'], cards[second]['name'])
+                if combo is None:
+                    continue
+                types = combo.get('types', [])
+                step = 1 if 'trap' in types else -1 if 'god' in types else 0
+                label = '陷阱' if 'trap' in types else '高协同' if 'god' in types else '组合'
+                hint = f"本轮组合：{cards[first]['name']}+{cards[second]['name']}（{label}）"
+                for index in (first, second):
+                    record = effects.setdefault(index, {'steps': [], 'hints': []})
+                    record['steps'].append(step)
+                    record['hints'].append(hint)
+        for index, record in effects.items():
+            card = cards[index]
+            if card.get('sourceTier'):
+                steps = record['steps']
+                change = 1 if 1 in steps else -1 if -1 in steps else 0
+                card['sourceTier'] = _move(card['sourceTier'], change)
+            extra = ' · '.join(record['hints'])
+            card['sourceHint'] = ' · '.join(value for value in (card.get('sourceHint', ''), extra) if value)
+            if any(step > 0 for step in record['steps']):
+                card['notes'] = list(card.get('notes', [])) + ['本轮组合命中陷阱，请结合机制判断。']
     return cards
 
 
