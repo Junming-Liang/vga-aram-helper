@@ -35,12 +35,15 @@ class PlainText(HTMLParser):
             self.parts.append(data)
 
 
+ICON_TOKEN = re.compile(r"%i:[A-Za-z0-9_]+%")
+
+
 def plain(value):
     if not isinstance(value, str):
         return ""
     parser = PlainText()
     parser.feed(value)
-    return unescape("".join(parser.parts)).strip()
+    return ICON_TOKEN.sub("", unescape("".join(parser.parts))).strip()
 
 
 def names(value):

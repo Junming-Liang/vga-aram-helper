@@ -83,6 +83,8 @@ class EngineTests(unittest.TestCase):
 
     def test_html_and_assets_are_removed(self):
         self.assertEqual(plain('<script>bad()</script><p>Hello<br>world</p>'), 'Hello\nworld')
+        self.assertEqual(plain('获得1个随机%i:Augment%棱彩强化符文。'), '获得1个随机棱彩强化符文。')
+        self.assertEqual(plain('获得%i:scaleHealShield%15%治疗和护盾强度。'), '获得15%治疗和护盾强度。')
         raw={'heroes':{'x':{'avatar':'https://example.com/x.png'}},'augments':{},'items':{}}
         self.assertNotIn('avatar',normalize(raw)['heroes']['x'])
 
