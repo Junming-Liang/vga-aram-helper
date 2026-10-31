@@ -67,6 +67,17 @@ class NativeOfflineUITests(unittest.TestCase):
             self.assertEqual(config['championKey'], 'Hero')
             self.assertEqual(config['blocks'][0]['items'], [1001])
 
+    def test_gold_diff_overlay_renders_text(self):
+        from native_ui import GoldDiffOverlay
+        overlay = GoldDiffOverlay()
+        try:
+            overlay.show_text('装备价值差测试')
+            self.assertEqual(overlay.label.text(), '装备价值差测试')
+            self.assertTrue(overlay.isVisible())
+        finally:
+            overlay.hide()
+            overlay.deleteLater()
+
 
 if __name__ == '__main__':
     unittest.main()
