@@ -92,6 +92,26 @@ def badge_placement(rect,dpr,anchors,slots):
     return (left,top,right-left,bottom-top),regions
 
 
+PLACEMENT_TOLERANCE=4  # physical pixels
+
+
+def placement_within_tolerance(installed_bounds,installed_regions,bounds,regions,*,tolerance=PLACEMENT_TOLERANCE):
+    """True when these badges would land a few pixels from where they already are.
+
+    Card edges are re-measured from fresh pixels every frame, so a 1-3px
+    difference is the same layout. Treating it as a new one hides the box,
+    rebuilds the mask and revokes a healthy visible-capture session, which is
+    the blink a player sees while the same three candidates are still offered.
+    The installed placement stays fixed, so drift can never accumulate: once a
+    re-measure exceeds the tolerance, the normal relayout path runs.
+    """
+    if installed_bounds is None or bounds is None or len(installed_bounds)!=4 or len(bounds)!=4:return False
+    if installed_regions is None or regions is None or len(installed_regions)!=len(regions):return False
+    def close(a,b):return all(abs(float(x)-float(y))<=tolerance for x,y in zip(a,b))
+    return bool(close(installed_bounds,bounds)
+                and all(close(x,y) for x,y in zip(installed_regions,regions)))
+
+
 def native_region(hwnd,regions,*,verify_only=False):
     """Install and read back the exact disjoint opaque physical HWND region.
 
@@ -270,10 +290,11 @@ class BadgeOverlayMixin:
                     and all(anchors.names[i]==self._badge_anchors.names[i] for i in active)):
                 try:
                     rect,revision,dpr=self._placed_key[:3]
+                    placed=badge_placement(rect,dpr,anchors,active)
                     unchanged=(revision==self._layout_revision
                         and float(self.windowHandle().devicePixelRatio())==dpr
-                        and badge_placement(rect,dpr,anchors,active)
-                            ==(self._badge_bounds,self._badge_regions))
+                        and (placed==(self._badge_bounds,self._badge_regions)
+                            or placement_within_tolerance(self._badge_bounds,self._badge_regions,*placed)))
                 except (CaptureUnavailable,AttributeError,TypeError,ValueError):
                     unchanged=False
             if not unchanged:
@@ -368,6 +389,12 @@ class BadgeOverlayMixin:
             if self._placed_key is not None and self._placed_key[:3]==(rect,self._layout_revision,dpr):
                 bounds,regions=badge_placement(rect,dpr,anchors,slots)
                 key=(rect,self._layout_revision,dpr,bounds,regions,tuple(slots))
+                if key!=self._placed_key and tuple(slots)==self._placed_key[5] \
+                        and placement_within_tolerance(self._badge_bounds,self._badge_regions,bounds,regions):
+                    # Paint where the badges already are. Comparing the newly
+                    # measured pixels against themselves would relayout for a
+                    # difference no player can see.
+                    key=self._placed_key
                 if self._placed_key==key:
                     self.show();self.configure();self._ensure_badge_bounds(self._badge_bounds);native_region(hwnd,self._badge_regions,verify_only=True)
                     if self.capture:self._verify_rect(rect)
