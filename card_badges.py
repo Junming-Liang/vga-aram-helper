@@ -315,7 +315,10 @@ class BadgeOverlayMixin:
             else:badge.set_title_checking(slot)
     def _leave_badges(self):
         self.hide('reference_changed')
-        self._expired_badge_placement=None
+        # The mask and native regions are about to be removed, so no cached
+        # badge placement can describe this window any more. Leaving the key
+        # would make the reference layout compare it against its own shape.
+        self._expired_badge_placement=None;self._placed_key=None
         for badge in self._badge_widgets:badge.hide()
         self.clearMask();clear_native_region(int(self.winId()));self._badge_regions=();self.panel.show()
     def _refresh_badges(self):

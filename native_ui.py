@@ -216,7 +216,14 @@ class Overlay(BadgeOverlayMixin,QtWidgets.QWidget):
         self.row.addWidget(frame,1)
         self._set_compact(True);self.adjustSize();self.resize(820,max(52,self.height()))
     def configure(self):
-        if self.capture:self.capture.configure_overlay(int(self.winId()),self.click_through or bool(self.cards),opaque=True)
+        if not self.capture:return
+        # Re-asserting the native profile on every refresh is not free: a style
+        # byte Qt had reset would revoke the healthy capture session and force a
+        # frame-changed repaint. Skip only after the live window is re-read.
+        current=getattr(self.capture,'overlay_state_current',None)
+        hwnd=int(self.winId())
+        if current is not None and current(hwnd):return
+        self.capture.configure_overlay(hwnd,self.click_through or bool(self.cards),opaque=True)
     def retire_capture_session(self):
         # A replacement layout must wait for the producer to drain. Closing
         # its session while a frame is in flight would turn our own retirement
@@ -805,6 +812,15 @@ class ControlWindow(QtWidgets.QWidget):
             reference=selection_reference(self.data,value)
             if reference:return reference
         return self.client_strength_reference()
+    def client_strip_current(self):
+        """True when the overlay shows the same client/data-authoritative strip.
+
+        The strip is not decided by the frame's pixels, so re-showing it after
+        those pixels are already in hand cannot feed our own overlay back into
+        recognition. Card grades keep their separate per-frame proof.
+        """
+        reference=self.client_selection_reference()
+        return bool(reference and not self.overlay.cards and self.overlay.reference==reference)
     def client_strength_reference(self):
         if not self.state.running or not self.hero_auto.isChecked() or not self.client_assignment_visible() or not self.state.hero or self.selection_session.stage!='assigned':return None
         if not 0<=time.monotonic()-self.selection_session.last_client_frame<=4:return None
@@ -1488,7 +1504,7 @@ class ControlWindow(QtWidgets.QWidget):
                 self.clear_partial_candidates();self.overlay.hide('unconfirmed')
             if self._visible_previous and self.overlay.isVisible() and (reference or (self.state.confirmed or partial) and 0<=now-self.last_observation<=4):
                 self.overlay.set_rechecking(True)
-            elif reference and not self.capture_pending and not self.ocr_busy:
+            elif reference and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):
                 self.overlay.set_hero_reference(reference);self.overlay.show_at(rect,self.target)
             elif self.state.confirmed and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
             elif partial and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
@@ -2186,7 +2202,8 @@ class ControlWindow(QtWidgets.QWidget):
                     try:self.capture.validate_compositor(self.target,value['_captureRect'])
                     except (CapturePaused,CaptureUnavailable) as exc:
                         self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.overlay.hide('target_unavailable');return
-                self._restore_while_ocr=self.may_restore_accepted_frame(value) or self.may_restore_accepted_partial_frame(value)
+                self._restore_while_ocr=(self.client_strip_current()
+                    or self.may_restore_accepted_frame(value) or self.may_restore_accepted_partial_frame(value))
                 if self._restore_while_ocr:self.overlay.set_title_checking(False)
                 self.overlay.set_rechecking(self._restore_while_ocr)
                 if not self._restore_while_ocr:self.overlay.hide('capture_proof')

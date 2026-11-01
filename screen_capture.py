@@ -542,6 +542,23 @@ class Win32Capture:
                 raise CaptureUnavailable('叠加窗口身份、样式、排除状态或隐藏状态已变化。')
         except (CaptureUnavailable,OSError,AttributeError) as exc:
             raise WgcError('stale',str(exc)) from exc
+    def overlay_state_current(self,hwnd):
+        """GUI-side read of the live window against the registered snapshot.
+
+        True means the enrolled overlay is byte-for-byte the window the capture
+        session was allowed to exempt, so re-asserting the style would only
+        revoke it. Every value is re-read here; a stale enrollment returns False
+        and the caller runs the full configuration again.
+        """
+        adapter=getattr(self,'_persistent',None)
+        registered=getattr(adapter,'overlay',None) if adapter is not None else None
+        if registered is None or registered.hwnd!=hwnd or not self.u.IsWindow(hwnd):return False
+        ctypes.set_last_error(0)
+        current=int(self.get_long(hwnd,-20))&0xffffffff
+        if ctypes.get_last_error() or current!=registered.extended_style:return False
+        if not self._opaque_layered(hwnd):return False
+        affinity=W.DWORD()
+        return bool(self.u.GetWindowDisplayAffinity(hwnd,ctypes.byref(affinity)) and affinity.value==0x11)
     def configure_overlay(self,hwnd,click_through=True,*,opaque=False):
         """GUI registration only. No helper construction, file I/O or pipe waits.
 
