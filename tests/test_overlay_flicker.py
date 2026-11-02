@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from tests import test_client_feedback as fixtures
+from tests import test_semantic_title_recheck as semantic
 from tests.test_badge_effective_placement import OwnedCapture
 
 
@@ -253,6 +254,162 @@ class BadgePlacementStabilityTests(unittest.TestCase):
                 self.capture.positions.clear()
                 cumulative = 0
         self.assertTrue(self.widget.isVisible())
+
+
+@unittest.skipIf(semantic.fixture.QtWidgets is None, 'Optional Qt/PIL runtime is not installed')
+class CheckingHoldFlickerTests(unittest.TestCase):
+    """An in-scope frame of animated artwork must not blank the recognition box.
+
+    The strict-hidden route hides the overlay for its own capture. When the fresh
+    pixels then could not be proven identical to the accepted observation, the box
+    stayed hidden for the whole local inference and returned only with the next
+    result — the blink the player reports next to the 复核中 label. A frame whose
+    own border re-verification failed likewise revoked a healthy box outright.
+    """
+
+    setUpClass = classmethod(semantic.fixture.NativeCaptureWorkerTests.setUpClass.__func__)
+    setUp = semantic.SemanticTitleRecheckTests.setUp
+    wait = semantic.SemanticTitleRecheckTests.wait
+    dispose_window = semantic.SemanticTitleRecheckTests.dispose_window
+    accepted_proof_fixture = semantic.SemanticTitleRecheckTests.accepted_proof_fixture
+    scene = semantic.SemanticTitleRecheckTests.scene
+    phase = semantic.SemanticTitleRecheckTests.phase
+
+    def installed(self, w):
+        events, observer = hide_observer(w.overlay)
+        w.overlay.installEventFilter(observer)
+        self.addCleanup(w.overlay.removeEventFilter, observer)
+        return events, int(w.overlay.winId()), w.overlay._placed_key, w.overlay.mask()
+
+    def real_geometry(self, w, jitter=0.):
+        from augment_card_geometry import CardGeometry
+        rects = tuple((x, y + jitter, rw, rh) for x, y, rw, rh in w.overlay._badge_anchors.rects)
+        return CardGeometry(rects, (900, 600), 'fresh-detection', (), 'frame')
+
+    def test_strict_hidden_frame_holds_the_accepted_box_through_the_inference(self):
+        value, hero, names = self.scene(); w = self.window
+        w._visible_previous = False
+        w.overlay.hide('capture_pending')
+        self.assertFalse(w.overlay.isVisible())
+        events, hwnd, key, mask = self.installed(w)
+        observation, frames = w.last_observation, w.state.automatic_frames
+        self.phase('capture-proof', dict(value, _roiDigest='animated-pixels',
+                                         _matchingTitleProof=None,
+                                         hero_observation=dict(hero=hero, confident=True)))
+        self.assertFalse(w._restore_while_ocr)   # Pixel identity is still not proven.
+        self.assertTrue(w.hold_while_ocr)
+        self.assertTrue(w.overlay.isVisible())
+        self.assertFalse(w.overlay._titles_pending)
+        self.assertTrue(w.overlay._rechecking)
+        self.assertIn('上次候选复核中', w.overlay.heading.text())
+        self.assertEqual(w.state.offered, names)  # Only the accepted observation.
+        self.assertEqual((w.last_observation, w.state.automatic_frames), (observation, frames))
+        self.assertEqual(events, [])
+        self.assertEqual((int(w.overlay.winId()), w.overlay._placed_key, w.overlay.mask()), (hwnd, key, mask))
+
+    def test_an_out_of_scope_frame_still_hides_rather_than_holding(self):
+        value, hero, names = self.scene(); w = self.window
+        w._visible_previous = False
+        w.overlay.hide('capture_pending')
+        scope = list(value['_frameScope']); scope[3] = 'changed scene scope'
+        self.phase('capture-proof', dict(value, _frameScope=tuple(scope),
+                                         hero_observation=dict(hero=hero, confident=True)))
+        self.assertFalse(w.hold_while_ocr)
+        self.assertFalse(w.overlay.isVisible())
+
+    def test_unproven_edges_defer_to_the_title_phase_instead_of_revoking(self):
+        value, hero, names = self.scene(); w = self.window
+        self.assertTrue(w._visible_previous)
+        events, hwnd, key, mask = self.installed(w)
+        frames = w.state.automatic_frames
+        self.phase('capture-proof', dict(value, _matchingCardGeometry=None,
+                                         hero_observation=dict(hero=hero, confident=True)))
+        self.assertTrue(w._geometry_deferred)
+        self.assertIsNotNone(w._accepted_frame)
+        self.assertTrue(w.overlay.isVisible())
+        self.assertTrue(w.state.confirmed)
+        self.assertEqual(w.state.offered, names)
+        self.assertEqual(w.state.automatic_frames, frames)
+        self.assertEqual(events, [])
+        self.assertEqual((int(w.overlay.winId()), w.overlay._placed_key, w.overlay.mask()), (hwnd, key, mask))
+
+    def test_fresh_full_detection_resolves_the_deferral_without_a_new_observation(self):
+        value, hero, names = self.scene(); w = self.window
+        accepted = self.real_geometry(w)
+        w._accepted_frame['card_geometry'] = accepted
+        observation = w.last_observation
+        deferred = dict(value, _matchingCardGeometry=None, _cardGeometry=self.real_geometry(w),
+                        hero_observation=dict(hero=hero, confident=True))
+        self.phase('capture-proof', deferred)
+        self.assertTrue(w._geometry_deferred)
+        self.phase('title-proof', deferred)
+        self.assertFalse(w._geometry_deferred)
+        self.assertTrue(w.overlay.isVisible())
+        self.assertTrue(w.state.confirmed)
+        self.assertEqual(w.state.offered, names)
+        self.assertEqual(w.last_observation, observation)
+
+    def test_a_deferral_never_survives_contradicting_fresh_detection(self):
+        value, hero, names = self.scene(); w = self.window
+        w._accepted_frame['card_geometry'] = self.real_geometry(w)
+        moved = dict(value, _matchingCardGeometry=None, _cardGeometry=None,
+                     hero_observation=dict(hero=hero, confident=True))
+        self.phase('capture-proof', moved)
+        self.assertTrue(w._geometry_deferred)
+        self.phase('title-proof', moved)
+        self.assertFalse(w._geometry_deferred)
+        self.assertFalse(w.overlay.isVisible())
+        self.assertFalse(w.state.confirmed)
+        self.assertIsNone(w._accepted_frame)
+
+    def test_the_hold_dies_with_the_inference_and_with_the_next_capture(self):
+        value, hero, names = self.scene(); w = self.window
+        w._visible_previous = False
+        w.overlay.hide('capture_pending')
+        self.phase('capture-proof', dict(value, _roiDigest='animated-pixels',
+                                         hero_observation=dict(hero=hero, confident=True)))
+        self.assertTrue(w.hold_while_ocr)
+        w.ocr_busy = False
+        self.assertFalse(w.hold_while_ocr)
+        w.ocr_busy = True
+        self.assertTrue(w.hold_while_ocr)
+        w._capture_serial += 1
+        self.assertFalse(w.hold_while_ocr)
+        w._capture_serial -= 1
+        w._accepted_frame = None
+        self.assertFalse(w.hold_while_ocr)
+
+
+class GeometryEquivalenceTests(unittest.TestCase):
+    """A few physical pixels between two measured layouts is not a new layout."""
+
+    def geometry(self, jitter=0., index=0):
+        from augment_card_geometry import CardGeometry
+        rects = [[.05, .30, .25, .60], [.35, .30, .25, .60], [.65, .30, .25, .60]]
+        rects[index][1] += jitter
+        return CardGeometry(tuple(tuple(r) for r in rects), (900, 600), 'd', (), 'frame')
+
+    def test_within_tolerance_and_beyond_it(self):
+        from augment_card_geometry import GEOMETRY_TOLERANCE, geometry_equivalent
+        base = self.geometry()
+        self.assertTrue(geometry_equivalent(self.geometry(), base))
+        self.assertTrue(geometry_equivalent(self.geometry(2 / 600), base))
+        self.assertTrue(geometry_equivalent(self.geometry(GEOMETRY_TOLERANCE / 600), base))
+        self.assertFalse(geometry_equivalent(self.geometry((GEOMETRY_TOLERANCE + 1) / 600), base))
+        self.assertFalse(geometry_equivalent(self.geometry(30 / 600), base))
+        # Every rectangle is compared, not merely the first or the envelope.
+        self.assertFalse(geometry_equivalent(self.geometry(30 / 600, index=2), base))
+        self.assertTrue(geometry_equivalent(self.geometry(2 / 600, index=2), base))
+
+    def test_incompatible_shapes_and_spaces_are_never_equivalent(self):
+        from dataclasses import replace
+        from augment_card_geometry import CardGeometry, geometry_equivalent
+        base = self.geometry()
+        self.assertFalse(geometry_equivalent(None, base))
+        self.assertFalse(geometry_equivalent(base, None))
+        self.assertFalse(geometry_equivalent(base, replace(base, space='crop')))
+        self.assertFalse(geometry_equivalent(base, replace(base, size=(1600, 900))))
+        self.assertFalse(geometry_equivalent(base, replace(base, rects=base.rects[:2])))
 
 
 if __name__ == '__main__':

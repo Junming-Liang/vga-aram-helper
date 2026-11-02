@@ -340,7 +340,7 @@ class ControlWindow(QtWidgets.QWidget):
         self.lcu_snapshot=SelectionSnapshot();self.last_selection_source=None;self._lcu_pixel_fallback=False;self._lcu_error=''
         from selection_retry import SelectionRetry
         self.selection_retry=SelectionRetry();self._selection_capture_state='waiting'
-        self._capture_serial=0;self._completed_capture_serial=None;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._semantic_title_frame=None;self._current_capture_proof=None;self._restore_while_ocr=False;self.last_timings=None;self.last_candidates=None
+        self._capture_serial=0;self._completed_capture_serial=None;self._active_capture_generation=None;self._geometry_frame=None;self._accepted_frame=None;self._semantic_title_frame=None;self._current_capture_proof=None;self._restore_while_ocr=False;self._hold_serial=None;self._geometry_deferred=False;self.last_timings=None;self.last_candidates=None
         self.partial_candidates=PartialCandidateState();self._partial_revision=0;self._partial_hero='';self._partial_scope=None;self._partial_displayed=False
         self._accepted_partial_frame=None;self._semantic_partial_frame=None
         if type(enable_visible_capture) is not bool:raise TypeError('Visible capture requires an explicit boolean')
@@ -1506,7 +1506,7 @@ class ControlWindow(QtWidgets.QWidget):
                 self.overlay.set_rechecking(True)
             elif reference and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):
                 self.overlay.set_hero_reference(reference);self.overlay.show_at(rect,self.target)
-            elif self.state.confirmed and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
+            elif self.state.confirmed and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr or self.hold_while_ocr):self.overlay.show_at(rect,self.target)
             elif partial and not self.capture_pending and (not self.ocr_busy or self._restore_while_ocr):self.overlay.show_at(rect,self.target)
             elif self.overlay.reference:self.overlay.hide('unconfirmed')
         except CapturePaused as exc:
@@ -1633,7 +1633,7 @@ class ControlWindow(QtWidgets.QWidget):
         except (CapturePaused,CaptureUnavailable) as exc:
             self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.schedule_capture(1000);return
         self.monitor.stop();self.capture_pending=True;self._restore_while_ocr=False;self._visible_previous=visible;self.overlay.set_rechecking(visible)
-        self._capture_serial+=1;serial=self._capture_serial
+        self._capture_serial+=1;serial=self._capture_serial;self._geometry_deferred=False
         route_reason=('capture_wait' if visible else 'disabled' if not self.enable_visible_capture else 'interactive' if not self.overlay.click_through else 'prior_frame_unproven' if was_visible and fresh_previous and not historical_authority else mode if mode!='eligible' else 'no_previous' if not was_visible else 'stale_previous')
         self.debug_event('capture',phase='requested',reason=route_reason,capture_mode=mode,visible_capture=visible,visible=was_visible,fresh=fresh_previous,click_through=self.overlay.click_through)
         if not visible:
@@ -1984,30 +1984,98 @@ class ControlWindow(QtWidgets.QWidget):
         proof=current[2] if current and current[:2]==(generation,value['_captureSerial']) else value
         if self.may_restore_accepted_partial_frame(proof):
             self._restore_while_ocr=True;self.overlay.set_rechecking(True);self.check_target()
-    def accepted_frame_scope_current(self,value):
-        """Scope/freshness of a historical display; grants no new observation."""
+    def accepted_frame_scope_current(self,value,*,require_geometry=True):
+        """Scope/freshness of a historical display; grants no new observation.
+
+        require_geometry=False answers a narrower question: everything binding
+        this frame to the accepted observation still holds, and only this frame's
+        own re-verification of the accepted rectangles failed. On its own it
+        authorizes no grade; the title phase must still measure fresh borders.
+        """
         reference=self._accepted_frame;now=time.monotonic()
         scope=value.get('_frameScope');current_source=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False)) if self.data else None
         return bool(reference and reference.get('source_ref') is self.data and self.state.confirmed and self.state.confirmation_mode=='automatic'
-            and reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is reference['card_geometry']
+            and (not require_geometry or (reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is reference['card_geometry']))
             and reference['generation']==self.state.generation and reference['hero']==self.state.hero and reference['offered']==self.state.offered
             and isinstance(scope,tuple) and len(scope)==7 and scope==reference['scope'] and scope[3]==tuple(spin.value()/100 for spin in self.roi) and scope[4]==tuple(self.data['augments']) and scope[5]==current_source and scope[6][0] is self.hero_matcher and scope[6][1]==(self.hero_matcher.proof_identity() if self.hero_matcher and hasattr(self.hero_matcher,'proof_identity') else None)
             and value.get('_captureSerial')==self._capture_serial
             and 0<=now-reference['observed_at']<=4 and reference['observed_at']<value.get('_capturedAt',0)<=now)
-    def may_restore_accepted_frame(self,value):
+    def accepted_frame_scope_report(self,value):
+        """Name the clause that rejected a frame. Diagnostic only, never a gate."""
+        reference=self._accepted_frame or {}
+        scope=value.get('_frameScope');now=time.monotonic()
+        shaped=isinstance(scope,tuple) and len(scope)==7
+        current_source=(id(self.data),json.dumps(self.data.get('metadata',{}),sort_keys=True,ensure_ascii=False)) if self.data else None
+        matcher_key=(self.hero_matcher,self.hero_matcher.proof_identity() if self.hero_matcher and hasattr(self.hero_matcher,'proof_identity') else None)
+        observed_at=reference.get('observed_at')
+        clauses=(('reference',bool(reference)),('source_ref',reference.get('source_ref') is self.data),
+            ('confirmed',bool(self.state.confirmed and self.state.confirmation_mode=='automatic')),
+            ('card_geometry',reference.get('card_geometry') is not None and value.get('_matchingCardGeometry') is reference.get('card_geometry')),
+            ('generation',reference.get('generation')==self.state.generation),('hero',reference.get('hero')==self.state.hero),
+            ('offered',reference.get('offered')==self.state.offered),('scope',shaped and scope==reference.get('scope')),
+            ('live_scope',bool(shaped and self.data and scope[3]==tuple(spin.value()/100 for spin in self.roi)
+                and scope[4]==tuple(self.data['augments']) and scope[5]==current_source
+                and scope[6][0] is self.hero_matcher and scope[6][1]==matcher_key[1])),
+            ('serial',value.get('_captureSerial')==self._capture_serial),
+            ('ttl',isinstance(observed_at,(int,float)) and 0<=now-observed_at<=4 and observed_at<value.get('_capturedAt',0)<=now))
+        return dict(scope_failure=','.join(name for name,ok in clauses if not ok) or 'none',
+            scope_age_ms=round((now-observed_at)*1000,1) if isinstance(observed_at,(int,float)) else -1.)
+    def scope_debug(self,value):
+        """Rejected-frame detail for the log; empty unless diagnostics are on."""
+        return self.accepted_frame_scope_report(value) if self.debug_log.enabled else {}
+    @property
+    def hold_while_ocr(self):
+        """Grade-bearing hold for the capture now under inference, or False.
+
+        Self-expiring: it dies with the inference, with the next capture serial
+        and with the accepted observation, so no reset site can forget it.
+        """
+        return bool(self._hold_serial is not None and self.ocr_busy and not self._restore_while_ocr
+            and self._hold_serial==self._capture_serial and self._accepted_frame is not None and self.state.confirmed)
+    def may_defer_unproven_geometry(self,value):
+        """One frame of animated artwork may not blank an in-scope accepted box.
+
+        Scope, identity, serial and TTL still bind this frame to the accepted
+        observation; only the re-verification of the accepted rectangles failed.
+        The title phase measures all twelve borders anew and decides, so a real
+        occlusion or reroll is still revoked inside this same capture.
+        """
+        return bool(self.accepted_frame_scope_current(value,require_geometry=False))
+    def fresh_geometry_reproves(self,value):
+        """Freshly detected borders at the accepted place re-prove the layout."""
+        from augment_card_geometry import geometry_equivalent
+        reference=self._accepted_frame
+        return bool(self._geometry_deferred and reference is not None
+            and self.accepted_frame_scope_current(value,require_geometry=False)
+            and geometry_equivalent(value.get('_cardGeometry'),reference.get('card_geometry')))
+    def _accepted_frame_guarded(self,value):
+        """Scope, TTL, generation and hero/HUD identity — but no pixel identity."""
         reference=self._accepted_frame;hero=value.get('hero_observation',{})
-        semantic=self._semantic_title_frame
-        semantic_match=bool(semantic and reference is semantic[0]
-            and (self.state.generation,value.get('_captureSerial'),value.get('_frameScope'),value.get('_capturedAt'))==semantic[1:])
         return bool(self.hero_auto.isChecked() and self.accepted_frame_scope_current(value)
-            and (semantic_match or value.get('_roiDigest')==reference['digest'] or reference.get('title_proof') is not None and value.get('_matchingTitleProof') is reference['title_proof'])
             and ((hero.get('confident') is True and hero.get('hero')==reference['hero']) if 'hero_observation' in value else bool(reference['hud_digest'] and value.get('_hudInputDigest')==reference['hud_digest'])))
-    def revoke_title_display(self,reason,*,preserve_partial=False):
+    def may_restore_accepted_frame(self,value):
+        if not self._accepted_frame_guarded(value):return False
+        reference=self._accepted_frame;semantic=self._semantic_title_frame
+        return bool((semantic and reference is semantic[0]
+                and (self.state.generation,value.get('_captureSerial'),value.get('_frameScope'),value.get('_capturedAt'))==semantic[1:])
+            or value.get('_roiDigest')==reference['digest']
+            or reference.get('title_proof') is not None and value.get('_matchingTitleProof') is reference['title_proof'])
+    def may_hold_accepted_frame(self,value):
+        """Re-show an accepted observation whose pixels merely animated.
+
+        The visible-capture route already presents this exact state: the same
+        grades under the 上次候选复核中 heading, with the fresh title OCR free to
+        revoke them. Blanking the box for the whole inference on the strict-hidden
+        route instead was the blink. Grants no observation and no TTL extension.
+        """
+        return self._accepted_frame_guarded(value)
+    def revoke_title_display(self,reason,*,preserve_partial=False,**debug):
         # Keep this capture's generation intact, but revoke title continuity.
         # The final joined result counts exactly once toward requalification.
         self.overlay.set_title_checking(True)
         self._accepted_frame=None;self._semantic_title_frame=None
         self._visible_previous=False;self._restore_while_ocr=False
+        self._hold_serial=None;self._geometry_deferred=False
         self.state.confirmed=False;self.state.offered=();self.state.confirmed_observation=()
         self.state.observed=();self.state.stable_frames=0
         self.state.automatic_observed=();self.state.automatic_frames=0
@@ -2017,9 +2085,10 @@ class ControlWindow(QtWidgets.QWidget):
         if preserve_partial:self._partial_displayed=False
         else:self.clear_partial_candidates()
         self.ocr_reuse.clear()
-        self.overlay.hide(reason);self.debug_event('recognition',reason=reason)
+        self.overlay.hide(reason);self.debug_event('recognition',reason=reason,**debug)
         self.refresh_card_details()
     def remember_accepted_frame(self,value):
+        self._geometry_deferred=False
         hero=value.get('hero_observation',{})
         if self.state.confirmed and self.state.confirmation_mode=='automatic' and self.hero_auto.isChecked() and ((hero.get('confident') is True and hero.get('hero')==self.state.hero) or self.hero_origin=='game-continuity' and bool(self.state.hero)) and value.get('_roiDigest') and value.get('_frameScope'):
             self._accepted_frame={'source_ref':self.data,'generation':self.state.generation,'hero':self.state.hero,'offered':self.state.offered,'scope':value['_frameScope'],'digest':value['_roiDigest'],'hud_digest':value.get('_hudInputDigest'),'observed_at':value['_capturedAt'],'title_proof':value.get('_titleProof'),'card_geometry':value.get('_cardGeometry')}
@@ -2129,7 +2198,13 @@ class ControlWindow(QtWidgets.QWidget):
                     self.recheck_partial_titles(value,generation);return
                 if not self._accepted_frame:return
                 if not self.accepted_frame_scope_current(value):
-                    self.revoke_title_display('geometry_unproven');return
+                    if not self.fresh_geometry_reproves(value):
+                        self.revoke_title_display('geometry_unproven',**self.scope_debug(value));return
+                    # Fresh full detection measured all twelve borders on this very
+                    # frame and landed on the accepted layout, which is stronger
+                    # evidence than the re-verification that animated pixels defeated.
+                    self._geometry_deferred=False
+                    self.debug_event('recognition',reason='geometry_reproved_fresh')
                 from card_title_proof import same_titles
                 from card_badges import accepted_anchors
                 reference=self._accepted_frame
@@ -2185,12 +2260,19 @@ class ControlWindow(QtWidgets.QWidget):
                 if self._visible_previous and self._accepted_frame:
                     reference=self._accepted_frame
                     if not self.accepted_frame_scope_current(value):
-                        self.revoke_title_display('geometry_unproven');return
-                    # Pixel mismatch is not semantic contradiction. Retain
-                    # only the already accepted historical grade, under its
-                    # original deadline, until fresh title OCR can decide.
-                    # Never oscillate grade/checking merely for animated pixels.
-                    if self.overlay._titles_pending and self.may_restore_accepted_frame(value):
+                        if not self.may_defer_unproven_geometry(value):
+                            self.revoke_title_display('geometry_unproven',**self.scope_debug(value));return
+                        # Only this frame's own re-verification of the accepted
+                        # rectangles failed; scope, identity, serial and TTL still
+                        # bind it. Blanking a healthy box here is the blink: the
+                        # title phase measures all twelve borders anew and decides.
+                        self._geometry_deferred=True
+                        self.debug_event('recognition',reason='geometry_deferred',**self.scope_debug(value))
+                    elif self.overlay._titles_pending and self.may_restore_accepted_frame(value):
+                        # Pixel mismatch is not semantic contradiction. Retain
+                        # only the already accepted historical grade, under its
+                        # original deadline, until fresh title OCR can decide.
+                        # Never oscillate grade/checking merely for animated pixels.
                         self.overlay.set_title_checking(False);self._restore_while_ocr=True
                 if self._visible_previous and self._accepted_partial_frame and not self.accepted_partial_scope_current(value):
                     self.revoke_title_display('geometry_unproven');return
@@ -2204,9 +2286,14 @@ class ControlWindow(QtWidgets.QWidget):
                         self.invalidate_scene(str(exc),debug_reason='target_unavailable');self.overlay.hide('target_unavailable');return
                 self._restore_while_ocr=(self.client_strip_current()
                     or self.may_restore_accepted_frame(value) or self.may_restore_accepted_partial_frame(value))
-                if self._restore_while_ocr:self.overlay.set_title_checking(False)
-                self.overlay.set_rechecking(self._restore_while_ocr)
-                if not self._restore_while_ocr:self.overlay.hide('capture_proof')
+                hold=not self._restore_while_ocr and self.may_hold_accepted_frame(value)
+                self._hold_serial=value.get('_captureSerial') if hold else None
+                if hold:self.debug_event('recognition',reason='hold_while_ocr',**self.scope_debug(value))
+                if self._restore_while_ocr or hold:self.overlay.set_title_checking(False)
+                self.overlay.set_rechecking(self._restore_while_ocr or hold)
+                if not self._restore_while_ocr and not hold:
+                    self.debug_event('capture',phase='discarded',reason='capture_proof_hidden',**self.scope_debug(value))
+                    self.overlay.hide('capture_proof')
                 self.check_target()
             elif kind=='selection-capture':
                 if (not self.state.running or generation!=self.state.generation or not self.selection_session

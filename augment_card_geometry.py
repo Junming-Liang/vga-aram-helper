@@ -43,6 +43,33 @@ class CardGeometry:
             return False
 
 
+GEOMETRY_TOLERANCE = 4  # physical pixels; below the renderer's badge-to-card gap
+
+
+def geometry_equivalent(found, accepted, *, tolerance=GEOMETRY_TOLERANCE):
+    """True when two measured layouts are the same three cards a few pixels apart.
+
+    A full detection measures all twelve borders from the current frame and
+    rejects torn or occluded outlines, so agreeing with the accepted rectangles
+    is stronger evidence than re-verifying those rectangles against animated
+    artwork. Comparing normalized rects keeps the answer DPI independent.
+    """
+    if not isinstance(found, CardGeometry) or not isinstance(accepted, CardGeometry):
+        return False
+    if found.space != accepted.space or found.size != accepted.size:
+        return False
+    if len(found.rects) != 3 or len(accepted.rects) != 3:
+        return False
+    width, height = found.size
+    if not width or not height:
+        return False
+    for (ax, ay, aw, ah), (bx, by, bw, bh) in zip(found.rects, accepted.rects):
+        if (abs(ax - bx) * width > tolerance or abs(ay - by) * height > tolerance
+                or abs(aw - bw) * width > tolerance or abs(ah - bh) * height > tolerance):
+            return False
+    return True
+
+
 def _image(data):
     from PIL import Image
     with Image.open(io.BytesIO(data)) as source:

@@ -34,7 +34,7 @@ class DynamicTitleRedrawTests(unittest.TestCase):
         self.assertTrue(self.window.ocr_busy)
         return previous, release
 
-    def test_moving_background_redraws_while_real_ocr_runs_and_reroll_hides(self):
+    def test_moving_background_redraws_while_real_ocr_runs_and_reroll_revokes_after_ocr(self):
         order = (0, 1, 2)
         self.observe(order, 0)
         self.observe(order, 1)
@@ -50,14 +50,27 @@ class DynamicTitleRedrawTests(unittest.TestCase):
             current = self.finish_frame(previous)
             self.assertNotEqual(current['_roiDigest'], prior_digest)
             self.assert_confirmed(order)
-        # A real rendered new title must never borrow the old badge during OCR.
+        # A real rendered new title is never presented as this frame's own result.
+        # The strict-hidden hold keeps only the previous observation, explicitly
+        # labelled 上次候选复核中 exactly as the visible route already labels it,
+        # and the fresh OCR still revokes it inside the same capture. Blanking the
+        # box for the whole inference instead was the reported blink.
         reroll = (0, 3, 2)
+        observation = w.last_observation
         previous, release = self.gated_frame(reroll, 6)
         self.assertFalse(w._restore_while_ocr)
-        self.assertFalse(w.overlay.isVisible())
+        self.assertTrue(w.hold_while_ocr)
+        self.assertTrue(w.overlay.isVisible())
+        self.assertFalse(w.overlay._titles_pending)
+        self.assertTrue(w.overlay._rechecking)
+        self.assertIn('上次候选复核中', w.overlay.heading.text())
+        self.assertEqual(w.state.offered, fixture.NAMES[:3])
+        self.assertEqual(w.last_observation, observation)
         release.set()
         self.finish_frame(previous)
         self.assertFalse(w.state.confirmed)
+        self.assertEqual(w.state.offered, ())
+        self.assertFalse(w.hold_while_ocr)
         self.observe(reroll, 7)
         self.assert_confirmed(reroll)
         self.assertEqual(w.ocr_reuse.hits, 0)
