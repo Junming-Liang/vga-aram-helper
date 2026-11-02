@@ -2025,7 +2025,7 @@ class ControlWindow(QtWidgets.QWidget):
         return self.accepted_frame_scope_report(value) if self.debug_log.enabled else {}
     @property
     def hold_while_ocr(self):
-        """Grade-bearing hold for the capture now under inference, or False.
+        """Grade-less keep-in-place for the capture now under inference, or False.
 
         Self-expiring: it dies with the inference, with the next capture serial
         and with the accepted observation, so no reset site can forget it.
@@ -2061,12 +2061,13 @@ class ControlWindow(QtWidgets.QWidget):
             or value.get('_roiDigest')==reference['digest']
             or reference.get('title_proof') is not None and value.get('_matchingTitleProof') is reference['title_proof'])
     def may_hold_accepted_frame(self,value):
-        """Re-show an accepted observation whose pixels merely animated.
+        """Keep the accepted box in place while this frame's own titles are unknown.
 
-        The visible-capture route already presents this exact state: the same
-        grades under the 上次候选复核中 heading, with the fresh title OCR free to
-        revoke them. Blanking the box for the whole inference on the strict-hidden
-        route instead was the blink. Grants no observation and no TTL extension.
+        Blanking it for the whole inference was the blink: the window is in scope,
+        the same capture serial, the same hero/HUD identity and inside the
+        four-second deadline. The hold shows the 复核中 placeholder only — no tier,
+        no name, no hint — so nothing unproved is presented as this frame's result,
+        and fresh title OCR either restores the earned grade or revokes the box.
         """
         return self._accepted_frame_guarded(value)
     def revoke_title_display(self,reason,*,preserve_partial=False,**debug):
@@ -2289,7 +2290,8 @@ class ControlWindow(QtWidgets.QWidget):
                 hold=not self._restore_while_ocr and self.may_hold_accepted_frame(value)
                 self._hold_serial=value.get('_captureSerial') if hold else None
                 if hold:self.debug_event('recognition',reason='hold_while_ocr',**self.scope_debug(value))
-                if self._restore_while_ocr or hold:self.overlay.set_title_checking(False)
+                if self._restore_while_ocr:self.overlay.set_title_checking(False)
+                elif hold:self.overlay.set_title_checking(True)
                 self.overlay.set_rechecking(self._restore_while_ocr or hold)
                 if not self._restore_while_ocr and not hold:
                     self.debug_event('capture',phase='discarded',reason='capture_proof_hidden',**self.scope_debug(value))

@@ -92,7 +92,7 @@ class DutyTraceTests(unittest.TestCase):
             self.assertEqual(trace.elapsed_ms(),250.)
             trace.mark('final');trace.sample(False)
         self.assertEqual(trace.events['final'],250.)
-        self.assertEqual(trace.samples,[(250.,False,False)])
+        self.assertEqual(trace.samples,[(250.,False,False,False)])
         self.assertEqual(trace.measurement_clock['name'],'injected')
         self.assertIsNone(trace.measurement_clock['resolution_seconds'])
 
@@ -417,7 +417,10 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                 self.assertNotIn('overlay_duty_cycle_passed',report)
                 rows=report['cases']
                 self.assertEqual([row['name'] for row in rows],['unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'])
-                patterns=([True,False,True],[True,False,True],[True,False,True],[True,False],[True,False],[True,False,True,False])
+                # A changed title keeps the box only as the grade-less placeholder:
+                # hidden for its own capture, shown while unproved, hidden again the
+                # moment this frame's title OCR contradicts the accepted cards.
+                patterns=([True,False,True],[True,False,True],[True,False,True,False,True],[True,False],[True,False],[True,False,True,False])
                 for row,pattern in zip(rows,patterns):
                     self.assertEqual(row['capture_backend'],'owned-portable-fixture')
                     self.assertIs(row['initial_native_visible'],True)
@@ -437,7 +440,8 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
                         self.assertEqual(phase['state_unchanged'],before==expected)
                 self.assertGreaterEqual(rows[0]['sampled_inference_visible_ms'],500)
                 self.assertGreaterEqual(rows[1]['sampled_inference_visible_ms'],500)
-                self.assertEqual(rows[2]['sampled_inference_visible_ms'],0)
+                # A frame with new titles may keep the box in place, but never a grade.
+                self.assertEqual(rows[2]['sampled_inference_graded_visible_ms'],0)
                 self.assertEqual(rows[3]['sampled_inference_visible_ms'],0)
                 self.assertTrue(rows[1]['final_confirmed'])
                 self.assertTrue(all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in rows[1]['phases']))
@@ -515,9 +519,12 @@ class DutyProbeOrchestrationTests(unittest.TestCase):
             self.test_actual_matcher_ocr_phases_and_stop_with_explicit_fake_capture()
         self.assertTrue(reentered)
         row=captured['report']['cases'][2];timings=row['timings_ms']
-        self.assertEqual(row['sampled_inference_visible_ms'],0.)
-        self.assertLess(timings['result_received'],row['sampled_visibility_transitions'][2]['at_ms'])
-        self.assertLess(row['sampled_visibility_transitions'][2]['at_ms'],timings['final'])
+        # The placeholder may sit inside the inference; the graded display may not.
+        self.assertEqual(row['sampled_inference_graded_visible_ms'],0.)
+        final_show=row['sampled_visibility_transitions'][-1]
+        self.assertTrue(final_show['visible'])
+        self.assertLess(timings['result_received'],final_show['at_ms'])
+        self.assertLess(final_show['at_ms'],timings['final'])
         self.assertEqual(row['total_ms'],timings['final'])
 
     def test_failed_final_predicate_keeps_all_computed_operands(self):

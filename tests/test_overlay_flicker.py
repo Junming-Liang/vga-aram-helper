@@ -299,9 +299,12 @@ class CheckingHoldFlickerTests(unittest.TestCase):
         self.assertFalse(w._restore_while_ocr)   # Pixel identity is still not proven.
         self.assertTrue(w.hold_while_ocr)
         self.assertTrue(w.overlay.isVisible())
-        self.assertFalse(w.overlay._titles_pending)
-        self.assertTrue(w.overlay._rechecking)
-        self.assertIn('上次候选复核中', w.overlay.heading.text())
+        # The hold keeps the box in place without presenting any grade: this frame
+        # has not earned one, and a grade here would be the stale data the player
+        # cannot distinguish from a real current rating.
+        self.assertTrue(w.overlay._titles_pending)
+        self.assertEqual([badge.tier for badge in w.overlay._badge_widgets], ['', '', ''])
+        self.assertEqual(w.overlay.heading.text(), '候选复核中')
         self.assertEqual(w.state.offered, names)  # Only the accepted observation.
         self.assertEqual((w.last_observation, w.state.automatic_frames), (observation, frames))
         self.assertEqual(events, [])

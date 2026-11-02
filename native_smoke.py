@@ -142,30 +142,34 @@ class OverlayDutyTrace:
     def elapsed_ms(self):return (self.clock()-self.started)*1000
     def mark(self,name):
         with self.lock:self.events[name]=self.elapsed_ms()
-    def sample(self,visible,*,capturing=False):
-        with self.lock:self.samples.append((self.elapsed_ms(),bool(visible),bool(capturing)))
+    def sample(self,visible,*,capturing=False,graded=False):
+        # graded=False is the honest placeholder state: the box may be on screen
+        # while this frame has earned no tier for it.
+        with self.lock:self.samples.append((self.elapsed_ms(),bool(visible),bool(capturing),bool(graded)))
     def summary(self):
         total=self.events['final'];received=self.events.get('result_received',total)
         # Preserve actual acquisition order at equal timestamps. Sorting full
         # tuples orders False before True and can invent visibility changes;
         # clipping before sorting can also reverse distinct final samples.
-        points=[(min(stamp,total),shown,capturing) for stamp,shown,capturing in sorted(self.samples,key=lambda point:point[0])];hidden=visible=inference_visible=gap=0.;capture_samples=capture_visible=0
-        for index,(stamp,shown,capturing) in enumerate(points):
+        points=[(min(stamp,total),shown,capturing,graded) for stamp,shown,capturing,graded in sorted(self.samples,key=lambda point:point[0])];hidden=visible=inference_visible=inference_graded=gap=0.;capture_samples=capture_visible=0
+        for index,(stamp,shown,capturing,graded) in enumerate(points):
             if capturing:capture_samples+=1;capture_visible+=int(shown)
             if index+1<len(points):
                 elapsed=points[index+1][0]-stamp;gap=max(gap,elapsed)
                 if shown:
                     visible+=elapsed
                     inference_visible+=max(0.,min(points[index+1][0],received)-max(stamp,self.events.get('capture_return',float('inf'))))
+                    if graded:inference_graded+=max(0.,min(points[index+1][0],received)-max(stamp,self.events.get('capture_return',float('inf'))))
                 else:hidden+=elapsed
         return {'name':self.name,'status':'passed','timings_ms':{key:round(value,3) for key,value in self.events.items()},
                 'measurement_clock':dict(self.measurement_clock),'initial_native_visible':self.initial_native_visible,'initial_qt_visible':self.initial_qt_visible,
                 'total_ms':round(total,3),'sampled_hidden_ms':round(hidden,3),'sampled_visible_ms':round(visible,3),
-                'sampled_inference_visible_ms':round(inference_visible,3),'max_sample_gap_ms':round(gap,3),'native_visibility_samples':len(points),
+                'sampled_inference_visible_ms':round(inference_visible,3),'sampled_inference_graded_visible_ms':round(inference_graded,3),
+                'max_sample_gap_ms':round(gap,3),'native_visibility_samples':len(points),
                 'capture_samples':capture_samples,'capture_visible_samples':capture_visible,
                 'capture_count':self.capture_count,'max_capture_concurrency':self.max_capture_concurrency,'held_state_unchanged_samples':self.held_state_samples,
                 'qt_show_events_during_capture':self.qt_show_events_during_capture,
-                'sampled_visibility_transitions':[{'at_ms':round(stamp,3),'visible':shown} for index,(stamp,shown,_) in enumerate(points) if index==0 or shown!=points[index-1][1]],
+                'sampled_visibility_transitions':[{'at_ms':round(stamp,3),'visible':shown} for index,(stamp,shown,_,_) in enumerate(points) if index==0 or shown!=points[index-1][1]],
                 'artificial_holds_ms':{key:round(value,3) for key,value in self.hold_elapsed.items()},
                 'old_hide_until_final_policy_counterfactual_ms':round(total,3),
                 'comparison_scope':'Counterfactual whole-cycle hidden duration on this same instrumented run; not a measured baseline executable',
@@ -420,6 +424,16 @@ def visible_badge_slots(overlay, native_visible, *, qt_visible=None):
     return [i+1 for i,badge in enumerate(overlay._badge_widgets) if badge.isVisibleTo(overlay)]
 
 
+def badge_grades_shown(overlay, native_visible):
+    """True only when a visible badge actually carries a tier.
+
+    An unproved frame may keep the box in place as a grey 复核中 placeholder;
+    that is not a displayed grade and must not be measured as one.
+    """
+    if native_visible is not True or overlay.isVisible() is not True:return False
+    return any(badge.tier for badge in overlay._badge_widgets if badge.isVisibleTo(overlay))
+
+
 def _schedule_duty_mode_wait(control, active, single_shot, run, delay):
     """Honor production readiness scheduling, but never start a second capture."""
     trace=active[0]
@@ -563,6 +577,8 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                     and capture_adapter.foreground(control.target) and control.target_allowed())
                 phase={'name':name,'emitted_ms':round(trace.events[name+'_emitted'],3),'applied_ms':round(trace.events[name+'_applied'],3),
                     'compositor_validated_ms':round(trace.events.get('gui_compositor_validated',-1),3),'restored':bool(control._restore_while_ocr),'qt_visible':overlay.isVisible(),'native_visible':native_visible(),
+                    'title_placeholder':bool(overlay._titles_pending),'displayed_badge_tiers':[badge.tier for badge in overlay._badge_widgets if badge.isVisibleTo(overlay)],
+                    'badge_grades_shown':bool(badge_grades_shown(overlay,native_visible())),
                     'state_unchanged':snapshot()==trace.before,'state_before':trace.before,'state_at_phase':snapshot(),
                     'semantic_rejected_before_phase':bool(getattr(trace,'title_negative_applied',False)),
                     'current_identity_geometry_focus':bool(current),
@@ -585,11 +601,19 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 if trace.name in ('unchanged','changed_roi','stop_late'):
                     assert all(phase[key] for key in ('restored','qt_visible','native_visible','state_unchanged','compositor_checked_after_capture')),'Unchanged accepted capture was not safely restored before slow inference'
                 elif trace.name in ('changed_title','changed_hud','unknown_hud'):
-                    assert not any(phase[key] for key in ('restored','qt_visible','native_visible')),'Changed/unknown own HUD restored old cards'
+                    # A frame whose own titles or HUD identity no longer match may
+                    # keep the box in place only as the grey 复核中 placeholder:
+                    # never a grade, and never after this frame's own title OCR
+                    # contradicted the accepted observation.
+                    assert not phase['restored'] and not phase['badge_grades_shown'],'Changed/unknown own HUD restored accepted grades'
+                    if trace.name!='changed_title' or phase['semantic_rejected_before_phase']:
+                        assert not phase['qt_visible'] and not phase['native_visible'],'Revoked cards stayed on screen after the frame contradicted them'
+                    elif phase['qt_visible'] or phase['native_visible']:
+                        assert phase['title_placeholder'] and phase['displayed_badge_tiers']==['','',''],'Held box is not the grade-less recheck placeholder'
                     expected_state=dict(trace.before,automatic_frames=0,stable_frames=0,accepted_observed_at=None) if (trace.name in ('changed_hud','unknown_hud') and name=='before_ocr') or phase['semantic_rejected_before_phase'] else trace.before
                     assert phase['state_at_phase']==expected_state,'Intermediate proof may only revoke unsafe evidence, never refresh TTL or promote counters'
             else:
-                trace.mark('final');trace.sample(native_visible());trace.finished=True;mode_report['active_case']['phase_state']='final'
+                trace.mark('final');trace.sample(native_visible(),graded=badge_grades_shown(overlay,native_visible()));trace.finished=True;mode_report['active_case']['phase_state']='final'
                 trace.final_generation=generation;trace.final_value=value
         except Exception as exc:trace.error=AssertionError(trace.name+': '+str(exc));trace.finished=True
     def observed_error(kind,error,generation):
@@ -622,10 +646,10 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
         trace.initial_native_visible=native_visible();trace.initial_qt_visible=overlay.isVisible()
         mode_report['active_case']={'mode':mode,'name':name,'phase_state':'waiting-for-capture','timings_ms':trace.events,'phases':trace.phases,
             'measurement_clock':dict(trace.measurement_clock),'initial_native_visible':trace.initial_native_visible,'initial_qt_visible':trace.initial_qt_visible}
-        trace.sample(trace.initial_native_visible)
+        trace.sample(trace.initial_native_visible,graded=badge_grades_shown(overlay,trace.initial_native_visible))
         if name in ('unchanged','changed_roi','changed_title','changed_hud','unknown_hud','stop_late'):
             assert trace.initial_native_visible and trace.initial_qt_visible,'Measured duty case must begin with the accepted overlay genuinely visible'
-        control.capture_tick();trace.sample(native_visible())
+        control.capture_tick();trace.sample(native_visible(),graded=badge_grades_shown(overlay,native_visible()))
         deadline=time.monotonic()+8
         def poll():
             try:
@@ -633,7 +657,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                 if trace.error:raise trace.error
                 if trace.capture_active:assert not native_visible() and not overlay.isVisible(),'Own overlay visible during native pixel acquisition'
                 if not trace.finished:
-                    control.check_target();trace.sample(native_visible(),capturing=trace.capture_active)
+                    control.check_target();trace.sample(native_visible(),capturing=trace.capture_active,graded=badge_grades_shown(overlay,native_visible()))
                     for name,release in list(trace.holds.items()):
                         if release.is_set() or name+'_applied' not in trace.events:continue
                         held_phase=next(phase for phase in trace.phases if phase['name']==name)
@@ -646,7 +670,7 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                         if trace.name=='stop_late' and name=='before_ocr':
                             trace.mark('stop');started=trace.clock();control.stop_monitor();trace.stop_ms=(trace.clock()-started)*1000;trace.stopped=True
                             assert not native_visible() and not overlay.isVisible() and not control.state.running and not control.state.confirmed
-                            trace.sample(native_visible())
+                            trace.sample(native_visible(),graded=False)
                         release.set()
                     QtCore.QTimer.singleShot(10,lambda:run(poll));return
                 assert not control.ocr_busy and not control.capture_pending,(trace.name,control.ocr_busy,control.capture_pending,trace.events)
@@ -691,7 +715,10 @@ def _start_overlay_duty_mode(control,*,app,u,paint_mock,mode_report,save,run,don
                         assert all(phase['candidate_roi_sha256']!=phase['accepted_candidate_roi_sha256'] and phase['hud_input_sha256']==phase['accepted_hud_input_sha256'] for phase in value['phases'])
                     elif trace.name=='changed_title':
                         assert value['title_semantic_rejection_observed'],'Changed titles lacked early semantic callback evidence'
-                        assert not control.state.confirmed and native_visible() and value['sampled_inference_visible_ms']==0
+                        # The box may survive this frame only as a placeholder; no
+                        # grade may be on screen for any part of the inference.
+                        assert not control.state.confirmed and native_visible() and value['sampled_inference_graded_visible_ms']==0
+                        assert all(phase['displayed_badge_tiers']==['','',''] for phase in value['phases'] if phase['qt_visible'] or phase['native_visible'])
                         assert value['final_visible_slots']==[3] and overlay._badge_widgets[2].tier=='T3'
                         assert value['final_candidate_names']==['晶盾回路','星火共鸣','风步微光']
                         assert all(not phase['title_regions_unchanged'] for phase in value['phases'])
